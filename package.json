@@ -1,0 +1,33 @@
+{
+  "name": "ak-system",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "dev:raw": "pnpm --filter @ak-system/web dev",
+    "build": "pnpm --filter @ak-system/web build",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm run pretest && pnpm --filter @ak-system/api run test",
+    "test:api": "pnpm --filter @ak-system/api run test",
+    "test:watch": "pnpm --filter @ak-system/api run test:watch",
+    "pretest": "mkdir -p packages/api/test-data && (cd packages/database && DATABASE_PATH=../api/test-data/ak_system.sqlite pnpm run push)",
+    "db:generate": "pnpm --filter @ak-system/database run generate",
+    "db:migrate": "pnpm --filter @ak-system/database run migrate",
+    "db:push": "cd apps/web && mkdir -p data && DATABASE_PATH=$PWD/data/ak_system.sqlite pnpm --filter @ak-system/database run push",
+    "qa": "pnpm test && pnpm e2e",
+    "e2e": "pnpm run pretest:e2e && pnpm --filter @ak-system/web run test:e2e",
+    "pretest:e2e": "mkdir -p apps/web/data && (cd packages/database && DATABASE_PATH=../../apps/web/data/e2e.sqlite pnpm run push)"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@9.14.2",
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  }
+}

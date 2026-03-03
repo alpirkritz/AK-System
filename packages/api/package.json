@@ -1,0 +1,29 @@
+{
+  "name": "@ak-system/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ak-system/database": "workspace:*",
+    "@trpc/server": "^10.45.0",
+    "googleapis": "^171.4.0",
+    "superjson": "^2.2.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "better-sqlite3": "^11.6.0",
+    "drizzle-orm": "^0.36.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.6"
+  },
+  "scripts": {
+    "pretest": "mkdir -p test-data && (cd ../database && DATABASE_PATH=../api/test-data/ak_system.sqlite pnpm run push)",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}
