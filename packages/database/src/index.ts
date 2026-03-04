@@ -23,6 +23,26 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN calendar_source TEXT',
 ]
 
+const FEED_TABLES = [
+  `CREATE TABLE IF NOT EXISTS feed_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS feed_items (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES feed_sources(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    summary TEXT,
+    published_at TEXT NOT NULL,
+    tags TEXT,
+    created_at TEXT NOT NULL
+  )`,
+]
+
 const FINANCE_TABLES = [
   `CREATE TABLE IF NOT EXISTS finance_trades (
     id TEXT PRIMARY KEY,
@@ -60,6 +80,10 @@ export function getDb() {
   // idempotent column migrations — SQLite throws if column already exists, which we ignore
   for (const sql of CALENDAR_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  // create feed tables if they don't exist
+  for (const sql of FEED_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   // create finance tables if they don't exist
   for (const sql of FINANCE_TABLES) {

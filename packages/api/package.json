@@ -9,8 +9,10 @@
   },
   "dependencies": {
     "@ak-system/database": "workspace:*",
+    "@google/generative-ai": "^0.24.1",
     "@trpc/server": "^10.45.0",
     "googleapis": "^171.4.0",
+    "rss-parser": "^3.13.0",
     "superjson": "^2.2.1",
     "zod": "^3.23.8"
   },

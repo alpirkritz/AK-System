@@ -6,6 +6,7 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 export const metadata: Metadata = {
   title: 'My Space – AK System',
   description: 'סביבת עבודה אישית – פגישות, אנשים, משימות',
+  icons: { icon: '/favicon.ico' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

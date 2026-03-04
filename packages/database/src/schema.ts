@@ -80,6 +80,27 @@ export const financeTransactions = sqliteTable('finance_transactions', {
   createdAt: text('created_at').notNull(),
 })
 
+// ─── Feed (עדכוני כלכלה וחדשות) ───────────────────────────────────────────
+
+export const feedSources = sqliteTable('feed_sources', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  category: text('category').notNull(), // 'economics' | 'us_market' | 'ai_tech' | 'israel_market'
+  createdAt: text('created_at').notNull(),
+})
+
+export const feedItems = sqliteTable('feed_items', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id').notNull().references(() => feedSources.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  link: text('link').notNull(),
+  summary: text('summary'),
+  publishedAt: text('published_at').notNull(),
+  tags: text('tags'), // JSON array of strings, e.g. ["us_market","ai"]
+  createdAt: text('created_at').notNull(),
+})
+
 export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
 export type Project = typeof projects.$inferSelect
@@ -92,3 +113,7 @@ export type FinanceTrade = typeof financeTrades.$inferSelect
 export type NewFinanceTrade = typeof financeTrades.$inferInsert
 export type FinanceTransaction = typeof financeTransactions.$inferSelect
 export type NewFinanceTransaction = typeof financeTransactions.$inferInsert
+export type FeedSource = typeof feedSources.$inferSelect
+export type NewFeedSource = typeof feedSources.$inferInsert
+export type FeedItem = typeof feedItems.$inferSelect
+export type NewFeedItem = typeof feedItems.$inferInsert

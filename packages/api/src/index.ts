@@ -5,6 +5,7 @@ import { meetingsRouter } from './routers/meetings'
 import { tasksRouter } from './routers/tasks'
 import { calendarRouter } from './routers/calendar'
 import { financeRouter } from './routers/finance'
+import { feedRouter } from './routers/feed'
 
 export type { Context } from './trpc'
 export { createContext } from './trpc'
@@ -16,6 +17,7 @@ export const appRouter = router({
   tasks: tasksRouter,
   calendar: calendarRouter,
   finance: financeRouter,
+  feed: feedRouter,
 })
 
 export type AppRouter = typeof appRouter

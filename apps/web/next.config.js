@@ -2,16 +2,19 @@
 const path = require('path')
 const os = require('os')
 
-// Local paths for all build artefacts – Google Drive does not support inode
+// Local paths for build cache – Google Drive does not support inode
 // snapshots so webpack's PackFileCacheStrategy keeps failing there.
 const TMP_DIR   = path.join(os.tmpdir(), 'ak-system-next')
 const CACHE_DIR = path.join(os.tmpdir(), 'ak-system-webpack-cache')
+
+// Use custom distDir only for production build; dev uses default .next to avoid 404s on chunks
+const isDev = process.env.NODE_ENV !== 'production'
 
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@ak-system/types', '@ak-system/api', '@ak-system/database'],
   experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings'] },
-  distDir: TMP_DIR,
+  ...(isDev ? {} : { distDir: TMP_DIR }),
   webpack: (config, { isServer }) => {
     // Store webpack's persistent cache in /tmp.
     // Disable snapshot-based validation entirely – Google Drive returns

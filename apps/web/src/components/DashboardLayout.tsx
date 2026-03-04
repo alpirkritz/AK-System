@@ -15,6 +15,7 @@ const navSections = [
       { href: '/recurring', label: 'חוזרות', icon: '↻' },
       { href: '/calendar', label: 'יומן גוגל', icon: '📅' },
       { href: '/finance', label: 'פיננסים', icon: '💰' },
+      { href: '/updates', label: 'עדכונים', icon: '📰' },
     ],
   },
   {

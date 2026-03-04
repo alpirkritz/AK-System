@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
 import { ConflictsWidget } from '@/components/ConflictsWidget'
+import { FeedWidget } from '@/components/FeedWidget'
 import { LS } from '@/lib/ls-keys'
 
 function isoDate(d: Date) {
@@ -130,6 +131,7 @@ export default function DashboardPage() {
         ))}
       </div>
       <ConflictsWidget />
+      <FeedWidget />
       <div className="grid grid-cols-[1.2fr_1fr] gap-5">
         <div>
           <div className="text-xs font-semibold text-[#666] mb-3 uppercase tracking-wider">
