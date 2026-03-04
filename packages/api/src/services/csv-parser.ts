@@ -133,6 +133,12 @@ function parseAmount(s: string): number {
   return parseFloat(cleaned) || 0
 }
 
+function toValidISO(date: Date): string {
+  const time = date.getTime()
+  if (Number.isNaN(time)) return new Date().toISOString()
+  return date.toISOString()
+}
+
 function parseDate(s: string): string {
   if (!s || s.trim() === '') return new Date().toISOString()
 
@@ -141,14 +147,10 @@ function parseDate(s: string): string {
   if (hebrewDate) {
     const [, d, m, y] = hebrewDate
     const year = y.length === 2 ? `20${y}` : y
-    return new Date(`${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`).toISOString()
+    return toValidISO(new Date(`${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`))
   }
 
-  try {
-    return new Date(s).toISOString()
-  } catch {
-    return new Date().toISOString()
-  }
+  return toValidISO(new Date(s))
 }
 
 function categorize(description: string): string {

@@ -15,6 +15,8 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'israel_market', label: 'בורסה ישראלית' },
 ]
 
+const CATEGORY_OPTIONS = CATEGORIES.filter((c) => c.id !== 'all') as { id: 'economics' | 'us_market' | 'ai_tech' | 'israel_market'; label: string }[]
+
 function fmtDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString('he-IL', {
@@ -29,7 +31,10 @@ function fmtDate(iso: string): string {
   }
 }
 
+type ViewMode = 'feed' | 'sources'
+
 export default function UpdatesPage() {
+  const [view, setView] = useState<ViewMode>('feed')
   const [category, setCategory] = useState<Category>('all')
 
   useEffect(() => {
@@ -49,6 +54,31 @@ export default function UpdatesPage() {
   const [syncResult, setSyncResult] = useState<string | null>(null)
   const [summarizing, setSummarizing] = useState(false)
   const [summaryResult, setSummaryResult] = useState<string | null>(null)
+
+  const [newSource, setNewSource] = useState({ name: '', url: '', category: 'economics' as 'economics' | 'us_market' | 'ai_tech' | 'israel_market' })
+  const [addingSource, setAddingSource] = useState(false)
+  const [sourceMessage, setSourceMessage] = useState<string | null>(null)
+
+  const { data: sources = [] } = trpc.feed.listSources.useQuery(undefined, { enabled: view === 'sources' })
+  const createSourceMutation = trpc.feed.createSource.useMutation({
+    onSuccess: () => {
+      setNewSource({ name: '', url: '', category: 'economics' })
+      setAddingSource(false)
+      setSourceMessage('המקור נוסף. הרץ "סנכרן מקורות" בטאב פיד כדי למשוך כתבות.')
+      utils.feed.listSources.invalidate()
+    },
+    onError: (err) => {
+      setSourceMessage(`שגיאה: ${err.message}`)
+      setAddingSource(false)
+    },
+  })
+  const deleteSourceMutation = trpc.feed.deleteSource.useMutation({
+    onSuccess: () => {
+      utils.feed.listSources.invalidate()
+      utils.feed.getLatest.invalidate()
+      utils.feed.list.invalidate()
+    },
+  })
 
   const { data: items, isLoading, isError } = trpc.feed.list.useQuery({
     category: category === 'all' ? undefined : category,
@@ -98,10 +128,23 @@ export default function UpdatesPage() {
     summarizeMutation.mutate({ limit: 10 })
   }
 
+  const handleAddSource = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSource.name.trim() || !newSource.url.trim()) return
+    setAddingSource(true)
+    setSourceMessage(null)
+    createSourceMutation.mutate({
+      name: newSource.name.trim(),
+      url: newSource.url.trim(),
+      category: newSource.category,
+    })
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-7">
         <h1 className="text-2xl font-bold tracking-tight">עדכונים</h1>
+        {view === 'feed' && (
         <div className="flex items-center gap-3 flex-wrap">
           <button
             className="btn btn-primary text-sm"
@@ -131,8 +174,124 @@ export default function UpdatesPage() {
             </span>
           )}
         </div>
+        )}
       </div>
 
+      {/* טאבים עליונים: פיד | מקורות */}
+      <div className="flex gap-1 mb-6 border-b border-[#1a1a1a]">
+        {(['feed', 'sources'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className="btn btn-ghost text-sm px-4 py-2 rounded-b-none"
+            style={{
+              borderBottom: view === v ? '2px solid #e8c547' : '2px solid transparent',
+              color: view === v ? '#e8c547' : '#666',
+            }}
+          >
+            {v === 'feed' ? 'פיד' : 'מקורות'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'sources' && (
+        <>
+          <p className="text-sm text-[#555] mb-4">
+            הוסף או הסר מקורות RSS. אחרי שינוי הרץ &quot;סנכרן מקורות&quot; בטאב פיד.
+          </p>
+          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+            <div className="card p-0 overflow-hidden">
+              <div className="text-xs font-semibold text-[#666] uppercase tracking-wider px-4 py-3 border-b border-[#1a1a1a]">
+                מקורות קיימים ({sources.length})
+              </div>
+              {sources.length === 0 ? (
+                <div className="px-4 py-8 text-sm text-[#555] text-center">אין מקורות. הוסף מקור בטופס.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#222]">
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">שם</th>
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">כתובת RSS</th>
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">קטגוריה</th>
+                      <th className="w-16 px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sources.map((src) => (
+                      <tr key={src.id} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
+                        <td className="px-4 py-3 font-medium text-[#f0ede6]">{src.name}</td>
+                        <td className="px-4 py-3 text-[#888] max-w-[200px] truncate" title={src.url}>{src.url}</td>
+                        <td className="px-4 py-3">
+                          <span className="pill text-[10px]" style={{ background: '#e8c54722', color: '#e8c547', border: '1px solid #e8c54744' }}>
+                            {CATEGORY_OPTIONS.find((c) => c.id === src.category)?.label ?? src.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            className="btn btn-ghost text-[11px] py-1 px-2 text-[#e8477a] border-[#e8477a22]"
+                            onClick={() => deleteSourceMutation.mutate({ id: src.id })}
+                            disabled={deleteSourceMutation.isPending}
+                          >
+                            מחק
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="card">
+              <div className="text-sm font-semibold mb-3">הוסף מקור</div>
+              <form onSubmit={handleAddSource} className="flex flex-col gap-3">
+                <div>
+                  <label className="label">שם (תצוגה)</label>
+                  <input
+                    className="input"
+                    placeholder="למשל: TheMarker"
+                    value={newSource.name}
+                    onChange={(e) => setNewSource((s) => ({ ...s, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label">כתובת RSS</label>
+                  <input
+                    className="input"
+                    type="url"
+                    placeholder="https://..."
+                    value={newSource.url}
+                    onChange={(e) => setNewSource((s) => ({ ...s, url: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label">קטגוריה</label>
+                  <select
+                    className="select"
+                    value={newSource.category}
+                    onChange={(e) => setNewSource((s) => ({ ...s, category: e.target.value as typeof s.category }))}
+                  >
+                    {CATEGORY_OPTIONS.map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="btn btn-primary mt-1" disabled={addingSource || !newSource.name.trim() || !newSource.url.trim()}>
+                  {addingSource ? 'מוסיף...' : 'הוסף מקור'}
+                </button>
+                {sourceMessage && (
+                  <div className="text-xs mt-2 px-3 py-2 rounded-lg" style={{ background: sourceMessage.startsWith('שגיאה') ? '#e8477a11' : '#47b86e11', color: sourceMessage.startsWith('שגיאה') ? '#e8477a' : '#47b86e', border: `1px solid ${sourceMessage.startsWith('שגיאה') ? '#e8477a33' : '#47b86e33'}` }}>
+                    {sourceMessage}
+                  </div>
+                )}
+              </form>
+            </div>
+          </div>
+        </>
+      )}
+
+      {view === 'feed' && (
+        <>
       <p className="text-sm text-[#555] mb-6">
         כלכלה, בורסה בארה&quot;ב, טכנולוגיה ו-AI, בורסה ישראלית — מסוכמים ממקורות נבחרים.
       </p>
@@ -212,6 +371,8 @@ export default function UpdatesPage() {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   )

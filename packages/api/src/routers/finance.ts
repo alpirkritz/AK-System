@@ -4,6 +4,7 @@ import { financeTrades, financeTransactions } from '@ak-system/database'
 import { eq, desc, gte, and, like } from 'drizzle-orm'
 import { fetchIBKRTrades, listIBKREmails } from '../services/ibkr-parser'
 import { parseCSV } from '../services/csv-parser'
+import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
 
 const idInput = z.object({ id: z.string().min(1) })
 
@@ -142,6 +143,46 @@ export const financeRouter = router({
       }
     }),
 
+  /** ייבוא קובץ PDF (למשל דוח ויזה כאל) — מחלץ טקסט ואז מפרסר כ-CSV או שורות ויזה כאל */
+  importPDF: publicProcedure
+    .input(z.object({ pdfBase64: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.pdfBase64, 'base64')
+      const text = await extractTextFromPdf(buffer)
+      if (!text) {
+        return {
+          inserted: 0,
+          skipped: 0,
+          detectedFormat: 'PDF (לא נמצא טקסט)',
+          total: 0,
+        }
+      }
+      const result = parsePdfStatementText(text)
+      let inserted = 0
+      for (const tx of result.transactions) {
+        const id = 'fx' + Date.now() + Math.random().toString(36).slice(2, 7)
+        await ctx.db.insert(financeTransactions).values({
+          id,
+          amount: String(tx.amount),
+          currency: tx.currency,
+          direction: tx.direction,
+          category: tx.category,
+          description: tx.description,
+          transactionDate: tx.transactionDate,
+          source: 'csv_import',
+          rawData: tx.rawData,
+          createdAt: new Date().toISOString(),
+        })
+        inserted++
+      }
+      return {
+        inserted,
+        skipped: result.skipped,
+        detectedFormat: result.detectedFormat,
+        total: result.transactions.length + result.skipped,
+      }
+    }),
+
   createTransaction: publicProcedure
     .input(
       z.object({
@@ -155,6 +196,8 @@ export const financeRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const id = 'fx' + Date.now() + Math.random().toString(36).slice(2, 7)
+      const date = new Date(input.transactionDate)
+      const transactionDate = Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString()
       await ctx.db.insert(financeTransactions).values({
         id,
         amount: String(input.amount),
@@ -162,7 +205,7 @@ export const financeRouter = router({
         direction: input.direction,
         category: input.category,
         description: input.description,
-        transactionDate: new Date(input.transactionDate).toISOString(),
+        transactionDate,
         source: 'manual',
         rawData: null,
         createdAt: new Date().toISOString(),

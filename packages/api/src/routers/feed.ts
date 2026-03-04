@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { feedItems, feedSources } from '@ak-system/database'
-import { eq, desc, and, isNull } from 'drizzle-orm'
+import { eq, desc, isNull } from 'drizzle-orm'
 import { fetchRssFeed, DEFAULT_FEED_SOURCES } from '../services/feed-fetcher'
 import { summarizeWithGemini } from '../services/feed-summarizer'
 
@@ -79,6 +79,42 @@ export const feedRouter = router({
     return ctx.db.select().from(feedSources).orderBy(feedSources.name)
   }),
 
+  /** הוספת מקור חדש (id נוצר אוטומטית) */
+  createSource: publicProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(200),
+        url: z.string().url().refine((u) => u.startsWith('http://') || u.startsWith('https://'), { message: 'URL must start with http:// or https://' }),
+        category: categoryEnum,
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const slug = input.name
+        .replace(/\s+/g, '-')
+        .replace(/[^a-zA-Z0-9\u0590-\u05FF\-]/g, '')
+        .toLowerCase()
+        .slice(0, 30) || 'source'
+      const id = slug + '-' + Date.now().toString(36).slice(-6)
+      const now = new Date().toISOString()
+      await ctx.db.insert(feedSources).values({
+        id,
+        name: input.name.trim(),
+        url: input.url.trim(),
+        category: input.category,
+        createdAt: now,
+      })
+      const [row] = await ctx.db.select().from(feedSources).where(eq(feedSources.id, id))
+      return row!
+    }),
+
+  /** מחיקת מקור (פריטי הפיד שלו נמחקים ב-CASCADE) */
+  deleteSource: publicProcedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.delete(feedSources).where(eq(feedSources.id, input.id))
+      return { deleted: true }
+    }),
+
   /** סנכרון: מזין מקורות ברירת מחדל (אם חסרים) ומשך RSS מכל המקורות */
   sync: publicProcedure.mutation(async ({ ctx }) => {
     const now = new Date().toISOString()
@@ -103,10 +139,11 @@ export const feedRouter = router({
       try {
         const items = await fetchRssFeed(source.url)
         for (const item of items.slice(0, 30)) {
+          // מניעת כפילויות: אותו קישור לא ייכנס פעמיים (גם ממקורות שונים)
           const [existing] = await ctx.db
             .select({ id: feedItems.id })
             .from(feedItems)
-            .where(and(eq(feedItems.sourceId, source.id), eq(feedItems.link, item.link)))
+            .where(eq(feedItems.link, item.link))
             .limit(1)
           if (existing) continue
           await ctx.db.insert(feedItems).values({

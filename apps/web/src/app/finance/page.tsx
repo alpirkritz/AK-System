@@ -120,6 +120,17 @@ export default function FinancePage() {
     onError: (err) => setImportResult(`שגיאה: ${err.message}`),
   })
 
+  const importPDFMutation = trpc.finance.importPDF.useMutation({
+    onSuccess: (res) => {
+      setImportResult(
+        `זוהה פורמט: ${res.detectedFormat} — יובאו ${res.inserted} רשומות (${res.skipped} דולגו)`
+      )
+      utils.finance.getSummary.invalidate()
+      utils.finance.listTransactions.invalidate()
+    },
+    onError: (err) => setImportResult(`שגיאה: ${err.message}`),
+  })
+
   const createTxnMutation = trpc.finance.createTransaction.useMutation({
     onSuccess: () => {
       setManualSubmitting(false)
@@ -154,24 +165,38 @@ export default function FinancePage() {
     syncMutation.mutate({ maxEmails: 100 })
   }
 
-  const handleCSVFile = useCallback((file: File) => {
+  const handleImportFile = useCallback((file: File) => {
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const content = e.target?.result as string
-      if (content) {
-        setImportResult(null)
-        importCSVMutation.mutate({ csvContent: content })
+    setImportResult(null)
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    if (isPdf) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const buffer = e.target?.result as ArrayBuffer
+        if (buffer) {
+          const bytes = new Uint8Array(buffer)
+          let binary = ''
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+          const base64 = btoa(binary)
+          importPDFMutation.mutate({ pdfBase64: base64 })
+        }
       }
+      reader.readAsArrayBuffer(file)
+    } else {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const content = e.target?.result as string
+        if (content) importCSVMutation.mutate({ csvContent: content })
+      }
+      reader.readAsText(file, 'utf-8')
     }
-    reader.readAsText(file, 'utf-8')
-  }, [importCSVMutation])
+  }, [importCSVMutation, importPDFMutation])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
-    if (file) handleCSVFile(file)
+    if (file) handleImportFile(file)
   }
 
   const handleManualSubmit = (e: React.FormEvent) => {
@@ -593,10 +618,10 @@ export default function FinancePage() {
 
             {/* CSV Upload */}
             <div className="card">
-              <h2 className="font-semibold mb-1">ייבוא CSV מהבנק / כרטיס אשראי</h2>
+              <h2 className="font-semibold mb-1">ייבוא CSV או PDF מהבנק / כרטיס אשראי</h2>
               <p className="text-xs text-[#555] mb-4">
-                מזהה אוטומטית: בנק הפועלים, לאומי, דיסקונט, Max, Isracard, Cal.
-                ייצא קובץ CSV/Excel מהאתר של הבנק שלך.
+                מזהה אוטומטית: בנק הפועלים, לאומי, דיסקונט, Max, Isracard, ויזה כאל (Cal).
+                ייצא קובץ CSV/Excel מהאתר, או העלה דוח PDF (למשל ויזה כאל).
               </p>
               <div
                 className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors"
@@ -610,16 +635,16 @@ export default function FinancePage() {
                 onClick={() => fileInputRef.current?.click()}
               >
                 <div className="text-3xl mb-2">📄</div>
-                <div className="text-sm text-[#888]">גרור לכאן קובץ CSV</div>
+                <div className="text-sm text-[#888]">גרור לכאן קובץ CSV או PDF</div>
                 <div className="text-xs text-[#555] mt-1">או לחץ לבחירת קובץ</div>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.xls,.xlsx,.txt"
+                  accept=".csv,.xls,.xlsx,.txt,.pdf,application/pdf"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
-                    if (file) handleCSVFile(file)
+                    if (file) handleImportFile(file)
                     e.target.value = ''
                   }}
                 />
