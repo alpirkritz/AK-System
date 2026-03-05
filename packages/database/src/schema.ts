@@ -119,6 +119,19 @@ export const facts = sqliteTable('facts', {
 export type Fact = typeof facts.$inferSelect
 export type NewFact = typeof facts.$inferInsert
 
+// ─── Chat messages (web chat + telegram + cron push) ──────────────────────────
+
+export const chatMessages = sqliteTable('chat_messages', {
+  id: text('id').primaryKey(),
+  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  content: text('content').notNull(),
+  source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'cron'
+  createdAt: text('created_at').notNull(),
+})
+
+export type ChatMessage = typeof chatMessages.$inferSelect
+export type NewChatMessage = typeof chatMessages.$inferInsert
+
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 
 export const healthMetrics = sqliteTable('health_metrics', {

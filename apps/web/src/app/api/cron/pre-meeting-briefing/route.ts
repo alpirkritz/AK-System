@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { sendTelegramMessage } from '@/lib/telegram-bot'
+import { saveChatMessage } from '@/lib/conversation-engine'
 
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
@@ -87,6 +88,7 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         openTasks.length > 0 ? `משימות פתוחות: ${openTasks.map((t) => t.title).join(', ')}` : '',
       ].filter(Boolean)
       const text = lines.join('\n').slice(0, 4000)
+      await saveChatMessage('assistant', text, 'cron')
       if (hasTelegram) {
         await sendTelegramMessage(Number(chatId!), text)
         sent++

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { sendTelegramMessage } from '@/lib/telegram-bot'
+import { saveChatMessage } from '@/lib/conversation-engine'
 
 /**
  * Cron: Morning calendar briefing (run at 07:00 Israel time).
@@ -60,6 +61,7 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     }
     const text = lines.join('\n').slice(0, 4000)
 
+    await saveChatMessage('assistant', text, 'cron')
     if (hasTelegram) {
       await sendTelegramMessage(Number(chatId), text)
     }

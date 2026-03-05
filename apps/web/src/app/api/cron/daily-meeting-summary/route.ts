@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { sendTelegramMessage } from '@/lib/telegram-bot'
+import { saveChatMessage } from '@/lib/conversation-engine'
 import type { MeetingCategory } from '@ak-system/database'
 
 const CATEGORY_LABELS: Record<MeetingCategory, string> = {
@@ -93,6 +94,7 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
     }
     const text = (lines.length > 2 ? lines.join('\n') : lines[0] + '\nאין אירועים היום.').slice(0, 4000)
 
+    await saveChatMessage('assistant', text, 'cron')
     if (hasTelegram) {
       await sendTelegramMessage(Number(chatId!), text)
     }

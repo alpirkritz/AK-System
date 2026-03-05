@@ -52,6 +52,15 @@ const FACTS_TABLE = [
     created_at TEXT NOT NULL
   )`,
 ]
+const CHAT_MESSAGES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'web',
+    created_at TEXT NOT NULL
+  )`,
+]
 const HEALTH_TABLE = [
   `CREATE TABLE IF NOT EXISTS health_metrics (
     id TEXT PRIMARY KEY,
@@ -110,6 +119,9 @@ export function getDb() {
   for (const sql of HEALTH_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of CHAT_MESSAGES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   // create finance tables if they don't exist
   for (const sql of FINANCE_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
@@ -118,3 +130,4 @@ export function getDb() {
 }
 
 export * from './schema'
+export { desc, lt, sql, eq, and, or, like, asc } from 'drizzle-orm'

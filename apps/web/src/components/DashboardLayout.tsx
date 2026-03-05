@@ -16,6 +16,7 @@ const navSections = [
       { href: '/calendar', label: 'יומן גוגל', icon: '📅' },
       { href: '/finance', label: 'פיננסים', icon: '💰' },
       { href: '/updates', label: 'עדכונים', icon: '📰' },
+      { href: '/chat', label: 'צ\'אט', icon: '💬' },
     ],
   },
   {

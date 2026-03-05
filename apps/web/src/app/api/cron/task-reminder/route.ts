@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { sendTelegramMessage } from '@/lib/telegram-bot'
+import { saveChatMessage } from '@/lib/conversation-engine'
 
 /**
  * Cron: Task reminder poller (run every 1 min per Second Brain spec).
@@ -48,6 +49,7 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     }
     const text = lines.join('\n').slice(0, 4000)
 
+    await saveChatMessage('assistant', text, 'cron')
     if (hasTelegram) {
       await sendTelegramMessage(Number(chatId!), text)
     }
