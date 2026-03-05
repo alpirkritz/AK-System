@@ -6,4 +6,5 @@ export const LS = {
   CONFLICT_DISMISSED:'ak:conflict-dismissed',
   DASHBOARD_UPCOMING:'ak:dashboard-upcoming-count',
   SYNC_CALENDARS:    'ak:sync-calendars',
+  TIMEZONE:          'ak:timezone',
 } as const

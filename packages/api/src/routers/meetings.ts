@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { meetings, meetingPeople, tasks, people } from '@ak-system/database'
-import { eq, inArray, and } from 'drizzle-orm'
+import { eq, inArray, and, isNotNull } from 'drizzle-orm'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
@@ -9,6 +9,7 @@ import {
 } from '../services/google-calendar'
 import {
   fetchAppleCalendarEvents,
+  invalidateAppleCalendarCache,
 } from '../services/apple-calendar'
 
 const createInput = z.object({
@@ -136,15 +137,25 @@ export const meetingsRouter = router({
       const start = new Date(input.startDate)
       const end = new Date(input.endDate)
 
+      // Invalidate Apple Calendar cache so we get fresh data (not stale 20-min cache)
+      invalidateAppleCalendarCache()
+
       // Fetch from all available sources in parallel
+      const googleConfigured = isGoogleCalendarConfigured()
       const [googleResult, appleResult] = await Promise.allSettled([
-        isGoogleCalendarConfigured()
+        googleConfigured
           ? fetchGoogleCalendarEvents(start, end)
           : Promise.resolve([]),
         fetchAppleCalendarEvents(start, end),
       ])
       const googleEvents = googleResult.status === 'fulfilled' ? googleResult.value : []
       const appleEvents  = appleResult.status  === 'fulfilled' ? appleResult.value  : []
+
+      // Track which sources were successfully fetched so we only delete
+      // meetings from sources we actually queried
+      const fetchedSources = new Set<string>()
+      if (googleConfigured && googleResult.status === 'fulfilled') fetchedSources.add('google')
+      if (appleResult.status === 'fulfilled') fetchedSources.add('apple')
 
       let allEvents = [...googleEvents, ...appleEvents]
 
@@ -161,6 +172,9 @@ export const meetingsRouter = router({
         (e as GoogleCalendarEvent).transparency !== 'transparent'
       )
 
+      // Set of active calendar event IDs (what the calendar considers "current")
+      const activeEventIds = new Set(allEvents.map((e) => e.id))
+
       // Purge previously-synced free/busy placeholder meetings from the DB
       const FREE_BUSY_TITLES = ['פנוי', 'לא פנוי', 'Tentative', 'Free', 'Busy']
       const freeBusyIds = await ctx.db
@@ -176,20 +190,67 @@ export const meetingsRouter = router({
         )
       }
 
-      // Collect already-synced calendarEventIds to avoid duplicates
-      const existingRows = await ctx.db.select({ calendarEventId: meetings.calendarEventId }).from(meetings)
-      const synced = new Set(existingRows.map((r) => r.calendarEventId).filter(Boolean))
+      // Fetch ALL existing calendar-synced meetings from the DB
+      const existingRows = await ctx.db
+        .select({
+          id: meetings.id,
+          calendarEventId: meetings.calendarEventId,
+          calendarSource: meetings.calendarSource,
+          date: meetings.date,
+        })
+        .from(meetings)
+        .where(isNotNull(meetings.calendarEventId))
+
+      const existingByCalId = new Map<string, (typeof existingRows)[number]>()
+      for (const row of existingRows) {
+        if (row.calendarEventId) existingByCalId.set(row.calendarEventId, row)
+      }
 
       const now = new Date().toISOString()
       let created = 0
+      let updated = 0
+      let deleted = 0
 
+      // ── DELETE: meetings in the DB whose calendar event was cancelled/removed ──
+      // Only consider meetings within the sync date range and from sources we fetched.
+      const startStr = input.startDate
+      const endStr = input.endDate
+      for (const row of existingRows) {
+        if (!row.calendarEventId || !row.calendarSource) continue
+        if (!fetchedSources.has(row.calendarSource)) continue
+        if (row.date < startStr || row.date > endStr) continue
+        if (activeEventIds.has(row.calendarEventId)) continue
+
+        await ctx.db.delete(meetingPeople).where(eq(meetingPeople.meetingId, row.id))
+        await ctx.db.update(tasks).set({ meetingId: null }).where(eq(tasks.meetingId, row.id))
+        await ctx.db.delete(meetings).where(eq(meetings.id, row.id))
+        deleted++
+      }
+
+      // ── UPDATE existing + INSERT new ──
       for (const ev of allEvents) {
-        if (synced.has(ev.id)) continue
-
-        const id = 'm_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
         const startDate = ev.start.split('T')[0]
         const startTime = ev.start.includes('T') ? ev.start.split('T')[1].slice(0, 5) : '09:00'
         const source = 'source' in ev ? 'apple' : 'google'
+
+        const existing = existingByCalId.get(ev.id)
+        if (existing) {
+          await ctx.db
+            .update(meetings)
+            .set({
+              title: ev.title,
+              date: startDate,
+              time: startTime,
+              endTime: ev.end ?? null,
+              location: ev.location ?? null,
+              updatedAt: now,
+            })
+            .where(eq(meetings.id, existing.id))
+          updated++
+          continue
+        }
+
+        const id = 'm_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
 
         await ctx.db.insert(meetings).values({
           id,
@@ -213,12 +274,10 @@ export const meetingsRouter = router({
           for (const attendee of ev.attendees) {
             if (!attendee.email || attendee.self) continue
 
-            // Try to match an existing Person by email
-            const [existing] = await ctx.db.select().from(people).where(eq(people.email, attendee.email))
-            let personId = existing?.id
+            const [existingPerson] = await ctx.db.select().from(people).where(eq(people.email, attendee.email))
+            let personId = existingPerson?.id
 
             if (!personId) {
-              // Create a new Person so the attendee appears in the People list
               personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
               await ctx.db.insert(people).values({
                 id: personId,
@@ -234,11 +293,10 @@ export const meetingsRouter = router({
           }
         }
 
-        synced.add(ev.id)
         created++
       }
 
-      return { created }
+      return { created, updated, deleted }
     }),
 
   delete: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {

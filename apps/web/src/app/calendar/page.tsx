@@ -860,6 +860,8 @@ function MonthView({ events, month, year, onEventClick, onDayClick }: {
 
 type View = 'day' | 'week' | 'month'
 
+const SYNC_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
+
 export default function CalendarPage() {
   const today = new Date()
   const [view, setView]           = useState<View>('week')
@@ -868,6 +870,48 @@ export default function CalendarPage() {
   const [monthDate, setMonthDate]   = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string> | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'done'>('idle')
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deleted: number } | null>(null)
+  const userSyncRef = useRef(false)
+
+  const utils = trpc.useUtils()
+  const syncMutation = trpc.meetings.syncFromCalendar.useMutation({
+    onSuccess: (data) => {
+      utils.meetings.list.invalidate()
+      utils.people.list.invalidate()
+      if (userSyncRef.current) {
+        setSyncResult(data)
+        setSyncStatus('done')
+        userSyncRef.current = false
+        setTimeout(() => setSyncStatus('idle'), 4000)
+      }
+    },
+    onError: () => {
+      if (userSyncRef.current) {
+        userSyncRef.current = false
+        setSyncStatus('idle')
+      }
+    },
+  })
+
+  // Sync meetings from calendar every 15 minutes (full sync: updates, deletes, inserts)
+  useEffect(() => {
+    const runSync = () => {
+      const start = new Date().toISOString().split('T')[0]
+      const end = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
+      syncMutation.mutate({ startDate: start, endDate: end, calendarIds: null })
+    }
+    const id = setInterval(runSync, SYNC_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSyncNow() {
+    userSyncRef.current = true
+    setSyncStatus('loading')
+    const start = new Date().toISOString().split('T')[0]
+    const end = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
+    syncMutation.mutate({ startDate: start, endDate: end, calendarIds: null })
+  }
 
   const fetchRange = (() => {
     if (view === 'day') return { startDate: isoDate(currentDay), endDate: isoDate(currentDay) }
@@ -997,6 +1041,34 @@ export default function CalendarPage() {
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#555] animate-pulse" />
             Exchange טוען…
           </span>
+        )}
+
+        {/* Sync meetings from calendar — same as meetings page */}
+        {isConnected && (
+          <>
+            {syncStatus === 'done' && syncResult !== null && (
+              <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#47b86e22', color: '#47b86e', border: '1px solid #47b86e44' }}>
+                {syncResult.created === 0 && syncResult.updated === 0 && syncResult.deleted === 0
+                  ? 'הכל מעודכן ✓'
+                  : [
+                      syncResult.created > 0 && `${syncResult.created} חדשות`,
+                      syncResult.updated > 0 && `${syncResult.updated} עודכנו`,
+                      syncResult.deleted > 0 && `${syncResult.deleted} הוסרו`,
+                    ].filter(Boolean).join(', ') + ' ✓'}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleSyncNow}
+              disabled={syncStatus === 'loading'}
+              className="text-xs px-3 py-1.5 rounded border border-[#2a2a2a] text-[#888]
+                hover:text-[#e8c547] hover:border-[#e8c547]/50 hover:bg-[#e8c547]/5 transition-colors
+                disabled:opacity-50 disabled:cursor-not-allowed"
+              title="סנכרן פגישות מהיומן לטבלת הפגישות"
+            >
+              {syncStatus === 'loading' ? 'מסנכרן…' : 'סנכרן עכשיו'}
+            </button>
+          </>
         )}
 
         <div className="flex-1" />

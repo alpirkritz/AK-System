@@ -386,7 +386,7 @@ async function executeTool(name: string, args: ToolArgs, caller: Caller): Promis
         startDate: todayStr,
         endDate,
       })
-      return { created: result.created }
+      return { created: result.created, updated: result.updated, deleted: result.deleted }
     }
 
     default:

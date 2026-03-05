@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
-import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
+import { PRIORITY_COLORS, PRIORITY_LABELS, DAYS_HE } from '@ak-system/types'
 import { ConflictsWidget } from '@/components/ConflictsWidget'
 import { FeedWidget } from '@/components/FeedWidget'
 import { LS } from '@/lib/ls-keys'
@@ -12,18 +12,44 @@ function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
 }
 
-function isPastMeeting(date: string, time: string): boolean {
+function isPastMeeting(date: string, time: string, tz: string): boolean {
   const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
-  const dt = new Date(date + 'T00:00:00')
-  dt.setHours(h, min, 0, 0)
-  return dt < new Date()
+  const meetingStr = `${date} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+  const nowStr = new Date().toLocaleString('sv-SE', { timeZone: tz }).slice(0, 16)
+  return meetingStr < nowStr
 }
+
+const SVG_PLUS = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+)
+
+const SVG_CALENDAR = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+)
+
+const SVG_CHEVRON_LEFT = (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0 opacity-60">
+    <path d="M9 3L5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+const SVG_ARROW_LEFT = (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 
 export default function DashboardPage() {
   const [upcomingCount, setUpcomingCount] = useState(5)
   const [calRange, setCalRange] = useState<'today' | 'week'>('today')
-  // Calendar IDs selected in Settings → defaults to null (= all)
   const [selectedCalIds, setSelectedCalIds] = useState<string[] | null>(null)
+  const [showPast, setShowPast] = useState(false)
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
 
   useEffect(() => {
     try {
@@ -31,6 +57,8 @@ export default function DashboardPage() {
       if (v !== null) setUpcomingCount(JSON.parse(v) || 5)
       const raw = localStorage.getItem(LS.CONFLICT_CALENDARS)
       if (raw) setSelectedCalIds(JSON.parse(raw))
+      const tz = localStorage.getItem(LS.TIMEZONE)
+      if (tz) setTimezone(JSON.parse(tz))
     } catch { /* ignore */ }
   }, [])
 
@@ -42,7 +70,7 @@ export default function DashboardPage() {
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
   const { data: calEvents = [] } = trpc.calendar.events.useQuery(
     { startDate: today, endDate: calRange === 'today' ? today : weekEnd },
-    { staleTime: 5 * 60_000 }
+    { staleTime: 5 * 60_000 },
   )
 
   const utils = trpc.useUtils()
@@ -53,30 +81,28 @@ export default function DashboardPage() {
   const getPerson = (id: string) => people.find((p) => p.id === id)
   const openTasks = tasksList.filter((t) => !t.done)
   const recurringMeetings = meetings.filter((m) => m.recurring)
-  const upcomingMeetings = [...meetings].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  ).slice(0, upcomingCount)
+  const sortedMeetings = [...meetings]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const futureMeetings = sortedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone))
+  const pastCount = sortedMeetings.length - futureMeetings.length
+  const upcomingMeetings = (showPast ? sortedMeetings : futureMeetings).slice(0, upcomingCount)
 
-  // Count calendar events for the selected range — same smart filters as ConflictsWidget
   const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-  const rangeEnd = calRange === 'today'
-    ? new Date(todayStart.getTime() + 86400000)
-    : new Date(todayStart.getTime() + 7 * 86400000)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const rangeEnd =
+    calRange === 'today'
+      ? new Date(todayStart.getTime() + 86400000)
+      : new Date(todayStart.getTime() + 7 * 86400000)
 
   const calMeetingCount = calEvents.filter((ev: any) => {
-    // Exclude all-day events
     if (ev.isAllDay) return false
-    // Exclude cancelled or declined events
     if (ev.status === 'cancelled') return false
     if (ev.rsvp === 'declined') return false
-    // Exclude blocks >= 8 h (Focus Time, OOO, etc.)
     const duration = new Date(ev.end).getTime() - new Date(ev.start).getTime()
     if (duration >= EIGHT_HOURS_MS) return false
-    // Time range
     const start = new Date(ev.start)
     if (start < todayStart || start >= rangeEnd) return false
-    // Filter to calendars selected in Settings → "יומנים לבדיקה"
     if (selectedCalIds && selectedCalIds.length > 0) {
       return ev.calendarId != null && selectedCalIds.includes(ev.calendarId)
     }
@@ -84,141 +110,258 @@ export default function DashboardPage() {
   }).length
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold tracking-tight mb-1">שלום 👋</h1>
-      <p className="text-[#555] mb-8 text-sm">
-        {new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
-      </p>
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        {/* Calendar meetings card with today/week toggle */}
-        <div className="card">
-          <div className="flex items-start justify-between mb-1">
-            <div className="text-3xl font-bold" style={{ color: '#e8c547' }}>
-              {calMeetingCount}
-            </div>
-            <div className="flex gap-1 mt-1">
-              {(['today', 'week'] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setCalRange(r)}
-                  className="text-[10px] px-2 py-0.5 rounded-full transition-all cursor-pointer"
-                  style={{
-                    background: calRange === r ? '#e8c54722' : 'transparent',
-                    color:      calRange === r ? '#e8c547'   : '#444',
-                    border:     `1px solid ${calRange === r ? '#e8c54744' : '#222'}`,
-                  }}
-                >
-                  {r === 'today' ? 'היום' : 'שבוע'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="text-sm font-semibold">פגישות ביומן</div>
-          <div className="text-xs text-[#555]">{calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום</div>
-        </div>
+    <div className="space-y-8">
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <header>
+        <h1 className="text-3xl font-bold tracking-tight text-[#f0ede6]">דשבורד</h1>
+        <p className="text-sm text-[#888] mt-1">
+          {new Date().toLocaleDateString('he-IL', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+          })}
+        </p>
+      </header>
 
-        {[
-          { label: 'משימות פתוחות', val: openTasks.length, sub: 'ממתינות לביצוע', color: '#e8477a' },
-          { label: 'חוזרות', val: recurringMeetings.length, sub: 'פגישות שבועיות', color: '#47b8e8' },
-        ].map((s) => (
-          <div key={s.label} className="card">
-            <div className="text-3xl font-bold" style={{ color: s.color }}>
-              {s.val}
+      {/* ── KPI Strip (static — NOT clickable) ──────────────────── */}
+      <section aria-label="סיכום מהיר">
+        <div className="grid grid-cols-3 gap-4">
+          {/* Calendar meetings KPI */}
+          <div className="card">
+            <div className="flex items-start justify-between mb-2">
+              <div
+                className="text-2xl font-bold"
+                style={{ color: '#e8c547' }}
+              >
+                {calMeetingCount}
+              </div>
+              <div className="flex gap-1" role="group" aria-label="טווח זמן">
+                {(['today', 'week'] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setCalRange(r)}
+                    aria-pressed={calRange === r}
+                    className="toggle-btn"
+                  >
+                    {r === 'today' ? 'היום' : 'שבוע'}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="text-sm font-semibold mt-1">{s.label}</div>
-            <div className="text-xs text-[#555]">{s.sub}</div>
+            <div className="text-sm font-semibold text-[#f0ede6]">פגישות ביומן</div>
+            <div className="text-xs text-[#777] mt-0.5">
+              {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
+            </div>
           </div>
-        ))}
-      </div>
+
+          {/* Open tasks KPI */}
+          <div className="card">
+            <div className="text-2xl font-bold" style={{ color: '#e8477a' }}>
+              {openTasks.length}
+            </div>
+            <div className="text-sm font-semibold text-[#f0ede6] mt-2">משימות פתוחות</div>
+            <div className="text-xs text-[#777] mt-0.5">ממתינות לביצוע</div>
+          </div>
+
+          {/* Recurring meetings KPI */}
+          <div className="card">
+            <div className="text-2xl font-bold" style={{ color: '#47b8e8' }}>
+              {recurringMeetings.length}
+            </div>
+            <div className="text-sm font-semibold text-[#f0ede6] mt-2">חוזרות</div>
+            <div className="text-xs text-[#777] mt-0.5">פגישות שבועיות</div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Quick Actions ───────────────────────────────────────── */}
+      <section aria-label="פעולות מהירות">
+        <div className="flex gap-3">
+          <Link
+            href="/meetings"
+            className="btn btn-primary flex items-center gap-2 no-underline min-h-[40px]"
+          >
+            {SVG_PLUS}
+            פגישה חדשה
+          </Link>
+          <Link
+            href="/tasks"
+            className="btn btn-secondary flex items-center gap-2 no-underline min-h-[40px]"
+          >
+            {SVG_PLUS}
+            משימה חדשה
+          </Link>
+          <Link
+            href="/calendar"
+            className="btn btn-ghost flex items-center gap-2 no-underline min-h-[40px]"
+          >
+            {SVG_CALENDAR}
+            יומן
+          </Link>
+        </div>
+      </section>
+
+      {/* ── Alerts: Calendar Conflicts ──────────────────────────── */}
       <ConflictsWidget />
-      <FeedWidget />
-      <div className="grid grid-cols-[1.2fr_1fr] gap-5">
-        <div>
-          <div className="text-xs font-semibold text-[#666] mb-3 uppercase tracking-wider">
-            פגישות קרובות
+
+      {/* ── Content Grid ────────────────────────────────────────── */}
+      <div className="grid grid-cols-[1.2fr_1fr] gap-6">
+        {/* Upcoming Meetings */}
+        <section aria-label="פגישות קרובות">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-base font-semibold text-[#f0ede6]">פגישות קרובות</h2>
+              {pastCount > 0 && (
+                <button
+                  onClick={() => setShowPast((v) => !v)}
+                  aria-pressed={showPast}
+                  className="toggle-btn"
+                >
+                  {showPast ? 'הסתר עבר' : `כולל עבר (${pastCount})`}
+                </button>
+              )}
+            </div>
+            <Link href="/meetings" className="section-link">
+              {SVG_ARROW_LEFT}
+              הכל
+            </Link>
           </div>
-          {upcomingMeetings.map((m) => {
-            const past = isPastMeeting(m.date, m.time)
-            return (
-              <Link key={m.id} href={`/meetings/${m.id}`}>
-                <div className={`meeting-card transition-opacity ${past ? 'opacity-45 grayscale-[30%]' : ''}`}>
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`font-semibold text-sm truncate ${past ? 'text-[#777]' : ''}`}>{m.title}</span>
-                      {past && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0 font-medium"
-                          style={{ background: '#ffffff08', color: '#555', border: '1px solid #2a2a2a' }}>
-                          עבר
+
+          {upcomingMeetings.length === 0 ? (
+            <div className="card text-sm text-[#777] py-4 px-5">
+              אין פגישות קרובות
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {upcomingMeetings.map((m) => {
+                const past = isPastMeeting(m.date, m.time, timezone)
+                return (
+                  <Link
+                    key={m.id}
+                    href={`/meetings/${m.id}`}
+                    className={`meeting-card flex items-center gap-3 ${past ? 'opacity-55 grayscale-[20%]' : ''}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`font-semibold text-sm truncate ${past ? 'text-[#888]' : 'text-[#f0ede6]'}`}>
+                          {m.title}
                         </span>
-                      )}
+                        {past && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded shrink-0 font-medium"
+                            style={{ background: '#ffffff12', color: '#888', border: '1px solid #3a3a3a' }}
+                          >
+                            עבר
+                          </span>
+                        )}
+                        {m.recurring && (
+                          <span className="pill shrink-0">
+                            ↻ {DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-3 mt-1.5 items-center">
+                        <span className="text-xs text-[#999]">
+                          {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
+                        </span>
+                        <div className="flex gap-1">
+                          {(m as { peopleIds?: string[] }).peopleIds?.map((pid) => {
+                            const p = getPerson(pid)
+                            return p ? (
+                              <div
+                                key={pid}
+                                className="avatar text-[10px] border-[1.5px]"
+                                style={{
+                                  background: (p.color ?? '#e8c547') + '22',
+                                  color: p.color ?? '#e8c547',
+                                  borderColor: (p.color ?? '#e8c547') + '33',
+                                }}
+                              >
+                                {p.name[0]}
+                              </div>
+                            ) : null
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    {m.recurring && (
-                      <span className="pill shrink-0">↻ {DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}</span>
+                    {SVG_CHEVRON_LEFT}
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Open Tasks */}
+        <section aria-label="משימות פתוחות">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-[#f0ede6]">משימות פתוחות</h2>
+            <Link href="/tasks" className="section-link">
+              {SVG_ARROW_LEFT}
+              הכל
+            </Link>
+          </div>
+
+          <div className="card py-3 px-4">
+            {openTasks.length === 0 ? (
+              <div className="text-[#777] text-sm py-2">
+                אין משימות פתוחות
+              </div>
+            ) : (
+              openTasks.map((t) => {
+                const priorityKey = t.priority as keyof typeof PRIORITY_COLORS
+                const priorityColor = PRIORITY_COLORS[priorityKey]
+                const priorityLabel = PRIORITY_LABELS[priorityKey]
+
+                return (
+                  <div key={t.id} className="task-row">
+                    <button
+                      role="checkbox"
+                      aria-checked={t.done}
+                      aria-label={`סמן "${t.title}" כבוצע`}
+                      className="checkbox-btn"
+                      onClick={() => toggleTask.mutate({ id: t.id })}
+                    >
+                      {t.done && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M2 5.5L4 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </button>
+                    <span className="flex-1 text-sm text-[#f0ede6]">{t.title}</span>
+                    {priorityLabel && (
+                      <span
+                        className="priority-badge"
+                        style={{
+                          color: priorityColor,
+                          background: priorityColor + '18',
+                        }}
+                      >
+                        {priorityLabel}
+                      </span>
+                    )}
+                    {t.assigneeId && (
+                      <div
+                        className="avatar w-[22px] h-[22px] text-[9px] border"
+                        style={{
+                          background: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '22',
+                          color: getPerson(t.assigneeId)?.color ?? '#e8c547',
+                          borderColor: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '33',
+                        }}
+                      >
+                        {getPerson(t.assigneeId)?.name[0]}
+                      </div>
                     )}
                   </div>
-                  <div className="flex gap-3 mt-2 items-center">
-                    <span className="text-xs text-[#666]">
-                      {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
-                    </span>
-                    <div className="flex gap-1">
-                      {(m as { peopleIds?: string[] }).peopleIds?.map((pid) => {
-                        const p = getPerson(pid)
-                        return p ? (
-                          <div
-                            key={pid}
-                            className="avatar text-[10px] border-[1.5px]"
-                            style={{
-                              background: (p.color ?? '#e8c547') + '22',
-                              color: p.color ?? '#e8c547',
-                              borderColor: (p.color ?? '#e8c547') + '33',
-                            }}
-                          >
-                            {p.name[0]}
-                          </div>
-                        ) : null
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            )
-          })}
-        </div>
-        <div>
-          <div className="text-xs font-semibold text-[#666] mb-3 uppercase tracking-wider">
-            משימות פתוחות
-          </div>
-          <div className="card py-3 px-4">
-            {openTasks.length === 0 && (
-              <div className="text-[#555] text-sm">אין משימות פתוחות 🎉</div>
+                )
+              })
             )}
-            {openTasks.map((t) => (
-              <div key={t.id} className="task-row">
-                <div
-                  className={`checkbox ${t.done ? 'checked' : ''}`}
-                  onClick={() => toggleTask.mutate({ id: t.id })}
-                >
-                  {t.done && <span className="text-white text-[10px]">✓</span>}
-                </div>
-                <div className="flex-1 text-sm">{t.title}</div>
-                <div className="dot" style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }} />
-                {t.assigneeId && (
-                  <div
-                    className="avatar w-[22px] h-[22px] text-[9px] border"
-                    style={{
-                      background: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '22',
-                      color: getPerson(t.assigneeId)?.color ?? '#e8c547',
-                      borderColor: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '33',
-                    }}
-                  >
-                    {getPerson(t.assigneeId)?.name[0]}
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
-        </div>
+        </section>
       </div>
+
+      {/* ── Feed (lowest priority — progressive disclosure) ──── */}
+      <FeedWidget />
     </div>
   )
 }

@@ -6,6 +6,25 @@ import { trpc } from '@/lib/trpc'
 // ── localStorage keys (shared with ConflictsWidget and dashboard) ─────────────
 import { LS } from '@/lib/ls-keys'
 
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Jerusalem',     label: 'ישראל (Asia/Jerusalem)' },
+  { value: 'Europe/London',      label: 'לונדון (Europe/London)' },
+  { value: 'Europe/Berlin',      label: 'ברלין (Europe/Berlin)' },
+  { value: 'Europe/Paris',       label: 'פריז (Europe/Paris)' },
+  { value: 'Europe/Athens',      label: 'אתונה (Europe/Athens)' },
+  { value: 'America/New_York',   label: 'ניו יורק (America/New_York)' },
+  { value: 'America/Chicago',    label: 'שיקגו (America/Chicago)' },
+  { value: 'America/Denver',     label: 'דנוור (America/Denver)' },
+  { value: 'America/Los_Angeles',label: 'לוס אנג׳לס (America/Los_Angeles)' },
+  { value: 'Asia/Dubai',         label: 'דובאי (Asia/Dubai)' },
+  { value: 'Asia/Kolkata',       label: 'הודו (Asia/Kolkata)' },
+  { value: 'Asia/Tokyo',         label: 'טוקיו (Asia/Tokyo)' },
+  { value: 'Asia/Shanghai',      label: 'סין (Asia/Shanghai)' },
+  { value: 'Australia/Sydney',   label: 'סידני (Australia/Sydney)' },
+  { value: 'Pacific/Auckland',   label: 'ניו זילנד (Pacific/Auckland)' },
+  { value: 'UTC',                label: 'UTC' },
+]
+
 function readLS<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key)
@@ -123,6 +142,24 @@ function Row({
   )
 }
 
+function TimezoneSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const options = TIMEZONE_OPTIONS.some((o) => o.value === value)
+    ? TIMEZONE_OPTIONS
+    : [{ value, label: value }, ...TIMEZONE_OPTIONS]
+
+  return (
+    <select
+      className="select text-sm max-w-[220px]"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((tz) => (
+        <option key={tz.value} value={tz.value}>{tz.label}</option>
+      ))}
+    </select>
+  )
+}
+
 function CalendarCheckboxList({
   calendars,
   selected,
@@ -201,6 +238,7 @@ export default function SettingsPage() {
   const [syncCals, setSyncCals]                 = useState<string[] | null>(null)
   const [dismissedCount, setDismissedCount]     = useState(0)
   const [upcomingCount, setUpcomingCount]       = useState<number>(5)
+  const [timezone, setTimezone]                 = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
   const [savedFlash, setSavedFlash]             = useState(false)
 
   useEffect(() => {
@@ -211,6 +249,8 @@ export default function SettingsPage() {
     const dismissed = readLS<string[]>(LS.CONFLICT_DISMISSED, [])
     setDismissedCount(dismissed.length)
     setUpcomingCount(readLS(LS.DASHBOARD_UPCOMING, 5))
+    const savedTz = readLS<string | null>(LS.TIMEZONE, null)
+    if (savedTz) setTimezone(savedTz)
     setHydrated(true)
   }, [])
 
@@ -416,6 +456,14 @@ export default function SettingsPage() {
             value={upcomingCount}
             onChange={(v) => set(LS.DASHBOARD_UPCOMING, v, setUpcomingCount)}
           />
+        </Row>
+
+        <Row
+          label="אזור זמן"
+          description={`השעה כרגע: ${new Date().toLocaleTimeString('he-IL', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false })}`}
+        >
+
+          <TimezoneSelect value={timezone} onChange={(v) => set(LS.TIMEZONE, v, setTimezone)} />
         </Row>
       </Section>
 

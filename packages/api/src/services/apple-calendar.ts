@@ -271,6 +271,11 @@ export async function fetchAppleCalendarEvents(
   return filterFromCache(timeMin, timeMax)
 }
 
+/** Clears the in-memory cache so the next fetch reads fresh data from EventKit. */
+export function invalidateAppleCalendarCache(): void {
+  global.__appleCalCache = null
+}
+
 /** Kicks off a background cache load (non-blocking). */
 export function warmAppleCalendarCache(): void {
   if (!isAppleCalendarAvailable()) return

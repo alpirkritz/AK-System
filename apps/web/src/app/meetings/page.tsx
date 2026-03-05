@@ -43,12 +43,13 @@ export default function MeetingsPage() {
   // ── Sync panel state ──────────────────────────────────────────────────────
   const [panelOpen, setPanelOpen] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'done'>('idle')
-  const [syncCount, setSyncCount] = useState<number | null>(null)
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deleted: number } | null>(null)
   // default calendar IDs from settings (null = all)
   const [settingsCals, setSettingsCals] = useState<string[] | null>(null)
   // selection inside the panel (may include extra calendars)
   const [panelSelected, setPanelSelected] = useState<Set<string>>(new Set())
   const panelRef = useRef<HTMLDivElement>(null)
+  const userSyncRef = useRef(false)
 
   // Load settings-configured calendars from localStorage on mount
   useEffect(() => {
@@ -122,22 +123,43 @@ export default function MeetingsPage() {
 
   const syncMutation = trpc.meetings.syncFromCalendar.useMutation({
     onSuccess: (data) => {
-      setSyncCount(data.created)
-      setSyncStatus('done')
-      setPanelOpen(false)
       utils.meetings.list.invalidate()
       utils.people.list.invalidate()
-      setTimeout(() => setSyncStatus('idle'), 4000)
+      if (userSyncRef.current) {
+        setSyncResult(data)
+        setSyncStatus('done')
+        setPanelOpen(false)
+        userSyncRef.current = false
+        setTimeout(() => setSyncStatus('idle'), 4000)
+      }
     },
-    onError: () => setSyncStatus('idle'),
+    onError: () => {
+      if (userSyncRef.current) {
+        userSyncRef.current = false
+        setSyncStatus('idle')
+      }
+    },
   })
 
   function handleSync() {
+    userSyncRef.current = true
     setSyncStatus('loading')
     const in60 = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
     const calendarIds = panelSelected.size > 0 ? Array.from(panelSelected) : null
     syncMutation.mutate({ startDate: today, endDate: in60, calendarIds })
   }
+
+  // Sync from calendar every 15 minutes (full sync: updates, deletes, inserts)
+  useEffect(() => {
+    const SYNC_INTERVAL_MS = 15 * 60 * 1000
+    const runSync = () => {
+      const start = new Date().toISOString().split('T')[0]
+      const end = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
+      syncMutation.mutate({ startDate: start, endDate: end, calendarIds: null })
+    }
+    const id = setInterval(runSync, SYNC_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, []) // eslint-disable-next-line react-hooks/exhaustive-deps
 
   function toggleCal(id: string) {
     setPanelSelected((prev) => {
@@ -267,9 +289,15 @@ export default function MeetingsPage() {
         <h1 className="text-2xl font-bold tracking-tight">פגישות</h1>
         <div className="flex gap-2 items-center">
           {/* Sync result feedback */}
-          {syncStatus === 'done' && syncCount !== null && (
+          {syncStatus === 'done' && syncResult !== null && (
             <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#47b86e22', color: '#47b86e', border: '1px solid #47b86e44' }}>
-              {syncCount === 0 ? 'הכל מעודכן ✓' : `סונכרנו ${syncCount} פגישות ✓`}
+              {syncResult.created === 0 && syncResult.updated === 0 && syncResult.deleted === 0
+                ? 'הכל מעודכן ✓'
+                : [
+                    syncResult.created > 0 && `${syncResult.created} חדשות`,
+                    syncResult.updated > 0 && `${syncResult.updated} עודכנו`,
+                    syncResult.deleted > 0 && `${syncResult.deleted} הוסרו`,
+                  ].filter(Boolean).join(', ') + ' ✓'}
             </span>
           )}
 
