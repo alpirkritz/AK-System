@@ -36,7 +36,7 @@ export default function CalendarSidebar({
   const appleCals = calendars.filter((c) => c.source === 'apple')
 
   return (
-    <div className="w-56 shrink-0 border-r border-[#1a1a1a] bg-[#070707] flex flex-col overflow-hidden">
+    <div className="w-56 shrink-0 border-r border-[#1a1a1a] bg-[#070707] hidden md:flex flex-col overflow-hidden">
       {/* Mini calendar for quick navigation */}
       <MiniCalendar
         month={miniMonth}

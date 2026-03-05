@@ -18,14 +18,36 @@ import EventDetailPanel from './components/EventDetailPanel'
 import SkeletonGrid from './components/SkeletonGrid'
 import NotConnectedBanner from './components/NotConnectedBanner'
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
+}
+
 export default function CalendarPage() {
   const today = new Date()
+  const isMobile = useIsMobile()
   const [view, setView] = useState<View>('week')
   const [currentDay, setCurrentDay] = useState(() => new Date(today))
   const [weekStart, setWeekStart] = useState(() => startOfWeek(today))
   const [monthDate, setMonthDate] = useState(
     () => new Date(today.getFullYear(), today.getMonth(), 1),
   )
+  // On mobile, default to day view for better usability
+  const initialViewSet = useRef(false)
+  useEffect(() => {
+    if (!initialViewSet.current && isMobile) {
+      setView('day')
+      initialViewSet.current = true
+    }
+  }, [isMobile])
+
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string> | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'done'>('idle')
@@ -190,7 +212,7 @@ export default function CalendarPage() {
 
   // ── Render ────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[calc(100vh-2rem)] -m-8 overflow-hidden">
+    <div className="flex flex-col h-[calc(100dvh-2rem)] -m-4 md:-m-6 lg:-m-8 overflow-hidden">
       <CalendarHeader
         view={view}
         headerLabel={headerLabel}

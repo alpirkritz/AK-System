@@ -1,60 +1,106 @@
 'use client'
 
-import { useState } from 'react'
-import { trpc } from '@/lib/trpc'
 import dynamic from 'next/dynamic'
-const PersonModal = dynamic(() => import('@/components/Modals/PersonModal').then((m) => m.PersonModal), { ssr: false })
+import { usePeopleState } from '@/components/people/usePeopleState'
+import { PeopleTopBar } from '@/components/people/PeopleTopBar'
+import { PeopleFilterBar } from '@/components/people/PeopleFilterBar'
+import { PeopleTable } from '@/components/people/PeopleTable'
+import { PeopleCardGrid } from '@/components/people/PeopleCardGrid'
+import { BulkActionsToolbar } from '@/components/people/BulkActionsToolbar'
+
+const PersonDetailDrawer = dynamic(
+  () => import('@/components/people/PersonDetailDrawer').then(m => m.PersonDetailDrawer),
+  { ssr: false }
+)
+const PersonModal = dynamic(
+  () => import('@/components/Modals/PersonModal').then(m => m.PersonModal),
+  { ssr: false }
+)
 
 export default function PeoplePage() {
-  const { data: people = [] } = trpc.people.list.useQuery()
-  const { data: meetings = [] } = trpc.meetings.list.useQuery()
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const state = usePeopleState()
 
-  const meetingsWithPeople = meetings as Array<{ id: string; peopleIds?: string[] }>
+  const items = state.data?.items ?? []
+  const total = state.data?.total ?? 0
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-7">
-        <h1 className="text-2xl font-bold tracking-tight">אנשים</h1>
-        <button className="btn btn-primary" onClick={() => { setEditingId(null); setModalOpen(true); }}>
-          + הוסף איש קשר
-        </button>
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        {people.map((p) => {
-          const theirMeetings = meetingsWithPeople.filter((m) => (m.peopleIds ?? []).includes(p.id))
-          return (
-            <div
-              key={p.id}
-              className="card cursor-pointer"
-              onClick={() => { setEditingId(p.id); setModalOpen(true); }}
-            >
-              <div className="flex gap-3 items-center mb-3.5">
-                <div
-                  className="avatar w-11 h-11 text-lg border-2"
-                  style={{
-                    background: (p.color ?? '#e8c547') + '22',
-                    color: p.color ?? '#e8c547',
-                    borderColor: (p.color ?? '#e8c547') + '33',
-                  }}
-                >
-                  {p.name[0]}
-                </div>
-                <div>
-                  <div className="font-semibold text-[15px]">{p.name}</div>
-                  <div className="text-xs text-[#666]">{p.role}</div>
-                </div>
-              </div>
-              <div className="text-xs text-[#555] mb-2">{p.email}</div>
-              <div className="border-t border-[#1f1f1f] pt-2.5">
-                <span className="text-xs text-[#666]">◈ {theirMeetings.length} פגישות</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <PersonModal open={modalOpen} onClose={() => { setModalOpen(false); setEditingId(null); }} editingId={editingId} />
+      <PeopleTopBar
+        total={total}
+        search={state.filters.search}
+        onSearchChange={state.setSearch}
+        viewMode={state.viewMode}
+        onViewModeChange={state.setViewMode}
+        onAddPerson={() => state.setIsCreateOpen(true)}
+      />
+
+      <PeopleFilterBar
+        filters={state.filters}
+        onSetFilter={state.setFilter}
+        onClearFilters={state.clearFilters}
+        hasActiveFilters={state.hasActiveFilters}
+        filterOptions={state.filterOptions}
+      />
+
+      <BulkActionsToolbar
+        selectedIds={state.selectedIds}
+        onDeselectAll={state.deselectAll}
+        allTags={state.filterOptions?.tags ?? []}
+        onSuccess={() => state.refetch()}
+        allPeople={items}
+      />
+
+      {state.viewMode === 'table' ? (
+        <PeopleTable
+          items={items}
+          total={total}
+          page={state.page}
+          pageSize={50}
+          isLoading={state.isLoading}
+          isError={state.isError}
+          sortBy={state.sortBy}
+          sortDir={state.sortDir}
+          selectedIds={state.selectedIds}
+          hasActiveFilters={state.hasActiveFilters}
+          onToggleSort={state.toggleSort}
+          onToggleSelect={state.toggleSelect}
+          onSelectAll={state.selectAll}
+          onDeselectAll={state.deselectAll}
+          onOpenDrawer={state.setDrawerPersonId}
+          onPageChange={state.setPage}
+          onAddPerson={() => state.setIsCreateOpen(true)}
+          onClearFilters={state.clearFilters}
+          onRetry={() => state.refetch()}
+        />
+      ) : (
+        <PeopleCardGrid
+          items={items}
+          total={total}
+          page={state.page}
+          pageSize={50}
+          isLoading={state.isLoading}
+          isError={state.isError}
+          hasActiveFilters={state.hasActiveFilters}
+          onOpenDrawer={state.setDrawerPersonId}
+          onPageChange={state.setPage}
+          onAddPerson={() => state.setIsCreateOpen(true)}
+          onClearFilters={state.clearFilters}
+          onRetry={() => state.refetch()}
+        />
+      )}
+
+      {state.drawerPersonId && (
+        <PersonDetailDrawer
+          personId={state.drawerPersonId}
+          onClose={() => state.setDrawerPersonId(null)}
+        />
+      )}
+
+      <PersonModal
+        open={state.isCreateOpen}
+        onClose={() => state.setIsCreateOpen(false)}
+        editingId={null}
+      />
     </div>
   )
 }

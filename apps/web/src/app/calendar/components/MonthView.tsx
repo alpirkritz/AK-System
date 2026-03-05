@@ -52,7 +52,7 @@ export default function MonthView({ events, month, year, onEventClick, onDayClic
                   ? `${fmtFullDate(day.toISOString())} — ${dayEvents.length > 0 ? `${dayEvents.length} אירועים` : 'אין אירועים'}`
                   : undefined
               }
-              className={`min-h-[100px] border-b border-l border-[#141414] p-1.5 transition-colors
+              className={`min-h-[60px] md:min-h-[100px] border-b border-l border-[#141414] p-1 md:p-1.5 transition-colors
                 ${!day
                   ? 'bg-[#060606]'
                   : today

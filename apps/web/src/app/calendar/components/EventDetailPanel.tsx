@@ -80,9 +80,10 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
         aria-label="לחץ לסגירה"
       />
 
-      {/* Panel */}
+      {/* Panel — full-screen on phone, side panel on tablet+ */}
       <div
-        className="animate-slide-in-left absolute left-0 top-0 bottom-0 z-30 w-[340px] bg-[#0c0c0c] flex flex-col shadow-2xl"
+        className="animate-slide-in-left absolute z-30 bg-[#0c0c0c] flex flex-col shadow-2xl
+          inset-0 md:inset-y-0 md:left-0 md:right-auto md:w-[340px]"
         style={{ borderRight: '1px solid #1a1a1a' }}
         role="dialog"
         aria-label={event.title}

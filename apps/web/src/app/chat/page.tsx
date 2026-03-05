@@ -5,7 +5,7 @@ const ChatPanel = dynamic(() => import('@/components/ChatPanel').then((m) => m.C
 
 export default function ChatPage() {
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 4rem)' }}>
+    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">צ&apos;אט</h1>
       </div>

@@ -8,6 +8,7 @@ import { financeRouter } from './routers/finance'
 import { feedRouter } from './routers/feed'
 import { factsRouter } from './routers/facts'
 import { healthRouter } from './routers/health'
+import { pushRouter } from './routers/push'
 
 export type { Context } from './trpc'
 export { createContext } from './trpc'
@@ -22,6 +23,7 @@ export const appRouter = router({
   feed: feedRouter,
   facts: factsRouter,
   health: healthRouter,
+  push: pushRouter,
 })
 
 export type AppRouter = typeof appRouter

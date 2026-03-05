@@ -311,8 +311,8 @@ export default function FinancePage() {
               <h2 className="text-sm font-semibold text-[#888] mb-3 uppercase tracking-wider">
                 פוזיציות פתוחות
               </h2>
-              <div className="card p-0 overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="card p-0 overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm min-w-[600px]">
                   <thead>
                     <tr className="border-b border-[#222]">
                       {['סימבול', 'כמות', 'עלות ממוצעת', 'עלות כוללת', 'קנייה סה"כ', 'מכירה סה"כ'].map((h) => (
@@ -353,8 +353,8 @@ export default function FinancePage() {
                 <div className="text-xs text-[#444] mt-1">לחץ על "ייבוא" כדי לסנכרן מיילי IBKR</div>
               </div>
             ) : (
-              <div className="card p-0 overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="card p-0 overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
                   <thead>
                     <tr className="border-b border-[#222]">
                       {['תאריך', 'סימבול', 'פעולה', 'כמות', 'מחיר', 'עמלה', 'מ\''].map((h) => (
@@ -434,8 +434,8 @@ export default function FinancePage() {
               <div className="text-xs text-[#444] mt-1">ייבא CSV מהבנק או הוסף ידנית בלשונית "ייבוא"</div>
             </div>
           ) : (
-            <div className="card p-0 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="card p-0 overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead>
                   <tr className="border-b border-[#222]">
                     {['תאריך', 'תיאור', 'קטגוריה', 'סכום', 'מ\'', 'מקור'].map((h) => (
@@ -669,7 +669,7 @@ export default function FinancePage() {
           <div className="card">
             <h2 className="font-semibold mb-4">הוספה ידנית</h2>
             <form onSubmit={handleManualSubmit} className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">סכום</label>
                   <input

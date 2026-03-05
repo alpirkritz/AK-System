@@ -119,7 +119,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       {/* ── Header ──────────────────────────────────────────────── */}
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-[#f0ede6]">דשבורד</h1>
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-[#f0ede6]">דשבורד</h1>
         <p className="text-sm text-[#888] mt-1">
           {new Date().toLocaleDateString('he-IL', {
             weekday: 'long',
@@ -131,7 +131,7 @@ export default function DashboardPage() {
 
       {/* ── KPI Strip (static — NOT clickable) ──────────────────── */}
       <section aria-label="סיכום מהיר">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {/* Calendar meetings KPI */}
           <div className="card">
             <div className="flex items-start justify-between mb-2">
@@ -182,7 +182,7 @@ export default function DashboardPage() {
 
       {/* ── Quick Actions ───────────────────────────────────────── */}
       <section aria-label="פעולות מהירות">
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Link
             href="/meetings"
             className="btn btn-primary flex items-center gap-2 no-underline min-h-[40px]"
@@ -211,7 +211,7 @@ export default function DashboardPage() {
       <ConflictsWidget />
 
       {/* ── Content Grid ────────────────────────────────────────── */}
-      <div className="grid grid-cols-[1.2fr_1fr] gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-[1.2fr_1fr] gap-4 md:gap-6">
         {/* Upcoming Meetings */}
         <section aria-label="פגישות קרובות">
           <div className="flex items-center justify-between mb-4">

@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const path = require('path')
 const os = require('os')
+const withSerwist = require('@serwist/next').default({
+  swSrc: 'src/sw.ts',
+  swDest: 'public/sw.js',
+  cacheOnNavigation: true,
+  reloadOnOnline: true,
+  disable: process.env.NODE_ENV === 'development',
+})
 
 // Local paths for build cache – Google Drive does not support inode
 // snapshots so webpack's PackFileCacheStrategy keeps failing there.
@@ -75,4 +82,4 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+module.exports = withSerwist(nextConfig)

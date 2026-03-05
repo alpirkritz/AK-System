@@ -24,6 +24,19 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN category TEXT',
 ]
 
+const PEOPLE_COLUMNS = [
+  'ALTER TABLE people ADD COLUMN phone TEXT',
+  'ALTER TABLE people ADD COLUMN company TEXT',
+  'ALTER TABLE people ADD COLUMN job_title TEXT',
+  'ALTER TABLE people ADD COLUMN linkedin TEXT',
+  'ALTER TABLE people ADD COLUMN tags TEXT',
+  'ALTER TABLE people ADD COLUMN expert_in TEXT',
+  'ALTER TABLE people ADD COLUMN last_contact TEXT',
+  'ALTER TABLE people ADD COLUMN goal TEXT',
+  'ALTER TABLE people ADD COLUMN contact_frequency_days INTEGER',
+  'ALTER TABLE people ADD COLUMN notes TEXT',
+]
+
 const FEED_TABLES = [
   `CREATE TABLE IF NOT EXISTS feed_sources (
     id TEXT PRIMARY KEY,
@@ -100,6 +113,16 @@ const FINANCE_TABLES = [
   )`,
 ]
 
+const PUSH_SUBSCRIPTIONS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+]
+
 export function getDb() {
   const dbPath = getDbPath()
   const dir = path.dirname(dbPath)
@@ -107,6 +130,9 @@ export function getDb() {
   const sqlite = new Database(dbPath)
   // idempotent column migrations — SQLite throws if column already exists, which we ignore
   for (const sql of CALENDAR_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of PEOPLE_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   // create feed tables if they don't exist
@@ -124,6 +150,10 @@ export function getDb() {
   }
   // create finance tables if they don't exist
   for (const sql of FINANCE_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  // create push subscriptions table
+  for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   return drizzle(sqlite, { schema })

@@ -200,14 +200,14 @@ export default function UpdatesPage() {
             הוסף או הסר מקורות RSS. אחרי שינוי הרץ &quot;סנכרן מקורות&quot; בטאב פיד.
           </p>
           <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-            <div className="card p-0 overflow-hidden">
+            <div className="card p-0 overflow-hidden overflow-x-auto">
               <div className="text-xs font-semibold text-[#666] uppercase tracking-wider px-4 py-3 border-b border-[#1a1a1a]">
                 מקורות קיימים ({sources.length})
               </div>
               {sources.length === 0 ? (
                 <div className="px-4 py-8 text-sm text-[#555] text-center">אין מקורות. הוסף מקור בטופס.</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-sm min-w-[500px]">
                   <thead>
                     <tr className="border-b border-[#222]">
                       <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">שם</th>

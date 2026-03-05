@@ -6,6 +6,16 @@ export const people = sqliteTable('people', {
   role: text('role'),
   email: text('email'),
   color: text('color').default('#e8c547'),
+  phone: text('phone'),
+  company: text('company'),
+  jobTitle: text('job_title'),
+  linkedin: text('linkedin'),
+  tags: text('tags'),
+  expertIn: text('expert_in'),
+  lastContact: text('last_contact'),
+  goal: text('goal'),
+  contactFrequencyDays: integer('contact_frequency_days'),
+  notes: text('notes'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
@@ -169,6 +179,21 @@ export const healthMetrics = sqliteTable('health_metrics', {
 
 export type HealthMetric = typeof healthMetrics.$inferSelect
 export type NewHealthMetric = typeof healthMetrics.$inferInsert
+
+// ─── Push subscriptions (Web Push API) ──────────────────────────────────────
+
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  endpointIdx: uniqueIndex('idx_push_subscriptions_endpoint').on(table.endpoint),
+}))
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert
 
 export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
