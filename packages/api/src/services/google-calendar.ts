@@ -308,6 +308,13 @@ export function isGoogleCalendarConfigured(): boolean {
   return isConfigured()
 }
 
+/** Clears token and connection cache so the next fetch uses fresh credentials and pulls full data from Google. */
+export function invalidateGoogleCalendarCache(): void {
+  cachedToken = null
+  connectionSource = null
+  supabaseConnection = null
+}
+
 /** דוחה אירוע ביומן גוגל (מעדכן תגובת המשתמש ל-declined) */
 export async function declineGoogleEvent(eventId: string, calendarId: string): Promise<void> {
   const accessToken = await getValidAccessToken()

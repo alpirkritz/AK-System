@@ -203,6 +203,9 @@ const ConflictCard = memo(function ConflictCard({
   )
 })
 
+const DEFAULT_DAYS = 2   // today + tomorrow (compact)
+const EXPANDED_DAYS = 7  // rest of week
+
 export function ConflictsWidget() {
   const [enabled, setEnabled]               = useState(true)
   const [days, setDays]                     = useState(14)
@@ -210,6 +213,7 @@ export function ConflictsWidget() {
   const [dismissed, setDismissed]           = useState<Set<string>>(new Set())
   const [decliningId, setDecliningId]       = useState<string | null>(null)
   const [hydrated, setHydrated]             = useState(false)
+  const [expandedWeek, setExpandedWeek]     = useState(false)
 
   useEffect(() => {
     try {
@@ -225,8 +229,9 @@ export function ConflictsWidget() {
     setHydrated(true)
   }, [])
 
+  const effectiveDays = expandedWeek ? EXPANDED_DAYS : DEFAULT_DAYS
   const startDate = isoDateStr(new Date())
-  const endDate   = isoDateStr(new Date(Date.now() + days * 86400000))
+  const endDate   = isoDateStr(new Date(Date.now() + effectiveDays * 86400000))
 
   const {
     data: rawConflicts = [],
@@ -284,7 +289,15 @@ export function ConflictsWidget() {
           </span>
         )}
         <div className="flex-1" />
-        <span className="text-xs text-[#444]">{days} יום קדימה</span>
+        <button
+          type="button"
+          onClick={() => setExpandedWeek((v) => !v)}
+          className="text-xs text-[#666] hover:text-[#999] transition-colors py-1 px-2 rounded"
+          aria-expanded={expandedWeek}
+          aria-label={expandedWeek ? 'צמצם להיום ומחר' : 'הרחב להמשך השבוע'}
+        >
+          {expandedWeek ? '7 ימים · צמצם' : 'היום ומחר · הרחב'}
+        </button>
         <Link
           href="/settings"
           className="text-[#444] hover:text-[#888] transition-colors p-1.5 rounded-lg"
@@ -297,12 +310,15 @@ export function ConflictsWidget() {
       {count === 0 && (
         <div className="card py-3 px-4 text-sm text-[#555] flex items-center gap-2">
           <span className="text-[#47b86e] text-base">✓</span>
-          אין התנגשויות ב-{days} הימים הקרובים
+          אין התנגשויות {effectiveDays === 2 ? 'היום ומחר' : `ב-${effectiveDays} הימים הקרובים`}
         </div>
       )}
 
       {count > 0 && (
-        <div>
+        <div
+          className="max-h-[280px] overflow-y-auto overflow-x-hidden overscroll-y-contain"
+          style={{ scrollbarWidth: 'thin' }}
+        >
           {visibleConflicts.map((c) => (
             <ConflictCard
               key={conflictKey(c.eventA.id, c.eventB.id)}

@@ -5,6 +5,7 @@ import { eq, inArray, and, isNotNull } from 'drizzle-orm'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
+  invalidateGoogleCalendarCache,
   type GoogleCalendarEvent,
 } from '../services/google-calendar'
 import {
@@ -158,8 +159,9 @@ export const meetingsRouter = router({
       const start = new Date(input.startDate)
       const end = new Date(input.endDate)
 
-      // Invalidate Apple Calendar cache so we get fresh data (not stale 20-min cache)
+      // Invalidate both caches so we get full fresh data (no stale cache / token)
       invalidateAppleCalendarCache()
+      invalidateGoogleCalendarCache()
 
       // Fetch from all available sources in parallel
       const googleConfigured = isGoogleCalendarConfigured()
