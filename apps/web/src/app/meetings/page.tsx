@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { DAYS_HE } from '@ak-system/types'
-import { MeetingModal } from '@/components/Modals/MeetingModal'
+import dynamic from 'next/dynamic'
+const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 import { LS } from '@/lib/ls-keys'
 
 type MeetingRow = {
@@ -171,7 +172,8 @@ export default function MeetingsPage() {
 
   const [pastExpanded, setPastExpanded] = useState(false)
 
-  const getPerson = (id: string) => people.find((p) => p.id === id)
+  const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
+  const getPerson = (id: string) => peopleMap.get(id)
   const meetingsWithIds = meetings as MeetingRow[]
 
   const { upcomingMeetings, pastMeetings } = useMemo(() => {

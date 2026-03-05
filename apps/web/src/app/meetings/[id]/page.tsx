@@ -5,8 +5,9 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
-import { MeetingModal } from '@/components/Modals/MeetingModal'
-import { TaskModal } from '@/components/Modals/TaskModal'
+import dynamic from 'next/dynamic'
+const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
+const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
 export default function MeetingDetailPage() {
   const params = useParams()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { trpc } from '@/lib/trpc'
 
 type Tab = 'portfolio' | 'cashflow' | 'import'
@@ -29,7 +29,7 @@ function fmtDate(iso: string): string {
   }
 }
 
-function SummaryCard({
+const SummaryCard = memo(function SummaryCard({
   icon, label, value, sub, color,
 }: {
   icon: string
@@ -50,7 +50,7 @@ function SummaryCard({
       {sub && <div className="text-xs text-[#555]">{sub}</div>}
     </div>
   )
-}
+})
 
 export default function FinancePage() {
   const [tab, setTab] = useState<Tab>('portfolio')
@@ -214,12 +214,13 @@ export default function FinancePage() {
     })
   }
 
-  // Group trades by symbol for portfolio view
-  const symbolGroups = trades.reduce<Record<string, typeof trades>>((acc, t) => {
-    if (!acc[t.symbol]) acc[t.symbol] = []
-    acc[t.symbol].push(t)
-    return acc
-  }, {})
+  const symbolGroups = useMemo(() =>
+    trades.reduce<Record<string, typeof trades>>((acc, t) => {
+      if (!acc[t.symbol]) acc[t.symbol] = []
+      acc[t.symbol].push(t)
+      return acc
+    }, {}),
+  [trades])
 
   const openPositions = summary?.openPositions ?? []
 

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { feedItems, feedSources } from '@ak-system/database'
-import { eq, desc, isNull } from 'drizzle-orm'
+import { eq, desc, isNull, inArray } from 'drizzle-orm'
 import { fetchRssFeed, DEFAULT_FEED_SOURCES } from '../services/feed-fetcher'
 import { summarizeWithGemini } from '../services/feed-summarizer'
 
@@ -119,33 +119,35 @@ export const feedRouter = router({
   sync: publicProcedure.mutation(async ({ ctx }) => {
     const now = new Date().toISOString()
     let sourcesInserted = 0
+
+    const existingSourceIds = new Set(
+      (await ctx.db.select({ id: feedSources.id }).from(feedSources)).map((r) => r.id)
+    )
     for (const src of DEFAULT_FEED_SOURCES) {
-      const [existing] = await ctx.db.select().from(feedSources).where(eq(feedSources.id, src.id)).limit(1)
-      if (!existing) {
-        await ctx.db.insert(feedSources).values({
-          id: src.id,
-          name: src.name,
-          url: src.url,
-          category: src.category,
-          createdAt: now,
-        })
-        sourcesInserted++
-      }
+      if (existingSourceIds.has(src.id)) continue
+      await ctx.db.insert(feedSources).values({
+        id: src.id,
+        name: src.name,
+        url: src.url,
+        category: src.category,
+        createdAt: now,
+      })
+      sourcesInserted++
     }
 
     let itemsInserted = 0
     const sources = await ctx.db.select().from(feedSources)
+
+    // Pre-load all existing links for fast deduplication
+    const existingLinks = new Set(
+      (await ctx.db.select({ link: feedItems.link }).from(feedItems)).map((r) => r.link)
+    )
+
     for (const source of sources) {
       try {
         const items = await fetchRssFeed(source.url)
         for (const item of items.slice(0, 30)) {
-          // מניעת כפילויות: אותו קישור לא ייכנס פעמיים (גם ממקורות שונים)
-          const [existing] = await ctx.db
-            .select({ id: feedItems.id })
-            .from(feedItems)
-            .where(eq(feedItems.link, item.link))
-            .limit(1)
-          if (existing) continue
+          if (existingLinks.has(item.link)) continue
           await ctx.db.insert(feedItems).values({
             id: genId(),
             sourceId: source.id,
@@ -156,6 +158,7 @@ export const feedRouter = router({
             tags: null,
             createdAt: now,
           })
+          existingLinks.add(item.link)
           itemsInserted++
         }
       } catch (err) {

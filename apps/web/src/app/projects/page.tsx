@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
-import { ProjectModal } from '@/components/Modals/ProjectModal'
+import dynamic from 'next/dynamic'
+const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 
 export default function ProjectsPage() {
   const { data: projects = [] } = trpc.projects.list.useQuery()

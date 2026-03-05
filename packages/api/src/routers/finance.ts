@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { financeTrades, financeTransactions } from '@ak-system/database'
-import { eq, desc, gte, and, like } from 'drizzle-orm'
+import { eq, desc, gte, and, like, sql, count, sum } from 'drizzle-orm'
 import { fetchIBKRTrades, listIBKREmails } from '../services/ibkr-parser'
 import { parseCSV } from '../services/csv-parser'
 import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
@@ -40,21 +40,21 @@ export const financeRouter = router({
       let inserted = 0
       let skipped = 0
 
-      for (const trade of trades) {
-        // Deduplicate by rawEmailId + symbol + direction + quantity + price
-        const existing = await ctx.db
-          .select({ id: financeTrades.id })
-          .from(financeTrades)
-          .where(
-            and(
-              eq(financeTrades.rawEmailId, trade.rawEmailId),
-              eq(financeTrades.symbol, trade.symbol),
-              eq(financeTrades.direction, trade.direction)
-            )
-          )
-          .limit(1)
+      // Pre-load existing trades for deduplication (rawEmailId|symbol|direction as key)
+      const existingRows = await ctx.db
+        .select({
+          rawEmailId: financeTrades.rawEmailId,
+          symbol: financeTrades.symbol,
+          direction: financeTrades.direction,
+        })
+        .from(financeTrades)
+      const existingKeys = new Set(
+        existingRows.map((r) => `${r.rawEmailId}|${r.symbol}|${r.direction}`)
+      )
 
-        if (existing.length > 0) {
+      for (const trade of trades) {
+        const key = `${trade.rawEmailId}|${trade.symbol}|${trade.direction}`
+        if (existingKeys.has(key)) {
           skipped++
           continue
         }
@@ -74,6 +74,7 @@ export const financeRouter = router({
           description: trade.description ?? null,
           createdAt: new Date().toISOString(),
         })
+        existingKeys.add(key)
         inserted++
       }
 
@@ -253,34 +254,49 @@ export const financeRouter = router({
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-    const [allTrades, monthTrades, allTxns, monthTxns] = await Promise.all([
-      ctx.db.select().from(financeTrades).orderBy(desc(financeTrades.tradeDate)),
+    const [
+      [tradeCountAll],
+      [tradeCountMonth],
+      [txnCountAll],
+      monthlyAgg,
+      trades,
+    ] = await Promise.all([
+      ctx.db.select({ value: count() }).from(financeTrades),
+      ctx.db.select({ value: count() }).from(financeTrades).where(gte(financeTrades.tradeDate, monthStart)),
+      ctx.db.select({ value: count() }).from(financeTransactions),
       ctx.db
-        .select()
-        .from(financeTrades)
-        .where(gte(financeTrades.tradeDate, monthStart)),
-      ctx.db.select().from(financeTransactions).orderBy(desc(financeTransactions.transactionDate)),
-      ctx.db
-        .select()
+        .select({
+          direction: financeTransactions.direction,
+          total: sql<string>`COALESCE(SUM(CAST(${financeTransactions.amount} AS REAL)), 0)`,
+        })
         .from(financeTransactions)
-        .where(gte(financeTransactions.transactionDate, monthStart)),
+        .where(gte(financeTransactions.transactionDate, monthStart))
+        .groupBy(financeTransactions.direction),
+      ctx.db
+        .select({
+          symbol: financeTrades.symbol,
+          direction: financeTrades.direction,
+          quantity: financeTrades.quantity,
+          price: financeTrades.price,
+        })
+        .from(financeTrades)
+        .orderBy(desc(financeTrades.tradeDate)),
     ])
 
-    const monthlyExpenses = monthTxns
-      .filter((t) => t.direction === 'expense')
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0)
+    let monthlyExpenses = 0
+    let monthlyIncome = 0
+    for (const row of monthlyAgg) {
+      const val = parseFloat(String(row.total))
+      if (row.direction === 'expense') monthlyExpenses = val
+      else if (row.direction === 'income') monthlyIncome = val
+    }
 
-    const monthlyIncome = monthTxns
-      .filter((t) => t.direction === 'income')
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0)
-
-    // Group trades by symbol to compute simplified P&L
     const positions: Record<
       string,
       { symbol: string; totalBought: number; totalSold: number; sharesOwned: number; avgCost: number }
     > = {}
 
-    for (const trade of allTrades) {
+    for (const trade of trades) {
       const sym = trade.symbol
       if (!positions[sym]) {
         positions[sym] = { symbol: sym, totalBought: 0, totalSold: 0, sharesOwned: 0, avgCost: 0 }
@@ -304,19 +320,19 @@ export const financeRouter = router({
 
     const openPositions = Object.values(positions).filter((p) => p.sharesOwned > 0)
     const realizedPnl = Object.values(positions).reduce(
-      (sum, p) => sum + (p.totalSold - p.totalBought),
+      (s, p) => s + (p.totalSold - p.totalBought),
       0
     )
 
     return {
-      tradesThisMonth: monthTrades.length,
-      totalTradesAllTime: allTrades.length,
+      tradesThisMonth: tradeCountMonth?.value ?? 0,
+      totalTradesAllTime: tradeCountAll?.value ?? 0,
       monthlyExpenses,
       monthlyIncome,
       monthlyNet: monthlyIncome - monthlyExpenses,
       openPositions,
       realizedPnl,
-      totalTransactions: allTxns.length,
+      totalTransactions: txnCountAll?.value ?? 0,
     }
   }),
 })

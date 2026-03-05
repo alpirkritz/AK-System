@@ -1,6 +1,7 @@
 'use client'
 
-import { ChatPanel } from '@/components/ChatPanel'
+import dynamic from 'next/dynamic'
+const ChatPanel = dynamic(() => import('@/components/ChatPanel').then((m) => m.ChatPanel), { ssr: false })
 
 export default function ChatPage() {
   return (

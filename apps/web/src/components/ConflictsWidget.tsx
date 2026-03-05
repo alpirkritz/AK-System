@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 
@@ -87,7 +87,7 @@ const SVG_SETTINGS = (
   </svg>
 )
 
-function ConflictCard({
+const ConflictCard = memo(function ConflictCard({
   conflict,
   onDismiss,
   onDecline,
@@ -201,7 +201,7 @@ function ConflictCard({
       </div>
     </div>
   )
-}
+})
 
 export function ConflictsWidget() {
   const [enabled, setEnabled]               = useState(true)

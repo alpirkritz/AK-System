@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { trpc } from '@/lib/trpc'
-import { PersonModal } from '@/components/Modals/PersonModal'
+import dynamic from 'next/dynamic'
+const PersonModal = dynamic(() => import('@/components/Modals/PersonModal').then((m) => m.PersonModal), { ssr: false })
 
 export default function PeoplePage() {
   const { data: people = [] } = trpc.people.list.useQuery()

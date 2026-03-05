@@ -34,25 +34,42 @@ const idInput = z.object({ id: z.string().min(1) })
 export const meetingsRouter = router({
   list: publicProcedure.query(async ({ ctx }) => {
     const list = await ctx.db.select().from(meetings).orderBy(meetings.date)
-    const withPeople = await Promise.all(
-      list.map(async (m) => {
-        const links = await ctx.db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, m.id))
-        const taskList = await ctx.db.select().from(tasks).where(eq(tasks.meetingId, m.id))
-        return {
-          ...m,
-          peopleIds: links.map((l) => l.personId),
-          taskIds: taskList.map((t) => t.id),
-        }
-      })
-    )
-    return withPeople
+    if (list.length === 0) return []
+
+    const ids = list.map((m) => m.id)
+    const [allLinks, allTasks] = await Promise.all([
+      ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, ids)),
+      ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
+    ])
+
+    const peopleByMeeting = new Map<string, string[]>()
+    for (const link of allLinks) {
+      const arr = peopleByMeeting.get(link.meetingId) ?? []
+      arr.push(link.personId)
+      peopleByMeeting.set(link.meetingId, arr)
+    }
+    const tasksByMeeting = new Map<string, string[]>()
+    for (const t of allTasks) {
+      if (!t.meetingId) continue
+      const arr = tasksByMeeting.get(t.meetingId) ?? []
+      arr.push(t.id)
+      tasksByMeeting.set(t.meetingId, arr)
+    }
+
+    return list.map((m) => ({
+      ...m,
+      peopleIds: peopleByMeeting.get(m.id) ?? [],
+      taskIds: tasksByMeeting.get(m.id) ?? [],
+    }))
   }),
 
   getById: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
-    const [meeting] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.id))
+    const [[meeting], links, taskList] = await Promise.all([
+      ctx.db.select().from(meetings).where(eq(meetings.id, input.id)),
+      ctx.db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, input.id)),
+      ctx.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.meetingId, input.id)),
+    ])
     if (!meeting) return null
-    const links = await ctx.db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, input.id))
-    const taskList = await ctx.db.select().from(tasks).where(eq(tasks.meetingId, input.id))
     return {
       ...meeting,
       peopleIds: links.map((l) => l.personId),
@@ -231,6 +248,24 @@ export const meetingsRouter = router({
         deleted++
       }
 
+      // Pre-load all people for attendee matching (avoids N+1 per-attendee lookups)
+      const allAttendeeEmails: string[] = []
+      for (const ev of allEvents) {
+        if ('attendees' in ev && Array.isArray(ev.attendees)) {
+          for (const a of ev.attendees) {
+            if (a.email && !a.self) allAttendeeEmails.push(a.email)
+          }
+        }
+      }
+      const peopleByEmail = new Map<string, { id: string }>()
+      if (allAttendeeEmails.length > 0) {
+        const uniqueEmails = [...new Set(allAttendeeEmails)]
+        const existingPeople = await ctx.db.select({ id: people.id, email: people.email }).from(people).where(inArray(people.email, uniqueEmails))
+        for (const p of existingPeople) {
+          if (p.email) peopleByEmail.set(p.email, p)
+        }
+      }
+
       // ── UPDATE existing + INSERT new ──
       for (const ev of allEvents) {
         const startDate = ev.start.split('T')[0]
@@ -273,13 +308,11 @@ export const meetingsRouter = router({
           updatedAt: now,
         })
 
-        // Map attendees (Google only — Apple has no structured attendee list)
         if (source === 'google' && 'attendees' in ev && Array.isArray(ev.attendees)) {
           for (const attendee of ev.attendees) {
             if (!attendee.email || attendee.self) continue
 
-            const [existingPerson] = await ctx.db.select().from(people).where(eq(people.email, attendee.email))
-            let personId = existingPerson?.id
+            let personId = peopleByEmail.get(attendee.email)?.id
 
             if (!personId) {
               personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
@@ -291,6 +324,7 @@ export const meetingsRouter = router({
                 color: '#e8c547',
                 createdAt: now,
               })
+              peopleByEmail.set(attendee.email, { id: personId })
             }
 
             await ctx.db.insert(meetingPeople).values({ meetingId: id, personId })

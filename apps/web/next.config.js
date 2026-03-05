@@ -69,7 +69,7 @@ const nextConfig = {
     config.watchOptions = {
       ...config.watchOptions,
       ignored: ['**/node_modules'],
-      poll: 3000,
+      poll: 1000,
     }
     return config
   },

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const people = sqliteTable('people', {
   id: text('id').primaryKey(),
@@ -7,7 +7,9 @@ export const people = sqliteTable('people', {
   email: text('email'),
   color: text('color').default('#e8c547'),
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  emailIdx: index('idx_people_email').on(table.email),
+}))
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -38,12 +40,19 @@ export const meetings = sqliteTable('meetings', {
   calendarSource: text('calendar_source'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  dateIdx: index('idx_meetings_date').on(table.date),
+  projectIdIdx: index('idx_meetings_project_id').on(table.projectId),
+  calendarEventIdIdx: index('idx_meetings_calendar_event_id').on(table.calendarEventId),
+}))
 
 export const meetingPeople = sqliteTable('meeting_people', {
   meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
   personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
-})
+}, (table) => ({
+  meetingIdIdx: index('idx_meeting_people_meeting_id').on(table.meetingId),
+  personIdIdx: index('idx_meeting_people_person_id').on(table.personId),
+}))
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
@@ -56,7 +65,11 @@ export const tasks = sqliteTable('tasks', {
   priority: text('priority').notNull().default('medium'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  meetingIdIdx: index('idx_tasks_meeting_id').on(table.meetingId),
+  projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
+  assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
+}))
 
 export const financeTrades = sqliteTable('finance_trades', {
   id: text('id').primaryKey(),
@@ -71,7 +84,11 @@ export const financeTrades = sqliteTable('finance_trades', {
   rawEmailId: text('raw_email_id'),
   description: text('description'),
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  tradeDateIdx: index('idx_finance_trades_trade_date').on(table.tradeDate),
+  rawEmailIdIdx: index('idx_finance_trades_raw_email_id').on(table.rawEmailId),
+  symbolIdx: index('idx_finance_trades_symbol').on(table.symbol),
+}))
 
 export const financeTransactions = sqliteTable('finance_transactions', {
   id: text('id').primaryKey(),
@@ -84,7 +101,10 @@ export const financeTransactions = sqliteTable('finance_transactions', {
   source: text('source').notNull(), // 'csv_import' | 'manual'
   rawData: text('raw_data'),
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  transactionDateIdx: index('idx_finance_transactions_date').on(table.transactionDate),
+  directionIdx: index('idx_finance_transactions_direction').on(table.direction),
+}))
 
 // ─── Feed (עדכוני כלכלה וחדשות) ───────────────────────────────────────────
 
@@ -105,7 +125,11 @@ export const feedItems = sqliteTable('feed_items', {
   publishedAt: text('published_at').notNull(),
   tags: text('tags'), // JSON array of strings, e.g. ["us_market","ai"]
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  sourceIdIdx: index('idx_feed_items_source_id').on(table.sourceId),
+  linkIdx: uniqueIndex('idx_feed_items_link').on(table.link),
+  publishedAtIdx: index('idx_feed_items_published_at').on(table.publishedAt),
+}))
 
 // ─── Facts (knowledge base / memory for conversation engine) ───────────────────
 

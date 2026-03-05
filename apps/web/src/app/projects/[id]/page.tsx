@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
-import { ProjectModal } from '@/components/Modals/ProjectModal'
-import { TaskModal } from '@/components/Modals/TaskModal'
+import dynamic from 'next/dynamic'
+const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
+const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
 export default function ProjectDetailPage() {
   const params = useParams()

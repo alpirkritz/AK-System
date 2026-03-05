@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS, DAYS_HE } from '@ak-system/types'
-import { ConflictsWidget } from '@/components/ConflictsWidget'
-import { FeedWidget } from '@/components/FeedWidget'
+import dynamic from 'next/dynamic'
+const ConflictsWidget = dynamic(() => import('@/components/ConflictsWidget').then((m) => m.ConflictsWidget), { ssr: false })
+const FeedWidget = dynamic(() => import('@/components/FeedWidget').then((m) => m.FeedWidget))
 import { LS } from '@/lib/ls-keys'
 
 function isoDate(d: Date) {
@@ -78,36 +79,41 @@ export default function DashboardPage() {
     onSuccess: () => utils.tasks.list.invalidate(),
   })
 
-  const getPerson = (id: string) => people.find((p) => p.id === id)
-  const openTasks = tasksList.filter((t) => !t.done)
-  const recurringMeetings = meetings.filter((m) => m.recurring)
-  const sortedMeetings = [...meetings]
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  const futureMeetings = sortedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone))
+  const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
+  const getPerson = (id: string) => peopleMap.get(id)
+  const openTasks = useMemo(() => tasksList.filter((t) => !t.done), [tasksList])
+  const recurringMeetings = useMemo(() => meetings.filter((m) => m.recurring), [meetings])
+  const { sortedMeetings, futureMeetings } = useMemo(() => {
+    const sorted = [...meetings].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const future = sorted.filter((m) => !isPastMeeting(m.date, m.time, timezone))
+    return { sortedMeetings: sorted, futureMeetings: future }
+  }, [meetings, timezone])
   const pastCount = sortedMeetings.length - futureMeetings.length
   const upcomingMeetings = (showPast ? sortedMeetings : futureMeetings).slice(0, upcomingCount)
 
-  const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const rangeEnd =
-    calRange === 'today'
-      ? new Date(todayStart.getTime() + 86400000)
-      : new Date(todayStart.getTime() + 7 * 86400000)
+  const calMeetingCount = useMemo(() => {
+    const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const rangeEnd =
+      calRange === 'today'
+        ? new Date(todayStart.getTime() + 86400000)
+        : new Date(todayStart.getTime() + 7 * 86400000)
 
-  const calMeetingCount = calEvents.filter((ev: any) => {
-    if (ev.isAllDay) return false
-    if (ev.status === 'cancelled') return false
-    if (ev.rsvp === 'declined') return false
-    const duration = new Date(ev.end).getTime() - new Date(ev.start).getTime()
-    if (duration >= EIGHT_HOURS_MS) return false
-    const start = new Date(ev.start)
-    if (start < todayStart || start >= rangeEnd) return false
-    if (selectedCalIds && selectedCalIds.length > 0) {
-      return ev.calendarId != null && selectedCalIds.includes(ev.calendarId)
-    }
-    return true
-  }).length
+    return calEvents.filter((ev: any) => {
+      if (ev.isAllDay) return false
+      if (ev.status === 'cancelled') return false
+      if (ev.rsvp === 'declined') return false
+      const duration = new Date(ev.end).getTime() - new Date(ev.start).getTime()
+      if (duration >= EIGHT_HOURS_MS) return false
+      const start = new Date(ev.start)
+      if (start < todayStart || start >= rangeEnd) return false
+      if (selectedCalIds && selectedCalIds.length > 0) {
+        return ev.calendarId != null && selectedCalIds.includes(ev.calendarId)
+      }
+      return true
+    }).length
+  }, [calEvents, calRange, selectedCalIds])
 
   return (
     <div className="space-y-8">

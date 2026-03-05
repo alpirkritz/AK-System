@@ -4,7 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@ak-system/types'
-import { TaskModal } from '@/components/Modals/TaskModal'
+import dynamic from 'next/dynamic'
+const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
 export default function TasksPage() {
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
