@@ -123,6 +123,15 @@ const PUSH_SUBSCRIPTIONS_TABLE = [
   )`,
 ]
 
+const TASK_PEOPLE_TABLE = [
+  `CREATE TABLE IF NOT EXISTS task_people (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_people_task_id ON task_people(task_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_task_people_person_id ON task_people(person_id)`,
+]
+
 export function getDb() {
   const dbPath = getDbPath()
   const dir = path.dirname(dbPath)
@@ -154,6 +163,10 @@ export function getDb() {
   }
   // create push subscriptions table
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  // create task_people table
+  for (const sql of TASK_PEOPLE_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   return drizzle(sqlite, { schema })

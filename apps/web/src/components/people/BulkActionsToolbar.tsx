@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Tag, Target, Download, Trash2, XCircle } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { CreatableSelect } from '@/components/ui/CreatableSelect'
 
 const GOAL_OPTIONS = ['', 'Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly'] as const
 
@@ -16,7 +17,6 @@ interface Props {
 
 export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSuccess, allPeople }: Props) {
   const [showTagInput, setShowTagInput] = useState(false)
-  const [tagInput, setTagInput] = useState('')
   const [showGoalSelect, setShowGoalSelect] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -38,7 +38,6 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
       utils.people.listPaginated.invalidate()
       utils.people.filterOptions.invalidate()
       setShowTagInput(false)
-      setTagInput('')
       onSuccess()
     },
   })
@@ -89,27 +88,19 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
           הוסף תגית
         </button>
         {showTagInput && (
-          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-2 min-w-[200px]">
-            <div className="flex gap-1.5 mb-2">
-              <input
-                className="input text-xs py-1.5"
-                placeholder="שם תגית..."
-                value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && tagInput.trim()) {
-                    bulkAddTag.mutate({ ids, tag: tagInput.trim() })
+          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-2 min-w-[220px]">
+            <div className="mb-2">
+              <CreatableSelect
+                value=""
+                options={allTags}
+                onChange={v => {
+                  if (v) {
+                    bulkAddTag.mutate({ ids, tag: v })
+                    setShowTagInput(false)
                   }
                 }}
-                autoFocus
+                placeholder="בחר או הקלד תגית..."
               />
-              <button
-                className="btn btn-primary text-xs px-3 py-1.5 shrink-0"
-                disabled={!tagInput.trim() || bulkAddTag.isPending}
-                onClick={() => { if (tagInput.trim()) bulkAddTag.mutate({ ids, tag: tagInput.trim() }) }}
-              >
-                הוסף
-              </button>
             </div>
             {allTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -117,7 +108,7 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
                   <button
                     key={tag}
                     className="text-[10px] px-2 py-0.5 rounded-full bg-[#222] text-[#aaa] hover:text-[#f0ede6] transition-colors border border-[#333]"
-                    onClick={() => bulkAddTag.mutate({ ids, tag })}
+                    onClick={() => { bulkAddTag.mutate({ ids, tag }); setShowTagInput(false) }}
                   >
                     {tag}
                   </button>

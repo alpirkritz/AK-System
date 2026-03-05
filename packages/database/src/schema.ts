@@ -81,6 +81,15 @@ export const tasks = sqliteTable('tasks', {
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
 }))
 
+/** Many-to-many: task can be linked to multiple people (in addition to assignee) */
+export const taskPeople = sqliteTable('task_people', {
+  taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  taskIdIdx: index('idx_task_people_task_id').on(table.taskId),
+  personIdIdx: index('idx_task_people_person_id').on(table.personId),
+}))
+
 export const financeTrades = sqliteTable('finance_trades', {
   id: text('id').primaryKey(),
   symbol: text('symbol').notNull(),

@@ -34,23 +34,30 @@ export function TaskModal({
     assigneeId: '',
     dueDate: '',
     priority: 'medium' as 'high' | 'medium' | 'low',
+    relatedPersonIds: [] as string[],
   })
+  const [relatedPeopleFilter, setRelatedPeopleFilter] = useState('')
   const { data: meeting } = trpc.meetings.getById.useQuery({ id: meetingId! }, { enabled: !!meetingId && open })
   const { data: editingTask, isLoading: isLoadingTask } = trpc.tasks.getById.useQuery(
+    { id: editingTaskId! },
+    { enabled: !!editingTaskId && open }
+  )
+  const { data: taskPeopleIds } = trpc.tasks.getTaskPeople.useQuery(
     { id: editingTaskId! },
     { enabled: !!editingTaskId && open }
   )
   useEffect(() => {
     if (!open) return
     if (editingTaskId && editingTask) {
-      setForm({
+      setForm((f) => ({
         title: editingTask.title,
         meetingId: editingTask.meetingId ?? '',
         projectId: (editingTask as { projectId?: string | null }).projectId ?? '',
         assigneeId: editingTask.assigneeId ?? '',
         dueDate: editingTask.dueDate ?? '',
         priority: (editingTask.priority as 'high' | 'medium' | 'low') || 'medium',
-      })
+        relatedPersonIds: taskPeopleIds ?? f.relatedPersonIds,
+      }))
     } else if (!editingTaskId) {
       setForm((f) => ({
         title: '',
@@ -59,52 +66,82 @@ export function TaskModal({
         assigneeId: '',
         dueDate: '',
         priority: 'medium',
+        relatedPersonIds: [],
       }))
+      setRelatedPeopleFilter('')
     }
-  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, meeting])
+  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, meeting, taskPeopleIds])
   const utils = trpc.useUtils()
-  const create = trpc.tasks.create.useMutation({
-    onSuccess: () => {
-      utils.tasks.list.invalidate()
-      utils.tasks.listByMeeting.invalidate()
-      utils.tasks.listByProject.invalidate()
-      utils.meetings.list.invalidate()
-      utils.projects.list.invalidate()
-      onClose()
-    },
+  const invalidateAndClose = () => {
+    utils.tasks.list.invalidate()
+    utils.tasks.listByMeeting.invalidate()
+    utils.tasks.listByProject.invalidate()
+    utils.tasks.getById.invalidate()
+    utils.tasks.getTaskPeople.invalidate()
+    utils.meetings.list.invalidate()
+    utils.projects.list.invalidate()
+    utils.people.getRelated.invalidate()
+    onClose()
+  }
+  const setTaskPeople = trpc.tasks.setTaskPeople.useMutation({
+    onSuccess: invalidateAndClose,
   })
-  const update = trpc.tasks.update.useMutation({
-    onSuccess: () => {
-      utils.tasks.list.invalidate()
-      utils.tasks.listByMeeting.invalidate()
-      utils.tasks.listByProject.invalidate()
-      utils.tasks.getById.invalidate()
-      utils.meetings.list.invalidate()
-      utils.projects.list.invalidate()
-      onClose()
-    },
-  })
+  const create = trpc.tasks.create.useMutation()
+  const update = trpc.tasks.update.useMutation()
+
+  const toggleRelatedPerson = (personId: string) => {
+    setForm((f) =>
+      f.relatedPersonIds.includes(personId)
+        ? { ...f, relatedPersonIds: f.relatedPersonIds.filter((id) => id !== personId) }
+        : { ...f, relatedPersonIds: [...f.relatedPersonIds, personId] }
+    )
+  }
 
   const save = () => {
+    const relatedIds = form.relatedPersonIds
     if (editingTaskId) {
-      update.mutate({
-        id: editingTaskId,
-        title: form.title,
-        meetingId: form.meetingId || null,
-        projectId: form.projectId || null,
-        assigneeId: form.assigneeId || null,
-        dueDate: form.dueDate || null,
-        priority: form.priority,
-      })
+      update.mutate(
+        {
+          id: editingTaskId,
+          title: form.title,
+          meetingId: form.meetingId || null,
+          projectId: form.projectId || null,
+          assigneeId: form.assigneeId || null,
+          dueDate: form.dueDate || null,
+          priority: form.priority,
+        },
+        {
+          onSuccess: () => {
+            setTaskPeople.mutate(
+              { taskId: editingTaskId, personIds: relatedIds },
+              { onSuccess: invalidateAndClose }
+            )
+          },
+        }
+      )
     } else {
-      create.mutate({
-        title: form.title,
-        meetingId: form.meetingId || null,
-        projectId: form.projectId || null,
-        assigneeId: form.assigneeId || null,
-        dueDate: form.dueDate || null,
-        priority: form.priority,
-      })
+      create.mutate(
+        {
+          title: form.title,
+          meetingId: form.meetingId || null,
+          projectId: form.projectId || null,
+          assigneeId: form.assigneeId || null,
+          dueDate: form.dueDate || null,
+          priority: form.priority,
+        },
+        {
+          onSuccess: (task) => {
+            if (relatedIds.length > 0) {
+              setTaskPeople.mutate(
+                { taskId: task.id, personIds: relatedIds },
+                { onSuccess: invalidateAndClose }
+              )
+            } else {
+              invalidateAndClose()
+            }
+          },
+        }
+      )
     }
   }
 
@@ -177,6 +214,54 @@ export function TaskModal({
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="label">קשור לאנשים</label>
+                <p className="text-[11px] text-[#666] mb-2">המשימה תופיע בכרטיסיה של כל אדם שנבחר</p>
+                <input
+                  type="text"
+                  className="input mb-2"
+                  placeholder="חפש לפי שם או חברה..."
+                  value={relatedPeopleFilter}
+                  onChange={(e) => setRelatedPeopleFilter(e.target.value)}
+                />
+                <div className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-2 space-y-1">
+                  {people.length === 0 ? (
+                    <span className="text-xs text-[#555]">אין אנשי קשר</span>
+                  ) : (() => {
+                    const q = relatedPeopleFilter.trim().toLowerCase()
+                    const filtered = q
+                      ? people.filter(
+                          (p) =>
+                            p.name.toLowerCase().includes(q) ||
+                            (p.company ?? '').toLowerCase().includes(q) ||
+                            (p.jobTitle ?? '').toLowerCase().includes(q) ||
+                            (p.role ?? '').toLowerCase().includes(q)
+                        )
+                      : people
+                    return filtered.length === 0 ? (
+                      <span className="text-xs text-[#555]">אין תוצאות</span>
+                    ) : (
+                      filtered.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-[#222] transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border border-[#444] bg-transparent accent-[#e8c547]"
+                            checked={form.relatedPersonIds.includes(p.id)}
+                            onChange={() => toggleRelatedPerson(p.id)}
+                          />
+                          <span className="text-sm text-[#ccc]">{p.name}</span>
+                          {p.company && (
+                            <span className="text-[11px] text-[#555] truncate max-w-[100px]"> · {p.company}</span>
+                          )}
+                        </label>
+                      ))
+                    )
+                  })()}
+                </div>
               </div>
               <div>
                 <label className="label">עדיפות</label>

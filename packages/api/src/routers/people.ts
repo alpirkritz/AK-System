@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
-import { people, meetings, meetingPeople, tasks } from '@ak-system/database'
+import { people, meetings, meetingPeople, tasks, taskPeople, projects } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 
 const createInput = z.object({
@@ -129,28 +129,36 @@ export const peopleRouter = router({
       }
     }),
 
-  /** Distinct values for filter dropdowns */
+  /** Distinct values for filter dropdowns and creatable selects */
   filterOptions: publicProcedure.query(async ({ ctx }) => {
     const allPeople = await ctx.db.select({
       tags: people.tags,
       company: people.company,
       goal: people.goal,
+      role: people.role,
+      expertIn: people.expertIn,
     }).from(people)
 
     const tagSet = new Set<string>()
     const companySet = new Set<string>()
     const goalSet = new Set<string>()
+    const roleSet = new Set<string>()
+    const expertInSet = new Set<string>()
 
     for (const p of allPeople) {
       if (p.tags) p.tags.split(',').forEach(t => { const trimmed = t.trim(); if (trimmed) tagSet.add(trimmed) })
       if (p.company) companySet.add(p.company)
       if (p.goal) goalSet.add(p.goal)
+      if (p.role) roleSet.add(p.role)
+      if (p.expertIn) p.expertIn.split(',').forEach(e => { const trimmed = e.trim(); if (trimmed) expertInSet.add(trimmed) })
     }
 
     return {
       tags: Array.from(tagSet).sort(),
       companies: Array.from(companySet).sort(),
       goals: Array.from(goalSet).sort(),
+      roles: Array.from(roleSet).sort(),
+      expertIn: Array.from(expertInSet).sort(),
     }
   }),
 
@@ -175,13 +183,45 @@ export const peopleRouter = router({
           .orderBy(desc(meetings.date))
       : []
 
-    const relatedTasks = await ctx.db
+    const linkedTaskIds = await ctx.db
+      .select({ taskId: taskPeople.taskId })
+      .from(taskPeople)
+      .where(eq(taskPeople.personId, input.id))
+    const linkedIds = linkedTaskIds.map(r => r.taskId)
+
+    const tasksAsAssignee = await ctx.db
       .select()
       .from(tasks)
       .where(eq(tasks.assigneeId, input.id))
+    const tasksAsLinked = linkedIds.length > 0
+      ? await ctx.db.select().from(tasks).where(inArray(tasks.id, linkedIds))
+      : []
+    const allTaskIds = [...new Set([...tasksAsAssignee.map(t => t.id), ...tasksAsLinked.map(t => t.id)])]
+
+    if (allTaskIds.length === 0) {
+      return { meetings: relatedMeetings, tasks: [] }
+    }
+
+    const tasksWithContext = await ctx.db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        done: tasks.done,
+        dueDate: tasks.dueDate,
+        meetingId: tasks.meetingId,
+        projectId: tasks.projectId,
+        assigneeId: tasks.assigneeId,
+        meetingTitle: meetings.title,
+        meetingDate: meetings.date,
+        projectName: projects.name,
+      })
+      .from(tasks)
+      .leftJoin(meetings, eq(tasks.meetingId, meetings.id))
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(inArray(tasks.id, allTaskIds))
       .orderBy(desc(tasks.createdAt))
 
-    return { meetings: relatedMeetings, tasks: relatedTasks }
+    return { meetings: relatedMeetings, tasks: tasksWithContext }
   }),
 
   search: publicProcedure

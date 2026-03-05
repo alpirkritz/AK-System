@@ -6,9 +6,11 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { he } from 'date-fns/locale'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/cn'
+import { CreatableSelect } from '@/components/ui/CreatableSelect'
+import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 
 const COLORS = ['#e8c547', '#e8477a', '#47b8e8', '#47e8a8', '#b847e8']
-const GOAL_OPTIONS = ['', 'Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly'] as const
+const GOAL_OPTIONS = ['Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly']
 
 interface Props {
   personId: string
@@ -18,6 +20,7 @@ interface Props {
 export function PersonDetailDrawer({ personId, onClose }: Props) {
   const { data: person, isLoading } = trpc.people.getById.useQuery({ id: personId })
   const { data: related } = trpc.people.getRelated.useQuery({ id: personId })
+  const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: !!personId })
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<Record<string, string>>({})
 
@@ -28,6 +31,14 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
       utils.people.listPaginated.invalidate()
       utils.people.filterOptions.invalidate()
       setEditing(false)
+    },
+  })
+  const toggleTaskDone = trpc.tasks.toggleDone.useMutation({
+    onSuccess: () => {
+      utils.people.getRelated.invalidate({ id: personId })
+      utils.tasks.list.invalidate()
+      utils.tasks.listByMeeting.invalidate()
+      utils.tasks.listByProject.invalidate()
     },
   })
 
@@ -190,8 +201,13 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">תפקיד</label>
-                    <input className="input" value={form.role} onChange={set('role')} />
+                    <CreatableSelect
+                      label="תפקיד"
+                      value={form.role}
+                      options={filterOptions?.roles ?? []}
+                      onChange={v => setForm(f => ({ ...f, role: v }))}
+                      placeholder="תפקיד"
+                    />
                   </div>
                   <div>
                     <label className="label">Job Title</label>
@@ -199,8 +215,13 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                   </div>
                 </div>
                 <div>
-                  <label className="label">חברה</label>
-                  <input className="input" value={form.company} onChange={set('company')} />
+                  <CreatableSelect
+                    label="חברה"
+                    value={form.company}
+                    options={filterOptions?.companies ?? []}
+                    onChange={v => setForm(f => ({ ...f, company: v }))}
+                    placeholder="חברה"
+                  />
                 </div>
                 <div>
                   <label className="label">אימייל</label>
@@ -215,22 +236,32 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                   <input className="input" value={form.linkedin} onChange={set('linkedin')} dir="ltr" />
                 </div>
                 <div>
-                  <label className="label">תגיות (מופרד בפסיקים)</label>
-                  <input className="input" value={form.tags} onChange={set('tags')} />
+                  <CreatableMultiSelect
+                    label="תגיות"
+                    value={form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []}
+                    options={filterOptions?.tags ?? []}
+                    onChange={arr => setForm(f => ({ ...f, tags: arr.join(', ') }))}
+                    placeholder="בחר או הוסף תגיות"
+                  />
                 </div>
                 <div>
-                  <label className="label">מומחיות</label>
-                  <input className="input" value={form.expertIn} onChange={set('expertIn')} />
+                  <CreatableMultiSelect
+                    label="מומחיות"
+                    value={form.expertIn ? form.expertIn.split(',').map(e => e.trim()).filter(Boolean) : []}
+                    options={filterOptions?.expertIn ?? []}
+                    onChange={arr => setForm(f => ({ ...f, expertIn: arr.join(', ') }))}
+                    placeholder="בחר או הוסף מומחיות"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">יעד קשר</label>
-                    <select className="input" value={form.goal} onChange={set('goal')}>
-                      <option value="">ללא</option>
-                      {GOAL_OPTIONS.filter(Boolean).map(g => (
-                        <option key={g} value={g}>{g}</option>
-                      ))}
-                    </select>
+                    <CreatableSelect
+                      label="יעד קשר"
+                      value={form.goal}
+                      options={(filterOptions?.goals?.length ? filterOptions.goals : GOAL_OPTIONS) as string[]}
+                      onChange={v => setForm(f => ({ ...f, goal: v }))}
+                      placeholder="ללא"
+                    />
                   </div>
                   <div>
                     <label className="label">תדירות (ימים)</label>
@@ -336,22 +367,43 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 משימות ({related.tasks.length})
               </h3>
               <div className="space-y-2">
-                {related.tasks.slice(0, 10).map(task => (
-                  <div key={task.id} className="flex items-center gap-3 py-2 border-b border-[#1f1f1f] last:border-0">
-                    <span className={cn(
-                      'w-3 h-3 rounded-sm border-2 shrink-0',
-                      task.done ? 'bg-success border-success' : 'border-[#444]'
-                    )} />
-                    <span className={cn(
-                      'text-xs truncate',
-                      task.done ? 'text-[#555] line-through' : 'text-[#aaa]'
-                    )}>
-                      {task.title}
-                    </span>
-                    {task.dueDate && (
-                      <span className="text-[10px] text-[#555] mr-auto tabular-nums shrink-0">
-                        {format(new Date(task.dueDate), 'dd/MM')}
+                {related.tasks.slice(0, 10).map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null }) => (
+                  <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#1f1f1f] last:border-0">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleTaskDone.mutate({ id: task.id })}
+                        disabled={toggleTaskDone.isPending}
+                        className={cn(
+                          'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547] focus-visible:ring-offset-1 focus-visible:ring-offset-[#161616]',
+                          task.done ? 'bg-success border-success text-white' : 'border-[#444] hover:border-[#666] hover:bg-[#222]'
+                        )}
+                        title={task.done ? 'בטל סימון' : 'סמן בוצע'}
+                        aria-label={task.done ? 'בטל סימון משימה' : 'סמן משימה כבוצעה'}
+                      >
+                        {task.done && <CheckSquare className="w-3 h-3" strokeWidth={2.5} />}
+                      </button>
+                      <span className={cn(
+                        'text-xs truncate flex-1',
+                        task.done ? 'text-[#555] line-through' : 'text-[#aaa]'
+                      )}>
+                        {task.title}
                       </span>
+                      {task.dueDate && (
+                        <span className="text-[10px] text-[#555] tabular-nums shrink-0">
+                          {format(new Date(task.dueDate), 'dd/MM')}
+                        </span>
+                      )}
+                    </div>
+                    {(task.meetingTitle || task.projectName) && (
+                      <div className="text-[10px] text-[#555] pr-6 flex flex-wrap gap-x-2 gap-y-0">
+                        {task.meetingTitle && (
+                          <span>מפגישה: {task.meetingTitle}{task.meetingDate ? ` (${format(new Date(task.meetingDate), 'dd/MM/yy')})` : ''}</span>
+                        )}
+                        {task.projectName && (
+                          <span>פרויקט: {task.projectName}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
-import { tasks, meetings } from '@ak-system/database'
-import { eq } from 'drizzle-orm'
+import { tasks, meetings, taskPeople, people } from '@ak-system/database'
+import { eq, inArray } from 'drizzle-orm'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 
@@ -97,4 +97,31 @@ export const tasksRouter = router({
     await ctx.db.delete(tasks).where(eq(tasks.id, input.id))
     return { ok: true }
   }),
+
+  getTaskPeople: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+    const rows = await ctx.db
+      .select({ personId: taskPeople.personId })
+      .from(taskPeople)
+      .where(eq(taskPeople.taskId, input.id))
+    return rows.map(r => r.personId)
+  }),
+
+  getTaskPeopleWithNames: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+    const rows = await ctx.db
+      .select({ personId: taskPeople.personId, name: people.name })
+      .from(taskPeople)
+      .innerJoin(people, eq(taskPeople.personId, people.id))
+      .where(eq(taskPeople.taskId, input.id))
+    return rows.map(r => ({ id: r.personId, name: r.name }))
+  }),
+
+  setTaskPeople: publicProcedure
+    .input(z.object({ taskId: z.string().min(1), personIds: z.array(z.string().min(1)) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.delete(taskPeople).where(eq(taskPeople.taskId, input.taskId))
+      for (const personId of input.personIds) {
+        await ctx.db.insert(taskPeople).values({ taskId: input.taskId, personId })
+      }
+      return { ok: true }
+    }),
 })

@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { trpc } from '@/lib/trpc'
+import { CreatableSelect } from '@/components/ui/CreatableSelect'
+import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 
 const COLORS = ['#e8c547', '#e8477a', '#47b8e8', '#47e8a8', '#b847e8']
 
-const GOAL_OPTIONS = ['', 'Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly'] as const
+const GOAL_OPTIONS = ['Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly']
 
 interface PersonForm {
   name: string
@@ -52,6 +54,7 @@ export function PersonModal({
 }) {
   const [form, setForm] = useState<PersonForm>({ ...EMPTY_FORM })
   const { data: person } = trpc.people.getById.useQuery({ id: editingId! }, { enabled: !!editingId && open })
+  const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: open })
   const utils = trpc.useUtils()
   const create = trpc.people.create.useMutation({
     onSuccess: () => { utils.people.list.invalidate(); utils.people.listPaginated.invalidate(); utils.people.filterOptions.invalidate(); onClose() },
@@ -130,8 +133,13 @@ export function PersonModal({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">תפקיד</label>
-                  <input className="input" value={form.role} onChange={set('role')} placeholder="תפקיד" />
+                  <CreatableSelect
+                    label="תפקיד"
+                    value={form.role}
+                    options={filterOptions?.roles ?? []}
+                    onChange={(v) => setForm((f) => ({ ...f, role: v }))}
+                    placeholder="תפקיד"
+                  />
                 </div>
                 <div>
                   <label className="label">Job Title</label>
@@ -139,8 +147,13 @@ export function PersonModal({
                 </div>
               </div>
               <div>
-                <label className="label">חברה</label>
-                <input className="input" value={form.company} onChange={set('company')} placeholder="שם חברה" />
+                <CreatableSelect
+                  label="חברה"
+                  value={form.company}
+                  options={filterOptions?.companies ?? []}
+                  onChange={(v) => setForm((f) => ({ ...f, company: v }))}
+                  placeholder="שם חברה"
+                />
               </div>
               <div>
                 <label className="label">צבע</label>
@@ -185,22 +198,32 @@ export function PersonModal({
             <div className="text-xs font-semibold text-[#888] uppercase tracking-wider mb-3">ניהול קשר</div>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="label">תגיות (מופרד בפסיקים)</label>
-                <input className="input" value={form.tags} onChange={set('tags')} placeholder="Business, Friend, Mentor" />
+                <CreatableMultiSelect
+                  label="תגיות"
+                  value={form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : []}
+                  options={filterOptions?.tags ?? []}
+                  onChange={(arr) => setForm((f) => ({ ...f, tags: arr.join(', ') }))}
+                  placeholder="בחר או הוסף תגיות"
+                />
               </div>
               <div>
-                <label className="label">מומחיות (מופרד בפסיקים)</label>
-                <input className="input" value={form.expertIn} onChange={set('expertIn')} placeholder="AI, Logistics, Product" />
+                <CreatableMultiSelect
+                  label="מומחיות"
+                  value={form.expertIn ? form.expertIn.split(',').map((e) => e.trim()).filter(Boolean) : []}
+                  options={filterOptions?.expertIn ?? []}
+                  onChange={(arr) => setForm((f) => ({ ...f, expertIn: arr.join(', ') }))}
+                  placeholder="בחר או הוסף מומחיות"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">תדירות יעד</label>
-                  <select className="input" value={form.goal} onChange={set('goal')}>
-                    <option value="">ללא</option>
-                    {GOAL_OPTIONS.filter(Boolean).map((g) => (
-                      <option key={g} value={g}>{g}</option>
-                    ))}
-                  </select>
+                  <CreatableSelect
+                    label="תדירות יעד"
+                    value={form.goal}
+                    options={(filterOptions?.goals?.length ? filterOptions.goals : GOAL_OPTIONS) as string[]}
+                    onChange={(v) => setForm((f) => ({ ...f, goal: v }))}
+                    placeholder="ללא"
+                  />
                 </div>
                 <div>
                   <label className="label">תדירות (ימים)</label>
