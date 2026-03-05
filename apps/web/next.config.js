@@ -13,7 +13,7 @@ const isDev = process.env.NODE_ENV !== 'production'
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@ak-system/types', '@ak-system/api', '@ak-system/database'],
-  experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings'] },
+  experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings', 'node-ical'] },
   ...(isDev ? {} : { distDir: TMP_DIR }),
   webpack: (config, { isServer }) => {
     // Store webpack's persistent cache in /tmp.
@@ -44,7 +44,8 @@ const nextConfig = {
           ctx.request === 'fs' ||
           ctx.request === 'path' ||
           ctx.request === 'os' ||
-          ctx.request === 'util'
+          ctx.request === 'util' ||
+          ctx.request === 'node-ical'
         ) {
           return cb(null, `commonjs ${ctx.request}`)
         }

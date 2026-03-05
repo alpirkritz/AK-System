@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
-import { meetings, meetingPeople, tasks, people } from '@ak-system/database'
+import { meetings, meetingPeople, tasks, people, MEETING_CATEGORIES } from '@ak-system/database'
 import { eq, inArray, and, isNotNull } from 'drizzle-orm'
 import {
   fetchGoogleCalendarEvents,
@@ -12,6 +12,7 @@ import {
   invalidateAppleCalendarCache,
 } from '../services/apple-calendar'
 
+const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
   title: z.string().min(1),
   date: z.string(),
@@ -19,6 +20,7 @@ const createInput = z.object({
   recurring: z.string().nullable().optional(),
   recurrenceDay: z.string().nullable().optional(),
   notes: z.string().optional(),
+  category: categoryEnum.nullable().optional(),
   projectId: z.string().nullable().optional(),
   peopleIds: z.array(z.string()).optional(),
 })
@@ -69,6 +71,7 @@ export const meetingsRouter = router({
       recurring: input.recurring ?? null,
       recurrenceDay: input.recurrenceDay ?? null,
       notes: input.notes ?? null,
+      category: input.category ?? null,
       projectId: input.projectId ?? null,
       createdAt: now,
       updatedAt: now,
@@ -93,6 +96,7 @@ export const meetingsRouter = router({
         recurring: input.recurring ?? null,
         recurrenceDay: input.recurrenceDay ?? null,
         notes: input.notes ?? null,
+        category: input.category ?? undefined,
         projectId: input.projectId ?? null,
         updatedAt: now,
       })

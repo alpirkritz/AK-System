@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { people } from '@ak-system/database'
-import { eq } from 'drizzle-orm'
+import { eq, or, like, sql } from 'drizzle-orm'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -25,6 +25,22 @@ export const peopleRouter = router({
     const [row] = await ctx.db.select().from(people).where(eq(people.id, input.id))
     return row ?? null
   }),
+
+  /** Search people by name or role (for conversation engine search_person tool) */
+  search: publicProcedure
+    .input(z.object({ query: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const q = '%' + input.query.trim() + '%'
+      return ctx.db
+        .select()
+        .from(people)
+        .where(or(
+          like(people.name, q),
+          sql`COALESCE(${people.role}, '') LIKE ${q}`,
+          sql`COALESCE(${people.email}, '') LIKE ${q}`,
+        ))
+        .orderBy(people.name)
+    }),
 
   create: publicProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     const id = 'p' + Date.now()

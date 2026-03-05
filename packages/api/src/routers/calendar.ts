@@ -12,10 +12,15 @@ import {
   warmAppleCalendarCache,
   AppleCalendarEvent,
 } from '../services/apple-calendar'
+import {
+  fetchICSCalendarEvents,
+  isICSCalendarConfigured,
+  ICSCalendarEvent,
+} from '../services/ics-calendar'
 
 let cacheWarmed = false
 
-type CalendarEvent = GoogleCalendarEvent | AppleCalendarEvent
+type CalendarEvent = GoogleCalendarEvent | AppleCalendarEvent | ICSCalendarEvent
 
 export interface ConflictPair {
   eventA: CalendarEvent
@@ -40,21 +45,28 @@ function mergeAndDedupe(events: CalendarEvent[]): CalendarEvent[] {
 }
 
 async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
-  const [googleResult, appleResult] = await Promise.allSettled([
+  const [googleResult, appleResult, icsResult] = await Promise.allSettled([
     isGoogleCalendarConfigured()
       ? fetchGoogleCalendarEvents(start, end)
       : Promise.resolve([] as GoogleCalendarEvent[]),
     fetchAppleCalendarEvents(start, end),
+    isICSCalendarConfigured()
+      ? fetchICSCalendarEvents(start, end)
+      : Promise.resolve([] as ICSCalendarEvent[]),
   ])
 
   const google = googleResult.status === 'fulfilled' ? googleResult.value : []
   const apple = appleResult.status === 'fulfilled' ? appleResult.value : []
+  const ics = icsResult.status === 'fulfilled' ? icsResult.value : []
 
   if (appleResult.status === 'rejected') {
     console.warn('[Calendar Router] Apple fetch error:', appleResult.reason)
   }
+  if (icsResult.status === 'rejected') {
+    console.warn('[Calendar Router] ICS fetch error:', icsResult.reason)
+  }
 
-  const all = [...google, ...apple]
+  const all = [...google, ...apple, ...ics]
   all.sort((a, b) => a.start.localeCompare(b.start))
   // סנן אירועי "פנוי" (transparency: transparent) — אלו הצגות ביומן אחר שאינן חוסמות זמן
   const filtered = all.filter((e) => (e as GoogleCalendarEvent).transparency !== 'transparent')
@@ -68,7 +80,7 @@ export const calendarRouter = router({
       // fire-and-forget – non-blocking; no dynamic import (static import above)
       try { warmAppleCalendarCache() } catch (_) { /* ignore */ }
     }
-    return isGoogleCalendarConfigured() || isAppleCalendarAvailable()
+    return isGoogleCalendarConfigured() || isAppleCalendarAvailable() || isICSCalendarConfigured()
   }),
 
   events: publicProcedure.input(rangeInput).query(async ({ input }) => {

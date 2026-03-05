@@ -21,6 +21,7 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN location TEXT',
   'ALTER TABLE meetings ADD COLUMN calendar_event_id TEXT',
   'ALTER TABLE meetings ADD COLUMN calendar_source TEXT',
+  'ALTER TABLE meetings ADD COLUMN category TEXT',
 ]
 
 const FEED_TABLES = [
@@ -43,6 +44,24 @@ const FEED_TABLES = [
   )`,
 ]
 
+const FACTS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS facts (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'conversation',
+    created_at TEXT NOT NULL
+  )`,
+]
+const HEALTH_TABLE = [
+  `CREATE TABLE IF NOT EXISTS health_metrics (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL
+  )`,
+]
 const FINANCE_TABLES = [
   `CREATE TABLE IF NOT EXISTS finance_trades (
     id TEXT PRIMARY KEY,
@@ -83,6 +102,12 @@ export function getDb() {
   }
   // create feed tables if they don't exist
   for (const sql of FEED_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of FACTS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of HEALTH_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   // create finance tables if they don't exist

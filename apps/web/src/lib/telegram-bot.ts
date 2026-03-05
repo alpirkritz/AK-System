@@ -148,6 +148,65 @@ const toolDeclarations: FunctionDeclaration[] = [
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
+    name: 'search_person',
+    description:
+      "Search contacts/people by name, role, or email. Use for: 'מי זה X', 'find person Y', 'חיפוש איש קשר'.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: 'Search term (name, role, or email)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'save_fact',
+    description:
+      "Save a fact or note to memory for later. Use for: 'שמור ש...', 'remember that', 'תזכור'.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        content: { type: SchemaType.STRING, description: 'The fact or note to save' },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'get_reports',
+    description:
+      "Get recent saved facts/reports from memory. Use for: 'מה שמרתי', 'reports', 'עובדות'.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        limit: { type: SchemaType.NUMBER, description: 'Max items (default 20)' },
+      },
+    },
+  },
+  {
+    name: 'get_weather',
+    description: 'Get weather forecast for a city. Use for: weather, מזג אוויר, תחזית.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        city: { type: SchemaType.STRING, description: 'City name (e.g. Tel Aviv, London)' },
+      },
+      required: ['city'],
+    },
+  },
+  {
+    name: 'search_flights',
+    description: 'Search for flights (origin, destination, date). Use for: טיסות, flights, חיפוש טיסות.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        origin: { type: SchemaType.STRING, description: 'Origin airport or city' },
+        destination: { type: SchemaType.STRING, description: 'Destination airport or city' },
+        date: { type: SchemaType.STRING, description: 'Date YYYY-MM-DD (optional)' },
+      },
+      required: ['origin', 'destination'],
+    },
+  },
+  {
     name: 'create_task',
     description:
       "Create a new task. Use for: 'תייצר משימה', 'הוסף משימה', 'create task', 'add task'.",
@@ -311,8 +370,81 @@ async function executeTool(name: string, args: ToolArgs, caller: Caller): Promis
     }
 
     case 'get_people': {
-      const people = await caller.people.list()
-      return { people }
+      const peopleList = await caller.people.list()
+      return { people: peopleList }
+    }
+
+    case 'search_person': {
+      const query = (args.query as string)?.trim() || ''
+      if (!query) return { people: [] }
+      const results = await caller.people.search({ query })
+      return { people: results, count: results.length }
+    }
+
+    case 'save_fact': {
+      const content = (args.content as string)?.trim()
+      if (!content) return { error: 'content is required' }
+      const fact = await caller.facts.create({ content, source: 'conversation' })
+      return { fact, saved: true }
+    }
+
+    case 'get_reports': {
+      const limit = (args.limit as number | undefined) ?? 20
+      const items = await caller.facts.list({ limit })
+      return { reports: items, count: items.length }
+    }
+
+    case 'get_weather': {
+      const city = (args.city as string)?.trim() || 'Tel Aviv'
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia/Jerusalem`
+        )
+        if (!res.ok) return { error: 'Weather API unavailable' }
+        const data = (await res.json()) as { current?: { temperature_2m?: number; relative_humidity_2m?: number; weather_code?: number } }
+        const cur = data.current
+        if (!cur) return { error: 'No weather data' }
+        return {
+          city: city || 'Tel Aviv',
+          temperature: cur.temperature_2m,
+          humidity: cur.relative_humidity_2m,
+          weatherCode: cur.weather_code,
+        }
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Weather fetch failed' }
+      }
+    }
+
+    case 'search_flights': {
+      const origin = (args.origin as string)?.trim() || ''
+      const destination = (args.destination as string)?.trim() || ''
+      const date = (args.date as string)?.trim() || ''
+      if (!origin || !destination) return { error: 'origin and destination required' }
+      const key = process.env.SERPAPI_KEY
+      if (!key) {
+        return { message: 'Flight search requires SERPAPI_KEY. Set it in env to enable.', origin, destination, date }
+      }
+      try {
+        const params = new URLSearchParams({
+          engine: 'google_flights',
+          departure_id: origin,
+          arrival_id: destination,
+          api_key: key,
+        })
+        if (date) params.set('outbound_date', date)
+        const res = await fetch(`https://serpapi.com/search?${params.toString()}`)
+        if (!res.ok) return { error: 'Flight search API error' }
+        const data = (await res.json()) as { best_flights?: unknown[]; other_flights?: unknown[] }
+        return {
+          origin,
+          destination,
+          date: date || 'any',
+          best_flights: data.best_flights ?? [],
+          other_flights: (data.other_flights ?? []).slice(0, 5),
+        }
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Flight search failed' }
+      }
     }
 
     case 'create_task': {

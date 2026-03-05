@@ -17,6 +17,10 @@ export const projects = sqliteTable('projects', {
   updatedAt: text('updated_at').notNull(),
 })
 
+/** Meeting category for daily summary (Work/Family/General) */
+export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
+export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
+
 export const meetings = sqliteTable('meetings', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -27,6 +31,8 @@ export const meetings = sqliteTable('meetings', {
   recurrenceDay: text('recurrence_day'),
   notes: text('notes'),
   location: text('location'),
+  /** work | family | general — for daily meeting summary grouping */
+  category: text('category'),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
   calendarSource: text('calendar_source'),
@@ -100,6 +106,32 @@ export const feedItems = sqliteTable('feed_items', {
   tags: text('tags'), // JSON array of strings, e.g. ["us_market","ai"]
   createdAt: text('created_at').notNull(),
 })
+
+// ─── Facts (knowledge base / memory for conversation engine) ───────────────────
+
+export const facts = sqliteTable('facts', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  source: text('source').notNull().default('conversation'), // 'conversation' | 'manual' | 'report'
+  createdAt: text('created_at').notNull(),
+})
+
+export type Fact = typeof facts.$inferSelect
+export type NewFact = typeof facts.$inferInsert
+
+// ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
+
+export const healthMetrics = sqliteTable('health_metrics', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(), // 'heart_rate' | 'sleep_quality' | 'activity'
+  value: text('value').notNull(), // number as string
+  at: text('at').notNull(), // ISO timestamp
+  source: text('source').notNull().default('manual'), // 'garmin' | 'apple_health' | 'manual' | 'csv'
+  createdAt: text('created_at').notNull(),
+})
+
+export type HealthMetric = typeof healthMetrics.$inferSelect
+export type NewHealthMetric = typeof healthMetrics.$inferInsert
 
 export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
