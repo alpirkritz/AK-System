@@ -23,6 +23,7 @@ export default function ProjectDetailPage() {
   })
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
   const meetings = (meetingsList as Array<{ id: string; title: string; date: string; time: string; projectId?: string; recurring?: string; recurrenceDay?: string; peopleIds?: string[] }>).filter((m) => m.projectId === id)
@@ -41,7 +42,13 @@ export default function ProjectDetailPage() {
         <button className="btn btn-ghost" onClick={() => setProjectModalOpen(true)}>
           ✏ ערוך
         </button>
-        <button className="btn btn-primary" onClick={() => setTaskModalOpen(true)}>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingTaskId(null)
+            setTaskModalOpen(true)
+          }}
+        >
           + משימה
         </button>
       </div>
@@ -93,11 +100,16 @@ export default function ProjectDetailPage() {
                   {t.done && <span className="text-white text-[10px]">✓</span>}
                 </div>
                 <div
-                  className="flex-1 text-sm"
+                  className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                   style={{
                     textDecoration: t.done ? 'line-through' : 'none',
                     color: t.done ? '#555' : '#f0ede6',
                   }}
+                  onClick={() => {
+                    setEditingTaskId(t.id)
+                    setTaskModalOpen(true)
+                  }}
+                  title="ערוך משימה"
                 >
                   {t.title}
                   {t.dueDate && (
@@ -129,7 +141,11 @@ export default function ProjectDetailPage() {
       />
       <TaskModal
         open={taskModalOpen}
-        onClose={() => setTaskModalOpen(false)}
+        onClose={() => {
+          setTaskModalOpen(false)
+          setEditingTaskId(null)
+        }}
+        editingTaskId={editingTaskId}
         projectId={id}
         people={people}
         meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}

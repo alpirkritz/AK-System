@@ -69,6 +69,7 @@ export default function MeetingDetailPage() {
 
   const [meetingModalOpen, setMeetingModalOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [followUpOpen, setFollowUpOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
@@ -374,7 +375,10 @@ export default function MeetingDetailPage() {
               </div>
               <button
                 className="text-[11px] text-[#444] hover:text-[#888] transition-colors"
-                onClick={() => setTaskModalOpen(true)}
+                onClick={() => {
+                  setEditingTaskId(null)
+                  setTaskModalOpen(true)
+                }}
               >
                 + משימה מלאה
               </button>
@@ -385,10 +389,13 @@ export default function MeetingDetailPage() {
               <button
                 className="w-full text-sm text-[#3a3a3a] hover:text-[#666] transition-colors text-right py-2.5 mb-3 border border-dashed rounded-lg px-3"
                 style={{ borderColor: '#222' }}
-                onClick={() => setTaskModalOpen(true)}
-              >
-                + הוסף פעולות שהוחלטו ›
-              </button>
+onClick={() => {
+                  setEditingTaskId(null)
+                  setTaskModalOpen(true)
+                }}
+            >
+              + הוסף פעולות שהוחלטו ›
+            </button>
             )}
 
             {/* Task list */}
@@ -401,11 +408,16 @@ export default function MeetingDetailPage() {
                   {t.done && <span className="text-white text-[10px]">✓</span>}
                 </div>
                 <div
-                  className="flex-1 text-sm"
+                  className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                   style={{
                     textDecoration: t.done ? 'line-through' : 'none',
                     color: t.done ? '#555' : '#f0ede6',
                   }}
+                  onClick={() => {
+                    setEditingTaskId(t.id)
+                    setTaskModalOpen(true)
+                  }}
+                  title="ערוך משימה"
                 >
                   {t.title}
                   {(t as { dueDate?: string }).dueDate && (
@@ -474,7 +486,11 @@ export default function MeetingDetailPage() {
       />
       <TaskModal
         open={taskModalOpen}
-        onClose={() => setTaskModalOpen(false)}
+        onClose={() => {
+          setTaskModalOpen(false)
+          setEditingTaskId(null)
+        }}
+        editingTaskId={editingTaskId}
         meetingId={id}
         projectId={mx?.projectId ?? null}
         people={people}

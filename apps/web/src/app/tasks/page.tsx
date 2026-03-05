@@ -17,6 +17,7 @@ export default function TasksPage() {
     onSuccess: () => utils.tasks.list.invalidate(),
   })
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
 
   const getPerson = (id: string) => people.find((p) => p.id === id)
   const getMeeting = (id: string) => meetings.find((m) => m.id === id)
@@ -26,7 +27,13 @@ export default function TasksPage() {
     <div>
       <div className="flex justify-between items-center mb-7">
         <h1 className="text-2xl font-bold tracking-tight">משימות</h1>
-        <button className="btn btn-primary" onClick={() => setTaskModalOpen(true)}>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingTaskId(null)
+            setTaskModalOpen(true)
+          }}
+        >
           + משימה חדשה
         </button>
       </div>
@@ -57,11 +64,16 @@ export default function TasksPage() {
                       {t.done && <span className="text-white text-[10px]">✓</span>}
                     </div>
                     <div
-                      className="flex-1 text-sm"
+                      className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                       style={{
                         textDecoration: t.done ? 'line-through' : 'none',
                         color: t.done ? '#555' : '#f0ede6',
                       }}
+                      onClick={() => {
+                        setEditingTaskId(t.id)
+                        setTaskModalOpen(true)
+                      }}
+                      title="ערוך משימה"
                     >
                       {t.title}
                       {t.dueDate && (
@@ -99,7 +111,11 @@ export default function TasksPage() {
       })}
       <TaskModal
         open={taskModalOpen}
-        onClose={() => setTaskModalOpen(false)}
+        onClose={() => {
+          setTaskModalOpen(false)
+          setEditingTaskId(null)
+        }}
+        editingTaskId={editingTaskId}
         people={people}
         meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
