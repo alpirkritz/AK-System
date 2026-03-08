@@ -1,0 +1,9 @@
+# Force Railway/Nixpacks to use pnpm and our lockfile (next@14.2.35)
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
+[variables]
+PNPM_VERSION = "9"
