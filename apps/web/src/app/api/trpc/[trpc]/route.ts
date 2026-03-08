@@ -33,8 +33,8 @@ async function handler(req: Request): Promise<Response> {
     })
   }
   let session = await getServerSession(authOptions)
-  // In development without login: use a dev session so the app and API work out of the box
-  if (!session && process.env.NODE_ENV === 'development') {
+  // When no sign-in required (dev, or production with auth disabled in middleware): use a dev session so the app and API work
+  if (!session && (process.env.NODE_ENV === 'development' || process.env.SKIP_AUTH_IN_PRODUCTION === '1')) {
     session = { user: { id: 'dev', email: 'dev@local', name: 'Developer' }, expires: '' }
   }
   try {
