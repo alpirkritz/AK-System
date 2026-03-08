@@ -23,11 +23,13 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
 
 2. **הגדרות Build (חשוב)**
    - **Root Directory:** **חייב להישאר ריק** (שורש הפרויקט). אם מוגדר `apps/web` – ה-build לא רואה את `pnpm-lock.yaml` ויכול להיכשל על גרסאות ישנות.
+   - **Branch / Source:** ב-**Settings → Source** וודא ש-**Branch** הוא `main` (או ה-branch שאתה דוחף אליו). אם Railway מפריס כל פעם את אותו commit ישן, תקן את ה-Branch ל-`main` ואז **Deploy → Redeploy** או **Deploy latest commit** (ב-Railway: CMD+K → "Deploy latest commit" או כפתור Redeploy).
    - הפקודות מוגדרות ב-`railway.toml` ברפו. אם אתה מעדיף להגדיר ידנית:
    - **Build Command:**  
      `pnpm install --frozen-lockfile && pnpm run build`
    - **Start Command:**  
-     `cd apps/web && pnpm start`
+     `pnpm --filter @ak-system/web start`  
+     (לא `cd apps/web && pnpm start` – ב-Railway זה עלול לגרום ל-"The executable cd could not be found".)
    - אם הבילד עדיין נכשל על "security vulnerabilities" (next ישן): הוסף משתנה **`NO_CACHE=1`** ב-Variables, שמור, הרץ Redeploy (כדי לנקות cache), ואז אפשר להסיר את `NO_CACHE=1`.
 
 3. **Volume למסד הנתונים**
@@ -41,12 +43,20 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    העתק את כל הערכים מ-`apps/web/.env.local` (אל תעלה את הקובץ ל-Git). חובה לעדכן:
    - `NEXT_PUBLIC_APP_URL=https://<שם-הפרויקט>.up.railway.app`  
      (או הדומיין שמוגדר ב-Railway)
+   - `NEXTAUTH_URL=https://<שם-הפרויקט>.up.railway.app` (אותו ערך כמו NEXT_PUBLIC_APP_URL)
+   - `NEXTAUTH_SECRET=<מחרוזת-אקראית>` — **חובה ב-production**. ליצירה: `openssl rand -base64 32` או `npx auth secret`
    - `DATABASE_PATH=/data/ak_system.sqlite`
    השאר את ה-VAPID keys אם Push Notifications מופעלים:  
    `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL`.
 
 5. **Deploy**
    אחרי שמירה Railway יריץ build ו-start. לאחר ההצלחה האפליקציה זמינה ב-URL שהוגדר.
+
+6. **איך לוודא ש-Railway בנה מה-commit האחרון**
+   - בדף ה-Deployment ב-Railway אמור להופיע ה-commit message של ה-build (למשל "fix: Railway start without shell..."). אם אתה רואה commit ישן:
+   - **Settings → Source** → וודא ש-**Branch** = `main` (או ה-branch שלך).
+   - **Deployments** → **Redeploy** (או CMD+K → "Deploy latest commit") כדי להריץ build מה-commit האחרון ב-main.
+   - אם עדיין אותו commit: נסה **Clear build cache** (אם קיים) ואז Redeploy.
 
 ---
 

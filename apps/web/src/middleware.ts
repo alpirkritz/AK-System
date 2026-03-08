@@ -7,13 +7,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://localhost:3000'
   const SESSION_COOKIE = '__Secure-next-auth.session-token'
   if (req.cookies.has(SESSION_COOKIE)) {
     return NextResponse.next()
   }
 
-  const signInUrl = new URL('/api/auth/signin', NEXT_PUBLIC_APP_URL)
+  // Use request origin so we never redirect to a different host (avoids ERR_TOO_MANY_REDIRECTS when NEXT_PUBLIC_APP_URL is wrong or missing in Edge)
+  const signInUrl = new URL('/api/auth/signin', req.nextUrl.origin)
   signInUrl.searchParams.set('callbackUrl', req.url)
   return NextResponse.redirect(signInUrl)
 }
