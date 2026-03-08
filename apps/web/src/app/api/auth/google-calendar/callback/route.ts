@@ -1,3 +1,4 @@
+// Google OAuth: token exchange lives in @ak-system/api (do not import googleapis here)
 import { NextRequest, NextResponse } from 'next/server'
 import { exchangeGoogleCalendarCode } from '@ak-system/api'
 
