@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { facts } from '@ak-system/database'
 import { eq, desc } from 'drizzle-orm'
 
 /** Facts / memory for conversation engine — save_fact, get_reports */
 export const factsRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ limit: z.number().min(1).max(100).default(50) }).optional())
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? 50
@@ -16,7 +16,7 @@ export const factsRouter = router({
         .limit(limit)
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({ content: z.string().min(1), source: z.enum(['conversation', 'manual', 'report']).default('conversation') }))
     .mutation(async ({ ctx, input }) => {
       const id = 'f' + Date.now()
@@ -31,7 +31,7 @@ export const factsRouter = router({
       return row!
     }),
 
-  delete: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(facts).where(eq(facts.id, input.id))
     return { ok: true }
   }),

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { publicProcedure, router } from '../trpc'
+import { protectedProcedure, router } from '../trpc'
 import { pushSubscriptions, eq } from '@ak-system/database'
 import webPush from 'web-push'
 
@@ -12,9 +12,9 @@ if (vapidPublic && vapidPrivate) {
 }
 
 export const pushRouter = router({
-  getVapidPublicKey: publicProcedure.query(() => vapidPublic),
+  getVapidPublicKey: protectedProcedure.query(() => vapidPublic),
 
-  subscribe: publicProcedure
+  subscribe: protectedProcedure
     .input(
       z.object({
         endpoint: z.string().url(),
@@ -51,7 +51,7 @@ export const pushRouter = router({
       return { id }
     }),
 
-  unsubscribe: publicProcedure
+  unsubscribe: protectedProcedure
     .input(z.object({ endpoint: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db
@@ -61,7 +61,7 @@ export const pushRouter = router({
       return { ok: true }
     }),
 
-  sendToAll: publicProcedure
+  sendToAll: protectedProcedure
     .input(
       z.object({
         title: z.string(),

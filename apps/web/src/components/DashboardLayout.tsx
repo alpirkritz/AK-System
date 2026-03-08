@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import { useState } from 'react'
 
 const navSections = [
@@ -86,6 +87,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           ))}
         </nav>
+        <div className="mt-auto pt-4 border-t border-[#1a1a1a] px-3">
+          <button
+            type="button"
+            onClick={() => signOut({ callbackUrl: '/' })}
+            className="nav-item w-full text-right text-[#666] hover:text-[#e8c547]"
+          >
+            התנתק
+          </button>
+        </div>
       </aside>
 
       {/* Main content with responsive padding and bottom nav spacing */}
@@ -156,6 +166,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <span className="text-xs font-medium">{item.label}</span>
                 </Link>
               ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false)
+                  signOut({ callbackUrl: '/' })
+                }}
+                className="col-span-3 flex items-center justify-center gap-2 py-3 rounded-xl text-[#666] active:bg-[#1f1f1f] min-h-[44px]"
+              >
+                התנתק
+              </button>
             </div>
           </div>
         </>

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { feedItems, feedSources } from '@ak-system/database'
 import { eq, desc, isNull, inArray } from 'drizzle-orm'
 import { fetchRssFeed, DEFAULT_FEED_SOURCES } from '../services/feed-fetcher'
@@ -13,7 +13,7 @@ function genId(): string {
 
 export const feedRouter = router({
   /** עדכונים אחרונים לוידג'ט בדשבורד */
-  getLatest: publicProcedure
+  getLatest: protectedProcedure
     .input(z.object({ limit: z.number().min(1).max(20).default(5) }))
     .query(async ({ ctx, input }) => {
       const rows = await ctx.db
@@ -35,7 +35,7 @@ export const feedRouter = router({
     }),
 
   /** פיד מלא עם פילטר לפי קטגוריה */
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         category: categoryEnum.optional(),
@@ -75,12 +75,12 @@ export const feedRouter = router({
     }),
 
   /** רשימת מקורות (לאבחון/הגדרות) */
-  listSources: publicProcedure.query(async ({ ctx }) => {
+  listSources: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(feedSources).orderBy(feedSources.name)
   }),
 
   /** הוספת מקור חדש (id נוצר אוטומטית) */
-  createSource: publicProcedure
+  createSource: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1).max(200),
@@ -108,7 +108,7 @@ export const feedRouter = router({
     }),
 
   /** מחיקת מקור (פריטי הפיד שלו נמחקים ב-CASCADE) */
-  deleteSource: publicProcedure
+  deleteSource: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.delete(feedSources).where(eq(feedSources.id, input.id))
@@ -116,7 +116,7 @@ export const feedRouter = router({
     }),
 
   /** סנכרון: מזין מקורות ברירת מחדל (אם חסרים) ומשך RSS מכל המקורות */
-  sync: publicProcedure.mutation(async ({ ctx }) => {
+  sync: protectedProcedure.mutation(async ({ ctx }) => {
     const now = new Date().toISOString()
     let sourcesInserted = 0
 
@@ -169,7 +169,7 @@ export const feedRouter = router({
   }),
 
   /** הפעלת Gemini לסיכום ולתגיות על פריטים שעדיין ללא תגיות (מגביל ל-10) */
-  generateSummaries: publicProcedure
+  generateSummaries: protectedProcedure
     .input(z.object({ limit: z.number().min(1).max(20).default(10) }))
     .mutation(async ({ ctx, input }) => {
       const items = await ctx.db

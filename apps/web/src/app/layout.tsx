@@ -1,9 +1,15 @@
 import type { Metadata, Viewport } from 'next'
+import dynamic from 'next/dynamic'
 import { Heebo } from 'next/font/google'
 import './globals.css'
 import { TRPCProvider } from '@/contexts/TRPCProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { PushSubscription } from '@/components/PushSubscription'
+
+const SessionProvider = dynamic(
+  () => import('@/components/SessionProvider').then((m) => ({ default: m.SessionProvider })),
+  { ssr: false }
+)
 
 const heebo = Heebo({
   subsets: ['hebrew', 'latin'],
@@ -35,10 +41,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="he" dir="rtl" className={`dark ${heebo.variable}`}>
       <body className="min-h-screen bg-[#0f0f0f] text-[#f0ede6]">
-        <TRPCProvider>
-          <DashboardLayout>{children}</DashboardLayout>
-          <PushSubscription />
-        </TRPCProvider>
+        <SessionProvider>
+          <TRPCProvider>
+            <DashboardLayout>{children}</DashboardLayout>
+            <PushSubscription />
+          </TRPCProvider>
+        </SessionProvider>
       </body>
     </html>
   )

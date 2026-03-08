@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
@@ -74,7 +74,7 @@ async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> 
 }
 
 export const calendarRouter = router({
-  isConnected: publicProcedure.query(() => {
+  isConnected: protectedProcedure.query(() => {
     if (!cacheWarmed && isAppleCalendarAvailable()) {
       cacheWarmed = true
       // fire-and-forget – non-blocking; no dynamic import (static import above)
@@ -83,7 +83,7 @@ export const calendarRouter = router({
     return isGoogleCalendarConfigured() || isAppleCalendarAvailable() || isICSCalendarConfigured()
   }),
 
-  events: publicProcedure.input(rangeInput).query(async ({ input }) => {
+  events: protectedProcedure.input(rangeInput).query(async ({ input }) => {
     const start = new Date(input.startDate)
     const end = new Date(input.endDate)
     // extend end by 1 day so all-day events on the last day are included
@@ -91,7 +91,7 @@ export const calendarRouter = router({
     return fetchAllEvents(start, end)
   }),
 
-  upcoming: publicProcedure
+  upcoming: protectedProcedure
     .input(z.object({ limit: z.number().min(1).max(50).default(10) }))
     .query(async ({ input }) => {
       const now = new Date()
@@ -102,7 +102,7 @@ export const calendarRouter = router({
         .slice(0, input.limit)
     }),
 
-  conflicts: publicProcedure
+  conflicts: protectedProcedure
     .input(z.object({
       startDate: z.string(),
       endDate: z.string(),
@@ -152,7 +152,7 @@ export const calendarRouter = router({
       return conflicts
     }),
 
-  declineEvent: publicProcedure
+  declineEvent: protectedProcedure
     .input(z.object({ eventId: z.string(), calendarId: z.string() }))
     .mutation(async ({ input }) => {
       await declineGoogleEvent(input.eventId, input.calendarId)

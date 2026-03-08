@@ -7,9 +7,11 @@ export function getTestDb() {
   return getDb()
 }
 
+const TEST_SESSION = { user: { id: 'test-user', email: 'test@test.com', name: 'Test User' } }
+
 export async function createTestCaller() {
   const db = getTestDb()
-  const ctx = await createContext({ db })
+  const ctx = await createContext({ db, session: TEST_SESSION })
   const createCaller = createCallerFactory(appRouter)
   return createCaller(ctx)
 }

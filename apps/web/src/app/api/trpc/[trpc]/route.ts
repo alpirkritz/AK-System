@@ -1,7 +1,9 @@
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
+import { getServerSession } from 'next-auth'
 import superjson from 'superjson'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
+import { authOptions } from '@/lib/auth'
 
 function errorBatchBody(message: string): string {
   const payload = [
@@ -30,12 +32,17 @@ async function handler(req: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     })
   }
+  let session = await getServerSession(authOptions)
+  // In development without login: use a dev session so the app and API work out of the box
+  if (!session && process.env.NODE_ENV === 'development') {
+    session = { user: { id: 'dev', email: 'dev@local', name: 'Developer' }, expires: '' }
+  }
   try {
     return await fetchRequestHandler({
       endpoint: '/api/trpc',
       req,
       router: appRouter,
-      createContext: () => createContext({ db }),
+      createContext: () => createContext({ db, session: session ?? undefined }),
       onError: ({ error }) => {
         console.error('[tRPC]', error.message, error.cause)
       },

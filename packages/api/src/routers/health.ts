@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { healthMetrics } from '@ak-system/database'
 import { eq, and, gte, lte } from 'drizzle-orm'
 
 /** Health data ingestion and query — heart rate, sleep; for meeting correlation */
 export const healthRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({
       type: z.enum(['heart_rate', 'sleep_quality', 'activity']).optional(),
       startAt: z.string().optional(),
@@ -26,7 +26,7 @@ export const healthRouter = router({
         .limit(input.limit)
     }),
 
-  ingest: publicProcedure
+  ingest: protectedProcedure
     .input(z.object({
       type: z.enum(['heart_rate', 'sleep_quality', 'activity']),
       value: z.union([z.number(), z.string()]),
@@ -50,7 +50,7 @@ export const healthRouter = router({
     }),
 
   /** Average heart rate in a time window (for daily summary correlation) */
-  averageHeartRate: publicProcedure
+  averageHeartRate: protectedProcedure
     .input(z.object({ startAt: z.string(), endAt: z.string() }))
     .query(async ({ ctx, input }) => {
       const rows = await ctx.db

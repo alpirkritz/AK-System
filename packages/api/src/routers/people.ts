@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { people, meetings, meetingPeople, tasks, taskPeople, projects } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 
@@ -36,11 +36,11 @@ const SORT_COLUMNS = {
 } as const
 
 export const peopleRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(people).orderBy(people.name)
   }),
 
-  listPaginated: publicProcedure
+  listPaginated: protectedProcedure
     .input(z.object({
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(10).max(100).default(50),
@@ -130,7 +130,7 @@ export const peopleRouter = router({
     }),
 
   /** Distinct values for filter dropdowns and creatable selects */
-  filterOptions: publicProcedure.query(async ({ ctx }) => {
+  filterOptions: protectedProcedure.query(async ({ ctx }) => {
     const allPeople = await ctx.db.select({
       tags: people.tags,
       company: people.company,
@@ -162,12 +162,12 @@ export const peopleRouter = router({
     }
   }),
 
-  getById: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [row] = await ctx.db.select().from(people).where(eq(people.id, input.id))
     return row ?? null
   }),
 
-  getRelated: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getRelated: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const relatedMeetingIds = await ctx.db
       .select({ meetingId: meetingPeople.meetingId })
       .from(meetingPeople)
@@ -224,7 +224,7 @@ export const peopleRouter = router({
     return { meetings: relatedMeetings, tasks: tasksWithContext }
   }),
 
-  search: publicProcedure
+  search: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const q = '%' + input.query.trim() + '%'
@@ -242,7 +242,7 @@ export const peopleRouter = router({
         .orderBy(people.name)
     }),
 
-  create: publicProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     const id = 'p' + Date.now()
     const createdAt = new Date().toISOString()
     await ctx.db.insert(people).values({
@@ -267,7 +267,7 @@ export const peopleRouter = router({
     return row!
   }),
 
-  update: publicProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     await ctx.db
       .update(people)
       .set({
@@ -291,19 +291,19 @@ export const peopleRouter = router({
     return row ?? null
   }),
 
-  delete: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(people).where(eq(people.id, input.id))
     return { ok: true }
   }),
 
-  bulkDelete: publicProcedure
+  bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string().min(1)).min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.delete(people).where(inArray(people.id, input.ids))
       return { ok: true, deleted: input.ids.length }
     }),
 
-  bulkUpdateGoal: publicProcedure
+  bulkUpdateGoal: protectedProcedure
     .input(z.object({
       ids: z.array(z.string().min(1)).min(1),
       goal: z.string(),
@@ -316,7 +316,7 @@ export const peopleRouter = router({
       return { ok: true }
     }),
 
-  bulkAddTag: publicProcedure
+  bulkAddTag: protectedProcedure
     .input(z.object({
       ids: z.array(z.string().min(1)).min(1),
       tag: z.string().min(1),
@@ -336,7 +336,7 @@ export const peopleRouter = router({
       return { ok: true }
     }),
 
-  bulkRemoveTag: publicProcedure
+  bulkRemoveTag: protectedProcedure
     .input(z.object({
       ids: z.array(z.string().min(1)).min(1),
       tag: z.string().min(1),

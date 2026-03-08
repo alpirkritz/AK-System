@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { financeTrades, financeTransactions } from '@ak-system/database'
 import { eq, desc, gte, and, like, sql, count, sum } from 'drizzle-orm'
 import { fetchIBKRTrades, listIBKREmails } from '../services/ibkr-parser'
@@ -12,14 +12,14 @@ export const financeRouter = router({
   // ─── IBKR Trades ─────────────────────────────────────────────────────────
 
   /** מחזיר רשימת מיילים מ-IBKR (לאבחון) — בלי שמירה לDB */
-  listIBKREmails: publicProcedure
+  listIBKREmails: protectedProcedure
     .input(z.object({ max: z.number().min(1).max(200).default(50) }))
     .query(async ({ input }) => {
       return listIBKREmails(input.max)
     }),
 
   /** אבחון מלא — מחפש בצורה רחבה ומחזיר גוף ראשון */
-  gmailDebug: publicProcedure
+  gmailDebug: protectedProcedure
     .input(z.object({ query: z.string().default('interactivebrokers') }))
     .query(async ({ input }) => {
       const { searchGmailMessages } = await import('../services/gmail')
@@ -33,7 +33,7 @@ export const financeRouter = router({
       }))
     }),
 
-  syncIBKREmails: publicProcedure
+  syncIBKREmails: protectedProcedure
     .input(z.object({ maxEmails: z.number().min(1).max(500).default(100) }))
     .mutation(async ({ ctx, input }) => {
       const trades = await fetchIBKRTrades(input.maxEmails)
@@ -81,7 +81,7 @@ export const financeRouter = router({
       return { inserted, skipped, total: trades.length }
     }),
 
-  listTrades: publicProcedure
+  listTrades: protectedProcedure
     .input(
       z.object({
         symbol: z.string().optional(),
@@ -106,14 +106,14 @@ export const financeRouter = router({
       return rows.orderBy(desc(financeTrades.tradeDate)).limit(input.limit)
     }),
 
-  deleteTrade: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  deleteTrade: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(financeTrades).where(eq(financeTrades.id, input.id))
     return { ok: true }
   }),
 
   // ─── Expenses / Income ────────────────────────────────────────────────────
 
-  importCSV: publicProcedure
+  importCSV: protectedProcedure
     .input(z.object({ csvContent: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const result = parseCSV(input.csvContent)
@@ -145,7 +145,7 @@ export const financeRouter = router({
     }),
 
   /** ייבוא קובץ PDF (למשל דוח ויזה כאל) — מחלץ טקסט ואז מפרסר כ-CSV או שורות ויזה כאל */
-  importPDF: publicProcedure
+  importPDF: protectedProcedure
     .input(z.object({ pdfBase64: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const buffer = Buffer.from(input.pdfBase64, 'base64')
@@ -184,7 +184,7 @@ export const financeRouter = router({
       }
     }),
 
-  createTransaction: publicProcedure
+  createTransaction: protectedProcedure
     .input(
       z.object({
         amount: z.number().positive(),
@@ -218,7 +218,7 @@ export const financeRouter = router({
       return row!
     }),
 
-  listTransactions: publicProcedure
+  listTransactions: protectedProcedure
     .input(
       z.object({
         direction: z.enum(['income', 'expense']).optional(),
@@ -243,14 +243,14 @@ export const financeRouter = router({
       return rows.orderBy(desc(financeTransactions.transactionDate)).limit(input.limit)
     }),
 
-  deleteTransaction: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  deleteTransaction: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(financeTransactions).where(eq(financeTransactions.id, input.id))
     return { ok: true }
   }),
 
   // ─── Summary ─────────────────────────────────────────────────────────────
 
-  getSummary: publicProcedure.query(async ({ ctx }) => {
+  getSummary: protectedProcedure.query(async ({ ctx }) => {
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 

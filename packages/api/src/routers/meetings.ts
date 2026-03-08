@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { meetings, meetingPeople, tasks, people, MEETING_CATEGORIES } from '@ak-system/database'
 import { eq, inArray, and, isNotNull } from 'drizzle-orm'
 import {
@@ -33,7 +33,7 @@ const updateInput = createInput.extend({
 const idInput = z.object({ id: z.string().min(1) })
 
 export const meetingsRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     const list = await ctx.db.select().from(meetings).orderBy(meetings.date)
     if (list.length === 0) return []
 
@@ -64,7 +64,7 @@ export const meetingsRouter = router({
     }))
   }),
 
-  getById: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [[meeting], links, taskList] = await Promise.all([
       ctx.db.select().from(meetings).where(eq(meetings.id, input.id)),
       ctx.db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, input.id)),
@@ -78,7 +78,7 @@ export const meetingsRouter = router({
     }
   }),
 
-  create: publicProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     const id = 'm' + Date.now()
     const now = new Date().toISOString()
     await ctx.db.insert(meetings).values({
@@ -103,7 +103,7 @@ export const meetingsRouter = router({
     return { ...row!, peopleIds: input.peopleIds ?? [], taskIds: [] }
   }),
 
-  update: publicProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     const now = new Date().toISOString()
     await ctx.db
       .update(meetings)
@@ -131,7 +131,7 @@ export const meetingsRouter = router({
     return row ?? null
   }),
 
-  purgeFreeBusy: publicProcedure.mutation(async ({ ctx }) => {
+  purgeFreeBusy: protectedProcedure.mutation(async ({ ctx }) => {
     const FREE_BUSY_TITLES = ['פנוי', 'לא פנוי', 'Tentative', 'Free', 'Busy']
     const rows = await ctx.db
       .select({ id: meetings.id })
@@ -148,7 +148,7 @@ export const meetingsRouter = router({
     return { deleted: rows.length }
   }),
 
-  syncFromCalendar: publicProcedure
+  syncFromCalendar: protectedProcedure
     .input(z.object({
       startDate: z.string(),
       endDate: z.string(),
@@ -339,7 +339,7 @@ export const meetingsRouter = router({
       return { created, updated, deleted }
     }),
 
-  delete: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(meetingPeople).where(eq(meetingPeople.meetingId, input.id))
     await ctx.db.update(tasks).set({ meetingId: null }).where(eq(tasks.meetingId, input.id))
     await ctx.db.delete(meetings).where(eq(meetings.id, input.id))

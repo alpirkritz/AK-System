@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { router, publicProcedure } from '../trpc'
+import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
 
@@ -29,24 +29,24 @@ const updateInput = z.object({
 const idInput = z.object({ id: z.string().min(1) })
 
 export const tasksRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(tasks).orderBy(tasks.createdAt)
   }),
 
-  listByMeeting: publicProcedure.input(z.object({ meetingId: z.string() })).query(async ({ ctx, input }) => {
+  listByMeeting: protectedProcedure.input(z.object({ meetingId: z.string() })).query(async ({ ctx, input }) => {
     return ctx.db.select().from(tasks).where(eq(tasks.meetingId, input.meetingId))
   }),
 
-  listByProject: publicProcedure.input(z.object({ projectId: z.string() })).query(async ({ ctx, input }) => {
+  listByProject: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ ctx, input }) => {
     return ctx.db.select().from(tasks).where(eq(tasks.projectId, input.projectId))
   }),
 
-  getById: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, input.id))
     return row ?? null
   }),
 
-  create: publicProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     const id = 't' + Date.now()
     const now = new Date().toISOString()
     let projectId = input.projectId ?? null
@@ -70,7 +70,7 @@ export const tasksRouter = router({
     return row!
   }),
 
-  update: publicProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     const { id, ...rest } = input
     const updates: Partial<typeof tasks.$inferInsert> = { updatedAt: new Date().toISOString() }
     if (rest.title !== undefined) updates.title = rest.title
@@ -85,7 +85,7 @@ export const tasksRouter = router({
     return row ?? null
   }),
 
-  toggleDone: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  toggleDone: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     const [task] = await ctx.db.select().from(tasks).where(eq(tasks.id, input.id))
     if (!task) return null
     const done = !task.done
@@ -93,12 +93,12 @@ export const tasksRouter = router({
     return { ...task, done }
   }),
 
-  delete: publicProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(tasks).where(eq(tasks.id, input.id))
     return { ok: true }
   }),
 
-  getTaskPeople: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getTaskPeople: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const rows = await ctx.db
       .select({ personId: taskPeople.personId })
       .from(taskPeople)
@@ -106,7 +106,7 @@ export const tasksRouter = router({
     return rows.map(r => r.personId)
   }),
 
-  getTaskPeopleWithNames: publicProcedure.input(idInput).query(async ({ ctx, input }) => {
+  getTaskPeopleWithNames: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const rows = await ctx.db
       .select({ personId: taskPeople.personId, name: people.name })
       .from(taskPeople)
@@ -115,7 +115,7 @@ export const tasksRouter = router({
     return rows.map(r => ({ id: r.personId, name: r.name }))
   }),
 
-  setTaskPeople: publicProcedure
+  setTaskPeople: protectedProcedure
     .input(z.object({ taskId: z.string().min(1), personIds: z.array(z.string().min(1)) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.delete(taskPeople).where(eq(taskPeople.taskId, input.taskId))
