@@ -21,13 +21,14 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    - היכנס ל-[railway.app](https://railway.app) וחבר את חשבון GitHub.
    - New Project → Deploy from GitHub repo → בחר את הרפו של AK System.
 
-2. **הגדרות Build**
-   - **Root Directory:** (ריק = שורש הפרויקט)
+2. **הגדרות Build (חשוב)**
+   - **Root Directory:** **חייב להישאר ריק** (שורש הפרויקט). אם מוגדר `apps/web` – ה-build לא רואה את `pnpm-lock.yaml` ויכול להיכשל על גרסאות ישנות.
+   - הפקודות מוגדרות ב-`railway.toml` ברפו. אם אתה מעדיף להגדיר ידנית:
    - **Build Command:**  
-     `pnpm install && pnpm --filter @ak-system/web build`
+     `pnpm install --frozen-lockfile && pnpm run build`
    - **Start Command:**  
      `cd apps/web && pnpm start`
-   - **Output Directory:** אין צורך (Next.js בונה ל-`apps/web/.next`).
+   - אם הבילד עדיין נכשל על "security vulnerabilities" (next ישן): הוסף משתנה **`NO_CACHE=1`** ב-Variables, שמור, הרץ Redeploy (כדי לנקות cache), ואז אפשר להסיר את `NO_CACHE=1`.
 
 3. **Volume למסד הנתונים**
    - Settings → Volumes → Add Volume.

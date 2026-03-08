@@ -1,0 +1,8 @@
+# Railway: build from repo root so pnpm-lock.yaml (next@14.2.35) is used.
+# In Dashboard: leave Root Directory EMPTY so this file and the lockfile are in context.
+
+[build]
+buildCommand = "pnpm install --frozen-lockfile && pnpm run build"
+
+[deploy]
+startCommand = "cd apps/web && pnpm start"
