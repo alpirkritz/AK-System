@@ -5,4 +5,5 @@
 buildCommand = "pnpm install --frozen-lockfile && pnpm run build"
 
 [deploy]
-startCommand = "cd apps/web && pnpm start"
+# Use pnpm --filter so no shell (cd) is needed; Railway may run start without /bin/sh
+startCommand = "pnpm --filter @ak-system/web start"
