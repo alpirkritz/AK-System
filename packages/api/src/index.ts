@@ -12,6 +12,7 @@ import { pushRouter } from './routers/push'
 
 export type { Context } from './trpc'
 export { createContext } from './trpc'
+export { getGoogleCalendarAuthUrl, exchangeGoogleCalendarCode } from './google-calendar-auth'
 
 export const appRouter = router({
   people: peopleRouter,
