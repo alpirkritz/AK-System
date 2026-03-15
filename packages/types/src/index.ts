@@ -20,3 +20,12 @@ export const DAYS_HE: Record<string, string> = {
 
 export type Priority = keyof typeof PRIORITY_COLORS
 export type RecurrenceDay = keyof typeof DAYS_HE
+
+export {
+  VAT_RATE,
+  VAT_CATEGORIES,
+  BIMONTHLY_PERIODS,
+  getCurrentPeriod,
+  computeVatBreakdown,
+} from './vat'
+export type { VatCategoryDef, VatBreakdown } from './vat'

@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useRef, useCallback, useMemo, memo } from 'react'
+import { useState, useRef, useCallback, useMemo, memo, lazy, Suspense } from 'react'
 import { trpc } from '@/lib/trpc'
 
-type Tab = 'portfolio' | 'cashflow' | 'import'
+const VatTab = lazy(() => import('./VatTab'))
+
+type Tab = 'portfolio' | 'cashflow' | 'import' | 'vat'
 
 const CATEGORIES = [
   'מזון', 'אוכל בחוץ', 'רכב', 'ביגוד', 'בריאות', 'חשבונות',
@@ -276,6 +278,7 @@ export default function FinancePage() {
           ['portfolio', 'פורטפוליו', '📊'],
           ['cashflow', 'תזרים', '🔄'],
           ['import', 'ייבוא', '⬆️'],
+          ['vat', 'דיווח מע"מ', '📋'],
         ] as [Tab, string, string][]).map(([id, label, icon]) => (
           <button
             key={id}
@@ -766,6 +769,13 @@ export default function FinancePage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── VAT Reporting Tab ─────────────────────────────────────── */}
+      {tab === 'vat' && (
+        <Suspense fallback={<div className="text-[#555] text-sm">טוען...</div>}>
+          <VatTab />
+        </Suspense>
       )}
     </div>
   )

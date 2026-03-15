@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, integer, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
-export const people = sqliteTable('people', {
+export const people = pgTable('people', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   role: text('role'),
@@ -21,7 +21,7 @@ export const people = sqliteTable('people', {
   emailIdx: index('idx_people_email').on(table.email),
 }))
 
-export const projects = sqliteTable('projects', {
+export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   color: text('color').default('#47b8e8'),
@@ -33,7 +33,7 @@ export const projects = sqliteTable('projects', {
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
 
-export const meetings = sqliteTable('meetings', {
+export const meetings = pgTable('meetings', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   date: text('date').notNull(),
@@ -43,7 +43,6 @@ export const meetings = sqliteTable('meetings', {
   recurrenceDay: text('recurrence_day'),
   notes: text('notes'),
   location: text('location'),
-  /** work | family | general — for daily meeting summary grouping */
   category: text('category'),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
@@ -56,7 +55,7 @@ export const meetings = sqliteTable('meetings', {
   calendarEventIdIdx: index('idx_meetings_calendar_event_id').on(table.calendarEventId),
 }))
 
-export const meetingPeople = sqliteTable('meeting_people', {
+export const meetingPeople = pgTable('meeting_people', {
   meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
   personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
 }, (table) => ({
@@ -64,14 +63,14 @@ export const meetingPeople = sqliteTable('meeting_people', {
   personIdIdx: index('idx_meeting_people_person_id').on(table.personId),
 }))
 
-export const tasks = sqliteTable('tasks', {
+export const tasks = pgTable('tasks', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   assigneeId: text('assignee_id').references(() => people.id, { onDelete: 'set null' }),
   dueDate: text('due_date'),
-  done: integer('done', { mode: 'boolean' }).notNull().default(false),
+  done: boolean('done').notNull().default(false),
   priority: text('priority').notNull().default('medium'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -81,8 +80,7 @@ export const tasks = sqliteTable('tasks', {
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
 }))
 
-/** Many-to-many: task can be linked to multiple people (in addition to assignee) */
-export const taskPeople = sqliteTable('task_people', {
+export const taskPeople = pgTable('task_people', {
   taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
 }, (table) => ({
@@ -90,10 +88,10 @@ export const taskPeople = sqliteTable('task_people', {
   personIdIdx: index('idx_task_people_person_id').on(table.personId),
 }))
 
-export const financeTrades = sqliteTable('finance_trades', {
+export const financeTrades = pgTable('finance_trades', {
   id: text('id').primaryKey(),
   symbol: text('symbol').notNull(),
-  direction: text('direction').notNull(), // 'buy' | 'sell'
+  direction: text('direction').notNull(),
   quantity: text('quantity').notNull(),
   price: text('price').notNull(),
   commission: text('commission'),
@@ -109,15 +107,15 @@ export const financeTrades = sqliteTable('finance_trades', {
   symbolIdx: index('idx_finance_trades_symbol').on(table.symbol),
 }))
 
-export const financeTransactions = sqliteTable('finance_transactions', {
+export const financeTransactions = pgTable('finance_transactions', {
   id: text('id').primaryKey(),
   amount: text('amount').notNull(),
   currency: text('currency').notNull().default('ILS'),
-  direction: text('direction').notNull(), // 'income' | 'expense'
+  direction: text('direction').notNull(),
   category: text('category'),
   description: text('description'),
   transactionDate: text('transaction_date').notNull(),
-  source: text('source').notNull(), // 'csv_import' | 'manual'
+  source: text('source').notNull(),
   rawData: text('raw_data'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
@@ -125,24 +123,22 @@ export const financeTransactions = sqliteTable('finance_transactions', {
   directionIdx: index('idx_finance_transactions_direction').on(table.direction),
 }))
 
-// ─── Feed (עדכוני כלכלה וחדשות) ───────────────────────────────────────────
-
-export const feedSources = sqliteTable('feed_sources', {
+export const feedSources = pgTable('feed_sources', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   url: text('url').notNull(),
-  category: text('category').notNull(), // 'economics' | 'us_market' | 'ai_tech' | 'israel_market'
+  category: text('category').notNull(),
   createdAt: text('created_at').notNull(),
 })
 
-export const feedItems = sqliteTable('feed_items', {
+export const feedItems = pgTable('feed_items', {
   id: text('id').primaryKey(),
   sourceId: text('source_id').notNull().references(() => feedSources.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   link: text('link').notNull(),
   summary: text('summary'),
   publishedAt: text('published_at').notNull(),
-  tags: text('tags'), // JSON array of strings, e.g. ["us_market","ai"]
+  tags: text('tags'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   sourceIdIdx: index('idx_feed_items_source_id').on(table.sourceId),
@@ -150,48 +146,31 @@ export const feedItems = sqliteTable('feed_items', {
   publishedAtIdx: index('idx_feed_items_published_at').on(table.publishedAt),
 }))
 
-// ─── Facts (knowledge base / memory for conversation engine) ───────────────────
-
-export const facts = sqliteTable('facts', {
+export const facts = pgTable('facts', {
   id: text('id').primaryKey(),
   content: text('content').notNull(),
-  source: text('source').notNull().default('conversation'), // 'conversation' | 'manual' | 'report'
+  source: text('source').notNull().default('conversation'),
   createdAt: text('created_at').notNull(),
 })
 
-export type Fact = typeof facts.$inferSelect
-export type NewFact = typeof facts.$inferInsert
-
-// ─── Chat messages (web chat + telegram + cron push) ──────────────────────────
-
-export const chatMessages = sqliteTable('chat_messages', {
+export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey(),
-  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  role: text('role').notNull(),
   content: text('content').notNull(),
-  source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'cron'
+  source: text('source').notNull().default('web'),
   createdAt: text('created_at').notNull(),
 })
 
-export type ChatMessage = typeof chatMessages.$inferSelect
-export type NewChatMessage = typeof chatMessages.$inferInsert
-
-// ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
-
-export const healthMetrics = sqliteTable('health_metrics', {
+export const healthMetrics = pgTable('health_metrics', {
   id: text('id').primaryKey(),
-  type: text('type').notNull(), // 'heart_rate' | 'sleep_quality' | 'activity'
-  value: text('value').notNull(), // number as string
-  at: text('at').notNull(), // ISO timestamp
-  source: text('source').notNull().default('manual'), // 'garmin' | 'apple_health' | 'manual' | 'csv'
+  type: text('type').notNull(),
+  value: text('value').notNull(),
+  at: text('at').notNull(),
+  source: text('source').notNull().default('manual'),
   createdAt: text('created_at').notNull(),
 })
 
-export type HealthMetric = typeof healthMetrics.$inferSelect
-export type NewHealthMetric = typeof healthMetrics.$inferInsert
-
-// ─── VAT entries (bimonthly tax reporting) ──────────────────────────────────
-
-export const vatEntries = sqliteTable('vat_entries', {
+export const vatEntries = pgTable('vat_entries', {
   id: text('id').primaryKey(),
   year: integer('year').notNull(),
   period: integer('period').notNull(),
@@ -202,7 +181,7 @@ export const vatEntries = sqliteTable('vat_entries', {
   invoiceNumber: text('invoice_number'),
   description: text('description').notNull(),
   amount: text('amount').notNull(),
-  isVatExempt: integer('is_vat_exempt', { mode: 'boolean' }).notNull().default(false),
+  isVatExempt: integer('is_vat_exempt').notNull().default(0),
   deductionPercent: text('deduction_percent'),
   dollarRate: text('dollar_rate'),
   invoiceFileUrl: text('invoice_file_url'),
@@ -213,12 +192,7 @@ export const vatEntries = sqliteTable('vat_entries', {
   taxCodeIdx: index('idx_vat_entries_tax_code').on(table.taxCode),
 }))
 
-export type VatEntry = typeof vatEntries.$inferSelect
-export type NewVatEntry = typeof vatEntries.$inferInsert
-
-// ─── Push subscriptions (Web Push API) ──────────────────────────────────────
-
-export const pushSubscriptions = sqliteTable('push_subscriptions', {
+export const pushSubscriptions = pgTable('push_subscriptions', {
   id: text('id').primaryKey(),
   endpoint: text('endpoint').notNull(),
   p256dh: text('p256dh').notNull(),
@@ -227,23 +201,3 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 }, (table) => ({
   endpointIdx: uniqueIndex('idx_push_subscriptions_endpoint').on(table.endpoint),
 }))
-
-export type PushSubscription = typeof pushSubscriptions.$inferSelect
-export type NewPushSubscription = typeof pushSubscriptions.$inferInsert
-
-export type Person = typeof people.$inferSelect
-export type NewPerson = typeof people.$inferInsert
-export type Project = typeof projects.$inferSelect
-export type NewProject = typeof projects.$inferInsert
-export type Meeting = typeof meetings.$inferSelect
-export type NewMeeting = typeof meetings.$inferInsert
-export type Task = typeof tasks.$inferSelect
-export type NewTask = typeof tasks.$inferInsert
-export type FinanceTrade = typeof financeTrades.$inferSelect
-export type NewFinanceTrade = typeof financeTrades.$inferInsert
-export type FinanceTransaction = typeof financeTransactions.$inferSelect
-export type NewFinanceTransaction = typeof financeTransactions.$inferInsert
-export type FeedSource = typeof feedSources.$inferSelect
-export type NewFeedSource = typeof feedSources.$inferInsert
-export type FeedItem = typeof feedItems.$inferSelect
-export type NewFeedItem = typeof feedItems.$inferInsert
