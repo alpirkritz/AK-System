@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>דאז: סימולטור ולידציה והון</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useMemo } = React;
+
+    const Icon = ({ size = 24, className = '', children }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        {children}
+      </svg>
+    );
+    const ScaleIcon = (p) => <Icon {...p}><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></Icon>;
+    const FlameIcon = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></Icon>;
+    const ZapIcon = (p) => <Icon {...p}><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></Icon>;
+    const TargetIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Icon>;
+    const RocketIcon = (p) => <Icon {...p}><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></Icon>;
+    const TrendingDownIcon = (p) => <Icon {...p}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></Icon>;
+
+    const App = () => {
+      const [marketVelocity, setMarketVelocity] = useState(50);
+      const [tractionLevel, setTractionLevel] = useState(0);
+      const [activeScenario, setActiveScenario] = useState(null);
+
+      const tractionLabels = ["רעיון / מצגת", "MVP / POC עובד", "מכירות ראשוניות (Revenue)"];
+
+      const scenarios = useMemo(() => [
+        { id: 'bootstrap', title: 'Bootstrap (אורגני)', funding: 0, equity: 100, baseSpeed: 20, baseRisk: 40, description: 'בנייה איטית מבוססת משאבים פנימיים. שליטה מלאה, תלות מוחלטת בקצב המכירות.', dilemma: 'האם המותג שלנו יישאר רלוונטי אם נגיע לשוק רק בעוד 18 חודשים?' },
+        { id: 'seed_lean', title: 'Lean Seed ($450k)', funding: 450000, equity: 85, baseSpeed: 60, baseRisk: 25, baseFundingProb: 65, description: 'גיוס "חכם" להוכחת התאמה לשוק (PMF). מאפשר בניית צוות ליבה איכותי.', dilemma: 'האם זה מספיק דלק כדי לנצח מתחרים שגייסו פי 5 מאיתנו?' },
+        { id: 'seed_agg', title: 'Aggressive ($1.2M)', funding: 1200000, equity: 72, baseSpeed: 95, baseRisk: 30, baseFundingProb: 25, description: 'מרוץ חימוש. השתלטות על השוק דרך הון מאסיבי וצמיחה מהירה.', dilemma: 'בלי טרקשן משמעותי, האם אנחנו לא שורפים את השם שלנו מול VCs בכירים?' }
+      ], []);
+
+      const calculateData = (scenario) => {
+        const vFactor = marketVelocity / 100;
+        const tFactor = tractionLevel / 2;
+        let relevanceRisk = scenario.id === 'bootstrap'
+          ? Math.min(100, scenario.baseRisk + (vFactor * 100) - (tFactor * 40))
+          : Math.max(10, scenario.baseRisk + (vFactor * 25) - (tFactor * 20));
+        let fundingProb;
+        if (scenario.id === 'bootstrap') {
+          fundingProb = 100;
+        } else {
+          const tractionBonus = tractionLevel * 30;
+          const marketPenalty = vFactor * 25;
+          const sizePenalty = scenario.id === 'seed_agg' ? 20 : 0;
+          fundingProb = Math.max(5, Math.min(95, scenario.baseFundingProb + tractionBonus - marketPenalty - sizePenalty));
+        }
+        return { ...scenario, relevanceRisk, fundingProb };
+      };
+
+      return (
+        <div className="min-h-screen bg-[#fcfcfd] p-4 md:p-12 font-sans text-slate-900" dir="rtl">
+          <header className="max-w-6xl mx-auto mb-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                <ScaleIcon className="text-indigo-600" size={36} />
+                דאז: סימולטור ולידציה והון
+              </h1>
+              <p className="text-slate-500 mt-2 text-lg">ניתוח הסתברותי להחלטה אסטרטגית בין שותפים</p>
+            </div>
+            <div className="flex gap-3">
+              <div className="bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-sm text-center">
+                <span className="block text-[10px] font-bold text-slate-400 uppercase">Market State</span>
+                <span className={`text-sm font-bold ${marketVelocity > 70 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                  {marketVelocity > 70 ? 'Hyper-Competitive' : 'Stable'}
+                </span>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                <div className="relative z-10">
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <FlameIcon className={marketVelocity > 70 ? "text-orange-500" : "text-blue-400"} size={24} />
+                    מהירות השוק (Velocity)
+                  </h2>
+                  <input type="range" min="0" max="100" value={marketVelocity} onChange={(e) => setMarketVelocity(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                  <div className="flex justify-between text-[10px] font-bold mt-2 text-slate-500 uppercase tracking-widest">
+                    <span>שוק איטי</span>
+                    <span>מרוץ חימוש</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-4 leading-relaxed">ככל שהשוק מהיר יותר, משקיעים דורשים יותר הוכחות (Traction) כדי לשים סכומים גדולים.</p>
+                </div>
+              </div>
+              <div className="bg-indigo-900 text-white p-8 rounded-[2.5rem] shadow-2xl">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <ZapIcon className="text-yellow-400" size={24} />
+                  רמת טרקשן (Validation)
+                </h2>
+                <input type="range" min="0" max="2" step="1" value={tractionLevel} onChange={(e) => setTractionLevel(parseInt(e.target.value))} className="w-full h-2 bg-indigo-800 rounded-lg appearance-none cursor-pointer accent-yellow-400" />
+                <div className="flex justify-between text-[10px] font-bold mt-2 text-indigo-300 uppercase tracking-widest">
+                  <span>{tractionLabels[0]}</span>
+                  <span>{tractionLabels[1]}</span>
+                  <span>{tractionLabels[2]}</span>
+                </div>
+                <p className="text-xs text-indigo-200/60 mt-4 leading-relaxed">מכירות ראשוניות הן "מכפיל הכוח" הכי חזק שלכם. בלי זה, הגיוס הוא תהליך של ניחושים.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {scenarios.map((s) => {
+                const data = calculateData(s);
+                return (
+                  <div key={s.id} className={`group transition-all duration-500 bg-white rounded-[2rem] border-2 p-8 flex flex-col space-y-6 cursor-pointer ${activeScenario === s.id ? 'border-indigo-500 shadow-2xl scale-[1.03]' : 'border-transparent shadow-sm hover:border-slate-200'}`} onClick={() => setActiveScenario(s.id)}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-800">{s.title}</h3>
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-tight mt-1">${s.funding.toLocaleString()}</p>
+                      </div>
+                      <div className={`p-2 rounded-xl ${data.fundingProb > 70 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+                        <TargetIcon size={20} />
+                      </div>
+                    </div>
+                    <div className="space-y-5">
+                      <div>
+                        <div className="flex justify-between text-[11px] font-bold mb-2">
+                          <span className="text-slate-500">סיכוי הצלחה בגיוס</span>
+                          <span className={data.fundingProb < 35 ? 'text-red-500' : 'text-emerald-600'}>{data.fundingProb.toFixed(0)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                          <div className={`h-full transition-all duration-1000 ${data.fundingProb < 35 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${data.fundingProb}%` }} />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-[11px] font-bold mb-2">
+                          <span className="text-slate-500">סיכון אי-רלוונטיות (Market Risk)</span>
+                          <span className={data.relevanceRisk > 60 ? 'text-orange-600' : 'text-slate-400'}>{data.relevanceRisk.toFixed(0)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-1.5 rounded-full">
+                          <div className="bg-slate-900 h-full transition-all duration-500" style={{ width: `${data.relevanceRisk}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic text-xs text-slate-600 leading-relaxed">&quot;{s.description}&quot;</div>
+                    <div className="pt-4 border-t border-slate-100 flex justify-between items-end mt-auto">
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-bold uppercase">Equity Left</span>
+                        <span className="text-2xl font-black text-slate-800">{s.equity}%</span>
+                      </div>
+                      <div className="bg-indigo-50 px-3 py-1 rounded-lg">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase">Potential Exit</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-white border-2 border-slate-200 rounded-[2.5rem] p-10 shadow-sm overflow-hidden relative">
+              <div className="flex flex-col md:flex-row gap-12 items-center relative z-10">
+                <div className="flex-1 space-y-6">
+                  <h2 className="text-3xl font-black text-slate-900 leading-none">הדילמה שעל השולחן:</h2>
+                  <p className="text-lg text-slate-600 leading-relaxed">
+                    גיוס של <strong>$1.2M</strong> במצב של &quot;רעיון בלבד&quot; הוא כמעט בלתי אפשרי בשוק מהיר. זה הימור שיכול לעלות לכם בחצי שנה של פגישות ריקות בזמן שהמתחרים בונים.
+                  </p>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2 rounded-full text-sm font-bold border border-red-100">
+                      <TrendingDownIcon size={18} />
+                      סיכון גבוה ל-Failed Round
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-bold border border-indigo-100">
+                      <RocketIcon size={18} />
+                      מכירות מעלות שווי ב-300%
+                    </div>
+                  </div>
+                </div>
+                <div className="w-full md:w-80 space-y-4">
+                  <div className="bg-slate-900 p-6 rounded-3xl text-white">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-4 tracking-widest">נקודות למחשבה לשותפים</h4>
+                    <ul className="space-y-4 text-sm">
+                      <li className="flex gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
+                        <span>האם נסכים לגייס פחות ($450k) כדי לסגור סבב תוך חודש?</span>
+                      </li>
+                      <li className="flex gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
+                        <span>מה הדבר היחיד שיכול להביא לנו לקוח משלם מחר?</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <footer className="max-w-6xl mx-auto mt-12 text-center text-slate-400 text-[10px] uppercase tracking-widest pb-10">
+            Daz Confidential Strategic Asset // Alpir Kritzler Edition
+          </footer>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
