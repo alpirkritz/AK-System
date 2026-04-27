@@ -19,6 +19,7 @@ const navSections = [
       { href: '/finance', label: 'פיננסים', icon: '💰' },
       { href: '/updates', label: 'עדכונים', icon: '📰' },
       { href: '/chat', label: 'צ\'אט', icon: '💬' },
+      { href: '/trading-journal', label: 'יומן מסחר', icon: '📈' },
     ],
   },
   {
@@ -43,6 +44,7 @@ const MORE_ITEMS = [
   { href: '/finance', label: 'פיננסים', icon: '💰' },
   { href: '/updates', label: 'עדכונים', icon: '📰' },
   { href: '/chat', label: 'צ\'אט', icon: '💬' },
+  { href: '/trading-journal', label: 'יומן מסחר', icon: '📈' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
 ]
 

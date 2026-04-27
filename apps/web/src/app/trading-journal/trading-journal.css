@@ -1,0 +1,282 @@
+.trading-journal-page {
+  --tj-bg: #080808;
+  --tj-panel: #111111;
+  --tj-border: #222222;
+  --tj-text: #e0e0e0;
+  --tj-text-muted: #888888;
+  --tj-green: #2cc84a;
+  --tj-red: #ff4d4d;
+  --tj-amber: #ffb300;
+  --tj-accent: #333333;
+
+  box-sizing: border-box;
+  margin: -1rem -1rem 0;
+  width: calc(100% + 2rem);
+  max-width: none;
+  font-family: 'IBM Plex Mono', monospace;
+  background: var(--tj-bg);
+  color: var(--tj-text);
+  height: calc(100dvh - 4.5rem);
+  overflow: hidden;
+  text-align: left;
+  direction: ltr;
+}
+
+@media (min-width: 1024px) {
+  .trading-journal-page {
+    margin: -2rem -2rem 0;
+    width: calc(100% + 4rem);
+    height: calc(100dvh - 5rem);
+  }
+}
+
+.trading-journal-page *,
+.trading-journal-page *::before,
+.trading-journal-page *::after {
+  box-sizing: border-box;
+}
+
+.trading-journal-page .tj-app-container {
+  display: flex;
+  height: 100%;
+}
+
+.trading-journal-page .tj-chat-panel {
+  flex: 1;
+  border-right: 1px solid var(--tj-border);
+  display: flex;
+  flex-direction: column;
+  background: var(--tj-bg);
+}
+
+.trading-journal-page .tj-log-panel {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  background: var(--tj-panel);
+}
+
+.trading-journal-page .tj-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--tj-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.trading-journal-page .tj-stats-badge {
+  font-size: 0.8rem;
+  color: var(--tj-text-muted);
+}
+
+.trading-journal-page .tj-chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.trading-journal-page .tj-message {
+  max-width: 85%;
+  padding: 0.8rem;
+  line-height: 1.4;
+  border-radius: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trading-journal-page .tj-user-msg {
+  align-self: flex-end;
+  background: var(--tj-accent);
+  border-left: 3px solid var(--tj-text-muted);
+}
+
+.trading-journal-page .tj-ai-msg {
+  align-self: flex-start;
+  background: transparent;
+  border-left: 3px solid var(--tj-green);
+}
+
+.trading-journal-page .tj-chat-input-area {
+  padding: 1.5rem;
+  border-top: 1px solid var(--tj-border);
+}
+
+.trading-journal-page .tj-textarea {
+  width: 100%;
+  background: #000;
+  border: 1px solid var(--tj-border);
+  color: var(--tj-text);
+  padding: 1rem;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+}
+
+.trading-journal-page .tj-trade-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.trading-journal-page .tj-trade-card {
+  background: var(--tj-bg);
+  border: 1px solid var(--tj-border);
+  padding: 1rem;
+  animation: tj-slide-in 0.3s ease-out;
+  position: relative;
+}
+
+@keyframes tj-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.trading-journal-page .tj-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.trading-journal-page .tj-ticker {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.trading-journal-page .tj-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  margin-left: 5px;
+}
+
+.trading-journal-page .tj-badge-win {
+  background: var(--tj-green);
+  color: black;
+}
+
+.trading-journal-page .tj-badge-loss {
+  background: var(--tj-red);
+  color: white;
+}
+
+.trading-journal-page .tj-badge-long {
+  border: 1px solid var(--tj-green);
+  color: var(--tj-green);
+}
+
+.trading-journal-page .tj-badge-short {
+  border: 1px solid var(--tj-red);
+  color: var(--tj-red);
+}
+
+.trading-journal-page .tj-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.trading-journal-page .tj-label {
+  color: var(--tj-text-muted);
+  display: block;
+  font-size: 0.7rem;
+  margin-bottom: 2px;
+}
+
+.trading-journal-page .tj-value-amber {
+  color: var(--tj-amber);
+}
+
+.trading-journal-page .tj-r-bar {
+  height: 4px;
+  width: 100%;
+  background: #222;
+  margin: 10px 0;
+  position: relative;
+}
+
+.trading-journal-page .tj-r-fill {
+  height: 100%;
+  position: absolute;
+  left: 0;
+}
+
+.trading-journal-page .tj-notes {
+  font-size: 0.8rem;
+  border-top: 1px solid var(--tj-border);
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.trading-journal-page .tj-execution-dots {
+  color: var(--tj-amber);
+  letter-spacing: 2px;
+}
+
+.trading-journal-page .tj-controls {
+  display: flex;
+  gap: 10px;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--tj-border);
+}
+
+.trading-journal-page .tj-btn {
+  background: transparent;
+  border: 1px solid var(--tj-border);
+  color: var(--tj-text);
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.trading-journal-page .tj-btn:hover {
+  background: var(--tj-accent);
+}
+
+.trading-journal-page .tj-btn-clear {
+  color: var(--tj-red);
+  border-color: #301010;
+}
+
+.trading-journal-page .tj-banner {
+  padding: 0.75rem 1.5rem;
+  background: #1a1208;
+  border-bottom: 1px solid var(--tj-border);
+  font-size: 0.75rem;
+  color: var(--tj-amber);
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .trading-journal-page .tj-app-container {
+    flex-direction: column;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .trading-journal-page .tj-chat-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--tj-border);
+    min-height: 45dvh;
+  }
+
+  .trading-journal-page .tj-log-panel {
+    min-height: 40dvh;
+  }
+}

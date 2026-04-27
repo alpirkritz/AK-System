@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { protectedProcedure, router } from '../trpc'
-import { pushSubscriptions, eq } from '@ak-system/database'
+import { pushSubscriptions, eq, queryRows, runMutation } from '@ak-system/database'
 import webPush from 'web-push'
 
 const vapidPublic = process.env.VAPID_PUBLIC_KEY ?? ''
@@ -26,38 +26,45 @@ export const pushRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const id = crypto.randomUUID()
-      const existing = await ctx.db
-        .select()
-        .from(pushSubscriptions)
-        .where(eq(pushSubscriptions.endpoint, input.endpoint))
-        .get()
+      const rows = await queryRows(
+        ctx.db
+          .select()
+          .from(pushSubscriptions)
+          .where(eq(pushSubscriptions.endpoint, input.endpoint))
+          .limit(1),
+      )
+      const existing = rows[0]
 
       if (existing) {
-        await ctx.db
-          .update(pushSubscriptions)
-          .set({ p256dh: input.keys.p256dh, auth: input.keys.auth })
-          .where(eq(pushSubscriptions.id, existing.id))
-          .run()
+        await runMutation(
+          ctx.db
+            .update(pushSubscriptions)
+            .set({ p256dh: input.keys.p256dh, auth: input.keys.auth })
+            .where(eq(pushSubscriptions.id, existing.id)),
+        )
         return { id: existing.id }
       }
 
-      await ctx.db.insert(pushSubscriptions).values({
-        id,
-        endpoint: input.endpoint,
-        p256dh: input.keys.p256dh,
-        auth: input.keys.auth,
-        createdAt: new Date().toISOString(),
-      }).run()
+      await runMutation(
+        ctx.db.insert(pushSubscriptions).values({
+          id,
+          endpoint: input.endpoint,
+          p256dh: input.keys.p256dh,
+          auth: input.keys.auth,
+          createdAt: new Date().toISOString(),
+        }),
+      )
       return { id }
     }),
 
   unsubscribe: protectedProcedure
     .input(z.object({ endpoint: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .delete(pushSubscriptions)
-        .where(eq(pushSubscriptions.endpoint, input.endpoint))
-        .run()
+      await runMutation(
+        ctx.db
+          .delete(pushSubscriptions)
+          .where(eq(pushSubscriptions.endpoint, input.endpoint)),
+      )
       return { ok: true }
     }),
 
@@ -74,7 +81,7 @@ export const pushRouter = router({
         throw new Error('VAPID keys not configured')
       }
 
-      const subs = await ctx.db.select().from(pushSubscriptions).all()
+      const subs = await queryRows(ctx.db.select().from(pushSubscriptions))
       const payload = JSON.stringify({
         title: input.title,
         body: input.body,
@@ -99,10 +106,11 @@ export const pushRouter = router({
         .filter((i): i is number => i !== null)
 
       for (const i of failed) {
-        await ctx.db
-          .delete(pushSubscriptions)
-          .where(eq(pushSubscriptions.endpoint, subs[i].endpoint))
-          .run()
+        await runMutation(
+          ctx.db
+            .delete(pushSubscriptions)
+            .where(eq(pushSubscriptions.endpoint, subs[i].endpoint)),
+        )
       }
 
       return { sent: subs.length - failed.length, removed: failed.length }

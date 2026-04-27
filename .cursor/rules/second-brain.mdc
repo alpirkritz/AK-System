@@ -1,0 +1,71 @@
+---
+description: Second Brain architecture context — always apply so the AI understands the full system
+alwaysApply: true
+---
+
+# Second Brain — System Context
+
+**Second Brain** is a separate personal AI assistant system (FastAPI on Google Cloud Run, NVIDIA L4 GPU, europe-west1).
+It is **not** AK_system — AK_system (Next.js + tRPC) is a partial implementation of Second Brain's concepts.
+Wiki: https://wiki.bachar-israeli.com/#second-brain/overview
+
+## Infrastructure
+- FastAPI · Cloud Run (4 vCPU, 16 GiB, 1× NVIDIA L4, concurrency 80) · Python 3.11
+- Gemini API · pyannote.audio (GPU diarization) · WhatsApp (Meta Cloud API + Baileys) · Google Drive
+- Deploy: GitHub Actions → Docker → Artifact Registry → Cloud Run
+
+## Core Services (~30 internal)
+| Layer | Services |
+|---|---|
+| AI | gemini_service, audio_pipeline, pyannote_service, speaker_identity_service, expert_analysis_service (3 personas: Sinek/Tech/Adler), conversation_engine |
+| Communication | whatsapp_provider, meta_whatsapp_service, group_listener_service (Baileys) |
+| Memory | drive_memory_service, knowledge_base_service, context_writer_service |
+| Scheduling | task_service, calendar_service (ICS: Outlook + Google), daily_meeting_summary_service, kids_schedule_service |
+| External | health_service, weather_service (Open-Meteo), flight_search_service (SerpAPI) |
+| Output | infographic_generator (Pillow), pdf_service (ReportLab RTL), architecture_audit_service |
+
+## Scheduled Jobs
+| Job | Schedule |
+|---|---|
+| Morning Calendar Briefing | 07:00 Israel |
+| Pre-Meeting Briefing | Every 5 min |
+| Daily Meeting Summary | 20:00 Israel |
+| Health-Meeting Correlation | 21:00 Israel Sun–Thu |
+| Weekly Architecture Audit | Friday 13:00 Israel |
+| Task Reminder Poller | Every 1 min |
+
+## Key API Endpoints
+- `GET /health`, `GET /version`
+- `GET|POST /webhook` (WhatsApp), `POST /analyze` (multimodal), `POST /group-message`
+- `/api/admin/*` — auth (OTP→JWT), dashboard, speakers, transcripts, context, settings
+- `/cursor-inbox`, `/cursor-result`, `/bridge-heartbeat` (Cursor Bridge)
+
+## AK_system Implementation Status
+Commit `3b7f192` (2026-03-05) added Second Brain–inspired features to AK_system:
+
+| Feature | Status in AK_system |
+|---|---|
+| Conversation engine (Telegram + Gemini + tools) | Implemented |
+| ICS calendar (Outlook + Google via ICS_FEED_URLS) | Implemented |
+| Cron: morning-briefing (07:00) | Implemented |
+| Cron: pre-meeting-briefing (every 5 min) | Implemented |
+| Cron: daily-meeting-summary (20:00) | Implemented |
+| Cron: task-reminder (every 1 min) | Implemented |
+| Facts (save_fact / get_reports) | Implemented |
+| Health metrics table + router | Implemented |
+| People search (search_person) | Implemented |
+| Weather (Open-Meteo) | Implemented |
+| Flights (SerpAPI) | Implemented |
+| POST /api/analyze (multimodal Gemini) | Implemented |
+| Audio diarization (pyannote, GPU) | **Missing** — requires Python/GPU service |
+| Voice imprinting / Speaker Identity Graph | **Missing** |
+| WhatsApp integration (Meta / Baileys) | **Missing** |
+| Google Drive memory / knowledge base | **Missing** |
+| Expert analysis (3 personas) | **Missing** |
+| Infographic generator | **Missing** |
+| Admin portal (OTP/JWT auth) | **Missing** |
+| Cursor Bridge | **Missing** |
+| Health-meeting correlation | **Missing** |
+| Weekly architecture audit | **Missing** |
+
+Full reference: `docs/second-brain.md`

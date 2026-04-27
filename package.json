@@ -18,6 +18,8 @@
     "db:generate": "pnpm --filter @ak-system/database run generate",
     "db:migrate": "pnpm --filter @ak-system/database run migrate",
     "db:push": "cd apps/web && mkdir -p data && DATABASE_PATH=$PWD/data/ak_system.sqlite pnpm --filter @ak-system/database run push",
+    "db:push:postgres": "pnpm --filter @ak-system/database run push",
+    "db:sqlite-to-postgres": "tsx scripts/sqlite-to-postgres.ts",
     "qa": "pnpm test && pnpm e2e",
     "e2e": "pnpm run pretest:e2e && pnpm --filter @ak-system/web run test:e2e",
     "pretest:e2e": "mkdir -p apps/web/data && (cd packages/database && DATABASE_PATH=../../apps/web/data/e2e.sqlite pnpm run push)"
@@ -28,6 +30,8 @@
   },
   "packageManager": "pnpm@9.14.2",
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "tsx": "^4.19.0",
+    "xlsx": "^0.18.5"
   }
 }

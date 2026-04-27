@@ -172,9 +172,14 @@ function EntryForm({
   })
 
   const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrError, setOcrError] = useState<string | null>(null)
+  const [ocrFileName, setOcrFileName] = useState<string | null>(null)
   const [ocrFields, setOcrFields] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const MAX_FILE_SIZE_MB = 8
+  const MAX_FILE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
   const createMutation = trpc.vat.create.useMutation({
     onSuccess: () => {
@@ -195,6 +200,8 @@ function EntryForm({
   const parseInvoiceMutation = trpc.vat.parseInvoice.useMutation({
     onSuccess: (result) => {
       setOcrLoading(false)
+      setOcrError(null)
+      setOcrFileName(null)
       const touched = new Set<string>()
       setForm((f) => {
         const updated = { ...f }
@@ -234,7 +241,11 @@ function EntryForm({
       })
       setOcrFields(touched)
     },
-    onError: () => setOcrLoading(false),
+    onError: (err) => {
+      setOcrLoading(false)
+      setOcrFileName(null)
+      setOcrError(err.message || 'שגיאה בניתוח החשבונית')
+    },
   })
 
   const selectedCat = VAT_CATEGORIES.find((c) => c.id === form.categoryId)
@@ -255,8 +266,15 @@ function EntryForm({
   const handleFileUpload = useCallback(
     (file: File) => {
       if (!file) return
-      setOcrLoading(true)
+      setOcrError(null)
       setOcrFields(new Set())
+      setOcrFileName(file.name)
+
+      if (file.size > MAX_FILE_BYTES) {
+        setOcrError(`הקובץ גדול מדי (מקסימום ${MAX_FILE_SIZE_MB} MB). נסה לצמצם או לצלם מחדש.`)
+        setOcrFileName(null)
+        return
+      }
 
       const isPdf =
         file.type === 'application/pdf' ||
@@ -269,17 +287,27 @@ function EntryForm({
         ? 'image/jpeg'
         : 'image/png'
 
+      setOcrLoading(true)
+
       const reader = new FileReader()
       reader.onload = (e) => {
         const buffer = e.target?.result as ArrayBuffer
-        if (buffer) {
-          const bytes = new Uint8Array(buffer)
-          let binary = ''
-          for (let i = 0; i < bytes.length; i++)
-            binary += String.fromCharCode(bytes[i])
-          const base64 = btoa(binary)
-          parseInvoiceMutation.mutate({ fileBase64: base64, mimeType })
+        if (!buffer || buffer.byteLength === 0) {
+          setOcrLoading(false)
+          setOcrError('לא ניתן לקרוא את הקובץ')
+          return
         }
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++)
+          binary += String.fromCharCode(bytes[i])
+        const base64 = btoa(binary)
+        parseInvoiceMutation.mutate({ fileBase64: base64, mimeType })
+      }
+      reader.onerror = () => {
+        setOcrLoading(false)
+        setOcrFileName(null)
+        setOcrError('שגיאה בקריאת הקובץ')
       }
       reader.readAsArrayBuffer(file)
     },
@@ -360,7 +388,7 @@ function EntryForm({
             >
               {ocrLoading ? (
                 <div className="text-sm text-[#e8c547]">
-                  מנתח חשבונית...
+                  מנתח חשבונית{ocrFileName ? `: ${ocrFileName}` : ''}...
                 </div>
               ) : (
                 <>
@@ -382,6 +410,18 @@ function EntryForm({
                 e.target.value = ''
               }}
             />
+            {ocrError && (
+              <div
+                className="mt-3 text-sm px-3 py-2 rounded-lg"
+                style={{
+                  background: '#e8477a11',
+                  color: '#e8477a',
+                  border: '1px solid #e8477a33',
+                }}
+              >
+                {ocrError}
+              </div>
+            )}
           </div>
         )}
 
