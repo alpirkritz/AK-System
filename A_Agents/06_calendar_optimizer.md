@@ -1,6 +1,7 @@
-# Calendar Optimizer
+# יועץ יומן
 
 > **Agent ID:** `06_calendar_optimizer`
+> **Display name (EN):** Calendar Optimizer
 > **Status:** Active
 > **Last Updated:** 2026-06-28
 > **Reports to:** `01_Hugo_orchestrator`

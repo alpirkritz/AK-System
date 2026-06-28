@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { appRouter, createContext } from '@ak-system/api'
-import { getDb } from '@ak-system/database'
+import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 
 /**
@@ -28,9 +27,7 @@ async function runSync(_request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const db = getDb()
-    const ctx = await createContext({ db })
-    const caller = appRouter.createCaller(ctx)
+    const caller = await createServiceCaller()
     const result = await caller.feed.sync()
 
     if (process.env.FEED_SEND_TELEGRAM_DIGEST) {

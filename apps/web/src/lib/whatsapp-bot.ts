@@ -1,6 +1,6 @@
-import { formatAgentList, parseAgentCommand } from './abc-agents'
-import { resolveIntent, saveChatMessage } from './conversation-engine'
-import { runGeminiAgentChat } from './gemini-agent-engine'
+import { formatAgentList, HUGO_AGENT_ID } from './abc-agents'
+import { runAgentForUser } from './agent-runner'
+import { saveChatMessage } from './conversation-engine'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 
 export type ChatSource = 'web' | 'telegram' | 'whatsapp' | 'cron'
@@ -88,44 +88,36 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
   const userText = payload.message.trim()
   if (!userText) return ''
 
-  console.log(`[WhatsAppBot] Received: "${userText.slice(0, 80)}"`)
+  console.log(`[WhatsAppBot] Hugo ← "${userText.slice(0, 80)}"`)
 
   try {
     await saveChatMessage('user', userText, 'whatsapp')
 
-    const agentCommand = parseAgentCommand(userText)
-    if (agentCommand) {
-      if (agentCommand.agentId === '__list__') {
-        const list = formatAgentList()
-        await saveChatMessage('assistant', list, 'whatsapp')
-        return list
-      }
-
-      const history = (await getAgentHistory(agentCommand.agentId, 10))
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }))
-
-      await saveAgentMessage(agentCommand.agentId, 'user', agentCommand.message)
-      const result = await runGeminiAgentChat({
-        agentId: agentCommand.agentId,
-        message: agentCommand.message,
-        history,
-      })
-      await saveAgentMessage(agentCommand.agentId, 'assistant', result.text)
-      await saveChatMessage('assistant', result.text, 'whatsapp')
-      return result.text
+    if (/^\/(?:agents|סוכנים)\s*$/i.test(userText)) {
+      const list = formatAgentList()
+      await saveChatMessage('assistant', list, 'whatsapp')
+      return list
     }
 
-    const response = await resolveIntent(userText)
-    const assistantText = response || 'לא הצלחתי לקבל תשובה.'
-    await saveChatMessage('assistant', assistantText, 'whatsapp')
-    return assistantText
+    const history = (await getAgentHistory(HUGO_AGENT_ID, 10))
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }))
+
+    await saveAgentMessage(HUGO_AGENT_ID, 'user', userText)
+    const result = await runAgentForUser({
+      agentId: HUGO_AGENT_ID,
+      message: userText,
+      history,
+      channel: 'whatsapp',
+    })
+    await saveAgentMessage(HUGO_AGENT_ID, 'assistant', result.text)
+    await saveChatMessage('assistant', result.text, 'whatsapp')
+    return result.text
   } catch (err) {
     console.error('[WhatsAppBot] Error:', err)
-    // Never return raw errors to WhatsApp — log only
     return ''
   }
 }

@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { appRouter, createContext } from '@ak-system/api'
-import { getDb } from '@ak-system/database'
+import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 
 /**
@@ -28,9 +27,7 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
 
   try {
     const today = new Date().toISOString().split('T')[0]
-    const db = getDb()
-    const ctx = await createContext({ db })
-    const caller = appRouter.createCaller(ctx)
+    const caller = await createServiceCaller()
     const allTasks = await caller.tasks.list()
     const dueOrOverdue = allTasks.filter(
       (t) => !t.done && t.dueDate && t.dueDate <= today

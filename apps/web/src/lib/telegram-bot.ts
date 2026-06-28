@@ -1,4 +1,7 @@
+import { formatAgentList, parseAgentCommand } from './abc-agents'
+import { runAgentForUser } from './agent-runner'
 import { resolveIntent, saveChatMessage } from './conversation-engine'
+import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 
 // ─── Telegram types ───────────────────────────────────────────────────────────
 
@@ -59,7 +62,37 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
   try {
     await saveChatMessage('user', userText, 'telegram')
-    const response = await resolveIntent(userText)
+
+    const agentCommand = parseAgentCommand(userText)
+    if (agentCommand) {
+      if (agentCommand.agentId === '__list__') {
+        const list = formatAgentList()
+        await saveChatMessage('assistant', list, 'telegram')
+        await sendTelegramMessage(chatId, list)
+        return
+      }
+
+      const history = (await getAgentHistory(agentCommand.agentId, 10))
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }))
+
+      await saveAgentMessage(agentCommand.agentId, 'user', agentCommand.message)
+      const result = await runAgentForUser({
+        agentId: agentCommand.agentId,
+        message: agentCommand.message,
+        history,
+        channel: 'telegram',
+      })
+      await saveAgentMessage(agentCommand.agentId, 'assistant', result.text)
+      await saveChatMessage('assistant', result.text, 'telegram')
+      await sendTelegramMessage(chatId, result.text)
+      return
+    }
+
+    const response = await resolveIntent(userText, { channel: 'telegram' })
     await saveChatMessage('assistant', response || '', 'telegram')
     await sendTelegramMessage(chatId, response || 'לא הצלחתי לקבל תשובה.')
   } catch (err) {

@@ -1,14 +1,14 @@
 import { GoogleGenerativeAI, FunctionCallingMode, SchemaType } from '@google/generative-ai'
 import type { FunctionDeclaration } from '@google/generative-ai'
-import { appRouter, createContext } from '@ak-system/api'
-import { getDb } from '@ak-system/database'
+import { chatMessages, getDb } from '@ak-system/database'
+import { getRunnableAgentIds } from './abc-agents'
+import type { AgentNotifyChannel } from './agent-notifications'
+import { createServiceCaller } from './api-caller'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
 export async function createApiCaller() {
-  const db = getDb()
-  const ctx = await createContext({ db })
-  return appRouter.createCaller(ctx)
+  return createServiceCaller()
 }
 
 type Caller = Awaited<ReturnType<typeof createApiCaller>>
@@ -27,7 +27,11 @@ function addDays(d: Date, n: number): Date {
 
 // ─── Tool declarations ────────────────────────────────────────────────────────
 
-export const toolDeclarations: FunctionDeclaration[] = [
+export type ToolExecutionContext = {
+  channel?: AgentNotifyChannel
+}
+
+const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_today_schedule',
     description:
@@ -218,9 +222,51 @@ export const toolDeclarations: FunctionDeclaration[] = [
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
+    name: 'search_gmail',
+    description:
+      "Search Gmail inbox. Use for: email, מייל, gmail, unread messages, from:sender, subject queries.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: {
+          type: SchemaType.STRING,
+          description: 'Gmail search query (e.g. is:unread, from:boss, subject:invoice)',
+        },
+        max: { type: SchemaType.NUMBER, description: 'Max messages to return (default 10)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_whatsapp_status',
+    description:
+      'Get WhatsApp bridge connection status (connected, QR available, self JID). Use for: whatsapp status, וואטסאפ מחובר.',
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'list_whatsapp_groups',
+    description:
+      'List watched WhatsApp groups and their alert/summary rules. Use for: whatsapp groups, קבוצות וואטסאפ.',
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+]
+
+function buildRunAbcAgentTool(): FunctionDeclaration {
+  const agentIds = getRunnableAgentIds()
+  const fallback = [
+    '01_Hugo_orchestrator',
+    '02_agent_trainer',
+    '03_morning_briefing',
+    '04_meeting_prep_herald',
+    '05_ibkr_daily_import',
+    '06_calendar_optimizer',
+    '07_email_assistant',
+    '08_startup_coo',
+  ]
+  return {
     name: 'run_abc_agent',
     description:
-      'Invoke a specialist ABC agent for domain-specific analysis. Use when the user asks for calendar optimization, morning brief, meeting prep, email triage, IBKR import review, startup COO advice, or similar agent work.',
+      'Invoke any registered ABC specialist agent. Use for: calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR/מסחר, startup COO, Hugo orchestration, agent training.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -228,15 +274,7 @@ export const toolDeclarations: FunctionDeclaration[] = [
           type: SchemaType.STRING,
           format: 'enum',
           description: 'Agent to invoke',
-          enum: [
-            '06_calendar_optimizer',
-            '03_morning_briefing',
-            '04_meeting_prep_herald',
-            '07_email_assistant',
-            '05_ibkr_daily_import',
-            '08_startup_coo',
-            '01_Hugo_orchestrator',
-          ],
+          enum: agentIds.length > 0 ? agentIds : fallback,
         },
         message: {
           type: SchemaType.STRING,
@@ -245,14 +283,26 @@ export const toolDeclarations: FunctionDeclaration[] = [
       },
       required: ['agentId', 'message'],
     },
-  },
-]
+  }
+}
+
+export function getToolDeclarations(): FunctionDeclaration[] {
+  return [...baseToolDeclarations, buildRunAbcAgentTool()]
+}
+
+/** @deprecated prefer getToolDeclarations() */
+export const toolDeclarations = getToolDeclarations()
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
 
 type ToolArgs = Record<string, unknown>
 
-export async function executeTool(name: string, args: ToolArgs, caller: Caller): Promise<unknown> {
+export async function executeTool(
+  name: string,
+  args: ToolArgs,
+  caller: Caller,
+  ctx?: ToolExecutionContext,
+): Promise<unknown> {
   const today = new Date()
   const todayStr = todayIso()
 
@@ -507,12 +557,51 @@ export async function executeTool(name: string, args: ToolArgs, caller: Caller):
       return { created: result.created, updated: result.updated, deleted: result.deleted }
     }
 
+    case 'search_gmail': {
+      const query = (args.query as string)?.trim()
+      const max = Math.min((args.max as number | undefined) ?? 10, 20)
+      if (!query) return { error: 'query is required' }
+      const msgs = await caller.finance.gmailDebug({ query })
+      return {
+        messages: msgs.slice(0, max).map((m) => ({
+          from: m.from,
+          subject: m.subject,
+          date: m.date,
+          snippet: m.bodySnippet,
+        })),
+        count: msgs.length,
+      }
+    }
+
+    case 'get_whatsapp_status': {
+      return await caller.whatsapp.connection.status()
+    }
+
+    case 'list_whatsapp_groups': {
+      const groups = await caller.whatsapp.groups.list()
+      return {
+        groups: groups.map((g) => ({
+          name: g.name,
+          jid: g.jid,
+          enabled: g.enabled,
+          fomoEnabled: g.fomoEnabled,
+          labelName: g.labelName,
+        })),
+        count: groups.length,
+      }
+    }
+
     case 'run_abc_agent': {
       const agentId = (args.agentId as string)?.trim()
       const message = (args.message as string)?.trim()
       if (!agentId || !message) return { error: 'agentId and message are required' }
       const { runGeminiAgentChat } = await import('./gemini-agent-engine')
-      const result = await runGeminiAgentChat({ agentId, message })
+      const { notifyAgentRunComplete } = await import('./agent-notifications')
+      const channel = ctx?.channel ?? 'web'
+      const result = await runGeminiAgentChat({ agentId, message, channel })
+      notifyAgentRunComplete({ agentId, summary: result.text, channel }).catch((err) => {
+        console.warn('[run_abc_agent] notify failed:', err)
+      })
       return { agentId, response: result.text }
     }
 
@@ -523,12 +612,18 @@ export async function executeTool(name: string, args: ToolArgs, caller: Caller):
 
 // ─── Gemini intent resolver ───────────────────────────────────────────────────
 
-export async function resolveIntent(userMessage: string): Promise<string> {
+export async function resolveIntent(
+  userMessage: string,
+  options?: { channel?: AgentNotifyChannel },
+): Promise<string> {
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
 
   const genAI = new GoogleGenerativeAI(geminiKey)
   const caller = await createApiCaller()
+  const toolCtx: ToolExecutionContext | undefined = options?.channel
+    ? { channel: options.channel }
+    : undefined
 
   const today = new Date()
   const dateLabel = today.toLocaleDateString('he-IL', {
@@ -549,13 +644,14 @@ export async function resolveIntent(userMessage: string): Promise<string> {
     "Priority labels in Hebrew: גבוהה=high, בינונית=medium, נמוכה=low.",
     'If a calendar event has no linked record in the system database, mention it but still show the event details.',
     'When showing conflicts, describe each overlap clearly with event names and times.',
-    'For specialist tasks (calendar optimization, morning brief, meeting prep, email triage, IBKR, startup ops), use run_abc_agent instead of answering from general knowledge.',
+    'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
+    'Never redirect the user to Notion as the only place to see agent results.',
   ].join('\n')
 
   const model = genAI.getGenerativeModel({
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     systemInstruction,
-    tools: [{ functionDeclarations: toolDeclarations }],
+    tools: [{ functionDeclarations: getToolDeclarations() }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
   })
 
@@ -571,7 +667,7 @@ export async function resolveIntent(userMessage: string): Promise<string> {
       calls.map(async (call) => {
         let toolResult: unknown
         try {
-          toolResult = await executeTool(call.name, call.args as ToolArgs, caller)
+          toolResult = await executeTool(call.name, call.args as ToolArgs, caller, toolCtx)
         } catch (err) {
           toolResult = { error: err instanceof Error ? err.message : 'Tool execution failed' }
         }
@@ -587,8 +683,6 @@ export async function resolveIntent(userMessage: string): Promise<string> {
 }
 
 // ─── Chat message persistence ─────────────────────────────────────────────────
-
-import { chatMessages } from '@ak-system/database'
 
 export async function saveChatMessage(
   role: 'user' | 'assistant' | 'system',

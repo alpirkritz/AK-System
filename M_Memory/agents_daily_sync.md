@@ -482,3 +482,47 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Bridge must be connected for group discovery (`GET /groups/available`)
 
 ---
+
+## 2026-06-28 — Agent session fix + יועץ יומן + notifications
+
+**Agent:** Cursor engineering (Hugo-adjacent)
+**Workflow:** N/A — standard `apps/` engineering
+
+### Actions Taken
+1. Fixed `createApiCaller()` — server-side agents/cron now use `createServiceCaller()` with a system session (resolves UNAUTHORIZED on calendar/tasks tools).
+2. Renamed display name **Calendar Optimizer → יועץ יומן** (`06_calendar_optimizer` ID unchanged); added Hebrew aliases (יומן, לוח, יועץ).
+3. WhatsApp natural-language triggers: `תריץ יועץ יומן`, `תריץ calendar optimizer`, etc.
+4. Added `notifyAgentRunComplete` — Notion Inbox page for workflow agents; browser push when run from web UI.
+5. Updated all cron routes to use `createServiceCaller()`.
+
+### Outputs
+- `apps/web/src/lib/api-caller.ts`, `service-session.ts`, `agent-notifications.ts`
+- `apps/web/src/lib/notion.ts` — `notifyNotionInbox()`
+- `A_Agents/06_calendar_optimizer.md` — display name יועץ יומן
+
+### Compliance
+- [x] C_Core/ — engineering-only; no client-facing content generated
+- [x] Recommendations-only agent behavior unchanged
+
+### Performance Notes
+- Verified `/api/agents/chat` returns live calendar analysis after session fix (~31s)
+
+---
+
+## 2026-06-28 — Multi-channel delivery for all agents
+
+**Agent:** Cursor engineering
+
+### Actions Taken
+1. Unified delivery: all agents instructed (Gemini + Cursor) to answer fully in chat — WhatsApp/Web/Telegram — not Notion-only.
+2. `run_abc_agent` tool now includes all 8 agents dynamically; Hebrew/English aliases for every agent.
+3. Notion context expanded to meeting prep, email, IBKR, startup COO (not just calendar/morning).
+4. Notion Inbox archive on completion for all specialists (except Hugo orchestrator).
+5. `runAgentForUser` wrapper + channel passed through resolveIntent (web/whatsapp/telegram).
+6. Telegram bot gained same agent command support as WhatsApp.
+
+### Outputs
+- `apps/web/src/lib/agent-runner.ts`
+- Updated: `abc-agents.ts`, `conversation-engine.ts`, `gemini-agent-engine.ts`, `whatsapp-bot.ts`, `telegram-bot.ts`
+
+---

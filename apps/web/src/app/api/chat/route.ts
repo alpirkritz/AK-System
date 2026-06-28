@@ -16,7 +16,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     await saveChatMessage('user', message, 'web')
 
-    const response = await resolveIntent(message)
+    const response = await resolveIntent(message, { channel: 'web' })
     const assistantText = response || 'לא הצלחתי לקבל תשובה.'
 
     await saveChatMessage('assistant', assistantText, 'web')

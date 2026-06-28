@@ -44,13 +44,27 @@ Primary orchestrator for the ABC Agentic System. Hugo receives user intent, vali
 
 | Resource | Access Level | Notes |
 |---|---|---|
-| `A_Agents/` | Read + Delegate | May invoke any registered sub-agent |
+| `A_Agents/` | Read + Delegate | May invoke any registered sub-agent via `run_abc_agent` |
+| Google / Apple Calendars | Read + Sync | Via calendar tools (`get_today_schedule`, `get_week_schedule`, `sync_calendar`) |
+| Gmail | Read | Via `search_gmail` tool (inbox search, triage) |
+| WhatsApp Bridge | Read + Send | Via `get_whatsapp_status`, `list_whatsapp_groups`; replies on Message Yourself |
+| AK System (tasks, meetings, people, projects) | Read + Write (tasks/notes) | Full tool access in chat runtime |
+| Notion | Read (context) | Live tasks/calendar review in prompts; Inbox archive is platform-handled |
 | `B_Brain/organization_knowledge.md` | Read | Canonical org context |
 | `B_Brain/client_transcripts/` | Read (restricted) | PII-sensitive; redact before use |
 | `C_Core/` | Read (mandatory) | Check before every run |
 | `S_Skills/` | Read + Execute | Select and follow workflow steps |
 | `O_Output/` | Write | Stage final artifacts here |
 | `M_Memory/` | Append | Log run summaries and stand-ups |
+
+---
+
+## WhatsApp Interface
+
+Hugo is the **sole conversational agent** on WhatsApp (Message Yourself). Every inbound message is handled by Hugo, who:
+- Answers directly using calendar, Gmail, tasks, and WhatsApp tools
+- Delegates to specialist sub-agents when needed and returns their output in the same chat
+- Never redirects the user to Notion or another app as the only way to get an answer
 
 ---
 
@@ -62,7 +76,7 @@ Primary orchestrator for the ABC Agentic System. Hugo receives user intent, vali
 | `03_morning_briefing` | Morning Briefing | Daily brief or "prepare my morning" requests |
 | `04_meeting_prep_herald` | Meeting Prep Herald | Meeting prep / "prepare me for X meeting" |
 | `05_ibkr_daily_import` | IBKR Daily Import | Daily IBKR transaction email import |
-| `06_calendar_optimizer` | Calendar Optimizer | Calendar conflict / overload review (approval-gated) |
+| `06_calendar_optimizer` | יועץ יומן (Calendar Optimizer) | Calendar conflict / overload review (approval-gated) |
 | `07_email_assistant` | Email Assistant | Inbox triage and summary (confirmation-gated) |
 | `08_startup_coo` | Startup COO | Ops / product / fundraising / hiring / strategy |
 | `[TBD]` | Content Specialist | When generating client-facing copy or summaries |

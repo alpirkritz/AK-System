@@ -7,23 +7,75 @@ export interface AgentSummary {
   role: string
 }
 
+/** Primary orchestrator — default voice on WhatsApp and mobile channels. */
+export const HUGO_AGENT_ID = '01_Hugo_orchestrator'
+
 export const AGENT_ALIASES: Record<string, string> = {
   hugo: '01_Hugo_orchestrator',
   orchestrator: '01_Hugo_orchestrator',
+  הוגו: '01_Hugo_orchestrator',
+  אורקסטרטור: '01_Hugo_orchestrator',
   trainer: '02_agent_trainer',
+  מאמן: '02_agent_trainer',
+  'מאמן סוכנים': '02_agent_trainer',
   morning: '03_morning_briefing',
   brief: '03_morning_briefing',
   briefing: '03_morning_briefing',
+  בוקר: '03_morning_briefing',
+  תדריך: '03_morning_briefing',
+  'תדריך בוקר': '03_morning_briefing',
+  'סיכום בוקר': '03_morning_briefing',
   meeting: '04_meeting_prep_herald',
   herald: '04_meeting_prep_herald',
   prep: '04_meeting_prep_herald',
+  פגישה: '04_meeting_prep_herald',
+  הכנה: '04_meeting_prep_herald',
+  'הכנה לפגישה': '04_meeting_prep_herald',
+  'meeting prep': '04_meeting_prep_herald',
   ibkr: '05_ibkr_daily_import',
+  מסחר: '05_ibkr_daily_import',
+  עסקאות: '05_ibkr_daily_import',
   calendar: '06_calendar_optimizer',
   optimizer: '06_calendar_optimizer',
+  'calendar optimizer': '06_calendar_optimizer',
+  יומן: '06_calendar_optimizer',
+  לוח: '06_calendar_optimizer',
+  יועץ: '06_calendar_optimizer',
+  'יועץ יומן': '06_calendar_optimizer',
+  'יועץ-יומן': '06_calendar_optimizer',
   email: '07_email_assistant',
+  מייל: '07_email_assistant',
+  דואר: '07_email_assistant',
+  'עוזר מייל': '07_email_assistant',
+  'עוזר-מייל': '07_email_assistant',
   coo: '08_startup_coo',
   startup: '08_startup_coo',
+  סטארטאפ: '08_startup_coo',
+  תפעול: '08_startup_coo',
+  'startup coo': '08_startup_coo',
 }
+
+/** Agents that benefit from live Notion context in prompts. */
+const NOTION_CONTEXT_AGENTS = new Set([
+  HUGO_AGENT_ID,
+  '03_morning_briefing',
+  '04_meeting_prep_herald',
+  '05_ibkr_daily_import',
+  '06_calendar_optimizer',
+  '07_email_assistant',
+  '08_startup_coo',
+])
+
+/** Agents whose runs are archived to Notion Inbox (orchestrator excluded — routing only). */
+const NOTION_NOTIFY_AGENTS = new Set([
+  '02_agent_trainer',
+  '03_morning_briefing',
+  '04_meeting_prep_herald',
+  '05_ibkr_daily_import',
+  '06_calendar_optimizer',
+  '07_email_assistant',
+  '08_startup_coo',
+])
 
 const AGENT_WORKFLOWS: Record<string, string> = {
   '03_morning_briefing': 'wf_morning_brief.md',
@@ -80,11 +132,12 @@ export function getAbcRootPath(): string {
 }
 
 export function agentNeedsNotionContext(agentId: string): boolean {
-  return (
-    agentId.includes('morning_briefing') ||
-    agentId.includes('morning-briefing') ||
-    agentId.includes('calendar_optimizer')
-  )
+  return NOTION_CONTEXT_AGENTS.has(agentId)
+}
+
+/** All registered ABC agent IDs — used for run_abc_agent tool enum. */
+export function getRunnableAgentIds(): string[] {
+  return listAgents().map((a) => a.id)
 }
 
 export function getAgentWorkflowContent(agentId: string): string | null {
@@ -121,6 +174,55 @@ export function resolveAgentId(input: string): string | null {
   return partial?.id ?? null
 }
 
+export function agentNotifiesNotion(agentId: string): boolean {
+  return NOTION_NOTIFY_AGENTS.has(agentId)
+}
+
+export function getAgentDisplayName(agentId: string): string {
+  try {
+    const content = getAgentInstructions(agentId)
+    const nameMatch = content.match(/^#\s+(.+)$/m)
+    return nameMatch?.[1]?.trim() ?? agentId
+  } catch {
+    return agentId
+  }
+}
+
+function resolveAgentPhrase(text: string): { agentId: string; remainder: string } | null {
+  const lower = text.trim().toLowerCase()
+  if (!lower) return null
+
+  const aliasEntries = Object.entries(AGENT_ALIASES).sort((a, b) => b[0].length - a[0].length)
+  for (const [alias, id] of aliasEntries) {
+    const aliasLower = alias.toLowerCase()
+    if (lower === aliasLower || lower.startsWith(`${aliasLower} `) || lower.startsWith(`${aliasLower}-`)) {
+      const remainder = text.trim().slice(alias.length).trim()
+      return { agentId: id, remainder }
+    }
+  }
+
+  for (const agent of listAgents()) {
+    const nameLower = agent.name.toLowerCase()
+    if (lower.startsWith(nameLower)) {
+      return { agentId: agent.id, remainder: text.trim().slice(agent.name.length).trim() }
+    }
+    if (lower.startsWith(agent.id.toLowerCase())) {
+      return { agentId: agent.id, remainder: text.trim().slice(agent.id.length).trim() }
+    }
+  }
+
+  const direct = resolveAgentId(lower.split(/\s+/)[0] ?? '')
+  if (direct) {
+    const firstWord = lower.split(/\s+/)[0] ?? ''
+    return { agentId: direct, remainder: text.trim().slice(firstWord.length).trim() }
+  }
+
+  return null
+}
+
+const RUN_AGENT_PREFIX = /^(?:תר(?:יץ|וץ)|הפעל|run)\s+(?:את\s+(?:ה)?)?/iu
+const DEFAULT_RUN_MESSAGE = 'תרוץ — בצע את ה-workflow היומי שלך לפי הוראות הסוכן'
+
 export function parseAgentCommand(text: string): { agentId: string; message: string } | null {
   const trimmed = text.trim()
 
@@ -142,6 +244,15 @@ export function parseAgentCommand(text: string): { agentId: string; message: str
     if (agentId && message) return { agentId, message }
   }
 
+  if (RUN_AGENT_PREFIX.test(trimmed)) {
+    const rest = trimmed.replace(RUN_AGENT_PREFIX, '').trim()
+    const resolved = resolveAgentPhrase(rest)
+    if (resolved) {
+      const message = resolved.remainder || DEFAULT_RUN_MESSAGE
+      return { agentId: resolved.agentId, message }
+    }
+  }
+
   return null
 }
 
@@ -155,5 +266,12 @@ export function formatAgentList(): string {
     const aliasStr = aliases.length > 0 ? ` (${aliases.join(', ')})` : ''
     return `• ${a.name}${aliasStr}\n  /agent ${aliases[0] ?? a.id} <שאלה>`
   })
-  return ['📋 סוכנים זמינים:', '', ...lines, '', 'דוגמה: /agent calendar נתח את הלוח שלי היום'].join('\n')
+  return [
+    '📋 סוכנים זמינים (וואטסאפ = Hugo מדבר איתך ישירות):',
+    '',
+    ...lines,
+    '',
+    'בוואטסאפ: פשוט כתוב ל-Hugo (תריץ בוקר, מה יש לי היום, וכו\')',
+    'במערכת: /agents או /agent <alias> <שאלה>',
+  ].join('\n')
 }

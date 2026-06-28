@@ -307,3 +307,58 @@ export function formatNotionContextForPrompt(ctx: NotionContext): string {
   ]
   return lines.join('\n')
 }
+
+let cachedTitleProp: string | null = null
+
+async function getAssistantDbTitleProp(): Promise<string> {
+  if (cachedTitleProp) return cachedTitleProp
+  const data = await notionRequest<{ properties: Record<string, { type: string }> }>(
+    'GET',
+    `/databases/${ASSISTANT_DB}`,
+  )
+  for (const [name, prop] of Object.entries(data.properties)) {
+    if (prop.type === 'title') {
+      cachedTitleProp = name
+      return name
+    }
+  }
+  cachedTitleProp = 'Name'
+  return 'Name'
+}
+
+function bodyToBlocks(body: string): Array<Record<string, unknown>> {
+  const chunks: string[] = []
+  const paragraphs = body.split(/\n{2,}/)
+  for (const para of paragraphs) {
+    const text = para.trim()
+    if (!text) continue
+    for (let i = 0; i < text.length; i += 1800) {
+      chunks.push(text.slice(i, i + 1800))
+    }
+  }
+  if (chunks.length === 0) chunks.push('(empty)')
+  return chunks.map((text) => ({
+    object: 'block',
+    type: 'paragraph',
+    paragraph: { rich_text: [{ type: 'text', text: { content: text } }] },
+  }))
+}
+
+/** Create an Assistant DB page — used as Notion Inbox notification for agent runs. */
+export async function notifyNotionInbox(options: {
+  title: string
+  body: string
+  agentId?: string
+}): Promise<string | null> {
+  const titleProp = await getAssistantDbTitleProp()
+  const page = await notionRequest<{ id: string }>('POST', '/pages', {
+    parent: { database_id: ASSISTANT_DB },
+    properties: {
+      [titleProp]: {
+        title: [{ type: 'text', text: { content: options.title.slice(0, 200) } }],
+      },
+    },
+    children: bodyToBlocks(options.body),
+  })
+  return page.id ?? null
+}

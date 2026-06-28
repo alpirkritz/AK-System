@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { appRouter, createContext } from '@ak-system/api'
-import { getDb } from '@ak-system/database'
+import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 
 const WINDOW_START_MIN = 14
@@ -34,9 +33,7 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     const windowStart = new Date(now.getTime() + WINDOW_START_MIN * 60 * 1000)
     const windowEnd = new Date(now.getTime() + WINDOW_END_MIN * 60 * 1000)
 
-    const db = getDb()
-    const ctx = await createContext({ db })
-    const caller = appRouter.createCaller(ctx)
+    const caller = await createServiceCaller()
     const [upcoming, allMeetings, allPeople, allTasks] = await Promise.all([
       caller.calendar.upcoming({ limit: 10 }),
       caller.meetings.list(),

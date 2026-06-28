@@ -5,9 +5,9 @@ import {
   saveAgentMessage,
   saveCursorAgentId,
 } from '@/lib/agent-chat-store'
+import { runAgentForUser } from '@/lib/agent-runner'
 import { getAgentEngine } from '@/lib/abc-agents'
 import { runAgentChat } from '@/lib/cursor-agent-engine'
-import { runGeminiAgentChat } from '@/lib/gemini-agent-engine'
 
 export const maxDuration = 300
 
@@ -34,7 +34,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let cursorAgentId: string | undefined
 
     if (engine === 'gemini') {
-      const result = await runGeminiAgentChat({ agentId, message, history })
+      const result = await runAgentForUser({
+        agentId,
+        message,
+        history,
+        channel: 'web',
+      })
       assistantText = result.text
     } else {
       const cursorId = await getCursorAgentId(agentId)

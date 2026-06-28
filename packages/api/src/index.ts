@@ -12,7 +12,7 @@ import { pushRouter } from './routers/push'
 import { vatRouter } from './routers/vat'
 import { whatsappRouter } from './routers/whatsapp'
 
-export type { Context } from './trpc'
+export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
 export { getGoogleCalendarAuthUrl, exchangeGoogleCalendarCode } from './google-calendar-auth'
 

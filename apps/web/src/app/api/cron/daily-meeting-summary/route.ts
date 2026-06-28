@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { appRouter, createContext } from '@ak-system/api'
-import { getDb } from '@ak-system/database'
+import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import type { MeetingCategory } from '@ak-system/database'
 
@@ -35,9 +34,7 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
 
   try {
     const today = new Date().toISOString().split('T')[0]
-    const db = getDb()
-    const ctx = await createContext({ db })
-    const caller = appRouter.createCaller(ctx)
+    const caller = await createServiceCaller()
     const [events, dbMeetings, allTasks] = await Promise.all([
       caller.calendar.events({ startDate: today, endDate: today }),
       caller.meetings.list(),

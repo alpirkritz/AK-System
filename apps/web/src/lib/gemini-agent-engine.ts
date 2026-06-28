@@ -4,9 +4,11 @@ import {
   getAbcRootPath,
   getAgentInstructions,
   getAgentWorkflowContent,
+  HUGO_AGENT_ID,
 } from './abc-agents'
-import { createApiCaller, executeTool, toolDeclarations } from './conversation-engine'
+import { createApiCaller, executeTool, getToolDeclarations, type ToolExecutionContext } from './conversation-engine'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
+import type { AgentNotifyChannel } from './agent-notifications'
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
@@ -27,18 +29,33 @@ function todayIso(): string {
   return new Date().toISOString().split('T')[0]!
 }
 
-async function buildSystemInstruction(agentId: string): Promise<string> {
+async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChannel): Promise<string> {
   const instructions = getAgentInstructions(agentId)
   const workflow = getAgentWorkflowContent(agentId)
+  const channelLabel =
+    channel === 'whatsapp'
+      ? 'WhatsApp (Message Yourself)'
+      : channel === 'telegram'
+        ? 'Telegram'
+        : channel === 'web'
+          ? 'AK System — ממשק הסוכנים (Web)'
+          : 'AK System chat'
+
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\` inside AK System.`,
     `Today is ${formatDateLabel()} (${todayIso()}).`,
     `ABC workspace root: ${getAbcRootPath()}`,
     '',
+    `## Delivery channel: ${channelLabel}`,
+    'Your FULL analysis and recommendations MUST appear in this chat reply — this is the primary output.',
+    'Do NOT tell the user to check Notion Inbox or open Notion as the only way to see results.',
+    'Notion archiving and push notifications are handled automatically by the platform after you respond.',
+    'Use your tools (calendar, tasks, meetings, contacts, Gmail, WhatsApp, etc.) and deliver a complete answer here.',
+    '',
     'Follow your agent card instructions exactly. Recommendations only unless the user explicitly approves an action.',
     'Respond in the same language the user writes in: Hebrew for Hebrew, English for English.',
     'Be concise and structured. Use bullet points for lists.',
-    'You have tools to read calendar, tasks, meetings, contacts, and more — use them when needed for your analysis.',
+    'You have tools to read calendar, tasks, meetings, contacts, Gmail, WhatsApp groups, and more — use them when needed for your analysis.',
     '',
     '---',
     '',
@@ -46,6 +63,19 @@ async function buildSystemInstruction(agentId: string): Promise<string> {
     '',
     '---',
   ]
+
+  if (agentId === HUGO_AGENT_ID) {
+    parts.splice(
+      8,
+      0,
+      '',
+      '## Hugo orchestrator — primary interface',
+      'You are the user\'s main assistant on this channel. Handle requests directly when you can (calendar, tasks, Gmail, WhatsApp status).',
+      'For specialist workflows (morning brief, calendar optimization, meeting prep, email triage, IBKR, startup COO), delegate via run_abc_agent and synthesize the specialist response into your reply.',
+      'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
+      '',
+    )
+  }
 
   if (workflow) {
     parts.push('', '## Applicable workflow (S_Skills)', '', workflow, '', '---')
@@ -81,18 +111,22 @@ export async function runGeminiAgentChat(options: {
   agentId: string
   message: string
   history?: ChatTurn[]
+  channel?: AgentNotifyChannel
 }): Promise<{ text: string }> {
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
 
   const genAI = new GoogleGenerativeAI(geminiKey)
   const caller = await createApiCaller()
-  const systemInstruction = await buildSystemInstruction(options.agentId)
+  const toolCtx: ToolExecutionContext | undefined = options.channel
+    ? { channel: options.channel }
+    : undefined
+  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
 
   const model = genAI.getGenerativeModel({
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     systemInstruction,
-    tools: [{ functionDeclarations: toolDeclarations }],
+    tools: [{ functionDeclarations: getToolDeclarations() }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
   })
 
@@ -112,7 +146,7 @@ export async function runGeminiAgentChat(options: {
       calls.map(async (call) => {
         let toolResult: unknown
         try {
-          toolResult = await executeTool(call.name, call.args as ToolArgs, caller)
+          toolResult = await executeTool(call.name, call.args as ToolArgs, caller, toolCtx)
         } catch (err) {
           toolResult = { error: err instanceof Error ? err.message : 'Tool execution failed' }
         }

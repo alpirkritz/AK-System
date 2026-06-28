@@ -20,11 +20,17 @@ const ENGINE_LABELS: Record<string, string> = {
 }
 
 export default function AgentsPage() {
+  const [agentFromUrl, setAgentFromUrl] = useState<string | null>(null)
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [engine, setEngine] = useState<string>('gemini')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setAgentFromUrl(params.get('agent'))
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -34,9 +40,10 @@ export default function AgentsPage() {
         const data = (await res.json()) as { agents: AgentSummary[]; engine?: string }
         setAgents(data.agents)
         if (data.engine) setEngine(data.engine)
-        if (data.agents.length > 0) {
-          setSelectedId(data.agents[0]!.id)
-        }
+        const preferred = agentFromUrl && data.agents.some((a) => a.id === agentFromUrl)
+          ? agentFromUrl
+          : data.agents[0]?.id ?? null
+        if (preferred) setSelectedId(preferred)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'שגיאה בטעינת סוכנים')
       } finally {
@@ -44,7 +51,7 @@ export default function AgentsPage() {
       }
     }
     load()
-  }, [])
+  }, [agentFromUrl])
 
   const selected = agents.find((a) => a.id === selectedId)
 
