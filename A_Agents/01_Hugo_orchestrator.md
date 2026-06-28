@@ -60,6 +60,11 @@ Primary orchestrator for the ABC Agentic System. Hugo receives user intent, vali
 |---|---|---|
 | `02_agent_trainer` | Agent Trainer | When agent cards need creation, review, or improvement |
 | `03_morning_briefing` | Morning Briefing | Daily brief or "prepare my morning" requests |
+| `04_meeting_prep_herald` | Meeting Prep Herald | Meeting prep / "prepare me for X meeting" |
+| `05_ibkr_daily_import` | IBKR Daily Import | Daily IBKR transaction email import |
+| `06_calendar_optimizer` | Calendar Optimizer | Calendar conflict / overload review (approval-gated) |
+| `07_email_assistant` | Email Assistant | Inbox triage and summary (confirmation-gated) |
+| `08_startup_coo` | Startup COO | Ops / product / fundraising / hiring / strategy |
 | `[TBD]` | Content Specialist | When generating client-facing copy or summaries |
 | `[TBD]` | Research Analyst | When ingesting or querying `B_Brain/` knowledge |
 | `[TBD]` | Compliance Reviewer | When output requires legal/privacy validation |

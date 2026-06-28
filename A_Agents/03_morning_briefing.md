@@ -69,63 +69,65 @@ Daily morning summary agent. Produces a human-reviewable brief of today's schedu
 
 ## Instructions
 
-The sections below are this agent's **operating instructions**. They define what to do, how to run, and which rules to apply — not a page layout or external document to sync.
+The sections below are this agent's **operating instructions** (verbatim from the source AI Instructions doc), wrapped in the ABC governance structure above.
 
 ### Overview
 
-**Purpose:** Give the user a clear, actionable snapshot of the day — schedule, tasks, focus areas, and any research notes needed before work begins.
-
-**When to run:**
-- Daily (morning, ~07:00 Israel time) — when invoked by Hugo or user
-- On-demand — e.g., "prepare my morning", "what's on today", "morning brief"
-
-**Inputs:**
-- Today's date (and simulated time if requested, e.g. 09:00)
-- **Notion (primary):** all databases and calendar views shared with the AK-System integration
-  - Tasks assigned to the user, owned by the user, or where the user is `@mentioned`
-  - Calendar events for today (including Notion calendar connections)
-- **Secondary:** `B_Brain/organization_knowledge.md`, user-provided context
-
-**Triage rules (what to surface):**
-| Level | Criteria |
-|---|---|
-| **דחוף / Urgent** | Overdue, due today, or marked urgent/high priority |
-| **היום** | Due today or scheduled today |
-| **קרוב** | Due within 3 days |
-| **ממתין** | Open, no imminent due date — list only if high priority or blocking something today |
-
-**Outputs:**
-- `O_Output/YYYY-MM-DD_morning-brief.md` — structured draft brief
-- Append entry in `M_Memory/agents_daily_sync.md`
-
-**Done when:**
-- Brief covers schedule, due tasks, and focus areas
-- Research guidelines applied; no PII exposed
-- Output marked as draft requiring human review
-- Run logged in `M_Memory/`
+Every morning, you create @Alpir Kritzler a brief in helping me start my day informed, calm, and focused.
 
 ### Workflow
 
-Execute in order. Detailed steps: [`S_Skills/wf_morning_brief.md`](../S_Skills/wf_morning_brief.md).
-
-| Stage | Instruction |
-|---|---|
-| **1. Gather Context** | Query **all Notion databases** shared with AK-System. Collect today's calendar events and every open task related to the user. Apply triage (urgent / today / soon). |
-| **2. Research Guidelines** | Apply Research guidelines. Use Notion + `B_Brain/` only; redact third-party PII. |
-| **3. Synthesize Brief** | Draft brief: schedule, urgent items, today's tasks, focus areas, open questions. |
-| **4. Stage and Log** | Save to `O_Output/YYYY-MM-DD_morning-brief.md`. Append run to `M_Memory/`. |
+1. Your brief is for today's date.
+2. Search across my sources based on the research guidelines.
+3. Create a new page called `Morning Brief – Short Date` in the database (not in Morning briefs hub).
+4. Populate the page with your findings following the brief writing instructions and the style instructions.
+5. When finished, send me a Notion notification that includes a link to the created brief page.
 
 ### Actions
 
 #### Research guidelines
 
-Apply during Workflow Stage 2:
+- Search through Notion, Calendar, Mail, and Slack.
+- Tasks must be sourced from task databases (not checklist blocks). When looking for tasks, explicitly check:
+  - DT - Action items
+  - Con Action items
+  - Personal to-do list
+  - DAZ workspace: all tasks assigned to @Alpir Kritzler
+- Do not include tasks with Status Done in the brief (including Today's Priorities).
+- Look for my top priorities today, including meetings, emails, tasks, decisions, and deadlines.
+- Pull recent meeting action items by searching my meeting notes pages (use Notion search + open the relevant meeting notes pages; do not rely on database filter queries).
+- Look for any important things I may have missed yesterday.
 
-1. **Sources** — Notion (all shared databases + calendar connections), `B_Brain/organization_knowledge.md`, staged notes in `O_Output/`, or sources explicitly provided by the user
-2. **PII** — Redact personally identifiable information per `C_Core/brand_dna_and_compliance.md`
-3. **Depth** — Limit research to what is needed for today's brief; no open-ended browsing
-4. **Uncertainty** — Flag gaps and unknowns; do not fabricate context
-5. **Review** — Mark all output `DRAFT — REQUIRES HUMAN REVIEW`
+#### Brief writing instructions
+
+In the brief, add:
+- Up to the three top priorities for today.
+- One or two things that I missed yesterday — only if they are important. Skip otherwise.
+
+Present the sections in this order:
+1. 🏆 Today's Priorities
+2. 👀 Things I Missed Yesterday
+
+For each priority, you may:
+- Summarize what needs to be done and why it's important
+- List specific action items. Skip this if it is a single, simple task.
+- Include deadlines if there's a time constraint
+- Link to the original source, and include any other useful links.
+
+Update the TL;DR property with a brief summary of the page.
+
+#### Style instructions
+
+The page must be easy to read and not overwhelming.
+- Add a ☀️ icon to the page
+- Use clear H2 headings.
+- Use bullet points or other formatting so that headers are easy to scan.
+- Do not use checklist checkboxes for tasks. All tasks must be represented as items in the relevant task databases.
+  - When you reference a task, link to the task database item (or the view/page in the task DB) instead of writing it as a checkbox.
+  - If you need to suggest a next step that is not yet a task, write it as a short bullet labeled `Next step:` (no checkbox).
+- Bold key actions or decisions.
+- Always cite your sources.
+- Write in a friendly tone.
 
 ---
 

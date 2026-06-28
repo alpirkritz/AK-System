@@ -309,3 +309,42 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Requires CURSOR_API_KEY in .env.local
 
 ---
+
+## 2026-06-28 — Import Agents From AI Instructions Doc — IMPORT-001
+
+**Active Agent:** `02_agent_trainer` (authoring) → registered under `01_Hugo_orchestrator`
+**Workflow:** N/A — agent-card authoring + workflow creation (per ABC Rule 4)
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Import all 6 agents from `AI Instructions and settings.docx` into the ABC workspace as agent cards + S_Skills workflows
+- **Context:** Verbatim doc instructions embedded in each card's Instructions section; auto-listed in /agents UI
+
+### Actions Taken
+1. Updated `A_Agents/03_morning_briefing.md` Instructions with doc's real Morning Brief content (task DBs DT/Con/Personal/DAZ, exclude Done, Today's Priorities + Things I Missed Yesterday, ☀️/H2/no-checkbox style, cite sources)
+2. Aligned `S_Skills/wf_morning_brief.md` (sources, output sections, style rules)
+3. Created `04_meeting_prep_herald.md` + `S_Skills/wf_meeting_prep.md`
+4. Created `05_ibkr_daily_import.md` + `S_Skills/wf_ibkr_daily_import.md`
+5. Created `06_calendar_optimizer.md` + `S_Skills/wf_calendar_optimizer.md` (approval-gated)
+6. Created `07_email_assistant.md` + `S_Skills/wf_email_assistant.md` (confirmation-gated)
+7. Created `08_startup_coo.md` + `S_Skills/wf_startup_coo.md` (no emojis)
+8. Registered agents 04–08 in Hugo's Delegated Sub-Agents table
+
+### Outputs
+- `A_Agents/04_meeting_prep_herald.md` … `A_Agents/08_startup_coo.md`
+- `S_Skills/wf_meeting_prep.md`, `wf_ibkr_daily_import.md`, `wf_calendar_optimizer.md`, `wf_email_assistant.md`, `wf_startup_coo.md`
+- Updated `A_Agents/03_morning_briefing.md`, `S_Skills/wf_morning_brief.md`, `A_Agents/01_Hugo_orchestrator.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] Guardrails captured per agent (Calendar Optimizer: never act w/o approval; Email Assistant: no actions w/o confirmation; IBKR: de-dupe + skip non-transactions; Startup COO: no emojis)
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- `/agents` UI now lists 8 agents (reads `A_Agents/*.md`) — no code change needed
+- Live Gmail/Slack/Calendar execution still out of scope; data flows via Notion context
+
+### Blockers / Escalations
+- None
+
+---
