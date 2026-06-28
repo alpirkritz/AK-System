@@ -7,14 +7,16 @@ import {
   HUGO_AGENT_ID,
 } from './abc-agents'
 import { createApiCaller, executeTool, getToolDeclarations, type ToolExecutionContext } from './conversation-engine'
-import { getGeminiModelOptions } from './gemini-config'
+import {
+  getGeminiModelOptions,
+  getGeminiModelOptionsFast,
+  sanitizeChatHistory,
+  type ChatTurn,
+} from './gemini-config'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import type { AgentNotifyChannel } from './agent-notifications'
 
-export interface ChatTurn {
-  role: 'user' | 'assistant'
-  content: string
-}
+export type { ChatTurn } from './gemini-config'
 
 function formatDateLabel(): string {
   const today = new Date()
@@ -74,6 +76,9 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       '## Hugo orchestrator — primary interface',
       'You are the user\'s main assistant on this channel. Handle requests directly when you can (calendar, tasks, Gmail, WhatsApp status, WhatsApp group summaries).',
       'For WhatsApp daily/group summaries (סיכום וואטסאפ, סיכום קבוצות), use summarize_whatsapp_groups — summaries are sent as separate WhatsApp messages; confirm status in your reply.',
+      'For calendar / יומן / schedule questions, delegate to run_abc_agent agentId 06_calendar_optimizer — call him **אופטי** (the calendar advisor) in your replies.',
+      'For tasks, use Notion context (Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',
+      'WhatsApp bridge buffers group messages since last restart — summarize_whatsapp_groups covers buffered activity, not phone "unread" badges.',
       'For specialist workflows (morning brief, calendar optimization, meeting prep, email triage, IBKR, startup COO), delegate via run_abc_agent and synthesize the specialist response into your reply.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
@@ -102,51 +107,26 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
 }
 
 function buildHistoryContents(history: ChatTurn[]): Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> {
-  return history.slice(-8).map((turn) => ({
+  return sanitizeChatHistory(history).map((turn) => ({
     role: turn.role === 'user' ? ('user' as const) : ('model' as const),
     parts: [{ text: turn.content }],
   }))
 }
 
-type ToolArgs = Record<string, unknown>
-
-function extractResponseText(result: { response: { text: () => string } }): string {
-  try {
-    return result.response.text()?.trim() ?? ''
-  } catch {
-    return ''
-  }
+function isGeminiNetworkError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('fetch failed') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')
 }
 
-export async function runGeminiAgentChat(options: {
-  agentId: string
-  message: string
-  history?: ChatTurn[]
-  channel?: AgentNotifyChannel
-}): Promise<{ text: string }> {
-  const geminiKey = process.env.GEMINI_API_KEY
-  if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
-
-  const genAI = new GoogleGenerativeAI(geminiKey)
-  const caller = await createApiCaller()
-  const toolCtx: ToolExecutionContext | undefined = options.channel
-    ? { channel: options.channel }
-    : undefined
-  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
-
-  const model = genAI.getGenerativeModel({
-    ...getGeminiModelOptions(),
-    systemInstruction,
-    tools: [{ functionDeclarations: getToolDeclarations() }],
-    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
-  })
-
-  const history = options.history ?? []
-  const chat = model.startChat({
-    history: buildHistoryContents(history),
-  })
-
-  let result = await chat.sendMessage(options.message)
+async function runChatLoop(
+  model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>,
+  history: ChatTurn[],
+  message: string,
+  caller: Awaited<ReturnType<typeof createApiCaller>>,
+  toolCtx: ToolExecutionContext | undefined,
+): Promise<string> {
+  const chat = model.startChat({ history: buildHistoryContents(history) })
+  let result = await chat.sendMessage(message)
 
   let iterations = 0
   while (iterations < 10) {
@@ -177,5 +157,51 @@ export async function runGeminiAgentChat(options: {
     text = extractResponseText(result)
   }
 
-  return { text: text || 'לא התקבלה תשובה מהסוכן.' }
+  return text || 'לא התקבלה תשובה מהסוכן.'
+}
+
+type ToolArgs = Record<string, unknown>
+
+function extractResponseText(result: { response: { text: () => string } }): string {
+  try {
+    return result.response.text()?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export async function runGeminiAgentChat(options: {
+  agentId: string
+  message: string
+  history?: ChatTurn[]
+  channel?: AgentNotifyChannel
+}): Promise<{ text: string }> {
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
+
+  const genAI = new GoogleGenerativeAI(geminiKey)
+  const caller = await createApiCaller()
+  const toolCtx: ToolExecutionContext | undefined = options.channel
+    ? { channel: options.channel }
+    : undefined
+  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
+  const history = options.history ?? []
+
+  const buildModel = (modelOpts: ReturnType<typeof getGeminiModelOptions>) =>
+    genAI.getGenerativeModel({
+      ...modelOpts,
+      systemInstruction,
+      tools: [{ functionDeclarations: getToolDeclarations() }],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
+    })
+
+  try {
+    return { text: await runChatLoop(buildModel(getGeminiModelOptions()), history, options.message, caller, toolCtx) }
+  } catch (err) {
+    if (!isGeminiNetworkError(err)) throw err
+    console.warn('[GeminiAgent] extended thinking failed, retrying without thinking:', err)
+    return {
+      text: await runChatLoop(buildModel(getGeminiModelOptionsFast()), history, options.message, caller, toolCtx),
+    }
+  }
 }

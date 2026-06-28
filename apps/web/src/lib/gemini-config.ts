@@ -37,3 +37,38 @@ export function getGeminiModelOptions(): { model: string; generationConfig: Gene
     generationConfig: getGeminiGenerationConfig(),
   }
 }
+
+/** Fallback without extended thinking — used when API times out on complex requests. */
+export function getGeminiModelOptionsFast(): { model: string; generationConfig: GenerationConfig } {
+  return { model: getGeminiModelId(), generationConfig: {} }
+}
+
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** Gemini requires history to start with user and alternate roles. */
+export function sanitizeChatHistory(history: ChatTurn[]): ChatTurn[] {
+  let turns = history.filter((t) => t.content?.trim())
+
+  while (turns.length > 0 && turns[0]?.role === 'assistant') {
+    turns = turns.slice(1)
+  }
+
+  const merged: ChatTurn[] = []
+  for (const turn of turns) {
+    const last = merged[merged.length - 1]
+    if (last && last.role === turn.role) {
+      last.content = `${last.content}\n\n${turn.content}`
+    } else {
+      merged.push({ ...turn })
+    }
+  }
+
+  while (merged.length > 0 && merged[merged.length - 1]?.role === 'user') {
+    merged.pop()
+  }
+
+  return merged.slice(-8)
+}

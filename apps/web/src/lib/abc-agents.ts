@@ -43,6 +43,8 @@ export const AGENT_ALIASES: Record<string, string> = {
   יועץ: '06_calendar_optimizer',
   'יועץ יומן': '06_calendar_optimizer',
   'יועץ-יומן': '06_calendar_optimizer',
+  אופטי: '06_calendar_optimizer',
+  opti: '06_calendar_optimizer',
   email: '07_email_assistant',
   מייל: '07_email_assistant',
   דואר: '07_email_assistant',

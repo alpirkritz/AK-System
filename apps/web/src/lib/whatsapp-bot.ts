@@ -119,8 +119,20 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
     return result.text
   } catch (err) {
     console.error('[WhatsAppBot] Error:', err)
-    return ''
+    const fallback =
+      err instanceof Error && err.message.includes("First content should be with role 'user'")
+        ? 'שגיאה בהיסטוריית השיחה. נסה שוב.'
+        : err instanceof Error && isGeminiNetworkError(err)
+          ? 'הבקשה ארכה יותר מדי. נסה שוב או פצל לשתי הודעות קצרות.'
+          : 'שגיאה בעיבוד הבקשה. נסה שוב בעוד רגע.'
+    await saveChatMessage('assistant', fallback, 'whatsapp').catch(() => {})
+    return fallback
   }
+}
+
+function isGeminiNetworkError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('fetch failed') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')
 }
 
 export async function summarizeFomoMessages(
