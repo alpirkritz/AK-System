@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AK WhatsApp Bridge — Pairing</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a0a;
+      color: #f0ede6;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 8px; }
+    p { color: #888; font-size: 0.9rem; line-height: 1.5; }
+    #qr img { margin: 20px auto; border-radius: 8px; }
+    .status { margin-top: 16px; font-size: 0.85rem; }
+    .ok { color: #6ee7a0; }
+    .warn { color: #e8c547; }
+    .err { color: #f87171; }
+    code { background: #1a1a1a; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>AK WhatsApp Bridge</h1>
+    <p>WhatsApp → הגדרות → מכשירים מקושרים → קשר מכשיר<br />סרוק את הקוד</p>
+    <div id="qr"></div>
+    <div id="status" class="status warn">טוען...</div>
+  </div>
+  <script>
+    async function refresh() {
+      const statusEl = document.getElementById('status')
+      const qrEl = document.getElementById('qr')
+      try {
+        const statusRes = await fetch('/status')
+        const status = await statusRes.json()
+        if (status.connected) {
+          qrEl.innerHTML = ''
+          statusEl.className = 'status ok'
+          statusEl.innerHTML = 'מחובר ✓<br><code>' + (status.selfJid || '') + '</code>'
+          return
+        }
+        const qrRes = await fetch('/qr')
+        const qr = await qrRes.json()
+        if (qr.qr) {
+          qrEl.innerHTML = '<img src="' + qr.qr + '" alt="QR" width="280" height="280" />'
+          statusEl.className = 'status warn'
+          statusEl.textContent = 'סרוק את הקוד עם הטלפון'
+        } else {
+          qrEl.innerHTML = ''
+          statusEl.className = 'status warn'
+          statusEl.textContent = qr.message || 'ממתין ל-QR...'
+        }
+        if (status.lastError) {
+          statusEl.className = 'status err'
+          statusEl.textContent = status.lastError
+        }
+      } catch (e) {
+        statusEl.className = 'status err'
+        statusEl.textContent = 'שגיאה בטעינה'
+      }
+    }
+    refresh()
+    setInterval(refresh, 3000)
+  </script>
+</body>
+</html>

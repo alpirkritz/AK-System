@@ -1,15 +1,14 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
-import { sendTelegramMessage } from '@/lib/telegram-bot'
-import { saveChatMessage } from '@/lib/conversation-engine'
+import { pushAssistantMessage } from '@/lib/push-notifications'
 
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
 
 /**
  * Cron: Pre-meeting briefing (run every 5 min). Finds meetings starting in ~15 min,
- * sends a short briefing per meeting to Telegram.
+ * sends a short briefing per meeting to Telegram/WhatsApp.
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -30,12 +29,8 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     }
   }
 
-  const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID
-  const hasTelegram = process.env.TELEGRAM_BOT_TOKEN && chatId
-
   try {
     const now = new Date()
-    const in15Min = new Date(now.getTime() + 15 * 60 * 1000)
     const windowStart = new Date(now.getTime() + WINDOW_START_MIN * 60 * 1000)
     const windowEnd = new Date(now.getTime() + WINDOW_END_MIN * 60 * 1000)
 
@@ -88,11 +83,8 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         openTasks.length > 0 ? `משימות פתוחות: ${openTasks.map((t) => t.title).join(', ')}` : '',
       ].filter(Boolean)
       const text = lines.join('\n').slice(0, 4000)
-      await saveChatMessage('assistant', text, 'cron')
-      if (hasTelegram) {
-        await sendTelegramMessage(Number(chatId!), text)
-        sent++
-      }
+      const pushed = await pushAssistantMessage(text)
+      if (pushed.telegram || pushed.whatsapp) sent++
     }
     return NextResponse.json({ ok: true, briefed: sent, total: toBrief.length })
   } catch (err) {

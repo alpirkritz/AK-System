@@ -340,11 +340,106 @@ For end-of-day rollups, Hugo may append a summary entry:
 - [x] Guardrails captured per agent (Calendar Optimizer: never act w/o approval; Email Assistant: no actions w/o confirmation; IBKR: de-dupe + skip non-transactions; Startup COO: no emojis)
 - [x] No PII exposed without redaction
 
+### Blockers / Escalations
+- None
+
+---
+
+## 2026-06-28 — Daily Agents Run (09:00 simulation) — RUN-004
+
+**Active Agent:** Multiple (`03`–`08`)
+**Workflow:** `scripts/run_daily_agents.py` — Notion live fetch + Word export
+**Status:** Completed (partial — IBKR/Gmail not connected)
+
+### Stand-up
+- **Goal:** Run all daily agents as if 09:00 today; export to Word for easy reading
+- **Context:** User requested commit + full agent run + docx export
+
+### Actions Taken
+1. Committed ABC agent import (9760b08)
+2. Created `scripts/run_daily_agents.py` — fetches Notion tasks + Assistant Calendar/Email pages
+3. Ran all 6 agents for 2026-06-28 @ 09:00 IDT
+4. Exported combined Word doc + per-agent markdown files
+
+### Outputs
+- `O_Output/2026-06-28_daily-agents-run.docx` (main deliverable)
+- `O_Output/2026-06-28_daily-agents-run.md`
+- Per-agent markdown files in `O_Output/`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] Calendar Optimizer / Email Assistant: recommendations only, no actions taken
+
 ### Performance Improvements
-- `/agents` UI now lists 8 agents (reads `A_Agents/*.md`) — no code change needed
-- Live Gmail/Slack/Calendar execution still out of scope; data flows via Notion context
+- IBKR Daily Import blocked without Gmail — needs inbox connection for live run
+- Startup COO is on-demand only (no daily output)
+
+### Blockers / Escalations
+- IBKR agent: Gmail not connected in automated run
+
+---
+
+## 2026-06-28 — Startup COO On-Demand Run — RUN-COO-001
+
+**Active Agent:** `08_startup_coo`
+**Workflow:** `S_Skills/wf_startup_coo.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** On-demand COO ops review from today's live context (no specific user question)
+- **Context:** User requested immediate COO run after daily agents batch
+
+### Actions Taken
+1. Read agent Instructions + today's Morning Brief / Email / Meeting Prep outputs
+2. Structured problem: dual-context overload (Dragontail + Daz), 17 overdue, 4 High due today
+3. Produced recommendation memo: Daz KYC first, delegate Dragontail process items via 1:1s, kill/defer Con backlog noise
+
+### Outputs
+- `O_Output/2026-06-28_startup-coo.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No emojis in COO output
+- [x] Assumptions flagged (Daz stage/runway unknown)
 
 ### Blockers / Escalations
 - None
+
+---
+
+## 2026-06-28 — Hugo Orchestrator — WhatsApp Bridge Implementation
+
+**Active Agent:** `01_Hugo_orchestrator`
+**Workflow:** `S_Skills/wf_whatsapp_bridge.md` — Stages 1–3
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Implement personal WhatsApp bridge (Baileys) as standalone app + AK System integration
+- **Context:** User approved plan for self-chat first, groups later, standalone project connecting to AK
+
+### Actions Taken
+1. Created `S_Skills/wf_whatsapp_bridge.md` and `wf_whatsapp_summary.md` with compliance checklist
+2. Built `apps/whatsapp-bridge` — Baileys, QR UI, `/send`, group buffer, summarize endpoints
+3. Added AK `whatsapp-bot.ts`, webhooks, `push-notifications.ts`, cron WhatsApp push, group-summary API
+4. Updated `DEPLOY.md`, env examples, root pnpm scripts
+
+### Outputs
+- `apps/whatsapp-bridge/` (new package)
+- `apps/web/src/lib/whatsapp-bot.ts`, `push-notifications.ts`
+- `apps/web/src/app/api/whatsapp/webhook/route.ts`, `group-summary/route.ts`
+- `apps/web/src/app/api/cron/whatsapp-group-summary/route.ts`
+- `S_Skills/wf_whatsapp_bridge.md`, `S_Skills/wf_whatsapp_summary.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] Baileys ToS risk documented in workflow compliance checklist
+- [x] No PII in code or logs
+
+### Performance Improvements
+- `pushAssistantMessage` unifies Telegram + WhatsApp cron delivery
+- Bridge isolated from Next.js for persistent Baileys session
+
+### Blockers / Escalations
+- User must pair QR and deploy bridge with volume before live WhatsApp use
 
 ---

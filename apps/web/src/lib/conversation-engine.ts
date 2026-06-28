@@ -514,7 +514,7 @@ export async function resolveIntent(userMessage: string): Promise<string> {
   ].join('\n')
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
@@ -554,7 +554,7 @@ import { chatMessages } from '@ak-system/database'
 export async function saveChatMessage(
   role: 'user' | 'assistant' | 'system',
   content: string,
-  source: 'web' | 'telegram' | 'cron',
+  source: 'web' | 'telegram' | 'whatsapp' | 'cron',
 ): Promise<void> {
   const db = getDb()
   const id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)

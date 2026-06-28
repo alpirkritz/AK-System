@@ -168,7 +168,7 @@ export const chatMessages = sqliteTable('chat_messages', {
   id: text('id').primaryKey(),
   role: text('role').notNull(), // 'user' | 'assistant' | 'system'
   content: text('content').notNull(),
-  source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'cron'
+  source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'whatsapp' | 'cron'
   createdAt: text('created_at').notNull(),
 })
 

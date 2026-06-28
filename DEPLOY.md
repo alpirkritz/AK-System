@@ -106,6 +106,28 @@ docker run -p 3000:3000 \
 
 ---
 
+## WhatsApp Bridge (פרויקט נפרד)
+
+ה-bridge (`apps/whatsapp-bridge`) רץ כ-process נפרד עם Baileys — **חייב volume** ל-auth state.
+
+```bash
+cp apps/whatsapp-bridge/.env.example apps/whatsapp-bridge/.env
+# ערוך BRIDGE_SECRET, AUTH_STATE_PATH=/data/auth
+
+pnpm whatsapp-bridge:dev   # פיתוח — http://localhost:3001 לסריקת QR
+pnpm whatsapp-bridge:build && cd apps/whatsapp-bridge && pnpm start
+```
+
+**חיבור ל-AK System:**
+
+1. Bridge: `AK_WEBHOOK_URL=https://<domain>/api/whatsapp/webhook`
+2. AK: `WHATSAPP_BRIDGE_URL=http://<bridge-host>:3001`, `WHATSAPP_BRIDGE_SECRET=<same as BRIDGE_SECRET>`
+3. אופציונלי: `WHATSAPP_ALLOWED_JID` מה-`GET /status` אחרי pairing
+
+פריסה: VM / Railway volume — לא Cloud Run (session state). ראה [`S_Skills/wf_whatsapp_bridge.md`](S_Skills/wf_whatsapp_bridge.md).
+
+---
+
 ## התקנה בטלפון (PWA)
 
 אחרי שהאפליקציה פרוסה וזמינה ב-HTTPS:

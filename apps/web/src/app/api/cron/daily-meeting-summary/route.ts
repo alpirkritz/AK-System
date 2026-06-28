@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
-import { sendTelegramMessage } from '@/lib/telegram-bot'
-import { saveChatMessage } from '@/lib/conversation-engine'
+import { pushAssistantMessage } from '@/lib/push-notifications'
 import type { MeetingCategory } from '@ak-system/database'
 
 const CATEGORY_LABELS: Record<MeetingCategory, string> = {
@@ -33,9 +32,6 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
-
-  const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID
-  const hasTelegram = process.env.TELEGRAM_BOT_TOKEN && chatId
 
   try {
     const today = new Date().toISOString().split('T')[0]
@@ -94,11 +90,14 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
     }
     const text = (lines.length > 2 ? lines.join('\n') : lines[0] + '\nאין אירועים היום.').slice(0, 4000)
 
-    await saveChatMessage('assistant', text, 'cron')
-    if (hasTelegram) {
-      await sendTelegramMessage(Number(chatId!), text)
-    }
-    return NextResponse.json({ ok: true, eventsCount: events.length, sent: !!hasTelegram })
+    const pushed = await pushAssistantMessage(text)
+    return NextResponse.json({
+      ok: true,
+      eventsCount: events.length,
+      sent: pushed.telegram || pushed.whatsapp,
+      telegram: pushed.telegram,
+      whatsapp: pushed.whatsapp,
+    })
   } catch (err) {
     console.error('[cron/daily-meeting-summary]', err)
     const msg = err instanceof Error ? err.message : 'Daily summary failed'

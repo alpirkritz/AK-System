@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
-import { sendTelegramMessage } from '@/lib/telegram-bot'
-import { saveChatMessage } from '@/lib/conversation-engine'
+import { pushAssistantMessage } from '@/lib/push-notifications'
 
 /**
  * Cron: Task reminder poller (run every 1 min per Second Brain spec).
- * Finds tasks that are due today or overdue and not done, sends a digest to Telegram.
+ * Finds tasks that are due today or overdue and not done, sends a digest to Telegram/WhatsApp.
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -27,9 +26,6 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID
-  const hasTelegram = process.env.TELEGRAM_BOT_TOKEN && chatId
-
   try {
     const today = new Date().toISOString().split('T')[0]
     const db = getDb()
@@ -49,11 +45,14 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     }
     const text = lines.join('\n').slice(0, 4000)
 
-    await saveChatMessage('assistant', text, 'cron')
-    if (hasTelegram) {
-      await sendTelegramMessage(Number(chatId!), text)
-    }
-    return NextResponse.json({ ok: true, reminded: dueOrOverdue.length, sent: !!hasTelegram })
+    const pushed = await pushAssistantMessage(text)
+    return NextResponse.json({
+      ok: true,
+      reminded: dueOrOverdue.length,
+      sent: pushed.telegram || pushed.whatsapp,
+      telegram: pushed.telegram,
+      whatsapp: pushed.whatsapp,
+    })
   } catch (err) {
     console.error('[cron/task-reminder]', err)
     const msg = err instanceof Error ? err.message : 'Task reminder failed'

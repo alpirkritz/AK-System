@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
-import { sendTelegramMessage } from '@/lib/telegram-bot'
-import { saveChatMessage } from '@/lib/conversation-engine'
+import { pushAssistantMessage } from '@/lib/push-notifications'
 
 /**
  * Cron: Morning calendar briefing (run at 07:00 Israel time).
- * Sends today's schedule (events + due tasks) to Telegram when configured.
+ * Sends today's schedule (events + due tasks) to Telegram/WhatsApp when configured.
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -26,9 +25,6 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
-
-  const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID
-  const hasTelegram = process.env.TELEGRAM_BOT_TOKEN && chatId
 
   try {
     const db = getDb()
@@ -61,11 +57,15 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     }
     const text = lines.join('\n').slice(0, 4000)
 
-    await saveChatMessage('assistant', text, 'cron')
-    if (hasTelegram) {
-      await sendTelegramMessage(Number(chatId), text)
-    }
-    return NextResponse.json({ ok: true, events: events.length, dueTasks: dueTasks.length, sent: !!hasTelegram })
+    const pushed = await pushAssistantMessage(text)
+    return NextResponse.json({
+      ok: true,
+      events: events.length,
+      dueTasks: dueTasks.length,
+      sent: pushed.telegram || pushed.whatsapp,
+      telegram: pushed.telegram,
+      whatsapp: pushed.whatsapp,
+    })
   } catch (err) {
     console.error('[cron/morning-briefing]', err)
     const msg = err instanceof Error ? err.message : 'Morning briefing failed'

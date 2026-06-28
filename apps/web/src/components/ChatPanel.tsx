@@ -6,7 +6,7 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  source: 'web' | 'telegram' | 'cron'
+  source: 'web' | 'telegram' | 'whatsapp' | 'cron'
   createdAt: string
 }
 
@@ -110,6 +110,7 @@ export function ChatPanel() {
 
   function sourceTag(source: string) {
     if (source === 'telegram') return 'Telegram'
+    if (source === 'whatsapp') return 'WhatsApp'
     if (source === 'cron') return 'מערכת'
     return null
   }

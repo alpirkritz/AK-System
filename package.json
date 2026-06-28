@@ -18,6 +18,8 @@
     "db:generate": "pnpm --filter @ak-system/database run generate",
     "db:migrate": "pnpm --filter @ak-system/database run migrate",
     "db:push": "cd apps/web && mkdir -p data && DATABASE_PATH=$PWD/data/ak_system.sqlite pnpm --filter @ak-system/database run push",
+    "whatsapp-bridge:dev": "pnpm --filter @ak-system/whatsapp-bridge dev",
+    "whatsapp-bridge:build": "pnpm --filter @ak-system/whatsapp-bridge build",
     "qa": "pnpm test && pnpm e2e",
     "e2e": "pnpm run pretest:e2e && pnpm --filter @ak-system/web run test:e2e",
     "pretest:e2e": "mkdir -p apps/web/data && (cd packages/database && DATABASE_PATH=../../apps/web/data/e2e.sqlite pnpm run push)"
