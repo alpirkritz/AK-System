@@ -4,6 +4,7 @@ import { chatMessages, getDb } from '@ak-system/database'
 import { getRunnableAgentIds } from './abc-agents'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
+import { getGeminiModelOptions } from './gemini-config'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_today_schedule',
     description:
-      "Get today's calendar events and tasks due today. Use for: 'מה יש לי היום', 'what do I have today', 'דשבורד', 'סיכום'.",
+      "Get today's calendar events and tasks due today. Use for: 'מה יש לי היום', 'what do I have today', 'דשבורד'. NOT for WhatsApp summaries.",
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
@@ -248,6 +249,20 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     description:
       'List watched WhatsApp groups and their alert/summary rules. Use for: whatsapp groups, קבוצות וואטסאפ.',
     parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'summarize_whatsapp_groups',
+    description:
+      'Generate and deliver WhatsApp group conversation summaries to the user (sent as separate WhatsApp messages). Use for: whatsapp summary, סיכום וואטסאפ, סיכום קבוצות, daily whatsapp digest, תריץ סיכום.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        groupJid: {
+          type: SchemaType.STRING,
+          description: 'Optional: summarize one group by JID. Omit to summarize all watched/enabled groups.',
+        },
+      },
+    },
   },
 ]
 
@@ -591,6 +606,17 @@ export async function executeTool(
       }
     }
 
+    case 'summarize_whatsapp_groups': {
+      const groupJid = (args.groupJid as string | undefined)?.trim()
+      const result = await caller.whatsapp.summaries.trigger(
+        groupJid ? { groupJid } : {},
+      )
+      return {
+        ...result,
+        note: 'Summaries are delivered as separate WhatsApp messages to the user.',
+      }
+    }
+
     case 'run_abc_agent': {
       const agentId = (args.agentId as string)?.trim()
       const message = (args.message as string)?.trim()
@@ -649,7 +675,7 @@ export async function resolveIntent(
   ].join('\n')
 
   const model = genAI.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    ...getGeminiModelOptions(),
     systemInstruction,
     tools: [{ functionDeclarations: getToolDeclarations() }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },

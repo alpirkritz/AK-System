@@ -7,6 +7,7 @@ import {
   HUGO_AGENT_ID,
 } from './abc-agents'
 import { createApiCaller, executeTool, getToolDeclarations, type ToolExecutionContext } from './conversation-engine'
+import { getGeminiModelOptions } from './gemini-config'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import type { AgentNotifyChannel } from './agent-notifications'
 
@@ -56,6 +57,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     'Respond in the same language the user writes in: Hebrew for Hebrew, English for English.',
     'Be concise and structured. Use bullet points for lists.',
     'You have tools to read calendar, tasks, meetings, contacts, Gmail, WhatsApp groups, and more — use them when needed for your analysis.',
+    'For on-demand WhatsApp group summaries (סיכום וואטסאפ / daily digest), use summarize_whatsapp_groups.',
     '',
     '---',
     '',
@@ -70,7 +72,8 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       0,
       '',
       '## Hugo orchestrator — primary interface',
-      'You are the user\'s main assistant on this channel. Handle requests directly when you can (calendar, tasks, Gmail, WhatsApp status).',
+      'You are the user\'s main assistant on this channel. Handle requests directly when you can (calendar, tasks, Gmail, WhatsApp status, WhatsApp group summaries).',
+      'For WhatsApp daily/group summaries (סיכום וואטסאפ, סיכום קבוצות), use summarize_whatsapp_groups — summaries are sent as separate WhatsApp messages; confirm status in your reply.',
       'For specialist workflows (morning brief, calendar optimization, meeting prep, email triage, IBKR, startup COO), delegate via run_abc_agent and synthesize the specialist response into your reply.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
@@ -107,6 +110,14 @@ function buildHistoryContents(history: ChatTurn[]): Array<{ role: 'user' | 'mode
 
 type ToolArgs = Record<string, unknown>
 
+function extractResponseText(result: { response: { text: () => string } }): string {
+  try {
+    return result.response.text()?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export async function runGeminiAgentChat(options: {
   agentId: string
   message: string
@@ -124,7 +135,7 @@ export async function runGeminiAgentChat(options: {
   const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
 
   const model = genAI.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    ...getGeminiModelOptions(),
     systemInstruction,
     tools: [{ functionDeclarations: getToolDeclarations() }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
@@ -158,6 +169,13 @@ export async function runGeminiAgentChat(options: {
     iterations++
   }
 
-  const text = result.response.text()?.trim()
+  let text = extractResponseText(result)
+  if (!text && iterations > 0) {
+    result = await chat.sendMessage(
+      'Based on the tool results above, write your complete answer to the user now. Use the same language as the user. Do not call any more tools.',
+    )
+    text = extractResponseText(result)
+  }
+
   return { text: text || 'לא התקבלה תשובה מהסוכן.' }
 }

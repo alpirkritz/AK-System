@@ -1,8 +1,20 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { sendWhatsAppMessage, verifyWhatsAppBridgeAuth } from '@/lib/whatsapp-bot'
+import {
+  sendWhatsAppMessage,
+  summarizeFomoMessages,
+  verifyWhatsAppBridgeAuth,
+  type BufferedGroupMessage,
+} from '@/lib/whatsapp-bot'
 import { saveChatMessage } from '@/lib/conversation-engine'
-import { db, whatsappGroups } from '@ak-system/database'
+import { getDb, whatsappGroups } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
+
+function fallbackFomoSnippet(messages: BufferedGroupMessage[]): string {
+  const recent = messages.slice(-3)
+  if (recent.length === 0) return ''
+  const lines = recent.map((m) => `• ${m.senderName}: ${m.text.slice(0, 80)}`)
+  return `תקציר:\n${lines.join('\n')}`
+}
 
 /**
  * POST /api/whatsapp/group-alert — FOMO / keyword alerts from bridge.
@@ -20,6 +32,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     snippet?: string
     match?: string
     count?: number
+    messages?: BufferedGroupMessage[]
   }
   try {
     body = (await request.json()) as typeof body
@@ -27,7 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { type, groupJid, groupName, snippet } = body
+  const { type, groupJid, groupName, snippet, messages } = body
   if (!type || !groupJid) {
     return NextResponse.json({ error: 'type and groupJid are required' }, { status: 400 })
   }
@@ -36,8 +49,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   let text: string
   if (type === 'fomo') {
-    const count = body.count ?? 0
-    text = `🔔 FOMO — ${name}\n${count} הודעות בזמן קצר.\n${snippet ?? ''}`.trim()
+    const count = body.count ?? messages?.length ?? 0
+    const header = `🔔 FOMO — ${name}\n${count} הודעות בזמן קצר.`
+    const context = messages?.length
+      ? (await summarizeFomoMessages(name, messages)) ?? fallbackFomoSnippet(messages)
+      : (snippet ?? '')
+    text = context ? `${header}\n\n${context}`.trim() : header
   } else {
     const match = body.match?.trim() || 'מילת מפתח'
     text = `🔑 מילת מפתח — ${name}\n"${match}"\n${(snippet ?? '').slice(0, 200)}`.trim()
@@ -47,6 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await saveChatMessage('assistant', text, 'whatsapp')
     await sendWhatsAppMessage(text)
     if (type === 'fomo') {
+      const db = getDb()
       await db
         .update(whatsappGroups)
         .set({ lastFomoAlertAt: new Date().toISOString(), updatedAt: new Date().toISOString() })

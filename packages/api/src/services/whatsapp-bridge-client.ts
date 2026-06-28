@@ -91,3 +91,16 @@ export async function summarizeGroup(groupJid: string): Promise<{ ok: boolean; e
   }
   return { ok: true }
 }
+
+export async function summarizeAllGroups(): Promise<{
+  results: Record<string, { ok: boolean; error?: string }>
+}> {
+  const { ok, data } = await bridgeFetch<{ results?: Record<string, { ok: boolean; error?: string }> }>(
+    '/groups/summarize-all',
+    { method: 'POST' },
+  )
+  if (!ok) {
+    throw new Error((data as { error?: string }).error || 'Summarize-all failed')
+  }
+  return { results: data.results ?? {} }
+}

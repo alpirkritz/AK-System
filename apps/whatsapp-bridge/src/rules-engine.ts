@@ -5,6 +5,7 @@ import {
   updateGroupLastFomoAlert,
   type GroupRule,
 } from './group-config.js'
+import { getGroupBuffer, type BufferedGroupMessage } from './group-buffer.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
@@ -26,6 +27,7 @@ async function postGroupAlert(payload: {
   snippet: string
   match?: string
   count?: number
+  messages?: BufferedGroupMessage[]
 }): Promise<void> {
   const url = resolveGroupAlertUrl()
   if (!url) {
@@ -71,12 +73,18 @@ function checkFomo(groupJid: string, rule: GroupRule): void {
   updateGroupLastFomoAlert(groupJid, new Date(now).toISOString())
   fomoWindows.set(groupJid, [])
 
+  const recentMessages = getGroupBuffer(groupJid).filter((m) => {
+    const ts = m.timestamp < 1e12 ? m.timestamp * 1000 : m.timestamp
+    return ts >= cutoff
+  })
+
   void postGroupAlert({
     type: 'fomo',
     groupJid,
     groupName: rule.name,
-    snippet: `${inWindow.length} הודעות ב-${rule.fomoWindowMinutes} דקות`,
-    count: inWindow.length,
+    snippet: `${recentMessages.length} הודעות ב-${rule.fomoWindowMinutes} דקות`,
+    count: recentMessages.length,
+    messages: recentMessages,
   })
 }
 

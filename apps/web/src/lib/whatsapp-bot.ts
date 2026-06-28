@@ -1,6 +1,7 @@
 import { formatAgentList, HUGO_AGENT_ID } from './abc-agents'
 import { runAgentForUser } from './agent-runner'
 import { saveChatMessage } from './conversation-engine'
+import { getGeminiModelOptions } from './gemini-config'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 
 export type ChatSource = 'web' | 'telegram' | 'whatsapp' | 'cron'
@@ -122,6 +123,52 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
   }
 }
 
+export async function summarizeFomoMessages(
+  groupName: string,
+  messages: BufferedGroupMessage[],
+): Promise<string | null> {
+  if (messages.length === 0) return null
+
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!geminiKey) return null
+
+  const { GoogleGenerativeAI } = await import('@google/generative-ai')
+  const genAI = new GoogleGenerativeAI(geminiKey)
+  const model = genAI.getGenerativeModel(getGeminiModelOptions())
+
+  const lines = messages.slice(-25).map((m) => {
+    const time = new Date(m.timestamp < 1e12 ? m.timestamp * 1000 : m.timestamp).toLocaleTimeString('he-IL', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    return `[${time}] ${m.senderName}: ${m.text}`
+  })
+
+  const prompt = [
+    `You are summarizing a burst of WhatsApp activity in group "${groupName}" for a personal FOMO alert.`,
+    'Respond in Hebrew unless most messages are in English.',
+    'Format exactly like this (no extra headings):',
+    'נושא: [one short line — what is being discussed]',
+    'תקציר:',
+    '• [first key point]',
+    '• [second key point if needed]',
+    '• [third key point if needed — max 3 bullets]',
+    'Keep the whole reply under 280 characters. Do not invent facts not in the messages.',
+    '',
+    'Messages:',
+    lines.join('\n'),
+  ].join('\n')
+
+  try {
+    const result = await model.generateContent(prompt)
+    const summary = result.response.text().trim()
+    return summary || null
+  } catch (err) {
+    console.warn('[summarizeFomoMessages]', err)
+    return null
+  }
+}
+
 export async function summarizeGroupMessages(
   groupJid: string,
   messages: BufferedGroupMessage[],
@@ -131,7 +178,7 @@ export async function summarizeGroupMessages(
 
   const { GoogleGenerativeAI } = await import('@google/generative-ai')
   const genAI = new GoogleGenerativeAI(geminiKey)
-  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' })
+  const model = genAI.getGenerativeModel(getGeminiModelOptions())
 
   const lines = messages.map((m) => {
     const time = new Date(m.timestamp).toLocaleString('he-IL')

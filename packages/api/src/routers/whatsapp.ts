@@ -7,6 +7,8 @@ import {
   getBridgeStatus,
   pushConfigToBridge,
   isBridgeConfigured,
+  summarizeAllGroups,
+  summarizeGroup,
   type GroupRulePayload,
 } from '../services/whatsapp-bridge-client'
 
@@ -236,6 +238,55 @@ export const whatsappRouter = router({
       await pushConfigToBridge(groups)
       return { ok: true, count: groups.filter((g) => g.enabled).length }
     }),
+  }),
+
+  summaries: router({
+    trigger: protectedProcedure
+      .input(z.object({ groupJid: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!isBridgeConfigured()) {
+          throw new Error('WhatsApp bridge not configured')
+        }
+
+        if (input.groupJid) {
+          const result = await summarizeGroup(input.groupJid)
+          const rows = await ctx.db
+            .select({ group: whatsappGroups })
+            .from(whatsappGroups)
+            .where(eq(whatsappGroups.jid, input.groupJid))
+            .limit(1)
+          return {
+            results: [
+              {
+                jid: input.groupJid,
+                name: rows[0]?.group.name ?? input.groupJid,
+                ...result,
+              },
+            ],
+            okCount: result.ok ? 1 : 0,
+            failCount: result.ok ? 0 : 1,
+          }
+        }
+
+        const rows = await ctx.db
+          .select({ group: whatsappGroups, label: whatsappLabels })
+          .from(whatsappGroups)
+          .leftJoin(whatsappLabels, eq(whatsappGroups.labelId, whatsappLabels.id))
+        const enabled = rows.filter(({ group }) => group.enabled)
+        if (enabled.length === 0) {
+          return { results: [], okCount: 0, failCount: 0, message: 'No watched groups enabled' }
+        }
+
+        const { results: raw } = await summarizeAllGroups()
+        const results = enabled.map(({ group }) => ({
+          jid: group.jid,
+          name: group.name,
+          ok: raw[group.jid]?.ok ?? false,
+          error: raw[group.jid]?.error ?? 'Group not summarized (bridge may have no buffer)',
+        }))
+        const okCount = results.filter((r) => r.ok).length
+        return { results, okCount, failCount: results.length - okCount }
+      }),
   }),
 
   /** Groups due for summary at HH:MM in timezone (used by cron). */
