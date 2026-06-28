@@ -21,7 +21,7 @@ const nextConfig = {
   reactStrictMode: true,
   typescript: { ignoreBuildErrors: true },
   transpilePackages: ['@ak-system/types', '@ak-system/api', '@ak-system/database'],
-  experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings', 'node-ical', 'next-auth', 'jose'] },
+  experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings', 'node-ical', 'next-auth', 'jose', '@cursor/sdk'] },
   ...(isDev ? {} : { distDir: TMP_DIR }),
   webpack: (config, { isServer }) => {
     // Store webpack's persistent cache in /tmp.
@@ -54,7 +54,8 @@ const nextConfig = {
           ctx.request === 'os' ||
           ctx.request === 'util' ||
           ctx.request === 'node-ical' ||
-          ctx.request === 'jose'
+          ctx.request === 'jose' ||
+          ctx.request === '@cursor/sdk'
         ) {
           return cb(null, `commonjs ${ctx.request}`)
         }

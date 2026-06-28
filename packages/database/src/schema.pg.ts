@@ -161,6 +161,22 @@ export const chatMessages = pgTable('chat_messages', {
   createdAt: text('created_at').notNull(),
 })
 
+export const agentThreads = pgTable('agent_threads', {
+  agentId: text('agent_id').primaryKey(),
+  cursorAgentId: text('cursor_agent_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const agentMessages = pgTable('agent_messages', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
+}))
+
 export const healthMetrics = pgTable('health_metrics', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),

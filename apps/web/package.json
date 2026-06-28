@@ -14,6 +14,7 @@
     "@ak-system/api": "workspace:*",
     "@ak-system/database": "workspace:*",
     "@ak-system/types": "workspace:*",
+    "@cursor/sdk": "^1.0.22",
     "@google/generative-ai": "^0.24.1",
     "@tanstack/react-query": "^4.36.1",
     "@trpc/client": "^10.45.0",

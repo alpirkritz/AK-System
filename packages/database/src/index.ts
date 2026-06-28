@@ -81,6 +81,21 @@ const CHAT_MESSAGES_TABLE = [
     created_at TEXT NOT NULL
   )`,
 ]
+const AGENT_TABLES = [
+  `CREATE TABLE IF NOT EXISTS agent_threads (
+    agent_id TEXT PRIMARY KEY,
+    cursor_agent_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS agent_messages (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_id ON agent_messages(agent_id)`,
+]
 const HEALTH_TABLE = [
   `CREATE TABLE IF NOT EXISTS health_metrics (
     id TEXT PRIMARY KEY,
@@ -200,6 +215,9 @@ export function getDb() {
   for (const sql of CHAT_MESSAGES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of AGENT_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of FINANCE_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -231,6 +249,8 @@ export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
 export const facts = schema.facts
 export const chatMessages = schema.chatMessages
+export const agentThreads = schema.agentThreads
+export const agentMessages = schema.agentMessages
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
@@ -241,6 +261,10 @@ export type Fact = typeof schemaPg.facts.$inferSelect
 export type NewFact = typeof schemaPg.facts.$inferInsert
 export type ChatMessage = typeof schemaPg.chatMessages.$inferSelect
 export type NewChatMessage = typeof schemaPg.chatMessages.$inferInsert
+export type AgentThread = typeof schemaPg.agentThreads.$inferSelect
+export type NewAgentThread = typeof schemaPg.agentThreads.$inferInsert
+export type AgentMessage = typeof schemaPg.agentMessages.$inferSelect
+export type NewAgentMessage = typeof schemaPg.agentMessages.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect

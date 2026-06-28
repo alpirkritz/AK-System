@@ -175,6 +175,29 @@ export const chatMessages = sqliteTable('chat_messages', {
 export type ChatMessage = typeof chatMessages.$inferSelect
 export type NewChatMessage = typeof chatMessages.$inferInsert
 
+// ─── ABC agent chat (Cursor SDK) ─────────────────────────────────────────────
+
+export const agentThreads = sqliteTable('agent_threads', {
+  agentId: text('agent_id').primaryKey(),
+  cursorAgentId: text('cursor_agent_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const agentMessages = sqliteTable('agent_messages', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
+}))
+
+export type AgentThread = typeof agentThreads.$inferSelect
+export type NewAgentThread = typeof agentThreads.$inferInsert
+export type AgentMessage = typeof agentMessages.$inferSelect
+export type NewAgentMessage = typeof agentMessages.$inferInsert
+
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 
 export const healthMetrics = sqliteTable('health_metrics', {

@@ -1,0 +1,106 @@
+# ABC Agentic System — Cursor Governance Rules
+
+You are operating within an ABC Agentic System Architecture workspace (Tom Even's model).
+Business logic lives in structured Markdown files across six governed directories.
+Follow these rules for every interaction in this repository.
+
+---
+
+## Workspace Map
+
+| Directory | Purpose |
+|---|---|
+| `A_Agents/` | Agent definitions (roles, boundaries, access rights, delegation) |
+| `B_Brain/` | Organizational knowledge base and client transcripts |
+| `C_Core/` | Brand DNA, formatting standards, legal/privacy guardrails |
+| `S_Skills/` | Step-by-step workflow logic maps |
+| `O_Output/` | Staging area for generated artifacts |
+| `M_Memory/` | Append-only agent logs, stand-ups, and performance notes |
+
+---
+
+## Rule 1 — Core Alignment (Mandatory Pre-Flight)
+
+Before building a tool, executing a plan, or generating any piece of content:
+
+1. Read `C_Core/brand_dna_and_compliance.md`
+2. Confirm the task aligns with Core Values, Formatting Standards, and Legal/Privacy rules
+3. Complete the Compliance Checklist in that file
+4. If any item cannot be confirmed, **stop and ask the user** before proceeding
+
+This rule applies to all ABC workspace tasks. For unrelated code development in `apps/` or `packages/`, apply standard engineering practices unless the task explicitly involves the ABC workspace.
+
+---
+
+## Rule 2 — Agent & Workflow Attribution
+
+When a task involves **multiple distinct logical steps**:
+
+1. Identify the orchestrating agent from `A_Agents/` (default: `01_Hugo_orchestrator`)
+2. Identify the applicable workflow from `S_Skills/` (if one exists)
+3. At each phase, explicitly state:
+   - **Active Agent:** `[agent ID and name]`
+   - **Workflow:** `[S_Skills/wf_xxx.md]`
+   - **Current Step:** `Stage N — Step N.N — [step name]`
+4. Delegate sub-steps to the agent listed in the workflow or agent card
+
+For single-step tasks, a brief agent attribution at the start is sufficient.
+
+---
+
+## Rule 3 — Memory Logging (Append on Completion)
+
+Upon completion of every run (success, partial, or failed):
+
+1. Append a log entry to `M_Memory/agents_daily_sync.md` using the entry template in that file
+2. Include: agent name, workflow + step, actions taken, output paths, compliance confirmation, and performance notes
+3. **Never overwrite or delete** existing entries in `M_Memory/` — append only
+4. Reference staged artifacts by their path in `O_Output/`
+
+---
+
+## Rule 4 — Code-Agnostic Business Logic
+
+Default operating mode for the ABC workspace:
+
+- **Business logic** is expressed as highly structured natural language in `.md` files
+- **Workflows** are logic maps in `S_Skills/`, not executable scripts
+- **Agent behavior** is defined in `A_Agents/`, not in code
+- **Do not write code** unless the user explicitly asks to script a tool or the task is standard engineering work in `apps/`/`packages/`
+
+When the user asks to "build a tool" in the ABC context:
+1. First propose the logic as a markdown workflow in `S_Skills/`
+2. Only write code if the user confirms they want an executable implementation
+
+---
+
+## Output Conventions
+
+- Stage all generated artifacts in `O_Output/` using the naming convention: `YYYY-MM-DD_descriptive-name.ext`
+- Store raw client/interview transcripts in `B_Brain/client_transcripts/`
+- Mark client-facing drafts with: `DRAFT — REQUIRES HUMAN REVIEW`
+- Include the AI assistance disclaimer from `C_Core/` when appropriate
+
+---
+
+## Escalation
+
+Stop and ask the user when:
+- A task conflicts with `C_Core/` guardrails
+- PII is present without clearance
+- No applicable workflow exists in `S_Skills/` for the requested task
+- Agent access rights are insufficient for the requested action
+- Legal, medical, or financial advice is implicitly requested
+
+---
+
+## Quick Reference — Run Protocol
+
+```
+1. Read C_Core/brand_dna_and_compliance.md     → confirm alignment
+2. Identify agent (A_Agents/)                   → assign ownership
+3. Select workflow (S_Skills/)                  → follow steps
+4. Consult knowledge (B_Brain/)                 → gather context
+5. Stage output (O_Output/)                     → write artifact
+6. Log run (M_Memory/agents_daily_sync.md)      → append entry
+```

@@ -19,6 +19,7 @@ const navSections = [
       { href: '/finance', label: 'פיננסים', icon: '💰' },
       { href: '/updates', label: 'עדכונים', icon: '📰' },
       { href: '/chat', label: 'צ\'אט', icon: '💬' },
+      { href: '/agents', label: 'סוכנים', icon: '🤖' },
     ],
   },
   {
@@ -43,6 +44,7 @@ const MORE_ITEMS = [
   { href: '/finance', label: 'פיננסים', icon: '💰' },
   { href: '/updates', label: 'עדכונים', icon: '📰' },
   { href: '/chat', label: 'צ\'אט', icon: '💬' },
+  { href: '/agents', label: 'סוכנים', icon: '🤖' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
 ]
 
