@@ -12,9 +12,15 @@ interface ChatMessage {
 interface AgentChatPanelProps {
   agentId: string
   agentName: string
+  engine?: string
 }
 
-export function AgentChatPanel({ agentId, agentName }: AgentChatPanelProps) {
+const ENGINE_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  cursor: 'Cursor SDK',
+}
+
+export function AgentChatPanel({ agentId, agentName, engine = 'gemini' }: AgentChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -120,7 +126,7 @@ export function AgentChatPanel({ agentId, agentName }: AgentChatPanelProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-2 border-b border-[#1a1a1a] text-xs text-[#666]">
-        מדבר עם <span className="text-[#e8c547]">{agentName}</span> · Cursor Agent
+        מדבר עם <span className="text-[#e8c547]">{agentName}</span> · {ENGINE_LABELS[engine] ?? engine}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -128,8 +134,8 @@ export function AgentChatPanel({ agentId, agentName }: AgentChatPanelProps) {
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-3xl opacity-30">🤖</div>
             <p className="text-[#555] text-sm max-w-sm">
-              שאל את {agentName} — הסוכן רץ דרך Cursor SDK עם גישה ל-ABC workspace
-              {agentId.includes('morning') ? ' ו-Notion' : ''}.
+              שאל את {agentName} — הסוכן רץ דרך {ENGINE_LABELS[engine] ?? engine} עם גישה ללוח שנה, משימות ו-ABC workspace
+              {agentId.includes('morning') || agentId.includes('calendar') ? ' ו-Notion' : ''}.
             </p>
           </div>
         )}

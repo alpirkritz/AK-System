@@ -85,7 +85,3 @@ export function isAllowedJid(jid: string): boolean {
 export function getSelfChatTarget(): string {
   return config.selfLid || config.selfJid || config.allowedJids[0] || ''
 }
-
-export function isWatchedGroup(jid: string): boolean {
-  return config.watchGroupJids.has(jid)
-}

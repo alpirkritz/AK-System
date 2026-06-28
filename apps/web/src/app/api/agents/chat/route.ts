@@ -5,7 +5,9 @@ import {
   saveAgentMessage,
   saveCursorAgentId,
 } from '@/lib/agent-chat-store'
+import { getAgentEngine } from '@/lib/abc-agents'
 import { runAgentChat } from '@/lib/cursor-agent-engine'
+import { runGeminiAgentChat } from '@/lib/gemini-agent-engine'
 
 export const maxDuration = 300
 
@@ -27,20 +29,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     await saveAgentMessage(agentId, 'user', message)
 
-    const cursorAgentId = await getCursorAgentId(agentId)
-    const result = await runAgentChat({
-      agentId,
-      message,
-      cursorAgentId,
-      history,
-    })
+    const engine = getAgentEngine()
+    let assistantText: string
+    let cursorAgentId: string | undefined
 
-    await saveCursorAgentId(agentId, result.cursorAgentId)
-    await saveAgentMessage(agentId, 'assistant', result.text)
+    if (engine === 'gemini') {
+      const result = await runGeminiAgentChat({ agentId, message, history })
+      assistantText = result.text
+    } else {
+      const cursorId = await getCursorAgentId(agentId)
+      const result = await runAgentChat({
+        agentId,
+        message,
+        cursorAgentId: cursorId,
+        history,
+      })
+      assistantText = result.text
+      cursorAgentId = result.cursorAgentId
+      await saveCursorAgentId(agentId, result.cursorAgentId)
+    }
+
+    await saveAgentMessage(agentId, 'assistant', assistantText)
 
     return NextResponse.json({
-      assistantMessage: result.text,
-      cursorAgentId: result.cursorAgentId,
+      assistantMessage: assistantText,
+      engine,
+      ...(cursorAgentId ? { cursorAgentId } : {}),
     })
   } catch (err) {
     console.error('[api/agents/chat]', err)

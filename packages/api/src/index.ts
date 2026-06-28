@@ -10,6 +10,7 @@ import { factsRouter } from './routers/facts'
 import { healthRouter } from './routers/health'
 import { pushRouter } from './routers/push'
 import { vatRouter } from './routers/vat'
+import { whatsappRouter } from './routers/whatsapp'
 
 export type { Context } from './trpc'
 export { createContext } from './trpc'
@@ -27,6 +28,7 @@ export const appRouter = router({
   health: healthRouter,
   push: pushRouter,
   vat: vatRouter,
+  whatsapp: whatsappRouter,
 })
 
 export type AppRouter = typeof appRouter

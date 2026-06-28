@@ -254,6 +254,35 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert
 
+// ─── WhatsApp settings (groups + labels) ─────────────────────────────────────
+
+export const whatsappLabels = sqliteTable('whatsapp_labels', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  summaryTimes: text('summary_times').notNull().default('[]'), // JSON ["20:00"]
+  createdAt: text('created_at').notNull(),
+})
+
+export const whatsappGroups = sqliteTable('whatsapp_groups', {
+  id: text('id').primaryKey(),
+  jid: text('jid').notNull().unique(),
+  name: text('name').notNull(),
+  labelId: text('label_id').references(() => whatsappLabels.id, { onDelete: 'set null' }),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoEnabled: integer('fomo_enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoThreshold: integer('fomo_threshold').notNull().default(5),
+  fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
+  summaryTimes: text('summary_times'), // JSON nullable override
+  keywords: text('keywords').notNull().default('[]'), // JSON string[]
+  lastFomoAlertAt: text('last_fomo_alert_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type WhatsappLabel = typeof whatsappLabels.$inferSelect
+export type NewWhatsappLabel = typeof whatsappLabels.$inferInsert
+export type WhatsappGroup = typeof whatsappGroups.$inferSelect
+export type NewWhatsappGroup = typeof whatsappGroups.$inferInsert
+
 export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
 export type Project = typeof projects.$inferSelect

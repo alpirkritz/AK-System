@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config, isSelfChatJid } from './config.js'
+import { listEnabledGroupJids, reloadGroupConfig, type GroupRule } from './group-config.js'
 import { listWatchedGroupsWithCounts } from './group-buffer.js'
 import {
+  discoverAvailableGroups,
   getCurrentQr,
   getSelfJid,
   getStatus,
@@ -76,10 +78,43 @@ export function createServer(): express.Application {
   })
 
   app.get('/groups', requireAuth, (_req, res) => {
+    const jids = new Set(listEnabledGroupJids())
     res.json({
-      groups: listWatchedGroupsWithCounts(config.watchGroupJids),
-      watchList: Array.from(config.watchGroupJids),
+      groups: listWatchedGroupsWithCounts(jids),
+      watchList: Array.from(jids),
     })
+  })
+
+  app.get('/groups/available', requireAuth, async (_req, res) => {
+    try {
+      const groups = await discoverAvailableGroups()
+      res.json({ groups })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Discover failed'
+      res.status(503).json({ error: msg })
+    }
+  })
+
+  app.post('/config/reload', requireAuth, (req, res) => {
+    const raw = req.body?.groups
+    if (!Array.isArray(raw)) {
+      res.status(400).json({ error: 'groups array is required' })
+      return
+    }
+    const groups: GroupRule[] = raw.map((g: Record<string, unknown>) => ({
+      jid: String(g.jid ?? ''),
+      name: String(g.name ?? g.jid ?? ''),
+      enabled: Boolean(g.enabled),
+      fomoEnabled: Boolean(g.fomoEnabled),
+      fomoThreshold: Number(g.fomoThreshold) || 5,
+      fomoWindowMinutes: Number(g.fomoWindowMinutes) || 5,
+      keywords: Array.isArray(g.keywords) ? g.keywords.map(String) : [],
+      summaryTimes: Array.isArray(g.summaryTimes) ? g.summaryTimes.map(String) : [],
+      labelSummaryTimes: Array.isArray(g.labelSummaryTimes) ? g.labelSummaryTimes.map(String) : [],
+      lastFomoAlertAt: g.lastFomoAlertAt ? String(g.lastFomoAlertAt) : null,
+    }))
+    reloadGroupConfig(groups.filter((g) => g.jid))
+    res.json({ ok: true, enabled: groups.filter((g) => g.enabled).length })
   })
 
   app.post('/groups/summarize', requireAuth, async (req, res) => {
@@ -98,7 +133,7 @@ export function createServer(): express.Application {
 
   app.post('/groups/summarize-all', requireAuth, async (_req, res) => {
     const results: Record<string, { ok: boolean; error?: string }> = {}
-    for (const groupJid of config.watchGroupJids) {
+    for (const groupJid of listEnabledGroupJids()) {
       results[groupJid] = await requestGroupSummary(groupJid)
     }
     res.json({ results })

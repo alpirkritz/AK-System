@@ -5,6 +5,7 @@ import {
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
+  makeInMemoryStore,
   type WASocket,
   type proto,
 } from '@whiskeysockets/baileys'
@@ -12,8 +13,10 @@ import { Boom } from '@hapi/boom'
 import pino from 'pino'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { config, getSelfChatTarget, isSelfChatJid, isWatchedGroup, setSelfJid } from './config.js'
-import { bufferGroupMessage, clearGroupBuffer, getGroupBuffer } from './group-buffer.js'
+import { config, getSelfChatTarget, isSelfChatJid, setSelfJid } from './config.js'
+import { isGroupWatched } from './group-config.js'
+import { onGroupMessage } from './rules-engine.js'
+import { bufferGroupMessage, clearGroupBuffer, getGroupBuffer, getGroupLastActivity } from './group-buffer.js'
 
 export interface BridgeStatus {
   connected: boolean
@@ -23,6 +26,7 @@ export interface BridgeStatus {
 }
 
 let sock: WASocket | null = null
+const chatStore = makeInMemoryStore({ logger: pino({ level: 'silent' }) })
 let currentQr: string | null = null
 let connected = false
 let lastError: string | null = null
@@ -104,15 +108,17 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
   if (!text.trim()) return
 
   if (remoteJid.endsWith('@g.us')) {
-    if (!isWatchedGroup(remoteJid)) return
+    if (!isGroupWatched(remoteJid)) return
     const sender = msg.key.participant || msg.participant || 'unknown'
+    const trimmed = text.trim()
     bufferGroupMessage(remoteJid, {
       id: messageId,
       sender,
       senderName: sender.split('@')[0] ?? sender,
-      text: text.trim(),
+      text: trimmed,
       timestamp: Number(msg.messageTimestamp) || Date.now(),
     })
+    onGroupMessage(remoteJid, trimmed)
     logger.info({ groupJid: remoteJid, messageId }, 'Buffered group message')
     return
   }
@@ -163,6 +169,7 @@ export async function startWhatsAppClient(): Promise<void> {
   })
 
   sock = socket
+  chatStore.bind(socket.ev)
 
   socket.ev.on('creds.update', saveCreds)
 
@@ -245,6 +252,40 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
 
 export function getSelfJid(): string {
   return config.selfJid
+}
+
+export async function discoverAvailableGroups(): Promise<
+  { jid: string; name: string; participantCount: number; lastMessageAt: number | null }[]
+> {
+  if (!sock || !connected) {
+    throw new Error('WhatsApp not connected')
+  }
+  const groups = await sock.groupFetchAllParticipating()
+
+  function chatLastMessageMs(jid: string): number | null {
+    const chat = chatStore.chats.get(jid)
+    if (!chat) return null
+    const raw =
+      chat.lastMessageRecvTimestamp ??
+      (chat as { conversationTimestamp?: number | null }).conversationTimestamp
+    if (raw == null) return null
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return n < 1e12 ? n * 1000 : n
+  }
+
+  return Object.values(groups).map((g) => {
+    const fromChat = chatLastMessageMs(g.id)
+    const fromBuffer = getGroupLastActivity(g.id)
+    const candidates = [fromChat, fromBuffer].filter((t): t is number => t != null && t > 0)
+    const lastMessageAt = candidates.length > 0 ? Math.max(...candidates) : null
+    return {
+      jid: g.id,
+      name: g.subject || g.id,
+      participantCount: g.participants?.length ?? 0,
+      lastMessageAt,
+    }
+  })
 }
 
 export async function requestGroupSummary(groupJid: string): Promise<{ ok: boolean; error?: string }> {

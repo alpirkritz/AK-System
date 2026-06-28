@@ -17,7 +17,7 @@ Generate AI summaries of watched WhatsApp group conversations and deliver them t
 ## Prerequisites
 
 - [ ] WhatsApp bridge connected (`wf_whatsapp_bridge` Stage 1 complete)
-- [ ] `WATCH_GROUP_JIDS` set on bridge (comma-separated, e.g. `120363...@g.us`)
+- [ ] Groups configured via `/settings/whatsapp` (follow + summary times) or legacy `WATCH_GROUP_JIDS` env
 - [ ] AK System `WHATSAPP_BRIDGE_URL` configured
 - [ ] Compliance checklist in `wf_whatsapp_bridge.md` — group listening approved
 
@@ -51,10 +51,13 @@ Generate AI summaries of watched WhatsApp group conversations and deliver them t
 
 ## Stage 1: Configure Groups
 
-1. Send a test message in the target group from your phone
-2. Check bridge logs for `remoteJid` ending in `@g.us`
-3. Add JID to `WATCH_GROUP_JIDS` on bridge; restart if needed
-4. Confirm `GET /groups` lists the group with message count
+1. Open AK **Settings → WhatsApp** (`/settings/whatsapp`)
+2. Click **Refresh from WhatsApp** — bridge `GET /groups/available`
+3. Enable **follow** for target groups; assign labels and per-group summary times (or use label defaults)
+4. Click **Sync rules to bridge** — pushes `POST /config/reload`
+5. Confirm `GET /groups` on bridge lists enabled groups with message counts
+
+Legacy: add JIDs to `WATCH_GROUP_JIDS` on bridge env (fallback only).
 
 ---
 
@@ -69,7 +72,14 @@ curl -X POST http://localhost:3001/groups/summarize \
   -d '{"groupJid":"120363...@g.us"}'
 ```
 
-**Automated:** External cron hits bridge `/groups/summarize-all` daily or on schedule.
+**Automated (scheduled):** External cron every 15 min hits AK:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  https://<domain>/api/cron/whatsapp-group-summary
+```
+
+Summarizes only groups whose `summaryTimes` (or label default) match current `HH:MM` in `TIMEZONE` (default `Asia/Jerusalem`).
 
 ---
 

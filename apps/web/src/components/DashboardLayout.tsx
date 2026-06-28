@@ -26,6 +26,7 @@ const navSections = [
     title: 'מערכת',
     items: [
       { href: '/settings', label: 'הגדרות', icon: '⚙' },
+      { href: '/settings/whatsapp', label: 'WhatsApp', icon: '💬' },
     ],
   },
 ]
@@ -46,6 +47,7 @@ const MORE_ITEMS = [
   { href: '/chat', label: 'צ\'אט', icon: '💬' },
   { href: '/agents', label: 'סוכנים', icon: '🤖' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
+  { href: '/settings/whatsapp', label: 'WhatsApp', icon: '💬' },
 ]
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {

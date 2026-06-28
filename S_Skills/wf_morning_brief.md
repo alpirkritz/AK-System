@@ -75,9 +75,9 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 - **Output:** Schedule summary
 
 ### Step 1.4 — Scan All Tasks Related to User
-- **Input:** Each discovered task database
-- **Action:** Query open items where user is assignee, owner, or `@mentioned`. Collect: title, status, due date, priority, database source
-- **Output:** Consolidated task list across all Notion databases
+- **Input:** Task databases (explicit): DT - Action items, Con Action items, Personal to-do list, DAZ workspace (tasks assigned to @Alpir Kritzler)
+- **Action:** Query open items (tasks from task DBs, not checklist blocks). Exclude Status = Done. Also pull recent meeting action items by searching meeting notes pages (Notion search + open pages; do not rely on DB filter queries).
+- **Output:** Consolidated task list across all task databases
 
 ### Step 1.5 — Triage and Prioritize
 - **Input:** Schedule summary + consolidated task list
@@ -107,8 +107,8 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 
 ### Step 2.2 — Gather from Approved Sources
 - **Input:** Research scope
-- **Action:** Query only:
-  - Notion (shared databases and calendars)
+- **Action:** Search through Notion, Calendar, Mail, and Slack:
+  - Notion (shared databases and calendars; task DBs per Step 1.4)
   - `B_Brain/organization_knowledge.md`
   - Staged notes in `O_Output/`
   - User-provided context
@@ -171,33 +171,27 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 ## Output Template
 
 ```md
-# Morning Brief — YYYY-MM-DD
+# ☀️ Morning Brief — Short Date
 
-> DRAFT — REQUIRES HUMAN REVIEW
+> TL;DR: <brief summary for the page TL;DR property>
 
-## Today's Schedule
+## 🏆 Today's Priorities
 
-| Time | Event | Notes |
-|---|---|---|
-| ... | ... | ... |
+- **<Priority 1>** — what needs to be done and why it matters. Link to task DB item. (no checkboxes)
+- **<Priority 2>** — ...
+- **<Priority 3>** — ...
 
-## Due Tasks
+## 👀 Things I Missed Yesterday
 
-- [ ] [Priority] Task title
-
-## Focus Areas
-
-1. ...
-2. ...
-
-## Research Notes
-
-- ...
-
-## Open Questions
-
-- ...
+- <One or two important items only; skip if nothing important>
 ```
+
+Notes on the output (per agent Instructions):
+- Page is created in the database (not in Morning briefs hub), titled `Morning Brief – Short Date`.
+- Use H2 headings; no checklist checkboxes — link tasks to their task DB item.
+- Suggested non-task next steps use a `Next step:` bullet.
+- Bold key actions/decisions; always cite sources; friendly tone.
+- When finished, send a Notion notification with a link to the brief page.
 
 ---
 
@@ -228,3 +222,4 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 |---|---|---|
 | 2026-06-28 | System | Initial workflow; implements agent Instructions Workflow section |
 | 2026-06-28 | System | Clarified: agent card holds instructions, not Notion page mirror |
+| 2026-06-28 | System | Aligned with verbatim Morning Brief instructions from AI Instructions doc (task DBs, output sections, style) |

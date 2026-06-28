@@ -217,3 +217,25 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
 }, (table) => ({
   endpointIdx: uniqueIndex('idx_push_subscriptions_endpoint').on(table.endpoint),
 }))
+
+export const whatsappLabels = pgTable('whatsapp_labels', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  summaryTimes: text('summary_times').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+})
+
+export const whatsappGroups = pgTable('whatsapp_groups', {
+  id: text('id').primaryKey(),
+  jid: text('jid').notNull().unique(),
+  name: text('name').notNull(),
+  labelId: text('label_id').references(() => whatsappLabels.id, { onDelete: 'set null' }),
+  enabled: integer('enabled').notNull().default(0),
+  fomoEnabled: integer('fomo_enabled').notNull().default(0),
+  fomoThreshold: integer('fomo_threshold').notNull().default(5),
+  fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
+  summaryTimes: text('summary_times'),
+  keywords: text('keywords').notNull().default('[]'),
+  lastFomoAlertAt: text('last_fomo_alert_at'),
+  updatedAt: text('updated_at').notNull(),
+})

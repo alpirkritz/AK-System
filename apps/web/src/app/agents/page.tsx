@@ -14,8 +14,14 @@ interface AgentSummary {
   role: string
 }
 
+const ENGINE_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  cursor: 'Cursor SDK',
+}
+
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentSummary[]>([])
+  const [engine, setEngine] = useState<string>('gemini')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -25,8 +31,9 @@ export default function AgentsPage() {
       try {
         const res = await fetch('/api/agents')
         if (!res.ok) throw new Error('Failed to load agents')
-        const data = (await res.json()) as { agents: AgentSummary[] }
+        const data = (await res.json()) as { agents: AgentSummary[]; engine?: string }
         setAgents(data.agents)
+        if (data.engine) setEngine(data.engine)
         if (data.agents.length > 0) {
           setSelectedId(data.agents[0]!.id)
         }
@@ -45,7 +52,7 @@ export default function AgentsPage() {
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">סוכנים</h1>
-        <span className="text-xs text-[#555]">ABC · Cursor SDK</span>
+        <span className="text-xs text-[#555]">ABC · {ENGINE_LABELS[engine] ?? engine}</span>
       </div>
 
       {loading && (
@@ -108,7 +115,12 @@ export default function AgentsPage() {
           {/* Chat */}
           <div className="flex-1 border border-[#1a1a1a] rounded-xl overflow-hidden min-h-[400px]">
             {selected ? (
-              <AgentChatPanel key={selected.id} agentId={selected.id} agentName={selected.name} />
+              <AgentChatPanel
+                key={selected.id}
+                agentId={selected.id}
+                agentName={selected.name}
+                engine={engine}
+              />
             ) : (
               <div className="flex items-center justify-center h-full text-[#555] text-sm">
                 בחר סוכן

@@ -1,100 +1,76 @@
-# Morning Brief — 2026-06-28 (יום ראשון)
+# ☀️ Morning Brief – 2026-06-28
 
-> **DRAFT — REQUIRES HUMAN REVIEW**
->
-> **Simulated time:** 09:00 IDT  
-> **Agent:** `03_morning_briefing`  
-> **Data source:** Notion (Personal To-do, DT/Con Action items, Assistant Calendar Review, Email Summary)
+> **TL;DR:** 4 due today, 17 overdue, 6 calendar events.
+> **Simulated time:** 09:00 IDT
+> **Agent:** `03_morning_briefing`
+
+## 🏆 Today's Priorities
+
+**Priority 1: לנקות לשוש פילטרים במזגן** — Not started in Personal To-do. Deadline: **2026-06-28**. Priority: High.
+**Priority 2: לייצר מחסום שאם אין טיקט בג׳ירה אי אפשר להכניס לקוד כלום.** — Not started in DT - Action items. Deadline: **2026-06-28**. Priority: High.
+**Priority 3: שני לבנות את ה-mandatory checklist / טופס חתימות לריליס** — Not started in DT - Action items. Deadline: **2026-06-28**. Priority: High.
+
+## 👀 Things I Missed Yesterday
+
+- **Think about to become Notion Partner** — overdue since 2026-04-16 (Con Action items)
+- **לא קיבלתי זיכוי על הרישיון רכב של טסלה, למה?** — overdue since 2026-04-30 (Con Action items)
 
 ---
 
-## Today's Schedule
+## Calendar (source: Notion Assistant)
 
+📋 Summary
+✅ No conflicts between work meetings today
+⚠️ Overlap (non-actionable): Coffee with Dad (personal, busy) 10:15–12:00 — no work meetings at that time, so no scheduling action needed
+📊 Load: ~2.5 hours — manageable
+📅 Today is a Sunday — lighter day, good for deep work in the morning
+📆 Today's Schedule — Sunday, June 28
 | Time | Event | Calendar | Notes |
-|---|---|---|---|
-| 07:15–07:45 | רום — מסיבת פיג'מות | Family | Free/transparent — לא חוסם |
-| 10:15–12:00 | אבא ואלפיר שותים קפה | Personal | Busy block |
-| 14:30–15:00 | Farewell to Fistook | Dragontail | מסיבת פרידה |
-| 15:00–15:45 | Sync R&D Leadership | Dragontail | מיד אחרי Farewell — אפס buffer |
-| 16:30–17:20 | Shani & Alpir 1:1 | Dragontail | |
-| 17:30–18:15 | Alpir — Tinko 1:1 | Dragontail | גמיש יותר אם צריך לקצר |
+| 07:15–07:45 | רום - מסיבת פיג׳מות (Family reminder) | Family | Marked as free (transparent) — not a conflict |
+| 10:15–12:00 | אבא ואלפיר שותים קפה ☕ | Personal (alpirkritz@gmail.com) | Marked as busy. No work meetings overlap — fine |
+| 14:30–15:00 | 👋🍦 Farewell to Fistook | Dragontail | Team farewell event |
+| 15:00–15:45 | Sync R&D Leadership | Dragontail | Recurring — starts right after Farewell. Tight but doable |
+| 16:30–17:20 | Shani & Alpir 1:1 | Dragontail | 1:1 with Shani |
+| 17:30–18:15 | Alpir - Tinko 1:1 | Dragontail | 1:1 with David Kotin |
+🔍 Conflict & Overlap Analysis
+No actionable conflicts today. All work meetings are cleanly separated.
+Transition note: Farewell to Fistook ends at 15:00 and R&D Leadership sync starts at 15:00 — back-to-back with zero buffer. Plan to wrap up the farewell on time.
+Personal busy block: Coffee with Dad (10:15–12:00) is marked as busy on your personal calendar. No work meetings are scheduled during this time, so no conflict.
+📊 Load Assessment
+| Category | Duration |
+| Work meetings | ~2h 30m |
+| Personal/busy block | 1h 45m (coffee with Dad) |
+| Total calendar load | ~4h 15m |
+Work meeting load is well under 4 hours — manageable day. Morning (before 14:30) is largely free for deep work.
+💡 Recommendations
+Use 08:00–14:00 for focused work — this is your longest uninterrupted block today.
+No rescheduling needed — no conflicts require action.
+Two 1:1s in the afternoon (Shani + Tinko) — if either needs to be shortened or moved, Tinko's (17:30) is the more flexible of the two as it's later in the day.
+📅 Recent Context (Jun 25 – Jun 27)
+Thursday Jun 25 was a heavy day — Breakfast Club overlapped with Unleash F2F (11:00–11:30), and two Deployments Meeting instances overlapped (16:15–16:30). Those are past and were not flagged in real-time.
+Fri Jun 27 / Sat Jun 26 — Weekend. Family birthday celebration (Dad's 70th!) on Friday evening.
 
-**Load:** ~2.5h פגישות עבודה + 1h45 אישי. **בוקר פנוי ל-deep work: 09:00–10:15 ו-12:00–14:30.**
+## Email snapshot
 
----
-
-## דחוף — Due היום (28.06)
-
-| Priority | Task | Status | Source |
-|---|---|---|---|
-| **High** | Prepare detail plan of last incidents | In progress | DT - Action items |
-| **High** | לייצר מחסום — אין טיקט Jira → אין merge לקוד | Not started | DT - Action items |
-| **High** | שני לבנות mandatory checklist / טופס חתימות לריליס | Not started | DT - Action items *(delegated)* |
-| **High** | לנקות לשוש פילטרים במזגן | Not started | Personal To-do |
-
-> **4 משימות High due היום** — 3 עבודה (Dragontail), 1 אישי.
-
----
-
-## דחוף — באיחור (Overdue, High)
-
-| Due | Task | Status | Source |
-|---|---|---|---|
-| 11.06 | Script for Commit — וידוא שכל tickets בגרסה | Not started | DT - Action items |
-| 11.06 | 32 bit — בדיקה עם Itai (minimum 64 bit requirement) | In progress | DT - Action items |
-| 08.06 | Schedule meeting of DD plan for next week | Not started | DT - Action items |
-| 07.06 | Make sure Dor works on TK-125 | In progress | DT - Action items |
-| 07.05 | Proactive alerts project from DataDog | Pending | DT - Action items |
-| 06.05 | להוריד ארונית | Not started | Personal To-do |
-| 30.04 | לא קיבלתי זיכוי רישיון רכב טסלה | Not started | Con Action items |
-| 16.04 | Think about to become Notion Partner | Not started | Con Action items |
-
-> **8 משימות High/Pending באיחור** — שווה לבחור 1–2 לסגירה הבוקר לפני 10:15.
-
----
-
-## מחר וקרוב (29.06 – 02.07)
-
-| Due | Task | Priority | Status |
-|---|---|---|---|
-| 29.06 | לפתח מנגנון חסימה לפתיחת באגים | Medium | In progress |
-| 29.06 | Understand Algo version with Proxy (PR without ticket, Asaf wants codepush) | **High** | In progress |
-| 02.07 | Bitbucket branch permissions + CI/CD block without Jira (מייל ל-Ehab) | **High** | Not started |
-
----
-
-## Focus Areas (09:00)
-
-1. **Deep work עכשיו–10:15** — חלון קצר לפני קפה עם אבא; ideal ל-"Prepare detail plan of last incidents" (כבר In progress)
-2. **4 High due היום** — בעיקר תהליכי Jira/release (מחסום merge, checklist ריליס, תוכנית incidents)
-3. **אחר הצהריים צפוף** — Farewell → R&D Leadership back-to-back; 2x 1:1 (Shani, Tinko)
-
----
-
-## Email (מ-Assistant)
-
-- נסרקו 2 חשבונות (gmail + daz.guru), 5 מיילים ב-3 ימים אחרונים
-- **Reply Needed:** אין בולטים
-- **Action / Decision:** אין בולטים
-- **FYI:** אין בולטים
-
----
-
-## Research Notes
-
-- יום ראשון — עומס נמוך (~2.5h meetings)
-- אין conflicts actionable בלוח
-- Calendar Review מ-Notion Assistant מעודכן ל-28.06
-- סкан: Personal To-do, DT/Con Action items (Assignee: Alpir Kritzler), Assistant
-
----
-
-## Open Questions
-
-- [ ] האם "שני לבנות checklist" — רק follow-up ממך, או לבצע בעצמך?
-- [ ] איזה overdue High לקדם היום מעבר ל-due היום?
-- [ ] TK-125 / Proxy PR — status update needed before 1:1s?
-
----
-
-*Generated by Morning Briefing Agent · RUN-003 · Notion-connected*
+📧 Daily Email Summary – Sunday, June 28, 2026
+Scanned 2 email accounts: alpirkritz@gmail.com · alpir@daz.guru
+Found 5 emails across both inboxes (last 3 days).
+🔴 Reply Needed
+| Account | Sender | Subject | Context & Summary | Recommendation | Reason |
+| alpir@daz.guru | Lia Ran – Pearl Cohen Law Firm | RE: טופס ״הכר את הלקוח״ עבורך (KYC Form) | Ongoing 3-message thread with Pearl Cohen law firm. You previously sent a completed KYC form to Lia Ran. She is now asking: (1) sign a missing section of the form, and (2) send a copy of your ID card or passport. Clear deliverables outstanding from your side. | 🔴 Reply Required | Explicit action items with a legal firm. Outstanding deliverables: missing signature + ID/passport copy. |
+🟡 Keep in Inbox – Action / Decision Required
+| Account | Sender | Subject | Context & Summary | Recommendation | Reason |
+| alpir@daz.guru | Notion Team | We're sunsetting Notion Mail on September 22 | Notion is shutting down the Notion Mail inbox on September 22, 2026. Emails stay in Gmail (two-way synced). Action needed before September 21: export snippets, auto-label rules, drafts, and scheduled emails. ⚠️ Unread. | 🟡 Keep – Action by Sept 21 | Time-sensitive with hard deadline. Export Notion Mail setup before shutdown. |
+| alpir@daz.guru | Google Workspace Team | [Action Advised] Google Vids personal avatar feature | As Google Workspace admin for daz.guru, a new Google Vids personal avatar feature launches July 14, 2026 (ON by default). You need to decide in the Admin console whether to allow or disable it before that date. ⚠️ Unread. | 🟡 Keep – Admin Decision by July 14 | Admin action required. Feature auto-activates unless disabled. Deadline: July 14, 2026. |
+| alpir@daz.guru | רזי מעדני – Azorim | נא לשריין באזורים מערכת AI + חנן + בר + גיא + אור + אלפיר | Meeting room booking at Azorim (Floor 4 conference room) for a group meeting including you, requested by Liran Savilia. Attendees: AI system, Hanan Binsky, Bar Jacque, Guy Halfon, Or Tzelniker, Alpir. A calendar invite (ICS) is attached. Coordinator: 052-6663612. | 🟡 Keep – Review Meeting Invite | Meeting request with calendar invite. Review ICS and confirm/decline attendance. |
+🟢 Keep in Inbox – FYI / No Immediate Action
+| Account | Sender | Subject | Context & Summary | Recommendation | Reason |
+| alpirkritz@gmail.com | Yosi Kritzler | מהפכת הקשב (The Attention Revolution) | Personal email from Yosi Kritzler sharing a PowerPoint presentation titled "מהפכת הקשב" for the weekend, as promised. No action required — sent for optional reading and discussion. Attachment included. | 🟢 Keep – FYI | Personal email from a known contact. Shared material for optional reading. No urgent action. |
+📋 Summary
+| Category | Count |
+| 🔴 Reply needed | 1 |
+| 🟡 Action / decision required | 3 |
+| 🟢 FYI / no immediate action | 1 |
+| Total | 5 |
+No emails were recommended for archiving this cycle. All emails contain relevant, actionable, or personally meaningful content.
+Generated by Email Assistant · Sunday, June 28, 2026 · 09:00 AM (Asia/Jerusalem)

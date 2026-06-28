@@ -7,6 +7,7 @@ export interface BufferedGroupMessage {
 }
 
 const buffers = new Map<string, BufferedGroupMessage[]>()
+const lastActivityAt = new Map<string, number>()
 const MAX_MESSAGES_PER_GROUP = 500
 
 export function bufferGroupMessage(groupJid: string, message: BufferedGroupMessage): void {
@@ -16,6 +17,13 @@ export function bufferGroupMessage(groupJid: string, message: BufferedGroupMessa
     list.splice(0, list.length - MAX_MESSAGES_PER_GROUP)
   }
   buffers.set(groupJid, list)
+  const ts = message.timestamp < 1e12 ? message.timestamp * 1000 : message.timestamp
+  const prev = lastActivityAt.get(groupJid) ?? 0
+  if (ts >= prev) lastActivityAt.set(groupJid, ts)
+}
+
+export function getGroupLastActivity(groupJid: string): number | null {
+  return lastActivityAt.get(groupJid) ?? null
 }
 
 export function getGroupBuffer(groupJid: string): BufferedGroupMessage[] {

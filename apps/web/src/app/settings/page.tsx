@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 
 // ── localStorage keys (shared with ConflictsWidget and dashboard) ─────────────
@@ -351,6 +352,20 @@ export default function SettingsPage() {
           נשמר ✓
         </div>
       </div>
+
+      <Link
+        href="/settings/whatsapp"
+        className="card p-4 mb-8 flex items-center justify-between gap-3 hover:border-[#25D36644] transition-colors"
+        style={{ border: '1px solid #222' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#ddd]">WhatsApp</div>
+          <div className="text-xs text-[#555] mt-0.5">
+            קבוצות, FOMO, מילות מפתח, סיכומים — הגדרות bridge
+          </div>
+        </div>
+        <span className="text-[#25D366] text-lg">💬</span>
+      </Link>
 
       {/* ── Section: Calendar Conflicts ──────────────────────────────────────── */}
       <Section

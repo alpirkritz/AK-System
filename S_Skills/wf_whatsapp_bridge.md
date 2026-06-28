@@ -36,7 +36,8 @@ Step-by-step map for operating the personal WhatsApp Connection Manager (`apps/w
 | `AK_WEBHOOK_URL` | Phase 2+ | e.g. `https://your-app/api/whatsapp/webhook` |
 | `SELF_JID` | No | Auto-detected after connect; override if needed |
 | `ALLOWED_JIDS` | No | Comma-separated allowlist; defaults to self JID |
-| `WATCH_GROUP_JIDS` | Phase 3 | Comma-separated group JIDs to buffer |
+| `WATCH_GROUP_JIDS` | Legacy fallback | Comma-separated group JIDs; prefer `/settings/whatsapp` + `POST /config/reload` |
+| `AK_GROUP_ALERT_URL` | No | Defaults from `AK_WEBHOOK_URL` → `/api/whatsapp/group-alert` |
 | `DEVICE_NAME` | No | Linked Device name in WhatsApp (default: `AK System`) |
 
 ### AK System (`apps/web/.env.local`)
@@ -106,7 +107,15 @@ Step-by-step map for operating the personal WhatsApp Connection Manager (`apps/w
 
 ## Stage 3: Group Watch
 
-**Objective:** Buffer watched group messages; periodic AI summary to self-chat.
+**Objective:** Buffer watched group messages; FOMO/keyword alerts and scheduled AI summaries to self-chat only.
+
+### Steps
+
+1. Open AK **Settings → WhatsApp** (`/settings/whatsapp`)
+2. **Refresh from WhatsApp** — discovers groups via bridge `GET /groups/available`
+3. Enable follow + configure FOMO, keywords, summary times per group (or label defaults)
+4. **Sync rules to bridge** — pushes config via `POST /config/reload` (replaces env `WATCH_GROUP_JIDS`)
+5. Cron: `GET /api/cron/whatsapp-group-summary` every 15 min (see `DEPLOY.md`)
 
 See [`wf_whatsapp_summary.md`](wf_whatsapp_summary.md).
 

@@ -145,6 +145,29 @@ const PUSH_SUBSCRIPTIONS_TABLE = [
   )`,
 ]
 
+const WHATSAPP_TABLES = [
+  `CREATE TABLE IF NOT EXISTS whatsapp_labels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    summary_times TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS whatsapp_groups (
+    id TEXT PRIMARY KEY,
+    jid TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    label_id TEXT REFERENCES whatsapp_labels(id) ON DELETE SET NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    fomo_enabled INTEGER NOT NULL DEFAULT 0,
+    fomo_threshold INTEGER NOT NULL DEFAULT 5,
+    fomo_window_minutes INTEGER NOT NULL DEFAULT 5,
+    summary_times TEXT,
+    keywords TEXT NOT NULL DEFAULT '[]',
+    last_fomo_alert_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+]
+
 const VAT_ENTRIES_TABLE = [
   `CREATE TABLE IF NOT EXISTS vat_entries (
     id TEXT PRIMARY KEY,
@@ -230,6 +253,9 @@ export function getDb() {
   for (const sql of VAT_ENTRIES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of WHATSAPP_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }
 
@@ -254,6 +280,8 @@ export const agentMessages = schema.agentMessages
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
+export const whatsappLabels = schema.whatsappLabels
+export const whatsappGroups = schema.whatsappGroups
 
 // Re-export MEETING_CATEGORIES from pg (same value) and types from schema (sqlite has the type exports)
 export type MeetingCategory = typeof schemaPg.MEETING_CATEGORIES[number]
@@ -287,6 +315,10 @@ export type FeedItem = typeof schemaPg.feedItems.$inferSelect
 export type NewFeedItem = typeof schemaPg.feedItems.$inferInsert
 export type VatEntry = typeof schemaPg.vatEntries.$inferSelect
 export type NewVatEntry = typeof schemaPg.vatEntries.$inferInsert
+export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
+export type NewWhatsappLabel = typeof schemaPg.whatsappLabels.$inferInsert
+export type WhatsappGroup = typeof schemaPg.whatsappGroups.$inferSelect
+export type NewWhatsappGroup = typeof schemaPg.whatsappGroups.$inferInsert
 
 /** Normalize select result to array (works with both SQLite .all() and Postgres Promise) */
 export async function queryRows<T>(q: Promise<T[]> | { all(): T[] }): Promise<T[]> {

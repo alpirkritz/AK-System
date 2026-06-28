@@ -217,6 +217,35 @@ export const toolDeclarations: FunctionDeclaration[] = [
       "Sync meetings from Google/Apple Calendar for today and the next 7 days. Use for: 'תסנק פגישות', 'sync calendar', 'עדכן פגישות'.",
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
+  {
+    name: 'run_abc_agent',
+    description:
+      'Invoke a specialist ABC agent for domain-specific analysis. Use when the user asks for calendar optimization, morning brief, meeting prep, email triage, IBKR import review, startup COO advice, or similar agent work.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        agentId: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: 'Agent to invoke',
+          enum: [
+            '06_calendar_optimizer',
+            '03_morning_briefing',
+            '04_meeting_prep_herald',
+            '07_email_assistant',
+            '05_ibkr_daily_import',
+            '08_startup_coo',
+            '01_Hugo_orchestrator',
+          ],
+        },
+        message: {
+          type: SchemaType.STRING,
+          description: 'The task or question for the specialist agent',
+        },
+      },
+      required: ['agentId', 'message'],
+    },
+  },
 ]
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
@@ -478,6 +507,15 @@ export async function executeTool(name: string, args: ToolArgs, caller: Caller):
       return { created: result.created, updated: result.updated, deleted: result.deleted }
     }
 
+    case 'run_abc_agent': {
+      const agentId = (args.agentId as string)?.trim()
+      const message = (args.message as string)?.trim()
+      if (!agentId || !message) return { error: 'agentId and message are required' }
+      const { runGeminiAgentChat } = await import('./gemini-agent-engine')
+      const result = await runGeminiAgentChat({ agentId, message })
+      return { agentId, response: result.text }
+    }
+
     default:
       return { error: `Unknown tool: ${name}` }
   }
@@ -511,6 +549,7 @@ export async function resolveIntent(userMessage: string): Promise<string> {
     "Priority labels in Hebrew: גבוהה=high, בינונית=medium, נמוכה=low.",
     'If a calendar event has no linked record in the system database, mention it but still show the event details.',
     'When showing conflicts, describe each overlap clearly with event names and times.',
+    'For specialist tasks (calendar optimization, morning brief, meeting prep, email triage, IBKR, startup ops), use run_abc_agent instead of answering from general knowledge.',
   ].join('\n')
 
   const model = genAI.getGenerativeModel({

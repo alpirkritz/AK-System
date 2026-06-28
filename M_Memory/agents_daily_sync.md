@@ -443,3 +443,42 @@ For end-of-day rollups, Hugo may append a summary entry:
 - User must pair QR and deploy bridge with volume before live WhatsApp use
 
 ---
+
+## 2026-06-28 — Hugo Orchestrator — WhatsApp Settings UI
+
+**Workflow:** `S_Skills/wf_whatsapp_bridge.md` + `S_Skills/wf_whatsapp_summary.md` — Stage 3 extension
+**Status:** Completed
+
+### Stand-up
+- **Goal:** DB-backed WhatsApp settings UI with group discovery, labels, FOMO/keyword alerts, and scheduled summaries (self-chat only).
+- **Context:** Plan `whatsapp_settings_ui_f93ad762` — replace env `WATCH_GROUP_JIDS` with UI + bridge reload.
+
+### Actions Taken
+1. Added `whatsapp_labels` + `whatsapp_groups` tables (SQLite + Postgres schemas, inline migration).
+2. Created `packages/api/src/routers/whatsapp.ts` — labels/groups CRUD, discover proxy, sync.pushToBridge.
+3. Bridge: `GET /groups/available`, `POST /config/reload`, `group-config.ts`, `rules-engine.ts` (FOMO + keywords).
+4. Built `/settings/whatsapp` page (Groups / Labels / Connection tabs); nav + settings card link.
+5. Added `POST /api/whatsapp/group-alert` (Hebrew alerts → Message Yourself only).
+6. Extended cron `whatsapp-group-summary` to match per-group/label `summaryTimes` in `TIMEZONE`.
+7. Updated `DEPLOY.md`, `wf_whatsapp_bridge.md`, `wf_whatsapp_summary.md`.
+
+### Outputs
+- `apps/web/src/app/settings/whatsapp/page.tsx`
+- `packages/api/src/routers/whatsapp.ts`
+- `apps/whatsapp-bridge/src/group-config.ts`, `rules-engine.ts`
+- `apps/web/src/app/api/whatsapp/group-alert/route.ts`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] Outbound guards unchanged — alerts/summaries self-chat only
+- [x] No raw API errors sent to WhatsApp
+
+### Performance Improvements
+- Dynamic watch list via `POST /config/reload` — no bridge restart on group changes
+- FOMO/keyword engines run in bridge RAM; scheduled summaries driven by AK cron + DB
+
+### Blockers / Escalations
+- User must click "Sync rules to bridge" after saving group settings
+- Bridge must be connected for group discovery (`GET /groups/available`)
+
+---

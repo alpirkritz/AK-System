@@ -1,4 +1,7 @@
+import { formatAgentList, parseAgentCommand } from './abc-agents'
 import { resolveIntent, saveChatMessage } from './conversation-engine'
+import { runGeminiAgentChat } from './gemini-agent-engine'
+import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 
 export type ChatSource = 'web' | 'telegram' | 'whatsapp' | 'cron'
 
@@ -89,6 +92,33 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
 
   try {
     await saveChatMessage('user', userText, 'whatsapp')
+
+    const agentCommand = parseAgentCommand(userText)
+    if (agentCommand) {
+      if (agentCommand.agentId === '__list__') {
+        const list = formatAgentList()
+        await saveChatMessage('assistant', list, 'whatsapp')
+        return list
+      }
+
+      const history = (await getAgentHistory(agentCommand.agentId, 10))
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }))
+
+      await saveAgentMessage(agentCommand.agentId, 'user', agentCommand.message)
+      const result = await runGeminiAgentChat({
+        agentId: agentCommand.agentId,
+        message: agentCommand.message,
+        history,
+      })
+      await saveAgentMessage(agentCommand.agentId, 'assistant', result.text)
+      await saveChatMessage('assistant', result.text, 'whatsapp')
+      return result.text
+    }
+
     const response = await resolveIntent(userText)
     const assistantText = response || 'לא הצלחתי לקבל תשובה.'
     await saveChatMessage('assistant', assistantText, 'whatsapp')

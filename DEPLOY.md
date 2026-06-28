@@ -123,6 +123,17 @@ pnpm whatsapp-bridge:build && cd apps/whatsapp-bridge && pnpm start
 1. Bridge: `AK_WEBHOOK_URL=https://<domain>/api/whatsapp/webhook`
 2. AK: `WHATSAPP_BRIDGE_URL=http://<bridge-host>:3001`, `WHATSAPP_BRIDGE_SECRET=<same as BRIDGE_SECRET>`
 3. אופציונלי: `WHATSAPP_ALLOWED_JID` מה-`GET /status` אחרי pairing
+4. **הגדרות UI:** `/settings/whatsapp` — גילוי קבוצות, תוויות, FOMO, מילות מפתח, שעות סיכום. לחץ "סנכרן כללים ל-bridge" אחרי שינוי.
+
+**Cron — סיכומי קבוצות (לפי שעה):**
+
+```bash
+# כל 15 דקות — מסכם רק קבוצות whose summaryTimes (או תווית) תואמים ל-HH:MM
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  https://<domain>/api/cron/whatsapp-group-summary
+```
+
+אזור זמן: `TIMEZONE=Asia/Jerusalem` (ברירת מחדל). `WATCH_GROUP_JIDS` ב-env — fallback בלבד; מומלץ DB דרך UI.
 
 פריסה: VM / Railway volume — לא Cloud Run (session state). ראה [`S_Skills/wf_whatsapp_bridge.md`](S_Skills/wf_whatsapp_bridge.md).
 
