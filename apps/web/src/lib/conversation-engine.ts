@@ -671,6 +671,8 @@ export async function resolveIntent(
     'If a calendar event has no linked record in the system database, mention it but still show the event details.',
     'When showing conflicts, describe each overlap clearly with event names and times.',
     'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
+    'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
+    'The only async exception is summarize_whatsapp_groups (separate WhatsApp messages).',
     'Never redirect the user to Notion as the only place to see agent results.',
   ].join('\n')
 
