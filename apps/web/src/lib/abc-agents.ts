@@ -121,12 +121,38 @@ export function listAgents(): AgentSummary[] {
 }
 
 export function getAgentInstructions(agentId: string): string {
-  const safeId = path.basename(agentId)
-  const filePath = path.join(agentsDir(), `${safeId}.md`)
+  const filePath = resolveAgentFilePath(agentId)
   if (!fs.existsSync(filePath)) {
     throw new Error(`Agent not found: ${agentId}`)
   }
   return fs.readFileSync(filePath, 'utf-8')
+}
+
+function resolveAgentFilePath(agentId: string): string {
+  const safeId = path.basename(agentId)
+  if (!safeId || safeId !== agentId || safeId.includes('..')) {
+    throw new Error(`Invalid agent id: ${agentId}`)
+  }
+  return path.join(agentsDir(), `${safeId}.md`)
+}
+
+export function saveAgentInstructions(agentId: string, content: string): void {
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    throw new Error('Agent content cannot be empty')
+  }
+
+  const filePath = resolveAgentFilePath(agentId)
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Agent not found: ${agentId}`)
+  }
+
+  const resolved = path.resolve(filePath)
+  const resolvedDir = path.resolve(agentsDir())
+  if (!resolved.startsWith(resolvedDir + path.sep)) {
+    throw new Error(`Invalid agent path: ${agentId}`)
+  }
+
+  fs.writeFileSync(filePath, content, 'utf-8')
 }
 
 export function getAbcRootPath(): string {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 
 const AgentChatPanel = dynamic(
   () => import('@/components/AgentChatPanel').then((m) => m.AgentChatPanel),
@@ -59,7 +60,12 @@ export default function AgentsPage() {
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">סוכנים</h1>
-        <span className="text-xs text-[#555]">ABC · {ENGINE_LABELS[engine] ?? engine}</span>
+        <div className="flex items-center gap-3">
+          <Link href="/agents/manage" className="btn btn-ghost text-sm">
+            ערוך הוראות
+          </Link>
+          <span className="text-xs text-[#555]">ABC · {ENGINE_LABELS[engine] ?? engine}</span>
+        </div>
       </div>
 
       {loading && (

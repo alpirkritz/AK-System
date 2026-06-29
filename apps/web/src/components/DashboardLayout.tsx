@@ -20,6 +20,7 @@ const navSections = [
       { href: '/updates', label: 'עדכונים', icon: '📰' },
       { href: '/chat', label: 'צ\'אט', icon: '💬' },
       { href: '/agents', label: 'סוכנים', icon: '🤖' },
+      { href: '/agents/manage', label: 'ניהול סוכנים', icon: '🛠' },
     ],
   },
   {
@@ -46,6 +47,7 @@ const MORE_ITEMS = [
   { href: '/updates', label: 'עדכונים', icon: '📰' },
   { href: '/chat', label: 'צ\'אט', icon: '💬' },
   { href: '/agents', label: 'סוכנים', icon: '🤖' },
+  { href: '/agents/manage', label: 'ניהול סוכנים', icon: '🛠' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
   { href: '/settings/whatsapp', label: 'WhatsApp', icon: '💬' },
 ]
@@ -56,6 +58,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
+    if (href === '/agents') return pathname === '/agents'
     return pathname.startsWith(href)
   }
 

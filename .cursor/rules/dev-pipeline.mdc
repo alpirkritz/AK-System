@@ -1,0 +1,69 @@
+---
+description: Multi-agent development pipeline — ALWAYS start with PM spec; every code change in apps/ or packages/ must pass all agent gates.
+globs: apps/**,packages/**
+alwaysApply: true
+---
+
+# Development Pipeline — Mandatory Agent Gates
+
+**User policy (confirmed):** For every development task, **always start with a PM spec** before writing any code. No exceptions unless the user explicitly says "skip spec" or the change is a documented trivial fix.
+
+When implementing or modifying code under `apps/` or `packages/`, follow this pipeline **in order**. Read each agent's skill file and self-review against its checklist before moving to the next stage.
+
+## Mandatory First Step — PM Spec
+
+Before creating or editing **any** file under `apps/` or `packages/`:
+
+1. Read `.cursor/skills/pm-agent/SKILL.md`
+2. Write the spec at `docs/specs/<slug>.md`
+3. Tell the user the spec path and wait for implicit or explicit approval before coding
+
+**Do not skip this step** for features, bugfixes, refactors, or UI work. Only skip for trivial one-line fixes with zero behavioral change — and document why in the reply.
+
+## Pipeline Order
+
+1. **PM Agent** — `.cursor/skills/pm-agent/SKILL.md`
+   - Write or update spec at `docs/specs/<slug>.md` before coding.
+   - Skip only for trivial one-line fixes with no behavioral change.
+
+2. **UI Designer Agent** — `.cursor/skills/ui-designer-agent/SKILL.md`
+   - Required when the change touches `apps/web/` UI, components, or styling.
+   - Verify design system compliance (RTL, dark theme, `.btn`/`.input`/`.card` classes).
+
+3. **Dev Agent** — `.cursor/skills/dev-agent/SKILL.md`
+   - Implement per spec: backend (`packages/api`, `packages/database`) and/or frontend (`apps/web`).
+   - Use tRPC client only — no inline `fetch` to `/api/trpc`.
+
+4. **Dev Tests Agent** — `.cursor/skills/dev-tests-agent/SKILL.md`
+   - Add Vitest cases for new tRPC procedures.
+   - Add Playwright cases for new user-facing flows.
+
+5. **QA Agent** — `.cursor/skills/qa-agent/SKILL.md`
+   - Run `pnpm test` and `pnpm e2e` from repo root.
+   - Fix failures caused by the implementation.
+
+6. **Reviewer Agent** — `.cursor/skills/reviewer-agent/SKILL.md`
+   - Run `pnpm -r run lint` and `pnpm --filter @ak-system/web build`.
+   - Write review to `reports/<slug>.md` with verdict.
+
+## Completion Criteria
+
+Do not mark a development task as done until:
+
+- [ ] Spec exists (or trivial-fix exception documented)
+- [ ] UI review passed (if UI changed)
+- [ ] Implementation matches spec
+- [ ] Tests added and passing (`pnpm test`, `pnpm e2e`)
+- [ ] Lint and build pass
+- [ ] Reviewer verdict is APPROVED or APPROVED WITH NITS
+
+## Quick Reference
+
+| Agent | Skill Path | Output |
+|---|---|---|
+| PM | `.cursor/skills/pm-agent/SKILL.md` | `docs/specs/<slug>.md` |
+| UI Designer | `.cursor/skills/ui-designer-agent/SKILL.md` | UI review in `reports/<slug>.md` |
+| Dev | `.cursor/skills/dev-agent/SKILL.md` | Code in `apps/`, `packages/` |
+| Dev Tests | `.cursor/skills/dev-tests-agent/SKILL.md` | `*.test.ts`, `e2e/*.spec.ts` |
+| QA | `.cursor/skills/qa-agent/SKILL.md` | Green test suite |
+| Reviewer | `.cursor/skills/reviewer-agent/SKILL.md` | `reports/<slug>.md` |
