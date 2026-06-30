@@ -198,6 +198,22 @@ export type NewAgentThread = typeof agentThreads.$inferInsert
 export type AgentMessage = typeof agentMessages.$inferSelect
 export type NewAgentMessage = typeof agentMessages.$inferInsert
 
+// ─── ABC agent triggers (scheduled / manual runs) ─────────────────────────────
+
+export const agentTriggers = sqliteTable('agent_triggers', {
+  agentId: text('agent_id').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  scheduleTimes: text('schedule_times').notNull().default('[]'), // JSON ["07:00"]
+  triggerMessage: text('trigger_message'),
+  lastRunAt: text('last_run_at'),
+  lastRunStatus: text('last_run_status'), // 'ok' | 'error'
+  lastRunError: text('last_run_error'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type AgentTrigger = typeof agentTriggers.$inferSelect
+export type NewAgentTrigger = typeof agentTriggers.$inferInsert
+
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 
 export const healthMetrics = sqliteTable('health_metrics', {
@@ -253,6 +269,34 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert
+
+// ─── Expo push tokens (Helm mobile app) ──────────────────────────────────────
+
+export const expoPushTokens = sqliteTable('expo_push_tokens', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  createdAt: text('created_at').notNull(),
+})
+
+export type ExpoPushToken = typeof expoPushTokens.$inferSelect
+export type NewExpoPushToken = typeof expoPushTokens.$inferInsert
+
+// ─── In-app notifications ─────────────────────────────────────────────────────
+
+export const notifications = sqliteTable('notifications', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  url: text('url').notNull(),
+  type: text('type').notNull(), // cron | agent | fomo | hugo | system
+  readAt: text('read_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  unreadIdx: index('idx_notifications_unread').on(table.readAt, table.createdAt),
+}))
+
+export type Notification = typeof notifications.$inferSelect
+export type NewNotification = typeof notifications.$inferInsert
 
 // ─── WhatsApp settings (groups + labels) ─────────────────────────────────────
 

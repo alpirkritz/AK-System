@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useState } from 'react'
+import { NotificationBell } from './NotificationBell'
 
 const navSections = [
   {
@@ -33,19 +34,19 @@ const navSections = [
 ]
 
 const PRIMARY_TABS = [
+  { href: '/chat', label: 'צ\'אט', icon: '💬' },
   { href: '/', label: 'דשבורד', icon: '⬡' },
-  { href: '/projects', label: 'פרויקטים', icon: '📁' },
   { href: '/meetings', label: 'פגישות', icon: '◈' },
   { href: '/people', label: 'אנשים', icon: '◉' },
   { href: '/tasks', label: 'משימות', icon: '◻' },
 ]
 
 const MORE_ITEMS = [
+  { href: '/projects', label: 'פרויקטים', icon: '📁' },
   { href: '/recurring', label: 'חוזרות', icon: '↻' },
   { href: '/calendar', label: 'יומן גוגל', icon: '📅' },
   { href: '/finance', label: 'פיננסים', icon: '💰' },
   { href: '/updates', label: 'עדכונים', icon: '📰' },
-  { href: '/chat', label: 'צ\'אט', icon: '💬' },
   { href: '/agents', label: 'סוכנים', icon: '🤖' },
   { href: '/agents/manage', label: 'ניהול סוכנים', icon: '🛠' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
@@ -66,8 +67,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="w-[220px] flex-shrink-0 border-l border-[#1a1a1a] flex-col p-6 gap-1 sticky top-0 h-screen hidden lg:flex">
+      {/* Desktop / tablet sidebar (Fold 7 unfolded) */}
+      <aside className="w-[220px] flex-shrink-0 border-l border-[#1a1a1a] flex-col p-6 gap-1 sticky top-0 h-screen hidden md:flex">
         <div className="px-3 pb-5 border-b border-[#1a1a1a] mb-2">
           <div className="text-lg font-bold tracking-tight">My Space</div>
           <div className="text-[11px] text-[#555] mt-0.5">סביבת עבודה אישית</div>
@@ -106,13 +107,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content with responsive padding and bottom nav spacing */}
-      <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 lg:pb-8 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-y-auto">
+        <div className="flex justify-end mb-4 md:mb-6">
+          <NotificationBell />
+        </div>
         {children}
       </main>
 
       {/* Mobile bottom navigation */}
       <nav
-        className="fixed bottom-0 inset-x-0 z-50 lg:hidden border-t border-[#1a1a1a]"
+        className="fixed bottom-0 inset-x-0 z-50 md:hidden border-t border-[#1a1a1a]"
         style={{
           background: '#161616',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -147,11 +151,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       {moreOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
             onClick={() => setMoreOpen(false)}
           />
           <div
-            className="fixed bottom-14 inset-x-0 z-50 lg:hidden rounded-t-2xl border-t border-[#2a2a2a] overflow-hidden"
+            className="fixed bottom-14 inset-x-0 z-50 md:hidden rounded-t-2xl border-t border-[#2a2a2a] overflow-hidden"
             style={{
               background: '#161616',
               marginBottom: 'env(safe-area-inset-bottom, 0px)',

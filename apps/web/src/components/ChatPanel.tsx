@@ -22,26 +22,49 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages, scrollToBottom])
-
-  async function loadHistory() {
+  const loadHistory = useCallback(async () => {
     try {
       const res = await fetch('/api/chat/history?limit=100')
       if (!res.ok) return
       const data = (await res.json()) as { messages: ChatMessage[] }
-      setMessages(data.messages)
+      setMessages((prev) => {
+        const last = data.messages[data.messages.length - 1]
+        const prevLast = prev[prev.length - 1]
+        if (prev.length === data.messages.length && last?.id === prevLast?.id) {
+          return prev
+        }
+        return data.messages
+      })
     } catch {
       // ignore
     } finally {
       setInitialLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadHistory()
+  }, [loadHistory])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages, scrollToBottom])
+
+  // Surface messages pushed from other channels (WhatsApp, cron, agents) and after
+  // a push notification reopens the app. Polls while visible; refreshes on focus.
+  useEffect(() => {
+    function refresh() {
+      if (document.visibilityState === 'visible' && !loading) loadHistory()
+    }
+    const interval = setInterval(refresh, 15000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [loading, loadHistory])
 
   async function handleSend() {
     const text = input.trim()
@@ -126,7 +149,7 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 w-full max-w-3xl mx-auto">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-3xl opacity-30">💬</div>
@@ -179,7 +202,7 @@ export function ChatPanel() {
 
       {/* Input bar */}
       <div className="border-t border-[#1a1a1a] px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full max-w-3xl mx-auto">
           <input
             ref={inputRef}
             type="text"

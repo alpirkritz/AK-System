@@ -177,6 +177,17 @@ export const agentMessages = pgTable('agent_messages', {
   agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
 }))
 
+export const agentTriggers = pgTable('agent_triggers', {
+  agentId: text('agent_id').primaryKey(),
+  enabled: integer('enabled').notNull().default(0),
+  scheduleTimes: text('schedule_times').notNull().default('[]'),
+  triggerMessage: text('trigger_message'),
+  lastRunAt: text('last_run_at'),
+  lastRunStatus: text('last_run_status'),
+  lastRunError: text('last_run_error'),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const healthMetrics = pgTable('health_metrics', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),
@@ -216,6 +227,24 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   endpointIdx: uniqueIndex('idx_push_subscriptions_endpoint').on(table.endpoint),
+}))
+
+export const expoPushTokens = pgTable('expo_push_tokens', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  createdAt: text('created_at').notNull(),
+})
+
+export const notifications = pgTable('notifications', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  url: text('url').notNull(),
+  type: text('type').notNull(),
+  readAt: text('read_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  unreadIdx: index('idx_notifications_unread').on(table.readAt, table.createdAt),
 }))
 
 export const whatsappLabels = pgTable('whatsapp_labels', {

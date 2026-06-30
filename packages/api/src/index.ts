@@ -9,8 +9,10 @@ import { feedRouter } from './routers/feed'
 import { factsRouter } from './routers/facts'
 import { healthRouter } from './routers/health'
 import { pushRouter } from './routers/push'
+import { notificationsRouter } from './routers/notifications'
 import { vatRouter } from './routers/vat'
 import { whatsappRouter } from './routers/whatsapp'
+import { agentsRouter } from './routers/agents'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -27,8 +29,10 @@ export const appRouter = router({
   facts: factsRouter,
   health: healthRouter,
   push: pushRouter,
+  notifications: notificationsRouter,
   vat: vatRouter,
   whatsapp: whatsappRouter,
+  agents: agentsRouter,
 })
 
 export type AppRouter = typeof appRouter

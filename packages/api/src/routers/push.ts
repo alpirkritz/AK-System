@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { protectedProcedure, router } from '../trpc'
-import { pushSubscriptions, eq } from '@ak-system/database'
+import { pushSubscriptions, expoPushTokens, eq } from '@ak-system/database'
+import { sendExpoPush } from '../lib/expo-push'
+import { createNotification } from '../lib/notification-store'
 import webPush from 'web-push'
 
 const vapidPublic = process.env.VAPID_PUBLIC_KEY ?? ''
@@ -74,6 +76,17 @@ export const pushRouter = router({
         throw new Error('VAPID keys not configured')
       }
 
+      try {
+        await createNotification({
+          title: input.title,
+          body: input.body,
+          url: input.url ?? '/chat',
+          type: 'system',
+        })
+      } catch (err) {
+        console.warn('[push.sendToAll] createNotification failed:', err)
+      }
+
       const subs = await ctx.db.select().from(pushSubscriptions).all()
       const payload = JSON.stringify({
         title: input.title,
@@ -105,6 +118,48 @@ export const pushRouter = router({
           .run()
       }
 
-      return { sent: subs.length - failed.length, removed: failed.length }
+      let expoSent = 0
+      try {
+        expoSent = await sendExpoPush(input.title, input.body, input.url ?? '/chat')
+      } catch (err) {
+        console.warn('[push.sendToAll] Expo push failed:', err)
+      }
+
+      return {
+        sent: subs.length - failed.length,
+        removed: failed.length,
+        webSent: subs.length - failed.length,
+        expoSent,
+      }
+    }),
+
+  registerExpoToken: protectedProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db
+        .select()
+        .from(expoPushTokens)
+        .where(eq(expoPushTokens.token, input.token))
+        .get()
+
+      if (existing) return { id: existing.id }
+
+      const id = crypto.randomUUID()
+      await ctx.db
+        .insert(expoPushTokens)
+        .values({
+          id,
+          token: input.token,
+          createdAt: new Date().toISOString(),
+        })
+        .run()
+      return { id }
+    }),
+
+  unregisterExpoToken: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.delete(expoPushTokens).where(eq(expoPushTokens.token, input.token)).run()
+      return { ok: true as const }
     }),
 })

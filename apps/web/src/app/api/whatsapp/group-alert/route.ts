@@ -6,6 +6,9 @@ import {
   type BufferedGroupMessage,
 } from '@/lib/whatsapp-bot'
 import { saveChatMessage } from '@/lib/conversation-engine'
+import { sendBrowserPush } from '@/lib/web-push'
+import { sendExpoPush } from '@/lib/expo-push'
+import { createNotification } from '@/lib/notification-store'
 import { getDb, whatsappGroups } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
 
@@ -63,6 +66,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     await saveChatMessage('assistant', text, 'whatsapp')
     await sendWhatsAppMessage(text)
+    try {
+      const pushTitle = type === 'fomo' ? `🔔 FOMO — ${name}` : `🔑 ${name}`
+      const pushBody = text.slice(0, 240)
+      await createNotification({
+        title: pushTitle,
+        body: pushBody,
+        url: '/settings/whatsapp',
+        type: 'fomo',
+      })
+      await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
+      await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+    } catch (pushErr) {
+      console.warn('[WhatsApp group-alert] Web push failed:', pushErr)
+    }
     if (type === 'fomo') {
       const db = getDb()
       await db

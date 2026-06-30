@@ -14,6 +14,13 @@ if (process.env.NODE_ENV === 'production') {
 
 const hasGoogleCreds = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
 
+// Comma-separated allowlist of Google emails permitted to sign in.
+// Empty = allow any Google account (only safe when the app is not publicly reachable).
+const allowedEmails = (process.env.ALLOWED_EMAILS ?? '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean)
+
 export const authOptions: NextAuthOptions = {
   providers: hasGoogleCreds
     ? [
@@ -28,6 +35,11 @@ export const authOptions: NextAuthOptions = {
     signIn: '/api/auth/signin',
   },
   callbacks: {
+    signIn({ user }) {
+      if (allowedEmails.length === 0) return true
+      const email = user.email?.toLowerCase()
+      return Boolean(email && allowedEmails.includes(email))
+    },
     session({ session, token }) {
       if (session.user) {
         session.user.id = token.sub ?? ''

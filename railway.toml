@@ -5,5 +5,5 @@
 buildCommand = "pnpm install --frozen-lockfile && pnpm run build"
 
 [deploy]
-# Use pnpm --filter so no shell (cd) is needed; Railway may run start without /bin/sh
-startCommand = "pnpm --filter @ak-system/web start"
+# db:push on volume then start Next.js (see docs/deploy/railway-production.md)
+startCommand = "bash scripts/railway-start.sh"

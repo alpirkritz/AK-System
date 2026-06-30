@@ -1,0 +1,21 @@
+# Named Cloudflare Tunnel — copy to ~/.cloudflared/config.yml after setup.
+#
+# One-time setup:
+#   cloudflared tunnel login
+#   cloudflared tunnel create ak-system
+#   cloudflared tunnel route dns ak-system ak.your-domain.com
+#
+# Then set in apps/web/.env.local:
+#   CLOUDFLARE_TUNNEL_NAME=ak-system
+#   NEXTAUTH_URL=https://ak.your-domain.com
+#   NEXT_PUBLIC_APP_URL=https://ak.your-domain.com
+#
+# And run: pnpm serve
+
+tunnel: ak-system
+credentials-file: /Users/YOU/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: ak.your-domain.com
+    service: http://localhost:3000
+  - service: http_status:404

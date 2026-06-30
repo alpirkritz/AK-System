@@ -228,6 +228,133 @@ function CalendarCheckboxList({
   )
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  const arr = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
+  return arr
+}
+
+function NotificationsCard() {
+  const { data: vapidKey } = trpc.push.getVapidPublicKey.useQuery()
+  const subscribe = trpc.push.subscribe.useMutation()
+  const sendTest = trpc.push.sendToAll.useMutation()
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setPermission('unsupported')
+      return
+    }
+    setPermission(Notification.permission)
+  }, [])
+
+  async function enable() {
+    setBusy(true)
+    setStatus(null)
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setStatus('הדפדפן לא תומך בנוטיפיקציות')
+        return
+      }
+      const perm = await Notification.requestPermission()
+      setPermission(perm)
+      if (perm !== 'granted') {
+        setStatus('ההרשאה נדחתה — אפשר נוטיפיקציות בהגדרות הדפדפן')
+        return
+      }
+      if (!vapidKey) {
+        setStatus('מפתחות VAPID לא מוגדרים בשרת')
+        return
+      }
+      const reg = await navigator.serviceWorker.ready
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
+        })
+      }
+      const json = sub.toJSON()
+      if (json.endpoint && json.keys) {
+        await subscribe.mutateAsync({
+          endpoint: json.endpoint,
+          keys: { p256dh: json.keys.p256dh!, auth: json.keys.auth! },
+        })
+      }
+      setStatus('נוטיפיקציות הופעלו ✓')
+    } catch {
+      setStatus('שגיאה בהפעלת נוטיפיקציות')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function test() {
+    setBusy(true)
+    setStatus(null)
+    try {
+      const res = await sendTest.mutateAsync({
+        title: 'AK System',
+        body: 'נוטיפיקציית בדיקה ✓',
+        url: '/chat',
+      })
+      setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.expoSent ?? 0} Helm`)
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'שליחת בדיקה נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const permLabel =
+    permission === 'granted'
+      ? 'מופעל ✓'
+      : permission === 'denied'
+        ? 'חסום בדפדפן'
+        : permission === 'unsupported'
+          ? 'לא נתמך'
+          : 'כבוי'
+
+  return (
+    <Section
+      icon={<span>🔔</span>}
+      title="נוטיפיקציות"
+      description="קבל התראות OS בטלפון — פומו, בריף בוקר, תזכורות, הוגו והסוכנים"
+    >
+      <Row label="התראות במכשיר הזה" description={`סטטוס: ${permLabel}`}>
+        <button
+          onClick={enable}
+          disabled={busy || permission === 'unsupported'}
+          className="btn btn-primary text-[12px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+          data-testid="enable-notifications"
+        >
+          {permission === 'granted' ? 'רענן רישום' : 'הפעל נוטיפיקציות'}
+        </button>
+      </Row>
+      <Row label="בדיקת נוטיפיקציה" description="שלח התראת בדיקה לכל המכשירים הרשומים">
+        <button
+          onClick={test}
+          disabled={busy || permission !== 'granted'}
+          className="btn btn-ghost text-[12px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+          data-testid="test-notification"
+        >
+          שלח בדיקה
+        </button>
+      </Row>
+      {status && (
+        <div className="px-5 py-3 text-xs text-[#888]" data-testid="notifications-status">
+          {status}
+        </div>
+      )}
+    </Section>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -366,6 +493,9 @@ export default function SettingsPage() {
         </div>
         <span className="text-[#25D366] text-lg">💬</span>
       </Link>
+
+      {/* ── Section: Notifications ───────────────────────────────────────────── */}
+      <NotificationsCard />
 
       {/* ── Section: Calendar Conflicts ──────────────────────────────────────── */}
       <Section

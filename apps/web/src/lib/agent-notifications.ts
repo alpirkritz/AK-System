@@ -1,7 +1,8 @@
-import { getDb, pushSubscriptions, eq } from '@ak-system/database'
-import webPush from 'web-push'
-import { agentNotifiesNotion, getAgentDisplayName } from './abc-agents'
+import { agentNotifiesNotion, getAgentDisplayName, HUGO_AGENT_ID } from './abc-agents'
 import { notifyNotionInbox } from './notion'
+import { sendBrowserPush } from './web-push'
+import { sendExpoPush } from './expo-push'
+import { createNotification } from './notification-store'
 
 export type AgentNotifyChannel = 'web' | 'whatsapp' | 'telegram' | 'cron'
 
@@ -11,65 +12,25 @@ function excerpt(text: string, max = 240): string {
   return flat.slice(0, max - 1) + '…'
 }
 
-async function sendBrowserPush(title: string, body: string, url = '/agents'): Promise<number> {
-  const vapidPublic = process.env.VAPID_PUBLIC_KEY
-  const vapidPrivate = process.env.VAPID_PRIVATE_KEY
-  if (!vapidPublic || !vapidPrivate) return 0
-
-  webPush.setVapidDetails(
-    process.env.VAPID_EMAIL ?? 'mailto:admin@example.com',
-    vapidPublic,
-    vapidPrivate,
-  )
-
-  const db = getDb()
-  const subs = await db.select().from(pushSubscriptions).all()
-  if (subs.length === 0) return 0
-
-  const payload = JSON.stringify({
-    title,
-    body,
-    url,
-    icon: '/icons/icon-192.png',
-  })
-
-  const results = await Promise.allSettled(
-    subs.map((sub) =>
-      webPush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload,
-      ),
-    ),
-  )
-
-  const failed = results
-    .map((r, i) => (r.status === 'rejected' ? i : null))
-    .filter((i): i is number => i !== null)
-
-  for (const i of failed) {
-    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, subs[i]!.endpoint)).run()
-  }
-
-  return subs.length - failed.length
-}
-
 /**
  * Notify the user when an agent run completes.
  * - Notion Inbox: for workflow agents (calendar, morning brief, email)
- * - Web: browser push notification
- * - WhatsApp: full reply is sent by the handler; Notion is the extra channel here
+ * - Web Push: sent for every channel so the phone gets an OS notification even when
+ *   the run was triggered from WhatsApp/Telegram/cron.
+ * - WhatsApp: the full reply is sent by the channel handler; this is the extra push.
  */
 export async function notifyAgentRunComplete(options: {
   agentId: string
   summary: string
   channel: AgentNotifyChannel
-}): Promise<{ notion: boolean; webPush: number }> {
+}): Promise<{ notion: boolean; webPush: number; expoPush: number }> {
   const agentName = getAgentDisplayName(options.agentId)
   const short = excerpt(options.summary)
   const title = `${agentName} — סיים`
 
   let notion = false
   let webPushCount = 0
+  let expoPushCount = 0
 
   if (agentNotifiesNotion(options.agentId) && process.env.NOTION_API_KEY) {
     try {
@@ -84,9 +45,28 @@ export async function notifyAgentRunComplete(options: {
     }
   }
 
-  if (options.channel === 'web') {
-    webPushCount = await sendBrowserPush(title, short, `/agents?agent=${encodeURIComponent(options.agentId)}`)
+  const url =
+    options.agentId === HUGO_AGENT_ID
+      ? '/chat'
+      : `/agents?agent=${encodeURIComponent(options.agentId)}`
+
+  try {
+    await createNotification({ title, body: short, url, type: 'agent' })
+  } catch (err) {
+    console.warn('[agent-notifications] createNotification failed:', err)
   }
 
-  return { notion, webPush: webPushCount }
+  try {
+    webPushCount = await sendBrowserPush(title, short, url)
+  } catch (err) {
+    console.warn('[agent-notifications] Web push failed:', err)
+  }
+
+  try {
+    expoPushCount = await sendExpoPush(title, short, url)
+  } catch (err) {
+    console.warn('[agent-notifications] Expo push failed:', err)
+  }
+
+  return { notion, webPush: webPushCount, expoPush: expoPushCount }
 }

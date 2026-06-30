@@ -4,6 +4,20 @@
 
 ---
 
+## מסלול מומלץ: ענן + Helm APK
+
+| שלב | מסמך |
+|-----|------|
+| 1. Backend יציב (Railway) | [`docs/deploy/railway-production.md`](docs/deploy/railway-production.md) |
+| 2. Google OAuth | [`docs/deploy/google-oauth-setup.md`](docs/deploy/google-oauth-setup.md) |
+| 3. Cron 24/7 (GitHub Actions) | [`docs/deploy/cron-setup.md`](docs/deploy/cron-setup.md) |
+| 4. APK לאנדרואיד (Helm) | [`docs/deploy/helm-apk-build.md`](docs/deploy/helm-apk-build.md) |
+| 5. WhatsApp 24/7 (אופציונלי) | [`docs/deploy/whatsapp-bridge-vm.md`](docs/deploy/whatsapp-bridge-vm.md) |
+
+תבנית env ל-Railway: [`deploy/railway.env.example`](deploy/railway.env.example)
+
+---
+
 ## דרישות
 
 - **Node.js** 18 ומעלה  
@@ -28,8 +42,8 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    - **Build Command:**  
      `pnpm install --frozen-lockfile && pnpm run build`
    - **Start Command:**  
-     `pnpm --filter @ak-system/web start`  
-     (לא `cd apps/web && pnpm start` – ב-Railway זה עלול לגרום ל-"The executable cd could not be found".)
+     `bash scripts/railway-start.sh`  
+     (מריץ `db:push` על ה-volume ואז `next start`)
    - אם הבילד עדיין נכשל על "security vulnerabilities" (next ישן): הוסף משתנה **`NO_CACHE=1`** ב-Variables, שמור, הרץ Redeploy (כדי לנקות cache), ואז אפשר להסיר את `NO_CACHE=1`.
 
 3. **Volume למסד הנתונים**
@@ -46,6 +60,9 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    - `NEXTAUTH_URL=https://<שם-הפרויקט>.up.railway.app` (אותו ערך כמו NEXT_PUBLIC_APP_URL)
    - `NEXTAUTH_SECRET=<מחרוזת-אקראית>` — **חובה ב-production**. ליצירה: `openssl rand -base64 32` או `npx auth secret`
    - `DATABASE_PATH=/data/ak_system.sqlite`
+   - `CRON_SECRET` — חובה ב-production (אותו ערך ב-GitHub Actions secrets)
+   - `GOOGLE_ANDROID_CLIENT_ID` — ל-Helm native sign-in
+   - JWT למובייל משתמש ב-`NEXTAUTH_SECRET` (אין משתנה נפרד)
    השאר את ה-VAPID keys אם Push Notifications מופעלים:  
    `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL`.
 
@@ -57,6 +74,45 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    - **Settings → Source** → וודא ש-**Branch** = `main` (או ה-branch שלך).
    - **Deployments** → **Redeploy** (או CMD+K → "Deploy latest commit") כדי להריץ build מה-commit האחרון ב-main.
    - אם עדיין אותו commit: נסה **Clear build cache** (אם קיים) ואז Redeploy.
+
+---
+
+## הרצה מקומית + Cloudflare Tunnel (מומלץ לשימוש אישי בטלפון)
+
+מריצים את כל המערכת על המק (SQLite, גשר WhatsApp, Google Drive נשארים מקומיים) וחושפים רק את האפליקציה ב-HTTPS דרך Cloudflare Tunnel — כדי שה-PWA והנוטיפיקציות יעבדו בטלפון.
+
+**חשוב:** Web Push וה-service worker עובדים **רק בבילד production** (ב-`next dev` ה-SW מנוטרל). לכן מריצים `pnpm serve` (build + start) ולא `pnpm dev`.
+
+### שלב חד-פעמי
+
+1. התקן cloudflared: `brew install cloudflared`
+2. צור מפתחות VAPID והכנס ל-`apps/web/.env.local`:
+   ```bash
+   npx web-push generate-vapid-keys
+   # → VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY ; הוסף VAPID_EMAIL=mailto:you@example.com
+   ```
+3. (אופציונלי, לדומיין קבוע) צור named tunnel:
+   ```bash
+   cloudflared tunnel login
+   cloudflared tunnel create ak-system
+   cloudflared tunnel route dns ak-system ak.your-domain.com
+   # והגדר ב-.env.local:  CLOUDFLARE_TUNNEL_NAME=ak-system
+   ```
+   בלי זה, `pnpm tunnel` ייצור כתובת אקראית `*.trycloudflare.com` (משתנה בכל הרצה).
+4. הגדר ב-`apps/web/.env.local`:
+   - `NEXTAUTH_URL` ו-`NEXT_PUBLIC_APP_URL` = כתובת ה-HTTPS של ה-tunnel
+   - `NEXTAUTH_SECRET` (חובה), `GOOGLE_CLIENT_ID/SECRET`, ו-`ALLOWED_EMAILS=you@example.com`
+5. ב-Google Cloud Console הוסף redirect URI: `https://<tunnel-domain>/api/auth/callback/google`
+
+### הרצה יומיומית
+
+```bash
+pnpm serve   # build + web(prod) + WhatsApp bridge + Cloudflare Tunnel
+```
+
+דגלים: `SKIP_BUILD=1` (לדלג על build), `SKIP_BRIDGE=1`, `SKIP_TUNNEL=1`. להרצת ה-tunnel בלבד: `pnpm tunnel`.
+
+המק חייב להיות דלוק כדי שהתראות (FOMO, בריף בוקר, אייג'נטים) יישלחו לטלפון.
 
 ---
 
@@ -135,7 +191,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 אזור זמן: `TIMEZONE=Asia/Jerusalem` (ברירת מחדל). `WATCH_GROUP_JIDS` ב-env — fallback בלבד; מומלץ DB דרך UI.
 
-פריסה: VM / Railway volume — לא Cloud Run (session state). ראה [`S_Skills/wf_whatsapp_bridge.md`](S_Skills/wf_whatsapp_bridge.md).
+פריסה: VM / Railway volume — לא Cloud Run (session state). ראה [`docs/deploy/whatsapp-bridge-vm.md`](docs/deploy/whatsapp-bridge-vm.md) ו-[`deploy/docker-compose.production.yml`](deploy/docker-compose.production.yml).
 
 ---
 
@@ -153,3 +209,53 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
    האייקון "My Space" יופיע במסך הבית. לחיצה תפתח את האפליקציה במצב standalone (ללא שורת כתובת), כמו אפליקציה native.
 
 **הערה:** Push Notifications יעבדו רק כשהאתר נגיש ב-HTTPS (כולל בפריסה זו).
+
+---
+
+## Helm — אפליקציית Android native (Expo)
+
+אפליקציה native בשם **Helm** (`apps/mobile`) — חלופה ל-PWA, עם Expo Push (FCM) ו-JWT auth.
+
+**מדריך מלא:** [`docs/deploy/helm-apk-build.md`](docs/deploy/helm-apk-build.md)
+
+### דרישות
+
+- Backend רץ ב-HTTPS (Railway מומלץ — URL קבוע)
+- `EXPO_PUBLIC_API_URL` = כתובת ה-production
+- Google OAuth: Web client ID + Android client ל-`com.alpir.helm`
+
+### הגדרה חד-פעמית
+
+1. העתק env:
+   ```bash
+   cp apps/mobile/.env.example apps/mobile/.env
+   ```
+   מלא:
+   - `EXPO_PUBLIC_API_URL=https://<railway-domain>`
+   - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` — אותו `GOOGLE_CLIENT_ID`
+   - `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` — OAuth Android client
+
+2. ב-Google Cloud Console — ראה [`docs/deploy/google-oauth-setup.md`](docs/deploy/google-oauth-setup.md)
+
+3. EAS (פעם אחת):
+   ```bash
+   cd apps/mobile && eas login && eas init
+   ```
+
+### בניית APK
+
+```bash
+pnpm mobile:build:apk
+```
+
+או: `eas build --platform android --profile preview`
+
+### זרימת auth
+
+1. Helm → Google Sign-In → `POST /api/auth/mobile/google` עם `idToken`
+2. שמירת JWT ב-SecureStore; כל בקשה עם `Authorization: Bearer`
+3. Expo push token → `POST /api/push/expo/register`
+
+### התראות
+
+Backend שולח Expo Push בנוסף ל-Web Push ו-WhatsApp. לחיצה על התראה פותחת את מסך הצ'אט.

@@ -5,6 +5,9 @@ dist
 .env
 .env.local
 .env.*.local
+deploy/railway.env
+deploy/production.env
+deploy/whatsapp-bridge.env
 data/
 test-data/
 .turbo

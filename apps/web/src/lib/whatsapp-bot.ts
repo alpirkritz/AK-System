@@ -1,8 +1,16 @@
-import { formatAgentList, HUGO_AGENT_ID } from './abc-agents'
+import { formatAgentList, getAgentDisplayName, HUGO_AGENT_ID } from './abc-agents'
 import { runAgentForUser } from './agent-runner'
 import { saveChatMessage } from './conversation-engine'
 import { getGeminiModelOptions } from './gemini-config'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
+import { sendBrowserPush } from './web-push'
+import { sendExpoPush } from './expo-push'
+import { createNotification } from './notification-store'
+
+function pushExcerpt(text: string, max = 240): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length <= max ? flat : flat.slice(0, max - 1) + '…'
+}
 
 export type ChatSource = 'web' | 'telegram' | 'whatsapp' | 'cron'
 
@@ -116,6 +124,16 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
     })
     await saveAgentMessage(HUGO_AGENT_ID, 'assistant', result.text)
     await saveChatMessage('assistant', result.text, 'whatsapp')
+    // Mirror Hugo's reply to the phone as an OS push (WhatsApp self-chat does not notify reliably).
+    try {
+      const pushTitle = getAgentDisplayName(HUGO_AGENT_ID)
+      const pushBody = pushExcerpt(result.text)
+      await createNotification({ title: pushTitle, body: pushBody, url: '/chat', type: 'hugo' })
+      await sendBrowserPush(pushTitle, pushBody, '/chat')
+      await sendExpoPush(pushTitle, pushBody, '/chat')
+    } catch (err) {
+      console.warn('[WhatsAppBot] Push failed:', err)
+    }
     return result.text
   } catch (err) {
     console.error('[WhatsAppBot] Error:', err)

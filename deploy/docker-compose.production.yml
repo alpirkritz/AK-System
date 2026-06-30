@@ -1,0 +1,39 @@
+# Docker Compose — full stack on a single VPS (web + WhatsApp bridge).
+# For Railway-only web deploy, use docs/deploy/railway-production.md instead.
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    volumes:
+      - web-data:/data
+    env_file:
+      - production.env
+    environment:
+      DATABASE_PATH: /data/ak_system.sqlite
+      WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
+    depends_on:
+      - whatsapp-bridge
+    restart: unless-stopped
+
+  whatsapp-bridge:
+    build:
+      context: ..
+      dockerfile: apps/whatsapp-bridge/Dockerfile
+    ports:
+      - '3001:3001'
+    volumes:
+      - bridge-auth:/data/auth
+    env_file:
+      - whatsapp-bridge.env
+    environment:
+      AUTH_STATE_PATH: /data/auth
+      PORT: '3001'
+    restart: unless-stopped
+
+volumes:
+  web-data:
+  bridge-auth:

@@ -526,3 +526,71 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Updated: `abc-agents.ts`, `conversation-engine.ts`, `gemini-agent-engine.ts`, `whatsapp-bot.ts`, `telegram-bot.ts`
 
 ---
+
+## 2026-06-29 — Hugo (Dev Pipeline) — mobile-app-notifications
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — PM → UI → Dev → Tests → QA → Reviewer
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Make the PWA on the phone (Galaxy Fold 7) the primary interface to talk with the system, with real OS push notifications for every alert source (FOMO, morning brief, reminders, agent completions, Hugo). Keep WhatsApp active in parallel.
+- **Context:** WhatsApp "Message Yourself" does not produce reliable notifications. User switched to a Fold 7 and wants folded + unfolded support. Decisions: Cloudflare Tunnel to local Mac + re-enable Google sign-in.
+
+### Actions Taken
+1. PM spec at `docs/specs/mobile-app-notifications.md`.
+2. Infra: `scripts/serve.sh` (build + web prod + bridge + tunnel), `scripts/tunnel.sh`, root `serve`/`tunnel`/`start` scripts, VAPID + ALLOWED_EMAILS + Cloudflare env docs, DEPLOY.md tunnel section.
+3. Auth: enforced session in production via `middleware.ts` (API/webhook/static bypass), email allowlist in `auth.ts`.
+4. Fan-out: new `apps/web/src/lib/web-push.ts`; wired Web Push into `push-notifications.ts`, `agent-notifications.ts` (all channels), `whatsapp-bot.ts` (Hugo mirror), `group-alert` + `group-summary` routes.
+5. Mobile/Fold UX: PWA `start_url=/chat` + shortcuts, Chat as primary bottom-nav tab, `ChatPanel` polling + focus refresh + centered max-width for tablet, Settings notifications card (enable + test).
+6. Tests: `packages/api/src/routers/push.test.ts` (7), `apps/web/e2e/notifications.spec.ts` (chat + settings + folded/unfolded).
+
+### Outputs
+- Spec: `docs/specs/mobile-app-notifications.md`
+- Review: `reports/mobile-app-notifications.md` (APPROVED WITH NITS)
+- New: `apps/web/src/lib/web-push.ts`, `scripts/serve.sh`, `scripts/tunnel.sh`, `packages/api/src/routers/push.test.ts`, `apps/web/e2e/notifications.spec.ts`
+- Updated: `middleware.ts`, `auth.ts`, `push-notifications.ts`, `agent-notifications.ts`, `whatsapp-bot.ts`, `group-alert/route.ts`, `group-summary/route.ts`, `ChatPanel.tsx`, `DashboardLayout.tsx`, `settings/page.tsx`, `manifest.json`, env examples, `DEPLOY.md`, root `package.json`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (engineering task; no PII)
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- Push fan-out is now centralized; future channels plug into one helper.
+- Next: initialize `apps/web` ESLint config so `next lint` runs non-interactively; consider true background agent jobs.
+
+### Static Checks
+- Vitest: 14/14 pass. Web build: pass (37/37 routes). Lint: bridge tsc pass; `apps/web` next lint uninitialized (pre-existing).
+
+### Blockers / Escalations
+- None. Real push delivery requires manual device verification (Fold 7) and VAPID keys + tunnel URL in `.env.local`.
+
+---
+
+## 2026-06-30 — Hugo (Dev Pipeline) — notification-center
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — PM → Dev → Tests → QA → Reviewer
+**Status:** Completed
+
+### Stand-up
+- **Goal:** In-app notification center (bell, badge, list, mark read) on web + Helm, plus Expo push parity for test sends.
+- **Context:** User requested opening notifications from UI, not only OS push / chat timeline.
+
+### Actions Taken
+1. PM spec at `docs/specs/notification-center.md`.
+2. DB: `notifications` table; `createNotification()` in fan-out paths.
+3. API: tRPC `notifications` router; REST `/api/notifications` + `/api/push/test` for Helm.
+4. Web: `NotificationBell`, `/notifications` page; `sendToAll` sends Web + Expo.
+5. Helm: `notifications.tsx`, bell badge in chat, settings test button + permission state.
+6. Tests: `notifications.test.ts` (4); E2E bell + page (6/6).
+
+### Outputs
+- Spec: `docs/specs/notification-center.md`
+- Review: `reports/notification-center.md` (APPROVED WITH NITS)
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (engineering task)
+
+### Blockers / Escalations
+- Manual: VAPID keys, `pnpm serve` + tunnel, Railway + EAS APK, Fold 7 device QA.
+
+---

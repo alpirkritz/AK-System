@@ -143,6 +143,28 @@ const PUSH_SUBSCRIPTIONS_TABLE = [
     auth TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
+]
+
+const EXPO_PUSH_TOKENS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS expo_push_tokens (
+    id TEXT PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+  )`,
+]
+
+const NOTIFICATIONS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT NOT NULL,
+    read_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at)`,
 ]
 
 const WHATSAPP_TABLES = [
@@ -164,6 +186,19 @@ const WHATSAPP_TABLES = [
     summary_times TEXT,
     keywords TEXT NOT NULL DEFAULT '[]',
     last_fomo_alert_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+]
+
+const AGENT_TRIGGERS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS agent_triggers (
+    agent_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    schedule_times TEXT NOT NULL DEFAULT '[]',
+    trigger_message TEXT,
+    last_run_at TEXT,
+    last_run_status TEXT,
+    last_run_error TEXT,
     updated_at TEXT NOT NULL
   )`,
 ]
@@ -247,6 +282,12 @@ export function getDb() {
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of EXPO_PUSH_TOKENS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of NOTIFICATIONS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of TASK_PEOPLE_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -254,6 +295,9 @@ export function getDb() {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of WHATSAPP_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of AGENT_TRIGGERS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
@@ -277,9 +321,12 @@ export const facts = schema.facts
 export const chatMessages = schema.chatMessages
 export const agentThreads = schema.agentThreads
 export const agentMessages = schema.agentMessages
+export const agentTriggers = schema.agentTriggers
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
+export const expoPushTokens = schema.expoPushTokens
+export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
 
@@ -293,6 +340,8 @@ export type AgentThread = typeof schemaPg.agentThreads.$inferSelect
 export type NewAgentThread = typeof schemaPg.agentThreads.$inferInsert
 export type AgentMessage = typeof schemaPg.agentMessages.$inferSelect
 export type NewAgentMessage = typeof schemaPg.agentMessages.$inferInsert
+export type AgentTrigger = typeof schemaPg.agentTriggers.$inferSelect
+export type NewAgentTrigger = typeof schemaPg.agentTriggers.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect
@@ -336,4 +385,4 @@ export async function runMutation(q: Promise<unknown> | { run(): void }): Promis
   }
 }
 
-export { desc, lt, sql, eq, and, or, like, asc } from 'drizzle-orm'
+export { desc, lt, sql, eq, and, or, like, asc, isNull } from 'drizzle-orm'
