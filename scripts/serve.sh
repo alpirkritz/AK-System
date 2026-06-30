@@ -50,7 +50,8 @@ PIDS+=($!)
 
 if [ "${SKIP_BRIDGE:-0}" != "1" ]; then
   echo "▶  Starting WhatsApp bridge..."
-  pnpm whatsapp-bridge:dev &
+  # Bridge must listen on 3001 — do not inherit PORT=3000 from the web app above.
+  PORT=3001 pnpm whatsapp-bridge:dev &
   PIDS+=($!)
 fi
 

@@ -10,7 +10,8 @@ export default defineConfig({
   timeout: 90_000,
   reporter: 'html',
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3001',
+    // Port 3002 — 3000=web dev, 3001=whatsapp-bridge
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3002',
     trace: 'on-first-retry',
     locale: 'he-IL',
     viewport: { width: 1440, height: 900 },
@@ -18,11 +19,11 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: 'pnpm dev',
-    url: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3001',
+    url: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3002',
     timeout: 120_000,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     env: {
-      PORT: process.env.PORT ?? '3001',
+      PORT: process.env.PORT ?? '3002',
       DATABASE_PATH: './data/e2e.sqlite',
     },
   },

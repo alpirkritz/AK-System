@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, chatMessages, desc, lt } from '@ak-system/database'
+import { getApiSession } from '@/lib/api-session'
 
 /**
  * GET /api/chat/history — fetch recent chat messages.
@@ -7,6 +8,10 @@ import { getDb, chatMessages, desc, lt } from '@ak-system/database'
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const session = await getApiSession(request)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { searchParams } = new URL(request.url)
     const limit = Math.min(Number(searchParams.get('limit') || 50), 200)
     const before = searchParams.get('before') || undefined

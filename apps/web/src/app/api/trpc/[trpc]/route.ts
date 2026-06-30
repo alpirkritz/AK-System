@@ -4,6 +4,8 @@ import superjson from 'superjson'
 import { appRouter, createContext } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { authOptions } from '@/lib/auth'
+import { sessionFromBearer } from '@/lib/mobile-auth'
+import { runAgentTrigger } from '@/lib/agent-trigger-runner'
 
 function errorBatchBody(message: string): string {
   const payload = [
@@ -33,6 +35,12 @@ async function handler(req: Request): Promise<Response> {
     })
   }
   let session = await getServerSession(authOptions)
+  if (!session) {
+    const authHeader = req.headers.get('authorization')
+    if (authHeader) {
+      session = await sessionFromBearer(authHeader)
+    }
+  }
   // When no sign-in required (dev, or production with auth disabled in middleware): use a dev session so the app and API work
   if (!session && (process.env.NODE_ENV === 'development' || process.env.SKIP_AUTH_IN_PRODUCTION === '1')) {
     session = { user: { id: 'dev', email: 'dev@local', name: 'Developer' }, expires: '' }
@@ -42,7 +50,12 @@ async function handler(req: Request): Promise<Response> {
       endpoint: '/api/trpc',
       req,
       router: appRouter,
-      createContext: () => createContext({ db, session: session ?? undefined }),
+      createContext: () =>
+        createContext({
+          db,
+          session: session ?? undefined,
+          runAgentTrigger,
+        }),
       onError: ({ error }) => {
         console.error('[tRPC]', error.message, error.cause)
       },

@@ -216,6 +216,20 @@ export function getAgentDisplayName(agentId: string): string {
   }
 }
 
+export function getDefaultTriggerMessage(agentId: string): string {
+  const messages: Record<string, string> = {
+    '03_morning_briefing': 'הרץ תדריך בוקר יומי לפי ה-workflow',
+    '04_meeting_prep_herald': 'הרץ הכנה לפגישות היום לפי ה-workflow',
+    '05_ibkr_daily_import': 'הרץ ייבוא יומי IBKR לפי ה-workflow',
+    '06_calendar_optimizer': 'הרץ אופטימיזציית יומן יומית לפי ה-workflow',
+    '07_email_assistant': 'הרץ עוזר מייל יומי לפי ה-workflow',
+    '08_startup_coo': 'הרץ לפי בקשת המייסד — נתח את הבעיה והצע תוכנית',
+    '02_agent_trainer': 'הרץ סקירת אימון סוכנים לפי ה-workflow',
+    '01_Hugo_orchestrator': 'סכם מצב המערכת והמלץ על פעולות',
+  }
+  return messages[agentId] ?? 'הרץ workflow לפי ההוראות'
+}
+
 function resolveAgentPhrase(text: string): { agentId: string; remainder: string } | null {
   const lower = text.trim().toLowerCase()
   if (!lower) return null

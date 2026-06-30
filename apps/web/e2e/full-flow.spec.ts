@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const BASE = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3001'
+const BASE = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3002'
 function nav(page: { goto: (url: string) => Promise<unknown> }, path: string) {
   return page.goto(path === '/' ? BASE + '/' : BASE + path)
 }

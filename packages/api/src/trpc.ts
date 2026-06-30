@@ -14,15 +14,19 @@ export type AuthSession = { user: SessionUser } | null
 export type Context = {
   db: ReturnType<typeof getDb>
   session: AuthSession
+  /** Injected by apps/web for manual agent trigger runs. */
+  runAgentTrigger?: (agentId: string) => Promise<{ ok: boolean; text?: string; error?: string }>
 }
 
 export const createContext = async (opts: {
   db: ReturnType<typeof getDb>
   session?: AuthSession
+  runAgentTrigger?: Context['runAgentTrigger']
 }): Promise<Context> => {
   return {
     db: opts.db,
     session: opts.session ?? null,
+    runAgentTrigger: opts.runAgentTrigger,
   }
 }
 

@@ -9,6 +9,11 @@ const AgentChatPanel = dynamic(
   { ssr: false },
 )
 
+const AgentTriggersPanel = dynamic(
+  () => import('@/components/AgentTriggersPanel').then((m) => m.AgentTriggersPanel),
+  { ssr: false },
+)
+
 interface AgentSummary {
   id: string
   name: string
@@ -57,7 +62,7 @@ export default function AgentsPage() {
   const selected = agents.find((a) => a.id === selectedId)
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-8rem)] md:h-[calc(100dvh-4rem)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">סוכנים</h1>
         <div className="flex items-center gap-3">
@@ -87,12 +92,12 @@ export default function AgentsPage() {
       )}
 
       {!loading && !error && agents.length > 0 && (
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
-          {/* Agent picker — sidebar on desktop, dropdown on mobile */}
-          <div className="lg:w-64 shrink-0 flex flex-col gap-2">
-            <label className="text-xs text-[#555] lg:hidden">בחר סוכן</label>
+        <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
+          {/* Agent picker — sidebar on tablet+, dropdown on phone (Fold cover) */}
+          <div className="md:w-64 shrink-0 flex flex-col gap-2">
+            <label className="text-xs text-[#555] md:hidden">בחר סוכן</label>
             <select
-              className="lg:hidden bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-sm text-[#f0ede6]"
+              className="md:hidden bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-sm text-[#f0ede6]"
               value={selectedId ?? ''}
               onChange={(e) => setSelectedId(e.target.value)}
             >
@@ -103,7 +108,7 @@ export default function AgentsPage() {
               ))}
             </select>
 
-            <div className="hidden lg:flex flex-col gap-1 border border-[#1a1a1a] rounded-xl p-2 overflow-y-auto">
+            <div className="hidden md:flex flex-col gap-1 border border-[#1a1a1a] rounded-xl p-2 overflow-y-auto">
               {agents.map((a) => (
                 <button
                   key={a.id}
@@ -125,20 +130,25 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          {/* Chat */}
-          <div className="flex-1 border border-[#1a1a1a] rounded-xl overflow-hidden min-h-[400px]">
-            {selected ? (
-              <AgentChatPanel
-                key={selected.id}
-                agentId={selected.id}
-                agentName={selected.name}
-                engine={engine}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-[#555] text-sm">
-                בחר סוכן
-              </div>
+          {/* Chat + triggers */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {selected && (
+              <AgentTriggersPanel agentId={selected.id} agentName={selected.name} />
             )}
+            <div className="flex-1 border border-[#1a1a1a] rounded-xl overflow-hidden min-h-[360px]">
+              {selected ? (
+                <AgentChatPanel
+                  key={selected.id}
+                  agentId={selected.id}
+                  agentName={selected.name}
+                  engine={engine}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-[#555] text-sm">
+                  בחר סוכן
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
