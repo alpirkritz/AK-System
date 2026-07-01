@@ -2,13 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Baileys pulls libsignal from git during install
+RUN apk add --no-cache git
+
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/whatsapp-bridge/package.json ./apps/whatsapp-bridge/
 
-RUN pnpm install --filter @ak-system/whatsapp-bridge --frozen-lockfile || \
-    pnpm --dir apps/whatsapp-bridge install
+RUN pnpm install --filter @ak-system/whatsapp-bridge --frozen-lockfile
 
 COPY apps/whatsapp-bridge ./apps/whatsapp-bridge
 

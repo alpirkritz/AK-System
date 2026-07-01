@@ -1,5 +1,9 @@
-import * as Google from 'expo-auth-session/providers/google'
-import * as WebBrowser from 'expo-web-browser'
+import {
+  GoogleSignin,
+  isErrorWithCode,
+  isSuccessResponse,
+  statusCodes,
+} from '@react-native-google-signin/google-signin'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import {
@@ -15,8 +19,6 @@ import { useAuth } from '../lib/auth'
 import { syncPushToken } from '../lib/notifications'
 import { colors, layout } from '../lib/theme'
 
-WebBrowser.maybeCompleteAuthSession()
-
 export default function LoginScreen() {
   const { signIn } = useAuth()
   const router = useRouter()
@@ -25,40 +27,53 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false)
 
   const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? ''
-  const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
-
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    webClientId,
-    androidClientId: androidClientId || webClientId,
-  })
+  const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim()
 
   useEffect(() => {
-    if (response?.type !== 'success') return
-    const idToken = response.params.id_token
-    if (!idToken) {
-      setError('לא התקבל id_token מ-Google')
-      return
-    }
+    if (!webClientId) return
+    GoogleSignin.configure({
+      webClientId,
+      offlineAccess: false,
+    })
+  }, [webClientId])
 
-    ;(async () => {
-      setBusy(true)
-      setError(null)
-      try {
-        const { accessToken, user } = await signInWithGoogleIdToken(idToken)
-        await signIn(accessToken, user)
-        try {
-          await syncPushToken(accessToken)
-        } catch {
-          // Push is optional on first login
-        }
-        router.replace('/chat')
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'התחברות נכשלה')
-      } finally {
-        setBusy(false)
+  async function handleGoogleSignIn() {
+    if (!webClientId || !androidClientId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true })
+      const response = await GoogleSignin.signIn()
+      if (!isSuccessResponse(response)) {
+        return
       }
-    })()
-  }, [response, signIn, router])
+      const idToken = response.data.idToken
+      if (!idToken) {
+        setError('לא התקבל id_token מ-Google')
+        return
+      }
+      const { accessToken, user } = await signInWithGoogleIdToken(idToken)
+      await signIn(accessToken, user)
+      try {
+        await syncPushToken(accessToken)
+      } catch {
+        // Push is optional on first login
+      }
+      router.replace('/chat')
+    } catch (err) {
+      if (isErrorWithCode(err)) {
+        if (err.code === statusCodes.SIGN_IN_CANCELLED) return
+        if (err.code === statusCodes.IN_PROGRESS) return
+        if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          setError('Google Play Services לא זמין בטלפון')
+          return
+        }
+      }
+      setError(err instanceof Error ? err.message : 'התחברות נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const contentWidth = Math.min(width - 32, layout.maxContentWidth)
 
@@ -74,11 +89,15 @@ export default function LoginScreen() {
           </Text>
         ) : !webClientId ? (
           <Text style={styles.error}>הגדר EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ב-.env</Text>
+        ) : !androidClientId ? (
+          <Text style={styles.error}>
+            חסר Android OAuth client — הוסף EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ובנה APK מחדש
+          </Text>
         ) : (
           <Pressable
-            style={[styles.button, (!request || busy) && styles.buttonDisabled]}
-            disabled={!request || busy}
-            onPress={() => promptAsync()}
+            style={[styles.button, busy && styles.buttonDisabled]}
+            disabled={busy}
+            onPress={() => void handleGoogleSignIn()}
           >
             {busy ? (
               <ActivityIndicator color={colors.bg} />

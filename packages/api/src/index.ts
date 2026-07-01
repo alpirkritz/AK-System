@@ -17,6 +17,7 @@ import { agentsRouter } from './routers/agents'
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
 export { getGoogleCalendarAuthUrl, exchangeGoogleCalendarCode } from './google-calendar-auth'
+export { upsertGoogleCalendarConnection } from './services/google-connections'
 
 export const appRouter = router({
   people: peopleRouter,

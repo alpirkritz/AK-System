@@ -1,4 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { google } from 'googleapis'
+import {
+  fetchGoogleConnectionsFromSqlite,
+  upsertGoogleConnectionSqlite,
+} from './google-connections-sqlite'
 
 const FIVE_MIN_MS = 5 * 60 * 1000
 
@@ -29,11 +34,11 @@ function getSupabaseUrl(): string | undefined {
 }
 
 export function hasEnvGoogleCredentials(): boolean {
-  return !!(
-    process.env.GOOGLE_CALENDAR_CLIENT_ID &&
-    process.env.GOOGLE_CALENDAR_CLIENT_SECRET &&
-    process.env.GOOGLE_CALENDAR_REFRESH_TOKEN
+  const hasClient = !!(
+    (process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID) &&
+    (process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET)
   )
+  return hasClient && !!process.env.GOOGLE_CALENDAR_REFRESH_TOKEN
 }
 
 export function hasSupabaseGoogleCredentials(): boolean {
@@ -46,7 +51,12 @@ export function hasSupabaseGoogleCredentials(): boolean {
 }
 
 export function isGoogleIntegrationConfigured(): boolean {
-  return hasEnvGoogleCredentials() || hasSupabaseGoogleCredentials()
+  if (hasEnvGoogleCredentials()) return true
+  if (hasSupabaseGoogleCredentials()) return true
+  return !!(
+    (process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID) &&
+    (process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET)
+  )
 }
 
 function envConnection(): GoogleConnection {
@@ -73,39 +83,176 @@ export async function fetchGoogleConnectionsFromSupabase(): Promise<GoogleConnec
     select: 'id,calendar_email,access_token,refresh_token,token_expires_at',
     order: 'created_at.asc',
   })
-  const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/calendar_connections?${params}`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-  })
-  if (!res.ok) {
-    console.warn('[Google] Supabase fetch failed:', res.status)
+
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/calendar_connections?${params}`, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!res.ok) {
+      console.warn('[Google] Supabase fetch failed:', res.status)
+      return []
+    }
+    const data = (await res.json()) as Array<{
+      id: string
+      calendar_email: string | null
+      access_token: string | null
+      refresh_token: string | null
+      token_expires_at: string | null
+    }>
+    return data
+      .filter((row) => row.refresh_token)
+      .map((row) => ({
+        id: row.id,
+        calendarEmail: row.calendar_email || 'unknown',
+        accessToken: row.access_token || '',
+        refreshToken: row.refresh_token!,
+        tokenExpiresAt: row.token_expires_at || new Date(Date.now() + 3600000).toISOString(),
+      }))
+  } catch (err) {
+    console.warn('[Google] Supabase fetch error:', err)
     return []
   }
-  const data = (await res.json()) as Array<{
-    id: string
-    calendar_email: string | null
-    access_token: string | null
-    refresh_token: string | null
-    token_expires_at: string | null
-  }>
-  return data
-    .filter((row) => row.refresh_token)
-    .map((row) => ({
-      id: row.id,
-      calendarEmail: row.calendar_email || 'unknown',
-      accessToken: row.access_token || '',
-      refreshToken: row.refresh_token!,
-      tokenExpiresAt: row.token_expires_at || new Date(Date.now() + 3600000).toISOString(),
-    }))
 }
 
-/** All configured Google connections (Supabase rows + optional env fallback). */
+async function supabaseGet(path: string): Promise<unknown[]> {
+  const url = getSupabaseUrl()
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return []
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    })
+    if (!res.ok) return []
+    return res.json()
+  } catch {
+    return []
+  }
+}
+
+async function supabasePatch(path: string, body: unknown): Promise<boolean> {
+  const url = getSupabaseUrl()
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return false
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/${path}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(body),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function supabasePost(body: unknown): Promise<boolean> {
+  const url = getSupabaseUrl()
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return false
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/calendar_connections`, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(body),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Persist OAuth tokens to Supabase (when configured) and local SQLite. */
+export async function upsertGoogleCalendarConnection(input: {
+  userId: string
+  calendarEmail: string
+  accessToken: string
+  refreshToken?: string
+  tokenExpiresAt: string
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const existingSqlite = fetchGoogleConnectionsFromSqlite().find(
+    (c) => c.calendarEmail.toLowerCase() === input.calendarEmail.toLowerCase(),
+  )
+  const existingSupabase = hasSupabaseGoogleCredentials()
+    ? ((await supabaseGet(
+        `calendar_connections?provider=eq.google&calendar_email=eq.${encodeURIComponent(input.calendarEmail)}&select=id,refresh_token&limit=1`,
+      )) as Array<{ id: string; refresh_token: string | null }>)[0]
+    : undefined
+
+  const refreshToken =
+    input.refreshToken ||
+    existingSqlite?.refreshToken ||
+    existingSupabase?.refresh_token ||
+    ''
+
+  if (!refreshToken) {
+    return { ok: false, error: 'no_refresh_token' }
+  }
+
+  if (hasSupabaseGoogleCredentials()) {
+    if (existingSupabase) {
+      const patchBody: Record<string, unknown> = {
+        access_token: input.accessToken,
+        token_expires_at: input.tokenExpiresAt,
+        calendar_email: input.calendarEmail,
+        is_active: true,
+      }
+      if (input.refreshToken) patchBody.refresh_token = input.refreshToken
+      await supabasePatch(`calendar_connections?id=eq.${existingSupabase.id}`, patchBody)
+    } else {
+      await supabasePost({
+        id: randomUUID(),
+        user_id: input.userId,
+        provider: 'google',
+        calendar_email: input.calendarEmail,
+        access_token: input.accessToken,
+        refresh_token: refreshToken,
+        token_expires_at: input.tokenExpiresAt,
+        is_active: true,
+      })
+    }
+  }
+
+  try {
+    upsertGoogleConnectionSqlite({
+      userId: input.userId,
+      calendarEmail: input.calendarEmail,
+      accessToken: input.accessToken,
+      refreshToken,
+      tokenExpiresAt: input.tokenExpiresAt,
+    })
+  } catch (err) {
+    console.error('[Google] SQLite upsert failed:', err)
+    return { ok: false, error: 'insert_failed' }
+  }
+
+  invalidateGoogleConnectionsCache()
+  return { ok: true }
+}
+
+/** All configured Google connections (Supabase, SQLite, optional env fallback). */
 export async function listGoogleConnections(): Promise<GoogleConnection[]> {
-  const fromDb = hasSupabaseGoogleCredentials() ? await fetchGoogleConnectionsFromSupabase() : []
-  if (fromDb.length > 0) return fromDb
+  if (hasSupabaseGoogleCredentials()) {
+    const fromSupabase = await fetchGoogleConnectionsFromSupabase()
+    if (fromSupabase.length > 0) return fromSupabase
+  }
+
+  const fromSqlite = fetchGoogleConnectionsFromSqlite()
+  if (fromSqlite.length > 0) return fromSqlite
+
   if (hasEnvGoogleCredentials()) return [envConnection()]
   return []
 }
@@ -116,7 +263,7 @@ export function makeGoogleCalendarId(email: string, nativeCalendarId: string): s
 
 /** Parse composite id or return null for legacy native ids. */
 export function parseGoogleCalendarId(
-  compositeId: string
+  compositeId: string,
 ): { email: string; calendarId: string } | null {
   const match = compositeId.match(/^google:([^:]+):(.+)$/)
   if (!match) return null
@@ -150,7 +297,7 @@ export async function getAccessTokenForConnection(conn: GoogleConnection): Promi
 
 export async function getConnectionForCalendarId(
   compositeOrNativeId: string,
-  connections?: GoogleConnection[]
+  connections?: GoogleConnection[],
 ): Promise<{ conn: GoogleConnection; nativeCalendarId: string }> {
   const all = connections ?? (await listGoogleConnections())
   if (all.length === 0) throw new Error('לא הוגדר חיבור Google')

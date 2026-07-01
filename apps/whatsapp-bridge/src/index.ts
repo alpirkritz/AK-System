@@ -1,9 +1,9 @@
-import { config, assertSelfChatConfigured } from './config.js'
+import { config } from './config.js'
 import { createServer } from './server.js'
 import { startWhatsAppClient } from './whatsapp-client.js'
 
 async function main(): Promise<void> {
-  assertSelfChatConfigured()
+  // SELF_JID is auto-detected after QR pairing — never block HTTP/QR startup.
   console.log(`[whatsapp-bridge] Starting on port ${config.port}`)
   console.log(`[whatsapp-bridge] Auth state: ${config.authStatePath}`)
   console.log(`[whatsapp-bridge] Auto-reply: ${config.replyEnabled ? 'ON (self-chat only)' : 'OFF'}`)

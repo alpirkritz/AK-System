@@ -81,8 +81,13 @@ fi
 
 # ── 4. Build + start ──────────────────────────────────────────────────────────
 step "docker compose up -d --build"
+COMPOSE_PROFILES=""
+if [ -f "$ROOT_DIR/deploy/whatsapp-bridge.env" ] || [ "${ENABLE_WHATSAPP:-0}" = "1" ]; then
+  COMPOSE_PROFILES="--profile whatsapp"
+  echo "→ Including WhatsApp bridge profile"
+fi
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
-  "cd '$DEPLOY_PATH' && (docker compose -f '$COMPOSE_FILE' up -d --build || sudo docker compose -f '$COMPOSE_FILE' up -d --build) && (docker compose -f '$COMPOSE_FILE' ps || sudo docker compose -f '$COMPOSE_FILE' ps)"
+  "cd '$DEPLOY_PATH' && (docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build || sudo docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build) && (docker compose -f '$COMPOSE_FILE' ps || sudo docker compose -f '$COMPOSE_FILE' ps)"
 
 # ── 5. Health check ───────────────────────────────────────────────────────────
 step "Health check"

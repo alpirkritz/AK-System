@@ -251,8 +251,9 @@ function GoogleAccountsCard() {
       const messages: Record<string, string> = {
         no_refresh_token: 'Google לא החזיר refresh token — נסה שוב עם "הסרת גישה" מהחשבון ב-Google',
         insert_failed: 'שגיאה בשמירה ל-Supabase',
-        missing_supabase_config: 'חסרה הגדרת Supabase',
-        oauth_failed: 'שגיאת OAuth',
+        missing_supabase_config: 'חסרה הגדרת Supabase בשרת — פנה למנהל המערכת',
+        no_existing_user: 'לא נמצא חשבון — נסה שוב אחרי עדכון המערכת',
+        oauth_failed: 'שגיאת OAuth — ודא ש-redirect URI רשום ב-Google Cloud Console',
       }
       setOauthMsg(messages[err] || `שגיאת חיבור: ${err}`)
       window.history.replaceState({}, '', '/settings')

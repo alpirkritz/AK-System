@@ -9,6 +9,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     ...config,
     name: 'Helm',
     slug: 'helm',
+    owner: 'alpir',
     version: '1.0.0',
     orientation: 'default',
     icon: './assets/icon.png',
@@ -36,6 +37,13 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     },
     plugins: [
       'expo-router',
+      [
+        '@react-native-google-signin/google-signin',
+        {
+          iosUrlScheme:
+            'com.googleusercontent.apps.185057895621-r25eljj8fbj6mlnemu32mte4r9vd6kmo',
+        },
+      ],
       [
         'expo-notifications',
         {

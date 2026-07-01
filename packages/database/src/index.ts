@@ -203,6 +203,22 @@ const AGENT_TRIGGERS_TABLE = [
   )`,
 ]
 
+const GOOGLE_CONNECTIONS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS google_connections (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'default',
+    provider TEXT NOT NULL DEFAULT 'google',
+    calendar_email TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT NOT NULL,
+    token_expires_at TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_google_connections_email ON google_connections(calendar_email)`,
+]
+
 const VAT_ENTRIES_TABLE = [
   `CREATE TABLE IF NOT EXISTS vat_entries (
     id TEXT PRIMARY KEY,
@@ -298,6 +314,9 @@ export function getDb() {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of AGENT_TRIGGERS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of GOOGLE_CONNECTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })

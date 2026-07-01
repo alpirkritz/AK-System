@@ -26,16 +26,20 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
+  if (req.nextUrl.pathname === '/login') {
+    return NextResponse.next()
+  }
+
   const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, '')
   const callbackUrl = `${appOrigin}${req.nextUrl.pathname}${req.nextUrl.search}`
 
-  const signInUrl = new URL('/api/auth/signin', appOrigin)
+  const signInUrl = new URL('/login', appOrigin)
   signInUrl.searchParams.set('callbackUrl', callbackUrl)
   return NextResponse.redirect(signInUrl)
 }
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|login).*)',
   ],
 }

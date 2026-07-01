@@ -33,6 +33,54 @@ let lastError: string | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 /** Skip our own outbound replies (fromMe loop prevention). */
 const bridgeSentIds = new Set<string>()
+/** Content we recently sent — bot echoes often get new message IDs on @lid self-chat. */
+const recentOutboundText = new Map<string, number>()
+const RECENT_OUTBOUND_TTL_MS = 5 * 60 * 1000
+/** Brief pause after sending before accepting new inbound on the same JID. */
+let lastOutbound: { jid: string; at: number; textKey: string } | null = null
+const OUTBOUND_GUARD_MS = 45_000
+
+function normalizeTextKey(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 240).toLowerCase()
+}
+
+function pruneRecentOutbound(): void {
+  const cutoff = Date.now() - RECENT_OUTBOUND_TTL_MS
+  for (const [key, at] of recentOutboundText) {
+    if (at < cutoff) recentOutboundText.delete(key)
+  }
+}
+
+function markRecentOutbound(text: string): void {
+  pruneRecentOutbound()
+  const key = normalizeTextKey(text)
+  if (!key) return
+  recentOutboundText.set(key, Date.now())
+}
+
+function isRecentOutbound(text: string): boolean {
+  pruneRecentOutbound()
+  const key = normalizeTextKey(text)
+  if (!key) return false
+  if (recentOutboundText.has(key)) return true
+  // Prefix match — WhatsApp may truncate or normalize line breaks differently on echo.
+  for (const [sentKey] of recentOutboundText) {
+    if (key.length >= 40 && sentKey.startsWith(key.slice(0, 40))) return true
+    if (sentKey.length >= 40 && key.startsWith(sentKey.slice(0, 40))) return true
+  }
+  return false
+}
+
+function shouldSkipInboundEcho(remoteJid: string, text: string, fromMe: boolean): boolean {
+  if (isRecentOutbound(text)) return true
+  if (!lastOutbound) return false
+  if (lastOutbound.jid !== remoteJid) return false
+  if (Date.now() - lastOutbound.at > OUTBOUND_GUARD_MS) return false
+  if (fromMe) return true
+  const key = normalizeTextKey(text)
+  if (!key) return false
+  return key === lastOutbound.textKey || lastOutbound.textKey.startsWith(key.slice(0, 40))
+}
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
@@ -124,6 +172,11 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
   }
 
   if (!isSelfChatJid(remoteJid)) {
+    return
+  }
+
+  if (shouldSkipInboundEcho(remoteJid, text, !!msg.key.fromMe)) {
+    logger.info({ remoteJid, messageId }, 'Skipped inbound echo (loop prevention)')
     return
   }
 
@@ -247,6 +300,8 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
     throw new Error(`Blocked: outbound WhatsApp only allowed to self-chat, not ${jid}`)
   }
   const result = await sock.sendMessage(jid, { text: text.slice(0, 65000) })
+  markRecentOutbound(text)
+  lastOutbound = { jid, at: Date.now(), textKey: normalizeTextKey(text) }
   if (result?.key?.id) bridgeSentIds.add(result.key.id)
 }
 

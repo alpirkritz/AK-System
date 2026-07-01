@@ -24,8 +24,10 @@ export async function verifyGoogleIdToken(
     process.env.GOOGLE_ANDROID_CLIENT_ID,
   ]
     .flatMap((v) => (v ?? '').split(','))
+    .flatMap((v) => v.match(/[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com/gi) ?? [v.trim()])
     .map((v) => v.trim())
     .filter(Boolean)
+    .filter((id, i, arr) => arr.indexOf(id) === i)
 
   if (clientIds.length === 0) return null
 

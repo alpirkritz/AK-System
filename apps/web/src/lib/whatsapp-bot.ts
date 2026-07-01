@@ -97,6 +97,19 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
   const userText = payload.message.trim()
   if (!userText) return ''
 
+  // Ignore bot echo when the bridge delivers our own last reply as a new inbound event.
+  const recentHistory = await getAgentHistory(HUGO_AGENT_ID, 10)
+  const lastAssistant = [...recentHistory].reverse().find((m) => m.role === 'assistant')
+  if (lastAssistant) {
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+    const a = norm(lastAssistant.content)
+    const u = norm(userText)
+    if (a === u || (a.length >= 40 && u.length >= 40 && a.slice(0, 40) === u.slice(0, 40))) {
+      console.warn('[WhatsAppBot] Ignored echo of last assistant reply')
+      return ''
+    }
+  }
+
   console.log(`[WhatsAppBot] Hugo ← "${userText.slice(0, 80)}"`)
 
   try {
@@ -108,7 +121,7 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
       return list
     }
 
-    const history = (await getAgentHistory(HUGO_AGENT_ID, 10))
+    const history = recentHistory
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',

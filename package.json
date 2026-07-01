@@ -18,6 +18,8 @@
     "ci:local": "bash scripts/ci.sh",
     "ec2:up": "bash scripts/ec2-up.sh",
     "ec2:url": "bash scripts/ec2-show-url.sh",
+    "ec2:whatsapp": "bash scripts/ec2-whatsapp-setup.sh",
+    "ec2:whatsapp:pair": "bash scripts/ec2-whatsapp-pair.sh",
     "ec2:tunnel": "bash scripts/ec2-setup-named-tunnel.sh",
     "deploy:ec2": "bash scripts/deploy-ec2.sh",
     "test": "pnpm run pretest && pnpm --filter @ak-system/api run test",
@@ -34,6 +36,7 @@
     "mobile": "pnpm --filter @ak-system/mobile start",
     "mobile:android": "pnpm --filter @ak-system/mobile android",
     "mobile:apk": "bash scripts/helm-apk-eas.sh",
+    "mobile:apk:prod": "bash scripts/build-helm-apk-production.sh",
     "mobile:build:apk": "bash scripts/mobile-build-apk.sh",
     "pretest:e2e": "mkdir -p apps/web/data && (cd packages/database && DATABASE_PATH=../../apps/web/data/e2e.sqlite pnpm run push)"
   },
