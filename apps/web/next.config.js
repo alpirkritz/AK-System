@@ -17,12 +17,16 @@ const CACHE_DIR = path.join(os.tmpdir(), 'ak-system-webpack-cache')
 // Use custom distDir only for production build; dev uses default .next to avoid 404s on chunks
 const isDev = process.env.NODE_ENV !== 'production'
 
+// EC2/Docker deploy builds use default .next (copied to the server). Local Mac builds
+// still use /tmp when on Google Drive.
+const useDefaultDist = isDev || process.env.AK_DEPLOY_BUILD === '1'
+
 const nextConfig = {
   reactStrictMode: true,
   typescript: { ignoreBuildErrors: true },
   transpilePackages: ['@ak-system/types', '@ak-system/api', '@ak-system/database'],
   experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings', 'node-ical', 'next-auth', 'jose', '@cursor/sdk'] },
-  ...(isDev ? {} : { distDir: TMP_DIR }),
+  ...(useDefaultDist ? {} : { distDir: TMP_DIR }),
   webpack: (config, { isServer }) => {
     // Store webpack's persistent cache in /tmp.
     // Disable snapshot-based validation entirely – Google Drive returns

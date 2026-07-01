@@ -7,7 +7,15 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
 ]
 
-export function getGoogleCalendarAuthUrl(callbackUrl: string): string {
+export type GoogleCalendarAuthOptions = {
+  loginHint?: string
+  state?: string
+}
+
+export function getGoogleCalendarAuthUrl(
+  callbackUrl: string,
+  options: GoogleCalendarAuthOptions = {}
+): string {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
@@ -16,7 +24,10 @@ export function getGoogleCalendarAuthUrl(callbackUrl: string): string {
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
-    prompt: 'consent',
+    prompt: 'select_account consent',
+    include_granted_scopes: true,
+    login_hint: options.loginHint,
+    state: options.state,
   })
 }
 

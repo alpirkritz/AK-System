@@ -1,8 +1,36 @@
 # Cron Jobs (Production)
 
-AK System cron endpoints run scheduled tasks (morning briefing, task reminders, etc.). In production they must be triggered externally — Railway does not include a cron scheduler.
+AK System cron endpoints run scheduled tasks (morning briefing, task reminders, etc.). They need an external trigger. On EC2 the recommended approach is the instance's own `crontab` — no external CI/CD.
 
-## Option A: GitHub Actions (recommended, included in repo)
+## Option A: Server crontab on EC2 (recommended)
+
+Runs on the instance itself, calling the local web app. No GitHub Actions required.
+
+### Setup
+
+1. Deploy the app (see [ec2-production.md](./ec2-production.md)).
+2. Ensure `CRON_SECRET` is set in `deploy/production.env` (the generator creates one if missing).
+3. On the instance, install the crontab:
+
+```bash
+cd /opt/ak-system
+bash scripts/install-server-cron.sh   # uses http://127.0.0.1:3000 by default
+```
+
+The template is [`deploy/crontab.example`](../../deploy/crontab.example); the installer substitutes
+`CRON_SECRET` and the target URL. Verify with `crontab -l`.
+
+### Timezone
+
+Cron times in the template are UTC (Ubuntu default). To use local time:
+
+```bash
+sudo timedatectl set-timezone Asia/Jerusalem
+```
+
+Then adjust the hour-based jobs in `deploy/crontab.example` and re-run the installer.
+
+## Option B: GitHub Actions (legacy)
 
 Workflow: [`.github/workflows/cron.yml`](../../.github/workflows/cron.yml)
 
@@ -36,7 +64,7 @@ Adjust cron expressions in `.github/workflows/cron.yml` if your `TIMEZONE` diffe
 
 GitHub → **Actions** → **Production Cron** → **Run workflow**.
 
-## Option B: cron-job.org
+## Option C: cron-job.org
 
 1. Create account at [cron-job.org](https://cron-job.org)
 2. For each endpoint, create a job:

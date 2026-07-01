@@ -4,17 +4,38 @@
 
 ---
 
-## מסלול מומלץ: ענן + Helm APK
+## מסלול מומלץ: EC2 + Docker (פייפליין מקומי, ללא Railway / CI חיצוני)
+
+הבדיקות והבילד רצים לוקאלית על ה-Mac (`pnpm run ci:local`), והפריסה היא פקודת SSH אחת
+(`pnpm deploy:ec2`) ל-EC2 Free Tier. Cron רץ על השרת עצמו — אין תלות ב-GitHub Actions.
 
 | שלב | מסמך |
 |-----|------|
-| 1. Backend יציב (Railway) | [`docs/deploy/railway-production.md`](docs/deploy/railway-production.md) |
+| 1. Backend יציב (EC2 + Docker) | [`docs/deploy/ec2-production.md`](docs/deploy/ec2-production.md) |
 | 2. Google OAuth | [`docs/deploy/google-oauth-setup.md`](docs/deploy/google-oauth-setup.md) |
-| 3. Cron 24/7 (GitHub Actions) | [`docs/deploy/cron-setup.md`](docs/deploy/cron-setup.md) |
+| 3. Cron 24/7 (crontab על השרת) | [`docs/deploy/cron-setup.md`](docs/deploy/cron-setup.md) |
 | 4. APK לאנדרואיד (Helm) | [`docs/deploy/helm-apk-build.md`](docs/deploy/helm-apk-build.md) |
 | 5. WhatsApp 24/7 (אופציונלי) | [`docs/deploy/whatsapp-bridge-vm.md`](docs/deploy/whatsapp-bridge-vm.md) |
 
-תבנית env ל-Railway: [`deploy/railway.env.example`](deploy/railway.env.example)
+תבנית env ל-production: [`deploy/production.env.example`](deploy/production.env.example)
+
+**זרימה מהירה:**
+
+```bash
+# חד-פעמי על EC2 (דרך SSH):
+bash scripts/ec2-bootstrap.sh
+
+# חד-פעמי על Mac (AWS CLI מחובר):
+aws configure   # Access Key + region us-east-1
+pnpm ec2:up     # יוצר EC2 + מפריס + tunnel + cron
+
+מדריך מהיר: [`docs/deploy/ec2-quickstart.md`](docs/deploy/ec2-quickstart.md)
+
+# כל פריסה:
+pnpm deploy:ec2
+```
+
+> **Legacy — Railway:** הפריסה הישנה ל-Railway נשמרת לעיון ב-[`docs/deploy/railway-production.md`](docs/deploy/railway-production.md) (תבנית [`deploy/railway.env.example`](deploy/railway.env.example)). לא מומלצת יותר.
 
 ---
 
@@ -27,7 +48,9 @@
 
 ---
 
-## פריסה ל-Railway (מומלץ)
+## פריסה ל-Railway (legacy)
+
+> מסלול ישן — לא מומלץ יותר. השתמש ב-EC2 ([`docs/deploy/ec2-production.md`](docs/deploy/ec2-production.md)). נשמר לעיון בלבד.
 
 Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
 

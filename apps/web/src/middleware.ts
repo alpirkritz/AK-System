@@ -26,8 +26,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  const signInUrl = new URL('/api/auth/signin', req.nextUrl.origin)
-  signInUrl.searchParams.set('callbackUrl', req.url)
+  const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, '')
+  const callbackUrl = `${appOrigin}${req.nextUrl.pathname}${req.nextUrl.search}`
+
+  const signInUrl = new URL('/api/auth/signin', appOrigin)
+  signInUrl.searchParams.set('callbackUrl', callbackUrl)
   return NextResponse.redirect(signInUrl)
 }
 

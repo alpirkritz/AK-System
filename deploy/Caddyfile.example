@@ -1,0 +1,11 @@
+# Caddy reverse proxy for AK System on EC2 — automatic HTTPS via Let's Encrypt.
+# Copy to /etc/caddy/Caddyfile on the instance, replace the domain, then:
+#   sudo systemctl restart caddy
+#
+# Requires: a domain A record pointing at the instance's Elastic IP,
+# and Security Group inbound ports 80 + 443 open.
+
+your-domain.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}

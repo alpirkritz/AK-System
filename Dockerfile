@@ -14,12 +14,11 @@ RUN pnpm install --frozen-lockfile
 
 RUN pnpm --filter @ak-system/web build
 
-WORKDIR /app/apps/web
-
 EXPOSE 3000
 
 ENV DATABASE_PATH=/data/ak_system.sqlite
 ENV NODE_ENV=production
 ENV PORT=3000
 
-CMD ["pnpm", "start"]
+# Run db:push against the mounted volume, then start Next.js.
+CMD ["bash", "scripts/production-start.sh"]

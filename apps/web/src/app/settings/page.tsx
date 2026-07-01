@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 
 // ── localStorage keys (shared with ConflictsWidget and dashboard) ─────────────
@@ -225,6 +226,80 @@ function CalendarCheckboxList({
         )
       })}
     </div>
+  )
+}
+
+const PERSONAL_GOOGLE = 'alpirkritz@gmail.com'
+const DAZ_GOOGLE = 'alpir@daz.guru'
+
+function GoogleAccountsCard() {
+  const searchParams = useSearchParams()
+  const utils = trpc.useUtils()
+  const { data, isLoading, refetch } = trpc.calendar.googleAccounts.useQuery()
+  const [oauthMsg, setOauthMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    const connected = searchParams.get('google_connected')
+    const email = searchParams.get('email')
+    const err = searchParams.get('google_error')
+    if (connected) {
+      setOauthMsg(`חשבון ${email || 'Google'} חובר בהצלחה ✓`)
+      void utils.calendar.googleAccounts.invalidate()
+      void refetch()
+      window.history.replaceState({}, '', '/settings')
+    } else if (err) {
+      const messages: Record<string, string> = {
+        no_refresh_token: 'Google לא החזיר refresh token — נסה שוב עם "הסרת גישה" מהחשבון ב-Google',
+        insert_failed: 'שגיאה בשמירה ל-Supabase',
+        missing_supabase_config: 'חסרה הגדרת Supabase',
+        oauth_failed: 'שגיאת OAuth',
+      }
+      setOauthMsg(messages[err] || `שגיאת חיבור: ${err}`)
+      window.history.replaceState({}, '', '/settings')
+    }
+  }, [searchParams, refetch, utils.calendar.googleAccounts])
+
+  const connected = new Set((data?.accounts ?? []).map((a) => a.email.toLowerCase()))
+  const personalOk = connected.has(PERSONAL_GOOGLE)
+  const dazOk = connected.has(DAZ_GOOGLE)
+
+  return (
+    <Section
+      icon={<span className="text-base">📧</span>}
+      title="חשבונות Google"
+      description="יומן + Gmail — חבר קודם את החשבון האישי, אחר כך את דאז"
+    >
+      {oauthMsg && (
+        <div className="px-5 py-3 text-xs text-[#aaa] border-b border-[#1a1a1a]">{oauthMsg}</div>
+      )}
+      <Row label="אישי" description={PERSONAL_GOOGLE}>
+        {isLoading ? (
+          <span className="text-xs text-[#555]">טוען…</span>
+        ) : personalOk ? (
+          <span className="text-xs text-[#47b86e]">מחובר ✓</span>
+        ) : (
+          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(PERSONAL_GOOGLE)}`} className="btn btn-primary text-xs py-1.5 px-3">
+            חבר
+          </a>
+        )}
+      </Row>
+      <Row label="דאז" description={DAZ_GOOGLE}>
+        {isLoading ? (
+          <span className="text-xs text-[#555]">טוען…</span>
+        ) : dazOk ? (
+          <span className="text-xs text-[#47b86e]">מחובר ✓</span>
+        ) : (
+          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(DAZ_GOOGLE)}`} className="btn btn-ghost text-xs py-1.5 px-3">
+            חבר
+          </a>
+        )}
+      </Row>
+      <div className="px-5 py-3 text-xs text-[#555] leading-relaxed">
+        {connected.size === 0
+          ? 'אין חשבונות מחוברים — לחץ "חבר" ואשר גישה ליומן ול-Gmail.'
+          : `${connected.size} חשבון/ות מחוברים. אירועים ומיילים נאספים מכל החשבונות.`}
+      </div>
+    </Section>
   )
 }
 
@@ -493,6 +568,10 @@ export default function SettingsPage() {
         </div>
         <span className="text-[#25D366] text-lg">💬</span>
       </Link>
+
+      <Suspense fallback={null}>
+        <GoogleAccountsCard />
+      </Suspense>
 
       {/* ── Section: Notifications ───────────────────────────────────────────── */}
       <NotificationsCard />

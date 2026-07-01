@@ -1,11 +1,14 @@
-# Docker Compose — full stack on a single VPS (web + WhatsApp bridge).
-# For Railway-only web deploy, use docs/deploy/railway-production.md instead.
+# Docker Compose — single host (EC2 / VPS).
+# Web runs by default. The WhatsApp bridge is optional (heavy on a 1 GB Free Tier box):
+#   web only:        docker compose -f deploy/docker-compose.production.yml up -d --build
+#   with bridge:     docker compose -f deploy/docker-compose.production.yml --profile whatsapp up -d --build
+# See docs/deploy/ec2-production.md.
 
 services:
   web:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: deploy/Dockerfile.runtime
     ports:
       - '3000:3000'
     volumes:
@@ -14,12 +17,13 @@ services:
       - production.env
     environment:
       DATABASE_PATH: /data/ak_system.sqlite
+      ABC_ROOT: /app
       WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
-    depends_on:
-      - whatsapp-bridge
     restart: unless-stopped
 
   whatsapp-bridge:
+    profiles:
+      - whatsapp
     build:
       context: ..
       dockerfile: apps/whatsapp-bridge/Dockerfile

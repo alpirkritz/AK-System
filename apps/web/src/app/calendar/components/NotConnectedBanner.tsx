@@ -11,18 +11,16 @@ export default function NotConnectedBanner() {
             </svg>
           </div>
           <div>
-            <p className="font-semibold text-amber-200 mb-1.5 text-sm">יומן גוגל לא מחובר</p>
+            <p className="font-semibold text-amber-200 mb-1.5 text-sm">יומן Google לא מחובר</p>
             <p className="text-[#999] text-[13px] mb-3 leading-relaxed">
-              כדי להציג אירועים, חבר את חשבון Google שלך. ודא שקובץ{' '}
-              <code className="bg-black/30 px-1.5 py-0.5 rounded text-[12px] text-[#bbb]">
-                .env.local
-              </code>{' '}
-              מכיל:
+              חבר את חשבונות Google שלך (אישי ודאז) מהגדרות כדי לראות אירועים ולגשת ל-Gmail.
             </p>
-            <pre className="bg-black/40 p-3 rounded-lg text-xs overflow-x-auto text-left font-mono text-[#888] leading-relaxed border border-white/5">
-{`GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...`}
-            </pre>
+            <a
+              href="/settings"
+              className="btn btn-primary text-xs inline-flex"
+            >
+              לחיבור חשבונות →
+            </a>
           </div>
         </div>
       </div>

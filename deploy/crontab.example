@@ -1,0 +1,28 @@
+# AK System cron — runs on the EC2 instance (replaces .github/workflows/cron.yml).
+# Installed by scripts/install-server-cron.sh, which substitutes __CRON_SECRET__
+# and __APP_URL__ from deploy/production.env.
+#
+# Times are UTC (Ubuntu default). Israel = UTC+2 (winter) / UTC+3 (summer).
+# Adjust if your instance timezone differs (timedatectl set-timezone ...).
+SHELL=/bin/bash
+
+# Morning briefing — ~07:00 IST
+0 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/morning-briefing >/dev/null 2>&1
+
+# Daily meeting summary — ~20:00 IST
+0 17 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
+
+# Pre-meeting briefing — every 5 min
+*/5 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/pre-meeting-briefing >/dev/null 2>&1
+
+# Task reminder — every minute
+* * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/task-reminder >/dev/null 2>&1
+
+# Feed sync — every 6 hours
+0 */6 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/feed-sync >/dev/null 2>&1
+
+# WhatsApp group summary — every 15 min
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-summary >/dev/null 2>&1
+
+# ABC agent triggers — every 15 min
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/agent-triggers >/dev/null 2>&1

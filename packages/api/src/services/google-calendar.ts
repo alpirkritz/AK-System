@@ -1,151 +1,13 @@
 import { google, calendar_v3 } from 'googleapis'
-
-const FIVE_MIN_MS = 5 * 60 * 1000
-
-let cachedToken: { accessToken: string; expiryMs: number } | null = null
-let connectionSource: 'supabase' | 'env' | null = null
-let supabaseConnection: {
-  access_token: string
-  refresh_token: string
-  token_expires_at: string
-} | null = null
-
-function getEnv(name: string): string {
-  const v = process.env[name]
-  if (!v) throw new Error(`חסר משתנה סביבה: ${name}`)
-  return v
-}
-
-function hasEnvCredentials(): boolean {
-  return !!(
-    process.env.GOOGLE_CALENDAR_CLIENT_ID &&
-    process.env.GOOGLE_CALENDAR_CLIENT_SECRET &&
-    process.env.GOOGLE_CALENDAR_REFRESH_TOKEN
-  )
-}
-
-function getSupabaseUrl(): string | undefined {
-  return process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
-}
-
-function hasSupabaseCredentials(): boolean {
-  return !!(
-    getSupabaseUrl() &&
-    process.env.SUPABASE_SERVICE_ROLE_KEY &&
-    (process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID) &&
-    (process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET)
-  )
-}
-
-/** טוען חיבור גוגל קלנדר מ-Supabase (אותו פרויקט כמו ב-Personal_Assistant) */
-async function fetchConnectionFromSupabase(): Promise<{
-  access_token: string
-  refresh_token: string
-  token_expires_at: string
-} | null> {
-  const url = getSupabaseUrl()
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-
-  const params = new URLSearchParams({
-    provider: 'eq.google',
-    is_active: 'eq.true',
-    limit: '1',
-    select: 'access_token,refresh_token,token_expires_at',
-  })
-  const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/calendar_connections?${params}`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-  })
-  if (!res.ok) {
-    console.warn('[Google Calendar] Supabase fetch failed:', res.status)
-    return null
-  }
-  const data = await res.json()
-  const row = Array.isArray(data) ? data[0] : null
-  if (!row?.refresh_token) return null
-  return {
-    access_token: row.access_token || '',
-    refresh_token: row.refresh_token,
-    token_expires_at: row.token_expires_at || new Date(Date.now() + 3600000).toISOString(),
-  }
-}
-
-function isConfigured(): boolean {
-  return hasEnvCredentials() || hasSupabaseCredentials()
-}
-
-async function getConnection(): Promise<{
-  access_token: string
-  refresh_token: string
-  token_expires_at: string
-}> {
-  if (connectionSource === 'supabase' && supabaseConnection) {
-    return supabaseConnection
-  }
-  if (connectionSource === 'env') {
-    return {
-      access_token: process.env.GOOGLE_CALENDAR_ACCESS_TOKEN || '',
-      refresh_token: getEnv('GOOGLE_CALENDAR_REFRESH_TOKEN'),
-      token_expires_at:
-        process.env.GOOGLE_CALENDAR_TOKEN_EXPIRES_AT ||
-        new Date(Date.now() + 3600000).toISOString(),
-    }
-  }
-
-  if (hasSupabaseCredentials()) {
-    const conn = await fetchConnectionFromSupabase()
-    if (conn) {
-      connectionSource = 'supabase'
-      supabaseConnection = conn
-      return conn
-    }
-  }
-
-  if (hasEnvCredentials()) {
-    connectionSource = 'env'
-    return {
-      access_token: process.env.GOOGLE_CALENDAR_ACCESS_TOKEN || '',
-      refresh_token: getEnv('GOOGLE_CALENDAR_REFRESH_TOKEN'),
-      token_expires_at:
-        process.env.GOOGLE_CALENDAR_TOKEN_EXPIRES_AT ||
-        new Date(Date.now() + 3600000).toISOString(),
-    }
-  }
-
-  throw new Error('לא הוגדר חיבור ליומן גוגל (env או Supabase)')
-}
-
-async function getValidAccessToken(): Promise<string> {
-  const conn = await getConnection()
-  const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET
-  if (!clientId || !clientSecret) {
-    throw new Error('חסרים GOOGLE_CALENDAR_CLIENT_ID או GOOGLE_CALENDAR_CLIENT_SECRET')
-  }
-
-  const expiryMs = new Date(conn.token_expires_at).getTime()
-  if (cachedToken && Date.now() < cachedToken.expiryMs - FIVE_MIN_MS) {
-    return cachedToken.accessToken
-  }
-  if (conn.access_token && Date.now() < expiryMs - FIVE_MIN_MS) {
-    return conn.access_token
-  }
-
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret)
-  oauth2Client.setCredentials({ refresh_token: conn.refresh_token })
-
-  const { credentials } = await oauth2Client.refreshAccessToken()
-  const accessToken = credentials.access_token
-  if (!accessToken) throw new Error('לא התקבל access token מ-Google')
-
-  const newExpiryMs = credentials.expiry_date ?? Date.now() + 3600 * 1000
-  cachedToken = { accessToken, expiryMs: newExpiryMs }
-  return accessToken
-}
+import {
+  getAccessTokenForConnection,
+  getConnectionForCalendarId,
+  invalidateGoogleConnectionsCache,
+  isGoogleIntegrationConfigured,
+  listGoogleConnections,
+  makeGoogleCalendarId,
+  type GoogleConnection,
+} from './google-connections'
 
 export type RsvpStatus = 'accepted' | 'declined' | 'tentative' | 'needsAction'
 
@@ -173,12 +35,13 @@ export interface GoogleCalendarEvent {
   attendees?: GoogleCalendarAttendee[]
   /** "transparent" = הצגה כ"פנוי" ביומן (free), "opaque" = תפוס */
   transparency?: 'opaque' | 'transparent'
+  /** Google account that owns this event */
+  accountEmail?: string
 }
 
-/** מחזיר את רשימת כל היומנים של המשתמש */
-async function listCalendars(calendar: calendar_v3.Calendar): Promise<
-  Array<{ id: string; summary: string; backgroundColor?: string }>
-> {
+async function listCalendars(
+  calendar: calendar_v3.Calendar
+): Promise<Array<{ id: string; summary: string; backgroundColor?: string }>> {
   const res = await calendar.calendarList.list({ minAccessRole: 'reader' })
   return (res.data.items || [])
     .filter((c) => c.id && c.accessRole !== 'freeBusyReader')
@@ -189,7 +52,6 @@ async function listCalendars(calendar: calendar_v3.Calendar): Promise<
     }))
 }
 
-/** שואב אירועים מיומן בודד עם pagination */
 async function fetchEventsFromCalendar(
   calendar: calendar_v3.Calendar,
   calendarId: string,
@@ -216,86 +78,122 @@ async function fetchEventsFromCalendar(
   return events
 }
 
+function mapGoogleEvent(
+  e: calendar_v3.Schema$Event,
+  cal: { id: string; summary: string; backgroundColor?: string },
+  accountEmail: string
+): GoogleCalendarEvent | null {
+  if (!e.id) return null
+
+  let rsvp: RsvpStatus | undefined
+  if (e.attendees && e.attendees.length > 0) {
+    const me = e.attendees.find((a) => a.self)
+    if (me?.responseStatus) {
+      const rs = me.responseStatus as string
+      if (rs === 'accepted' || rs === 'declined' || rs === 'tentative' || rs === 'needsAction') {
+        rsvp = rs as RsvpStatus
+      }
+    }
+  } else {
+    rsvp = 'accepted'
+  }
+
+  return {
+    id: `${accountEmail}::${e.id}`,
+    title: e.summary || '(ללא כותרת)',
+    start: e.start?.dateTime || e.start?.date || new Date().toISOString(),
+    end: e.end?.dateTime || e.end?.date || new Date().toISOString(),
+    isAllDay: !e.start?.dateTime,
+    location: e.location ?? null,
+    description: e.description ?? null,
+    status: e.status ?? undefined,
+    rsvp,
+    calendarId: makeGoogleCalendarId(accountEmail, cal.id),
+    calendarName: `${cal.summary} (${accountEmail})`,
+    calendarColor: cal.backgroundColor,
+    htmlLink: e.htmlLink ?? null,
+    attendees: (e.attendees ?? [])
+      .map((a) => ({
+        email: a.email ?? '',
+        displayName: a.displayName ?? undefined,
+        self: a.self ?? undefined,
+        responseStatus: a.responseStatus ?? undefined,
+      }))
+      .filter((a) => a.email),
+    transparency: (e.transparency as 'opaque' | 'transparent') ?? 'opaque',
+    accountEmail,
+  }
+}
+
+async function fetchEventsForConnection(
+  conn: GoogleConnection,
+  timeMin: Date,
+  timeMax: Date
+): Promise<GoogleCalendarEvent[]> {
+  const accessToken = await getAccessTokenForConnection(conn)
+  const oauth2Client = new google.auth.OAuth2()
+  oauth2Client.setCredentials({ access_token: accessToken })
+  const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
+
+  const calendars = await listCalendars(calendarClient)
+  if (calendars.length === 0) {
+    calendars.push({ id: 'primary', summary: 'יומן ראשי' })
+  }
+
+  const results = await Promise.allSettled(
+    calendars.map((cal) =>
+      fetchEventsFromCalendar(calendarClient, cal.id, timeMin, timeMax).then((evs) =>
+        evs.map((e) => ({ event: e, cal }))
+      )
+    )
+  )
+
+  const events: GoogleCalendarEvent[] = []
+  const seenIds = new Set<string>()
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue
+    for (const { event: e, cal } of result.value) {
+      const mapped = mapGoogleEvent(e, cal, conn.calendarEmail)
+      if (!mapped) continue
+      if (seenIds.has(mapped.id)) continue
+      seenIds.add(mapped.id)
+      events.push(mapped)
+    }
+  }
+
+  return events
+}
+
 export async function fetchGoogleCalendarEvents(
   timeMin: Date,
   timeMax: Date
 ): Promise<GoogleCalendarEvent[]> {
-  if (!isConfigured()) return []
+  if (!isGoogleIntegrationConfigured()) return []
 
   try {
-    const accessToken = await getValidAccessToken()
-    const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({ access_token: accessToken })
-    const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
+    const connections = await listGoogleConnections()
+    if (connections.length === 0) return []
 
-    // שלב 1: רשימת כל היומנים
-    const calendars = await listCalendars(calendarClient)
-    if (calendars.length === 0) {
-      // fallback ליומן ראשי אם listCalendars כשל
-      calendars.push({ id: 'primary', summary: 'יומן ראשי' })
-    }
-
-    // שלב 2: שאיבה מקבילה מכל היומנים
     const results = await Promise.allSettled(
-      calendars.map((cal) =>
-        fetchEventsFromCalendar(calendarClient, cal.id, timeMin, timeMax).then((evs) =>
-          evs.map((e) => ({ event: e, cal }))
-        )
-      )
+      connections.map((conn) => fetchEventsForConnection(conn, timeMin, timeMax))
     )
 
-    const seenIds = new Set<string>()
     const allEvents: GoogleCalendarEvent[] = []
+    const seenIds = new Set<string>()
 
     for (const result of results) {
-      if (result.status !== 'fulfilled') continue
-      for (const { event: e, cal } of result.value) {
-        if (!e.id) continue
-        // מניעת כפילויות (אותו אירוע יכול להופיע ביומנים משותפים)
-        if (seenIds.has(e.id)) continue
-        seenIds.add(e.id)
-
-        // Extract current user's RSVP from attendees (self:true attendee)
-        let rsvp: RsvpStatus | undefined
-        if (e.attendees && e.attendees.length > 0) {
-          const me = e.attendees.find((a) => a.self)
-          if (me?.responseStatus) {
-            const rs = me.responseStatus as string
-            if (rs === 'accepted' || rs === 'declined' || rs === 'tentative' || rs === 'needsAction') {
-              rsvp = rs as RsvpStatus
-            }
-          }
-        } else {
-          // No attendees = personal event = implicitly accepted
-          rsvp = 'accepted'
-        }
-
-        allEvents.push({
-          id: e.id,
-          title: e.summary || '(ללא כותרת)',
-          start: e.start?.dateTime || e.start?.date || new Date().toISOString(),
-          end: e.end?.dateTime || e.end?.date || new Date().toISOString(),
-          isAllDay: !e.start?.dateTime,
-          location: e.location ?? null,
-          description: e.description ?? null,
-          status: e.status ?? undefined,
-          rsvp,
-          calendarId: cal.id,
-          calendarName: cal.summary,
-          calendarColor: cal.backgroundColor,
-          htmlLink: e.htmlLink ?? null,
-          attendees: (e.attendees ?? []).map((a) => ({
-            email: a.email ?? '',
-            displayName: a.displayName ?? undefined,
-            self: a.self ?? undefined,
-            responseStatus: a.responseStatus ?? undefined,
-          })).filter((a) => a.email),
-          transparency: (e.transparency as 'opaque' | 'transparent') ?? 'opaque',
-        })
+      if (result.status === 'rejected') {
+        console.warn('[Google Calendar] account fetch error:', result.reason)
+        continue
+      }
+      for (const ev of result.value) {
+        if (seenIds.has(ev.id)) continue
+        seenIds.add(ev.id)
+        allEvents.push(ev)
       }
     }
 
-    // מיון לפי שעת התחלה
     allEvents.sort((a, b) => a.start.localeCompare(b.start))
     return allEvents
   } catch (err) {
@@ -305,32 +203,39 @@ export async function fetchGoogleCalendarEvents(
 }
 
 export function isGoogleCalendarConfigured(): boolean {
-  return isConfigured()
+  return isGoogleIntegrationConfigured()
 }
 
-/** Clears token and connection cache so the next fetch uses fresh credentials and pulls full data from Google. */
 export function invalidateGoogleCalendarCache(): void {
-  cachedToken = null
-  connectionSource = null
-  supabaseConnection = null
+  invalidateGoogleConnectionsCache()
 }
 
 /** דוחה אירוע ביומן גוגל (מעדכן תגובת המשתמש ל-declined) */
 export async function declineGoogleEvent(eventId: string, calendarId: string): Promise<void> {
-  const accessToken = await getValidAccessToken()
+  const connections = await listGoogleConnections()
+  const { conn, nativeCalendarId } = await getConnectionForCalendarId(calendarId, connections)
+
+  const nativeEventId = eventId.includes('::') ? eventId.split('::').slice(1).join('::') : eventId
+
+  const accessToken = await getAccessTokenForConnection(conn)
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({ access_token: accessToken })
   const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
 
-  const eventRes = await calendarClient.events.get({ calendarId, eventId })
+  const eventRes = await calendarClient.events.get({
+    calendarId: nativeCalendarId,
+    eventId: nativeEventId,
+  })
   const event = eventRes.data
   const attendees = (event.attendees || []).map((a) =>
     a.self ? { ...a, responseStatus: 'declined' } : a
   )
 
   await calendarClient.events.patch({
-    calendarId,
-    eventId,
+    calendarId: nativeCalendarId,
+    eventId: nativeEventId,
     requestBody: { attendees },
   })
 }
+
+export { listGoogleConnections }

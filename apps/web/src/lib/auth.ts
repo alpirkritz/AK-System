@@ -22,6 +22,7 @@ const allowedEmails = (process.env.ALLOWED_EMAILS ?? '')
   .filter(Boolean)
 
 export const authOptions: NextAuthOptions = {
+  trustHost: true,
   providers: hasGoogleCreds
     ? [
         GoogleProvider({
@@ -31,9 +32,6 @@ export const authOptions: NextAuthOptions = {
       ]
     : [],
   secret,
-  pages: {
-    signIn: '/api/auth/signin',
-  },
   callbacks: {
     signIn({ user }) {
       if (allowedEmails.length === 0) return true

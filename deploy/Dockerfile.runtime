@@ -1,0 +1,39 @@
+# Runtime-only image — Next.js is built on the Mac before deploy (avoids OOM on 1 GB EC2).
+# Requires: pnpm build run locally; deploy script rsyncs apps/web/.next
+
+FROM node:20-bookworm-slim
+
+RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json ./apps/web/
+COPY packages/api/package.json ./packages/api/
+COPY packages/database/package.json ./packages/database/
+COPY packages/types/package.json ./packages/types/
+
+RUN pnpm install --frozen-lockfile
+
+COPY packages ./packages
+COPY apps/web ./apps/web
+COPY A_Agents ./A_Agents
+COPY S_Skills ./S_Skills
+COPY C_Core ./C_Core
+COPY B_Brain ./B_Brain
+COPY M_Memory ./M_Memory
+COPY O_Output ./O_Output
+COPY scripts/production-start.sh scripts/db-push.sh ./scripts/
+RUN chmod +x scripts/production-start.sh scripts/db-push.sh
+
+# .next must be present (built on Mac before docker build on EC2)
+RUN test -d apps/web/.next || (echo "✗  apps/web/.next missing — run pnpm build on Mac first" && exit 1)
+
+EXPOSE 3000
+
+ENV DATABASE_PATH=/data/ak_system.sqlite
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV AK_DEPLOY_BUILD=1
+
+CMD ["bash", "scripts/production-start.sh"]

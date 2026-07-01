@@ -5,6 +5,7 @@ import {
   isGoogleCalendarConfigured,
   declineGoogleEvent,
   GoogleCalendarEvent,
+  listGoogleConnections,
 } from '../services/google-calendar'
 import {
   fetchAppleCalendarEvents,
@@ -74,6 +75,16 @@ async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> 
 }
 
 export const calendarRouter = router({
+  googleAccounts: protectedProcedure.query(async () => {
+    const connections = await listGoogleConnections()
+    return {
+      accounts: connections.map((c) => ({
+        email: c.calendarEmail,
+        isActive: true,
+      })),
+    }
+  }),
+
   isConnected: protectedProcedure.query(() => {
     if (!cacheWarmed && isAppleCalendarAvailable()) {
       cacheWarmed = true

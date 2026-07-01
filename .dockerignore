@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules
 **/.next
+!apps/web/.next
 **/dist
 **/.pnpm-store
 
@@ -19,6 +20,18 @@ apps/web/data
 .cursor
 *.md
 !DEPLOY.md
+!A_Agents/
+!A_Agents/**
+!S_Skills/
+!S_Skills/**
+!C_Core/
+!C_Core/**
+!B_Brain/
+!B_Brain/**
+!M_Memory/
+!M_Memory/**
+!O_Output/
+!O_Output/**
 
 # Tests and tooling
 **/e2e
@@ -28,7 +41,9 @@ apps/web/data
 **/*.spec.ts
 **/__tests__
 **/test-data
-scripts
+scripts/*
+!scripts/production-start.sh
+!scripts/db-push.sh
 capture-screenshots.mjs
 
 # Misc
