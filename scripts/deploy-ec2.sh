@@ -36,6 +36,12 @@ REMOTE="${DEPLOY_USER}@${DEPLOY_HOST}"
 
 step() { echo ""; echo "━━ $* ━━"; }
 
+# ── 0. SSH access (IP may have changed since last provision) ─────────────────
+if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+  step "Ensure SSH access from this IP"
+  bash "$SCRIPT_DIR/ec2-ensure-ssh-access.sh"
+fi
+
 # ── 1. Local CI gate ──────────────────────────────────────────────────────────
 if [ "${SKIP_CI:-0}" != "1" ]; then
   step "Local CI (set SKIP_CI=1 to skip)"
@@ -48,6 +54,9 @@ elif [ "${SKIP_LOCAL_BUILD:-0}" != "1" ]; then
     source "$ROOT_DIR/deploy/production.env"
     set +a
     echo "→ Building with NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-unset}"
+    # ABC_ROOT=/app is for the container only — unset so Next.js build does not bake
+    # empty /api/agents static output when /app/A_Agents is missing on the Mac.
+    unset ABC_ROOT
   fi
   AK_DEPLOY_BUILD=1 pnpm build
 fi
@@ -79,6 +88,13 @@ else
   echo "⚠  deploy/production.env not found locally — assuming it already exists on the server."
 fi
 
+# Keep WhatsApp bridge webhook aligned with the public app URL (tunnel may have changed).
+if [ -f "$ROOT_DIR/deploy/whatsapp-bridge.env" ]; then
+  step "Sync WhatsApp bridge webhook URL"
+  bash "$SCRIPT_DIR/sync-bridge-webhook-url.sh"
+  scp "${SSH_OPTS[@]}" "$ROOT_DIR/deploy/whatsapp-bridge.env" "${REMOTE}:${DEPLOY_PATH}/deploy/whatsapp-bridge.env"
+fi
+
 # ── 4. Build + start ──────────────────────────────────────────────────────────
 step "docker compose up -d --build"
 COMPOSE_PROFILES=""
@@ -104,6 +120,17 @@ else
   else
     echo "⚠  web not responding on 127.0.0.1:3000 yet. Check: docker compose -f $COMPOSE_FILE logs web"
   fi
+fi
+
+# ── 6. Re-sync WhatsApp group rules to the bridge ─────────────────────────────
+# The bridge holds its watch config in memory + a persisted file; re-push from the
+# DB (source of truth) so a fresh container/volume is guaranteed to match. Non-fatal.
+if [ -n "$COMPOSE_PROFILES" ]; then
+  step "Re-sync WhatsApp group rules → bridge"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "cd '$DEPLOY_PATH' && \
+    SECRET=\$(grep '^CRON_SECRET=' deploy/production.env 2>/dev/null | cut -d= -f2- | tr -d '\"') && \
+    sleep 10 && \
+    curl -sf -X POST -H \"Authorization: Bearer \$SECRET\" http://127.0.0.1:3000/api/whatsapp/sync-bridge && echo ' ✓ synced' || echo '⚠  bridge re-sync deferred (retry from Settings → סנכרן כללים)'" || true
 fi
 
 echo ""

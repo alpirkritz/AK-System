@@ -85,6 +85,7 @@ https://ak.yourdomain.com/api/auth/callback/google
 # אחרי שינוי URL:
 ssh ... 'cd /opt/ak-system && bash scripts/ec2-sync-tunnel-url.sh'
 # ואז rebuild+deploy מהמק עם APP_URL החדש
+# (ec2-sync-tunnel-url מעדכן גם AK_WEBHOOK_URL ב-whatsapp-bridge.env)
 ```
 
 ---

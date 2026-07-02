@@ -40,6 +40,9 @@ export interface BridgeStatus {
   selfJid: string
   qrAvailable: boolean
   lastError: string | null
+  akWebhookConfigured?: boolean
+  akWebhookHost?: string
+  replyEnabled?: boolean
 }
 
 export interface GroupRulePayload {
@@ -69,6 +72,13 @@ export async function getBridgeStatus(): Promise<BridgeStatus> {
   const { ok, data } = await bridgeFetch<BridgeStatus>('/status')
   if (!ok) throw new Error('Failed to fetch bridge status')
   return data
+}
+
+/** JIDs currently watched by the bridge (in-memory watch list). Used for drift detection. */
+export async function getBridgeWatchedGroups(): Promise<string[]> {
+  const { ok, data } = await bridgeFetch<{ watchList?: string[] }>('/groups')
+  if (!ok) throw new Error('Failed to fetch bridge groups')
+  return data.watchList ?? []
 }
 
 export async function pushConfigToBridge(groups: GroupRulePayload[]): Promise<void> {

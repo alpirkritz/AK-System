@@ -18,6 +18,13 @@ export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
 export { getGoogleCalendarAuthUrl, exchangeGoogleCalendarCode } from './google-calendar-auth'
 export { upsertGoogleCalendarConnection } from './services/google-connections'
+export {
+  pushConfigToBridge,
+  isBridgeConfigured,
+  getBridgeStatus,
+  getBridgeWatchedGroups,
+  type GroupRulePayload,
+} from './services/whatsapp-bridge-client'
 
 export const appRouter = router({
   people: peopleRouter,

@@ -42,10 +42,25 @@ set_var() {
 set_var NEXT_PUBLIC_APP_URL "$TUNNEL_URL"
 set_var NEXTAUTH_URL "$TUNNEL_URL"
 
+BRIDGE_ENV="$ROOT_DIR/deploy/whatsapp-bridge.env"
+if [ -f "$BRIDGE_ENV" ]; then
+  set_bridge_var() {
+    local key="$1" val="$2"
+    if grep -q "^${key}=" "$BRIDGE_ENV"; then
+      sed -i "s|^${key}=.*|${key}=${val}|" "$BRIDGE_ENV"
+    else
+      echo "${key}=${val}" >> "$BRIDGE_ENV"
+    fi
+  }
+  set_bridge_var AK_WEBHOOK_URL "${TUNNEL_URL}/api/whatsapp/webhook"
+  set_bridge_var AK_GROUP_SUMMARY_URL "${TUNNEL_URL}/api/whatsapp/group-summary"
+  echo "✓  Updated $BRIDGE_ENV webhook URLs"
+fi
+
 echo "✓  Updated $ENV_FILE → $TUNNEL_URL"
 echo ""
-echo "Restart web container:"
-echo "  cd $ROOT_DIR && docker compose -f deploy/docker-compose.production.yml up -d"
+echo "Restart web + whatsapp-bridge containers:"
+echo "  cd $ROOT_DIR && docker compose -f deploy/docker-compose.production.yml --profile whatsapp up -d"
 echo ""
 echo "Google OAuth redirect URI:"
 echo "  ${TUNNEL_URL}/api/auth/callback/google"

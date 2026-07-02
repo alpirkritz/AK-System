@@ -6,6 +6,43 @@ import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 import { sendBrowserPush } from './web-push'
 import { sendExpoPush } from './expo-push'
 import { createNotification } from './notification-store'
+import { chatMessages, getDb, desc, eq } from '@ak-system/database'
+
+function normalizeEchoText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function isEchoContent(inbound: string, outbound: string): boolean {
+  const a = normalizeEchoText(outbound)
+  const u = normalizeEchoText(inbound)
+  if (!a || !u) return false
+  if (a === u) return true
+  if (a.length >= 40 && u.length >= 40 && a.slice(0, 40) === u.slice(0, 40)) return true
+  // WhatsApp may deliver a truncated echo of a longer outbound message.
+  if (u.length >= 40 && a.startsWith(u.slice(0, 40))) return true
+  if (a.length >= 40 && u.startsWith(a.slice(0, 40))) return true
+  return false
+}
+
+async function isEchoOfRecentOutbound(userText: string): Promise<boolean> {
+  const recentHistory = await getAgentHistory(HUGO_AGENT_ID, 15)
+  for (const m of [...recentHistory].reverse()) {
+    if (m.role === 'assistant' && isEchoContent(userText, m.content)) return true
+  }
+
+  const db = getDb()
+  const recentChat = await db
+    .select()
+    .from(chatMessages)
+    .where(eq(chatMessages.role, 'assistant'))
+    .orderBy(desc(chatMessages.createdAt))
+    .limit(20)
+  for (const m of recentChat) {
+    if (isEchoContent(userText, m.content)) return true
+  }
+
+  return false
+}
 
 function pushExcerpt(text: string, max = 240): string {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -97,17 +134,10 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
   const userText = payload.message.trim()
   if (!userText) return ''
 
-  // Ignore bot echo when the bridge delivers our own last reply as a new inbound event.
-  const recentHistory = await getAgentHistory(HUGO_AGENT_ID, 10)
-  const lastAssistant = [...recentHistory].reverse().find((m) => m.role === 'assistant')
-  if (lastAssistant) {
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
-    const a = norm(lastAssistant.content)
-    const u = norm(userText)
-    if (a === u || (a.length >= 40 && u.length >= 40 && a.slice(0, 40) === u.slice(0, 40))) {
-      console.warn('[WhatsAppBot] Ignored echo of last assistant reply')
-      return ''
-    }
+  // Ignore bot echo — compare against recent assistant output (agent + chat store).
+  if (await isEchoOfRecentOutbound(userText)) {
+    console.warn('[WhatsAppBot] Ignored echo of recent assistant reply')
+    return ''
   }
 
   console.log(`[WhatsAppBot] Hugo ← "${userText.slice(0, 80)}"`)
@@ -121,6 +151,7 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
       return list
     }
 
+    const recentHistory = await getAgentHistory(HUGO_AGENT_ID, 10)
     const history = recentHistory
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({

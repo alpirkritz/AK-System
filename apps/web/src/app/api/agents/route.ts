@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getAgentEngine, listAgents } from '@/lib/abc-agents'
 
+// Reads A_Agents/*.md from disk — must not be statically generated at build time
+// (deploy build may set ABC_ROOT=/app which does not exist on the Mac builder).
+export const dynamic = 'force-dynamic'
+
 export async function GET(): Promise<NextResponse> {
   try {
     const agents = listAgents()

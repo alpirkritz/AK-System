@@ -23,6 +23,9 @@ export interface BridgeStatus {
   selfJid: string
   qrAvailable: boolean
   lastError: string | null
+  akWebhookConfigured: boolean
+  akWebhookHost: string
+  replyEnabled: boolean
 }
 
 let sock: WASocket | null = null
@@ -39,6 +42,46 @@ const RECENT_OUTBOUND_TTL_MS = 5 * 60 * 1000
 /** Brief pause after sending before accepting new inbound on the same JID. */
 let lastOutbound: { jid: string; at: number; textKey: string } | null = null
 const OUTBOUND_GUARD_MS = 45_000
+/** Dedupe message IDs — append/history sync can replay old self-chat bot replies. */
+const processedInboundIds = new Map<string, number>()
+const PROCESSED_INBOUND_TTL_MS = 24 * 60 * 60 * 1000
+const PROCESSED_INBOUND_MAX = 2000
+/** Only process live self-chat notifications; ignore stale history replays. */
+const SELF_CHAT_MAX_AGE_MS = 3 * 60 * 1000
+
+function isSameSelfChatJid(a: string, b: string): boolean {
+  if (a === b) return true
+  return isSelfChatJid(a) && isSelfChatJid(b)
+}
+
+function pruneProcessedInboundIds(): void {
+  const cutoff = Date.now() - PROCESSED_INBOUND_TTL_MS
+  for (const [id, at] of processedInboundIds) {
+    if (at < cutoff) processedInboundIds.delete(id)
+  }
+  while (processedInboundIds.size > PROCESSED_INBOUND_MAX) {
+    const oldest = processedInboundIds.keys().next().value
+    if (!oldest) break
+    processedInboundIds.delete(oldest)
+  }
+}
+
+function markInboundProcessed(messageId: string): void {
+  pruneProcessedInboundIds()
+  processedInboundIds.set(messageId, Date.now())
+}
+
+function wasInboundProcessed(messageId: string): boolean {
+  pruneProcessedInboundIds()
+  return processedInboundIds.has(messageId)
+}
+
+function messageAgeMs(msg: proto.IWebMessageInfo): number | null {
+  const raw = Number(msg.messageTimestamp)
+  if (!Number.isFinite(raw) || raw <= 0) return null
+  const ms = raw < 1e12 ? raw * 1000 : raw
+  return Date.now() - ms
+}
 
 function normalizeTextKey(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 240).toLowerCase()
@@ -74,7 +117,7 @@ function isRecentOutbound(text: string): boolean {
 function shouldSkipInboundEcho(remoteJid: string, text: string, fromMe: boolean): boolean {
   if (isRecentOutbound(text)) return true
   if (!lastOutbound) return false
-  if (lastOutbound.jid !== remoteJid) return false
+  if (!isSameSelfChatJid(lastOutbound.jid, remoteJid)) return false
   if (Date.now() - lastOutbound.at > OUTBOUND_GUARD_MS) return false
   if (fromMe) return true
   const key = normalizeTextKey(text)
@@ -143,10 +186,16 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
 
   const messageId = msg.key.id || String(Date.now())
 
+  if (wasInboundProcessed(messageId)) {
+    logger.info({ remoteJid, messageId }, 'Skipped duplicate inbound message')
+    return
+  }
+
   // Message Yourself arrives as fromMe when sent from the phone — must allow in self-chat only
   if (msg.key.fromMe) {
     if (bridgeSentIds.has(messageId)) {
       bridgeSentIds.delete(messageId)
+      markInboundProcessed(messageId)
       return
     }
     if (!isSelfChatJid(remoteJid)) return
@@ -175,11 +224,20 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
     return
   }
 
-  if (shouldSkipInboundEcho(remoteJid, text, !!msg.key.fromMe)) {
-    logger.info({ remoteJid, messageId }, 'Skipped inbound echo (loop prevention)')
+  const ageMs = messageAgeMs(msg)
+  if (ageMs != null && ageMs > SELF_CHAT_MAX_AGE_MS) {
+    logger.info({ remoteJid, messageId, ageMs }, 'Skipped stale self-chat message (history sync)')
+    markInboundProcessed(messageId)
     return
   }
 
+  if (shouldSkipInboundEcho(remoteJid, text, !!msg.key.fromMe)) {
+    logger.info({ remoteJid, messageId }, 'Skipped inbound echo (loop prevention)')
+    markInboundProcessed(messageId)
+    return
+  }
+
+  markInboundProcessed(messageId)
   logger.info({ remoteJid, text: text.slice(0, 80) }, 'Inbound self-chat message')
 
   try {
@@ -268,6 +326,9 @@ export async function startWhatsAppClient(): Promise<void> {
   socket.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify' && type !== 'append') return
     for (const msg of messages) {
+      const isGroup = msg.key.remoteJid?.endsWith('@g.us')
+      // Self-chat: only live notifications — append replays old bot replies and causes loops.
+      if (!isGroup && type !== 'notify') continue
       try {
         await handleInboundMessage(msg)
       } catch (err) {
@@ -278,11 +339,22 @@ export async function startWhatsAppClient(): Promise<void> {
 }
 
 export function getStatus(): BridgeStatus {
+  let akWebhookHost = ''
+  if (config.akWebhookUrl) {
+    try {
+      akWebhookHost = new URL(config.akWebhookUrl).host
+    } catch {
+      akWebhookHost = config.akWebhookUrl
+    }
+  }
   return {
     connected,
     selfJid: config.selfJid,
     qrAvailable: !!currentQr,
     lastError,
+    akWebhookConfigured: !!config.akWebhookUrl,
+    akWebhookHost,
+    replyEnabled: config.replyEnabled,
   }
 }
 

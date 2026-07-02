@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { db, whatsappGroups, whatsappLabels } from '@ak-system/database'
+import { getDb, whatsappGroups, whatsappLabels } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
 
 function parseJsonArray(raw: string | null | undefined): string[] {
@@ -56,6 +56,7 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
   const timezone = process.env.TIMEZONE || 'Asia/Jerusalem'
   const slot = currentTimeInTimezone(timezone)
 
+  const db = getDb()
   const rows = await db
     .select({ group: whatsappGroups, label: whatsappLabels })
     .from(whatsappGroups)

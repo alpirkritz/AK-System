@@ -526,6 +526,23 @@ export default function WhatsAppSettingsPage() {
               {connection.selfJid && (
                 <div className="text-[11px] text-[#555] font-mono">Self JID: {connection.selfJid}</div>
               )}
+              {'akWebhookConfigured' in connection && (
+                <div className="text-sm text-[#aaa]">
+                  Webhook ל-AK:{' '}
+                  {connection.akWebhookConfigured ? (
+                    <span className="text-[#47b86e]">
+                      מוגדר ({connection.akWebhookHost || '—'})
+                      {!connection.replyEnabled && (
+                        <span className="text-[#e8c547]"> — REPLY_ENABLED כבוי ב-bridge</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-red-400">
+                      לא מוגדר — עדכן AK_WEBHOOK_URL ב-deploy/whatsapp-bridge.env ופרוס מחדש
+                    </span>
+                  )}
+                </div>
+              )}
               {connection.lastError && (
                 <div className="text-xs text-red-400">{connection.lastError}</div>
               )}
