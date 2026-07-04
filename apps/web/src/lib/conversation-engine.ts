@@ -707,7 +707,7 @@ export async function executeTool(
     }
 
     case 'sync_calendar': {
-      const endDate = addDays(today, 7).toISOString().split('T')[0]
+      const endDate = addDays(today, 60).toISOString().split('T')[0]
       const result = await caller.meetings.syncFromCalendar({
         startDate: todayStr,
         endDate,
