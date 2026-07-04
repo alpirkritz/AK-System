@@ -6,6 +6,7 @@ import {
   declineGoogleEvent,
   GoogleCalendarEvent,
   listGoogleConnections,
+  hasGoogleCalendarConnections,
 } from '../services/google-calendar'
 import {
   fetchAppleCalendarEvents,
@@ -13,15 +14,10 @@ import {
   warmAppleCalendarCache,
   AppleCalendarEvent,
 } from '../services/apple-calendar'
-import {
-  fetchICSCalendarEvents,
-  isICSCalendarConfigured,
-  ICSCalendarEvent,
-} from '../services/ics-calendar'
 
 let cacheWarmed = false
 
-type CalendarEvent = GoogleCalendarEvent | AppleCalendarEvent | ICSCalendarEvent
+type CalendarEvent = GoogleCalendarEvent | AppleCalendarEvent
 
 export interface ConflictPair {
   eventA: CalendarEvent
@@ -35,39 +31,43 @@ const rangeInput = z.object({
   endDate: z.string(),
 })
 
-/** Merges events from all sources and removes duplicates by id */
+/** Merges events from all sources; dedupes by id and by title+start (Google wins over Apple). */
 function mergeAndDedupe(events: CalendarEvent[]): CalendarEvent[] {
-  const seen = new Set<string>()
-  return events.filter((ev) => {
-    if (seen.has(ev.id)) return false
-    seen.add(ev.id)
+  const bySlot = new Map<string, CalendarEvent>()
+  for (const ev of events) {
+    const slotKey = `${ev.title}|${ev.start.slice(0, 16)}`
+    const isApple = 'source' in ev && (ev as AppleCalendarEvent).source === 'apple'
+    const existing = bySlot.get(slotKey)
+    if (!existing) {
+      bySlot.set(slotKey, ev)
+    } else if (!isApple) {
+      bySlot.set(slotKey, ev)
+    }
+  }
+  const seenIds = new Set<string>()
+  return [...bySlot.values()].filter((ev) => {
+    if (seenIds.has(ev.id)) return false
+    seenIds.add(ev.id)
     return true
   })
 }
 
 async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
-  const [googleResult, appleResult, icsResult] = await Promise.allSettled([
+  const [googleResult, appleResult] = await Promise.allSettled([
     isGoogleCalendarConfigured()
       ? fetchGoogleCalendarEvents(start, end)
       : Promise.resolve([] as GoogleCalendarEvent[]),
     fetchAppleCalendarEvents(start, end),
-    isICSCalendarConfigured()
-      ? fetchICSCalendarEvents(start, end)
-      : Promise.resolve([] as ICSCalendarEvent[]),
   ])
 
   const google = googleResult.status === 'fulfilled' ? googleResult.value : []
   const apple = appleResult.status === 'fulfilled' ? appleResult.value : []
-  const ics = icsResult.status === 'fulfilled' ? icsResult.value : []
 
   if (appleResult.status === 'rejected') {
     console.warn('[Calendar Router] Apple fetch error:', appleResult.reason)
   }
-  if (icsResult.status === 'rejected') {
-    console.warn('[Calendar Router] ICS fetch error:', icsResult.reason)
-  }
 
-  const all = [...google, ...apple, ...ics]
+  const all = [...google, ...apple]
   all.sort((a, b) => a.start.localeCompare(b.start))
   // סנן אירועי "פנוי" (transparency: transparent) — אלו הצגות ביומן אחר שאינן חוסמות זמן
   const filtered = all.filter((e) => (e as GoogleCalendarEvent).transparency !== 'transparent')
@@ -85,13 +85,15 @@ export const calendarRouter = router({
     }
   }),
 
-  isConnected: protectedProcedure.query(() => {
+  isConnected: protectedProcedure.query(async () => {
     if (!cacheWarmed && isAppleCalendarAvailable()) {
       cacheWarmed = true
       // fire-and-forget – non-blocking; no dynamic import (static import above)
       try { warmAppleCalendarCache() } catch (_) { /* ignore */ }
     }
-    return isGoogleCalendarConfigured() || isAppleCalendarAvailable() || isICSCalendarConfigured()
+    const googleConnected =
+      isGoogleCalendarConfigured() && (await hasGoogleCalendarConnections())
+    return googleConnected || isAppleCalendarAvailable()
   }),
 
   events: protectedProcedure.input(rangeInput).query(async ({ input }) => {

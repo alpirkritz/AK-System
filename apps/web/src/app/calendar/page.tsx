@@ -86,6 +86,7 @@ export default function CalendarPage() {
       const end = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
       syncMutation.mutate({ startDate: start, endDate: end, calendarIds: null })
     }
+    runSync()
     const id = setInterval(runSync, SYNC_INTERVAL_MS)
     return () => clearInterval(id)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

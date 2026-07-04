@@ -45,6 +45,7 @@ async function listCalendars(
   const res = await calendar.calendarList.list({ minAccessRole: 'reader' })
   return (res.data.items || [])
     .filter((c) => c.id && c.accessRole !== 'freeBusyReader')
+    .filter((c) => !c.id!.endsWith('@import.calendar.google.com'))
     .map((c) => ({
       id: c.id!,
       summary: c.summary || c.id!,
@@ -238,4 +239,4 @@ export async function declineGoogleEvent(eventId: string, calendarId: string): P
   })
 }
 
-export { listGoogleConnections }
+export { listGoogleConnections, hasGoogleCalendarConnections } from './google-connections'

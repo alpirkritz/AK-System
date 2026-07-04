@@ -2,7 +2,9 @@ import { google } from 'googleapis'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
+  // Write scope enables the Outlook→Dragontail bridge to create/update/delete
+  // its own event copies. Supersedes calendar.events.readonly (which it includes).
+  'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/gmail.readonly',
 ]

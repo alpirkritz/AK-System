@@ -130,13 +130,15 @@ async function runHelper(timeMin: Date, timeMax: Date): Promise<AppleCalendarEve
         // Exclude Google-sourced events (fetched via Google Calendar API separately)
         // and skip noise calendars (birthdays, holidays already in Google)
         const SKIP_SOURCE = /^(Google|alpirkritz@gmail\.com)/i
-        const SKIP_CAL    = /^(Birthdays|United States holidays|Holidays in Israel|Siri Suggestions|Scheduled Reminders|חגים בישראל|Jewish Holidays)/i
+        const SKIP_CAL    = /^(Birthdays|United States holidays|Holidays in Israel|Siri Suggestions|Scheduled Reminders|חגים בישראל|Jewish Holidays)$/i
 
         // The same Exchange event can appear as two local calendar copies with different
         // EventKit IDs. Prefer the Exchange-sourced copy; fall back to any other.
         const dedupMap = new Map<string, RawEvent>()
         for (const e of raw) {
           if (SKIP_SOURCE.test(e.calSource) || SKIP_CAL.test(e.calendar)) continue
+          // Exchange "Calendar" is mirrored to Dragontail via the Mac bridge — skip here
+          if (e.calSource === 'Exchange' && e.calendar === 'Calendar') continue
           const key = `${e.title}|${e.start}`
           const existing = dedupMap.get(key)
           if (!existing || (existing.calSource !== 'Exchange' && e.calSource === 'Exchange')) {

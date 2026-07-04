@@ -150,7 +150,7 @@ export default function MeetingsPage() {
     syncMutation.mutate({ startDate: today, endDate: in60, calendarIds })
   }
 
-  // Sync from calendar every 15 minutes (full sync: updates, deletes, inserts)
+  // Sync from calendar on mount and every 15 minutes (full sync: updates, deletes, inserts)
   useEffect(() => {
     const SYNC_INTERVAL_MS = 15 * 60 * 1000
     const runSync = () => {
@@ -158,6 +158,7 @@ export default function MeetingsPage() {
       const end = new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]
       syncMutation.mutate({ startDate: start, endDate: end, calendarIds: null })
     }
+    runSync()
     const id = setInterval(runSync, SYNC_INTERVAL_MS)
     return () => clearInterval(id)
   }, []) // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -28,6 +28,22 @@ export function fetchGoogleConnectionsFromSqlite(): GoogleConnection[] {
   }))
 }
 
+export function updateGoogleAccessTokenSqlite(input: {
+  connectionId: string
+  accessToken: string
+  tokenExpiresAt: string
+}): void {
+  const db = getDb()
+  const now = new Date().toISOString()
+  db.run(sql`
+    UPDATE google_connections
+    SET access_token = ${input.accessToken},
+        token_expires_at = ${input.tokenExpiresAt},
+        updated_at = ${now}
+    WHERE id = ${input.connectionId}
+  `)
+}
+
 export function upsertGoogleConnectionSqlite(input: {
   userId: string
   calendarEmail: string

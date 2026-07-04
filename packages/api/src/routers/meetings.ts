@@ -30,6 +30,21 @@ const updateInput = createInput.extend({
   id: z.string().min(1),
 })
 
+type SyncCalendarEvent = GoogleCalendarEvent | Awaited<ReturnType<typeof fetchAppleCalendarEvents>>[number]
+
+/** Prefer Google (Dragontail bridge) over Apple Exchange for the same slot. */
+function dedupeSyncEvents(events: SyncCalendarEvent[]): SyncCalendarEvent[] {
+  const bySlot = new Map<string, SyncCalendarEvent>()
+  for (const ev of events) {
+    const slotKey = `${ev.title}|${ev.start.slice(0, 16)}`
+    const isApple = 'source' in ev && ev.source === 'apple'
+    const existing = bySlot.get(slotKey)
+    if (!existing) bySlot.set(slotKey, ev)
+    else if (!isApple) bySlot.set(slotKey, ev)
+  }
+  return [...bySlot.values()]
+}
+
 const idInput = z.object({ id: z.string().min(1) })
 
 export const meetingsRouter = router({
@@ -180,7 +195,7 @@ export const meetingsRouter = router({
       if (googleConfigured && googleResult.status === 'fulfilled') fetchedSources.add('google')
       if (appleResult.status === 'fulfilled') fetchedSources.add('apple')
 
-      let allEvents = [...googleEvents, ...appleEvents]
+      let allEvents = dedupeSyncEvents([...googleEvents, ...appleEvents])
 
       // Filter to only user-selected calendars (if specified)
       if (input.calendarIds && input.calendarIds.length > 0) {

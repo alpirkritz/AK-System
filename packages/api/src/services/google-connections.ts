@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { google } from 'googleapis'
 import {
   fetchGoogleConnectionsFromSqlite,
+  updateGoogleAccessTokenSqlite,
   upsertGoogleConnectionSqlite,
 } from './google-connections-sqlite'
 
@@ -16,6 +17,8 @@ export type GoogleConnection = {
 }
 
 const tokenCache = new Map<string, { accessToken: string; expiryMs: number }>()
+/** Skip Supabase for a few minutes after a fetch failure (dead URL, network). */
+let supabaseUnavailableUntil = 0
 
 function getClientId(): string {
   const id = process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID
@@ -73,6 +76,8 @@ function envConnection(): GoogleConnection {
 
 /** Fetch all active Google connections from Supabase. */
 export async function fetchGoogleConnectionsFromSupabase(): Promise<GoogleConnection[]> {
+  if (Date.now() < supabaseUnavailableUntil) return []
+
   const url = getSupabaseUrl()
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return []
@@ -94,6 +99,7 @@ export async function fetchGoogleConnectionsFromSupabase(): Promise<GoogleConnec
     })
     if (!res.ok) {
       console.warn('[Google] Supabase fetch failed:', res.status)
+      supabaseUnavailableUntil = Date.now() + FIVE_MIN_MS
       return []
     }
     const data = (await res.json()) as Array<{
@@ -114,6 +120,7 @@ export async function fetchGoogleConnectionsFromSupabase(): Promise<GoogleConnec
       }))
   } catch (err) {
     console.warn('[Google] Supabase fetch error:', err)
+    supabaseUnavailableUntil = Date.now() + FIVE_MIN_MS
     return []
   }
 }
@@ -243,18 +250,23 @@ export async function upsertGoogleCalendarConnection(input: {
   return { ok: true }
 }
 
-/** All configured Google connections (Supabase, SQLite, optional env fallback). */
+/** All configured Google connections (SQLite first, then Supabase, optional env fallback). */
 export async function listGoogleConnections(): Promise<GoogleConnection[]> {
+  const fromSqlite = fetchGoogleConnectionsFromSqlite()
+  if (fromSqlite.length > 0) return fromSqlite
+
   if (hasSupabaseGoogleCredentials()) {
     const fromSupabase = await fetchGoogleConnectionsFromSupabase()
     if (fromSupabase.length > 0) return fromSupabase
   }
 
-  const fromSqlite = fetchGoogleConnectionsFromSqlite()
-  if (fromSqlite.length > 0) return fromSqlite
-
   if (hasEnvGoogleCredentials()) return [envConnection()]
   return []
+}
+
+/** True when at least one Google account can be queried (OAuth tokens present). */
+export async function hasGoogleCalendarConnections(): Promise<boolean> {
+  return (await listGoogleConnections()).length > 0
 }
 
 export function makeGoogleCalendarId(email: string, nativeCalendarId: string): string {
@@ -288,10 +300,32 @@ export async function getAccessTokenForConnection(conn: GoogleConnection): Promi
   const accessToken = credentials.access_token
   if (!accessToken) throw new Error(`לא התקבל access token עבור ${conn.calendarEmail}`)
 
-  tokenCache.set(cacheKey, {
-    accessToken,
-    expiryMs: credentials.expiry_date ?? Date.now() + 3600 * 1000,
-  })
+  const newExpiryMs = credentials.expiry_date ?? Date.now() + 3600 * 1000
+  const tokenExpiresAt = new Date(newExpiryMs).toISOString()
+
+  tokenCache.set(cacheKey, { accessToken, expiryMs: newExpiryMs })
+
+  // Persist refreshed token so restarts and other workers see a valid access token
+  if (conn.id !== 'env') {
+    try {
+      updateGoogleAccessTokenSqlite({
+        connectionId: conn.id,
+        accessToken,
+        tokenExpiresAt,
+      })
+    } catch (err) {
+      console.warn('[Google] SQLite token persist failed:', err)
+    }
+    if (hasSupabaseGoogleCredentials() && Date.now() >= supabaseUnavailableUntil) {
+      void supabasePatch(`calendar_connections?id=eq.${conn.id}`, {
+        access_token: accessToken,
+        token_expires_at: tokenExpiresAt,
+      }).catch(() => {})
+    }
+    conn.accessToken = accessToken
+    conn.tokenExpiresAt = tokenExpiresAt
+  }
+
   return accessToken
 }
 
@@ -314,4 +348,5 @@ export async function getConnectionForCalendarId(
 
 export function invalidateGoogleConnectionsCache(): void {
   tokenCache.clear()
+  supabaseUnavailableUntil = 0
 }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the Outlook → Google Dragontail bridge.
+  Template: __RUN_SCRIPT__, __WORKDIR__, __LOG__ are substituted by
+  scripts/install-outlook-bridge.sh with absolute paths for this machine.
+  Runs every 900s while the Mac is awake (skipped runs coalesce, not queued).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ak.outlook-bridge</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__RUN_SCRIPT__</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKDIR__</string>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__LOG__</string>
+
+  <key>StandardErrorPath</key>
+  <string>__LOG__</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

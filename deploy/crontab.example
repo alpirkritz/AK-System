@@ -9,6 +9,9 @@ SHELL=/bin/bash
 # Morning briefing — ~07:00 IST
 0 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/morning-briefing >/dev/null 2>&1
 
+# Calendar → meetings sync — every 15 min
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/calendar-sync >/dev/null 2>&1
+
 # Daily meeting summary — ~20:00 IST
 0 17 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
 

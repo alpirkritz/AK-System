@@ -11,6 +11,9 @@ importers:
       playwright:
         specifier: ^1.58.2
         version: 1.58.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
 
   apps/mobile:
     dependencies:
@@ -163,6 +166,9 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.6
+        version: 2.1.9(@types/node@20.19.35)(lightningcss@1.32.0)(terser@5.48.0)
 
   apps/whatsapp-bridge:
     dependencies:
@@ -8299,7 +8305,9 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   '@react-native/normalize-colors@0.85.3': {}
 
@@ -13134,7 +13142,7 @@ snapshots:
   vite@5.4.21(@types/node@20.19.35)(lightningcss@1.32.0)(terser@5.48.0):
     dependencies:
       esbuild: 0.21.5
-      postcss: 8.5.6
+      postcss: 8.5.16
       rollup: 4.59.0
     optionalDependencies:
       '@types/node': 20.19.35
