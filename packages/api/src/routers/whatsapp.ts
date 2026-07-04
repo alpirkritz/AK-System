@@ -5,6 +5,7 @@ import { eq, asc } from 'drizzle-orm'
 import {
   discoverGroups,
   getBridgeStatus,
+  getBridgeWatchedGroups,
   pushConfigToBridge,
   isBridgeConfigured,
   summarizeAllGroups,
@@ -237,6 +238,32 @@ export const whatsappRouter = router({
       const groups = await buildBridgePayload(ctx.db)
       await pushConfigToBridge(groups)
       return { ok: true, count: groups.filter((g) => g.enabled).length }
+    }),
+
+    /** Drift check: how many groups are enabled in the DB vs actually watched by the bridge. */
+    status: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await ctx.db.select().from(whatsappGroups)
+      const dbEnabledCount = rows.filter((g) => g.enabled).length
+      if (!isBridgeConfigured()) {
+        return { configured: false as const, dbEnabledCount, bridgeWatchedCount: 0, inSync: false }
+      }
+      try {
+        const watched = await getBridgeWatchedGroups()
+        return {
+          configured: true as const,
+          dbEnabledCount,
+          bridgeWatchedCount: watched.length,
+          inSync: watched.length === dbEnabledCount,
+        }
+      } catch (err) {
+        return {
+          configured: true as const,
+          dbEnabledCount,
+          bridgeWatchedCount: 0,
+          inSync: false,
+          error: err instanceof Error ? err.message : 'Bridge status failed',
+        }
+      }
     }),
   }),
 

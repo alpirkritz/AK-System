@@ -5,6 +5,7 @@ import { getRunnableAgentIds } from './abc-agents'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
 import { getGeminiModelOptions } from './gemini-config'
+import { getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -143,6 +144,92 @@ const baseToolDeclarations: FunctionDeclaration[] = [
         limit: { type: SchemaType.NUMBER, description: 'Max items (default 20)' },
       },
     },
+  },
+  {
+    name: 'remember',
+    description:
+      "Persist a durable memory or piece of knowledge the user wants recalled in FUTURE conversations (survives across sessions). Use when the user says 'תזכור ש...', 'remember that', 'תלמד', 'מעכשיו', or states a stable preference/fact about themselves, people, or projects. Prefer this over save_fact for personal preferences and standing knowledge.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        content: { type: SchemaType.STRING, description: 'The memory/knowledge to store (concise, self-contained)' },
+        kind: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: "'memory' for short preferences/facts, 'knowledge' for longer pasted content (default: memory)",
+          enum: ['memory', 'knowledge'],
+        },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'update_instruction',
+    description:
+      "Add or change the user's STANDING custom instructions that are injected into every future run (how the assistant should behave). Use only when the user explicitly asks to change how you work going forward, e.g. 'מעכשיו תמיד...', 'always do X', 'stop doing Y'. Use mode 'append' to add a rule, 'replace' to rewrite all standing instructions.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        content: { type: SchemaType.STRING, description: 'The instruction text' },
+        mode: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: "'append' to add to existing instructions, 'replace' to overwrite (default: append)",
+          enum: ['append', 'replace'],
+        },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'get_notion_tasks',
+    description:
+      "Read the user's tasks from Notion (across ALL connected Notion accounts). Use for: 'מה המשימות שלי בנושן', 'Notion tasks', 'משימות פתוחות בנושן', and as part of daily prep / 'תכין אותי ליום'. Notion is the primary source for the user's tasks.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        filter: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: "Which tasks to return: 'overdue', 'today', 'soon' (next 3 days), or 'all' (default: all)",
+          enum: ['overdue', 'today', 'soon', 'all'],
+        },
+      },
+    },
+  },
+  {
+    name: 'get_notion_meetings',
+    description:
+      "Read the user's meetings from Notion (across ALL connected Notion accounts). Use for: 'הפגישות שלי בנושן', 'Notion meetings', and as part of daily prep / 'תכין אותי ליום' / 'מה יש לי היום'. Notion is a primary source for meetings.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        range: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: "'today' for today's meetings, 'upcoming' for the next 7 days (default: today)",
+          enum: ['today', 'upcoming'],
+        },
+      },
+    },
+  },
+  {
+    name: 'search_notion',
+    description:
+      "Search the user's Notion task and meeting databases by keyword (all accounts). Use for: 'תחפש בנושן ...', 'find X in Notion', locating a specific meeting or task by name.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: 'Keyword to match against task/meeting titles' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'notion_status',
+    description:
+      "Check Notion connectivity per account and database. Use when Notion data seems missing, when the user asks 'יש לך גישה לנושן', or to diagnose why a database is not readable (e.g. not shared with the integration).",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
     name: 'get_weather',
@@ -445,6 +532,62 @@ export async function executeTool(
       return { reports: items, count: items.length }
     }
 
+    case 'remember': {
+      const content = (args.content as string)?.trim()
+      if (!content) return { error: 'content is required' }
+      const kind = (args.kind as 'memory' | 'knowledge' | undefined) ?? 'memory'
+      const memory = await caller.memory.memories.create({ content, kind, source: 'chat' })
+      return { memory, saved: true, note: 'Stored to persistent memory — will be recalled in future conversations.' }
+    }
+
+    case 'update_instruction': {
+      const content = (args.content as string)?.trim()
+      if (!content) return { error: 'content is required' }
+      const mode = (args.mode as 'append' | 'replace' | undefined) ?? 'append'
+      const current = await caller.memory.instructions.get()
+      const next =
+        mode === 'replace' || !current.content.trim()
+          ? content
+          : `${current.content.trim()}\n${content}`
+      await caller.memory.instructions.set({ content: next, enabled: true })
+      return { updated: true, mode, note: 'Standing instructions updated — applied to all future runs.' }
+    }
+
+    case 'get_notion_tasks': {
+      const filter = (args.filter as 'overdue' | 'today' | 'soon' | 'all' | undefined) ?? 'all'
+      const t = await getNotionTasks()
+      const base =
+        filter === 'overdue'
+          ? { overdue: t.overdue }
+          : filter === 'today'
+            ? { today: t.today }
+            : filter === 'soon'
+              ? { soon: t.soon }
+              : { overdue: t.overdue, today: t.today, soon: t.soon, highPriority: t.highPriority }
+      return { filter, ...base, errors: t.errors }
+    }
+
+    case 'get_notion_meetings': {
+      const range = (args.range as 'today' | 'upcoming' | undefined) ?? 'today'
+      const m = await getNotionMeetings()
+      return {
+        range,
+        meetings: range === 'upcoming' ? m.upcoming : m.today,
+        errors: m.errors,
+      }
+    }
+
+    case 'search_notion': {
+      const query = (args.query as string)?.trim() || ''
+      if (!query) return { hits: [], count: 0 }
+      const { hits, errors } = await searchNotion(query)
+      return { query, hits, count: hits.length, errors }
+    }
+
+    case 'notion_status': {
+      return await getNotionStatus()
+    }
+
     case 'get_weather': {
       const city = (args.city as string)?.trim() || 'Tel Aviv'
       try {
@@ -673,6 +816,7 @@ export async function resolveIntent(
     'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
     'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
     'The only async exception is summarize_whatsapp_groups (separate WhatsApp messages).',
+    'Notion (all connected accounts) IS accessible to you: use get_notion_meetings and get_notion_tasks for the user\'s meetings and tasks, and search_notion to find specific items. For daily prep ("תכין אותי ליום"/"מה יש לי היום") pull Notion meetings + tasks. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
     'Never redirect the user to Notion as the only place to see agent results.',
   ].join('\n')
 

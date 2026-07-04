@@ -304,6 +304,107 @@ function GoogleAccountsCard() {
   )
 }
 
+interface NotionStatusData {
+  configured: boolean
+  accounts: Array<{
+    label: string
+    databases: Array<{ name: string; type: string; ok: boolean; error?: string }>
+  }>
+}
+
+const NOTION_DB_TYPE_LABELS: Record<string, string> = {
+  tasks: 'משימות',
+  meetings: 'פגישות',
+  assistant: 'Inbox',
+}
+
+function NotionCard() {
+  const [data, setData] = useState<NotionStatusData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function check() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/notion/status')
+      const json = (await res.json()) as NotionStatusData & { error?: string }
+      if (!res.ok || json.error) {
+        setError(json.error || 'בדיקת החיבור נכשלה')
+        setData(null)
+      } else {
+        setData(json)
+      }
+    } catch {
+      setError('בדיקת החיבור נכשלה')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void check()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <Section
+      icon={<span className="text-base">🗂️</span>}
+      title="Notion"
+      description="חשבונות ובסיסי נתונים שהוגו קורא מהם — פגישות ומשימות"
+    >
+      {!data && !error && (
+        <div className="px-5 py-3 text-xs text-[#555]">{loading ? 'בודק חיבור…' : 'טוען…'}</div>
+      )}
+      {error && <div className="px-5 py-3 text-xs text-[#e8474a]">{error}</div>}
+      {data && !data.configured && (
+        <div className="px-5 py-3 text-xs text-[#555] leading-relaxed">
+          לא הוגדרו חשבונות Notion. הגדר <code className="text-[#aaa]">NOTION_ACCOUNTS</code> או{' '}
+          <code className="text-[#aaa]">NOTION_API_KEY</code> בשרת.
+        </div>
+      )}
+      {data?.configured &&
+        data.accounts.map((acc) => (
+          <div key={acc.label}>
+            <div className="px-5 pt-4 pb-2 text-sm text-[#ccc]">{acc.label}</div>
+            {acc.databases.length === 0 && (
+              <div className="px-5 pb-3 text-xs text-[#555]">לא הוגדרו בסיסי נתונים לחשבון זה</div>
+            )}
+            {acc.databases.map((db) => (
+              <div key={`${acc.label}:${db.name}`} className="flex items-start justify-between gap-4 px-5 py-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-[#ccc] truncate">
+                    {db.name}{' '}
+                    <span className="text-[10px] text-[#666]">
+                      ({NOTION_DB_TYPE_LABELS[db.type] ?? db.type})
+                    </span>
+                  </div>
+                  {!db.ok && db.error && (
+                    <div className="text-[11px] text-[#e8474a] mt-0.5 truncate">
+                      {db.error} — שתף את הבסיס עם האינטגרציה ב-Notion
+                    </div>
+                  )}
+                </div>
+                <span className={`text-xs shrink-0 ${db.ok ? 'text-[#47b86e]' : 'text-[#e8474a]'}`}>
+                  {db.ok ? 'מחובר ✓' : 'לא נגיש'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      <Row label="בדיקת חיבור" description="בדוק שכל בסיס נתונים משותף עם האינטגרציה">
+        <button
+          onClick={check}
+          disabled={loading}
+          className="btn btn-ghost text-[12px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {loading ? 'בודק…' : 'בדוק שוב'}
+        </button>
+      </Row>
+    </Section>
+  )
+}
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -558,7 +659,7 @@ export default function SettingsPage() {
 
       <Link
         href="/settings/whatsapp"
-        className="card p-4 mb-8 flex items-center justify-between gap-3 hover:border-[#25D36644] transition-colors"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#25D36644] transition-colors"
         style={{ border: '1px solid #222' }}
       >
         <div>
@@ -570,9 +671,26 @@ export default function SettingsPage() {
         <span className="text-[#25D366] text-lg">💬</span>
       </Link>
 
+      <Link
+        href="/memory"
+        className="card p-4 mb-8 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
+        style={{ border: '1px solid #222' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#ddd]">זיכרון והוראות להוגו</div>
+          <div className="text-xs text-[#555] mt-0.5">
+            הוראות קבועות, זיכרונות וידע — נשמרים בין deployים ומוזרקים לכל שיחה
+          </div>
+        </div>
+        <span className="text-[#e8c547] text-lg">🧠</span>
+      </Link>
+
       <Suspense fallback={null}>
         <GoogleAccountsCard />
       </Suspense>
+
+      {/* ── Section: Notion ──────────────────────────────────────────────────── */}
+      <NotionCard />
 
       {/* ── Section: Notifications ───────────────────────────────────────────── */}
       <NotificationsCard />

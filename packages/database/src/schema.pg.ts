@@ -268,3 +268,23 @@ export const whatsappGroups = pgTable('whatsapp_groups', {
   lastFomoAlertAt: text('last_fomo_alert_at'),
   updatedAt: text('updated_at').notNull(),
 })
+
+export const hugoInstructions = pgTable('hugo_instructions', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull().default(''),
+  enabled: boolean('enabled').notNull().default(true),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const memories = pgTable('memories', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  kind: text('kind').notNull().default('memory'),
+  source: text('source').notNull().default('manual'),
+  pinned: boolean('pinned').notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  kindIdx: index('idx_memories_kind').on(table.kind),
+  pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
+}))

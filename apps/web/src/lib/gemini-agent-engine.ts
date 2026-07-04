@@ -14,6 +14,7 @@ import {
   type ChatTurn,
 } from './gemini-config'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
+import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
 
 export type { ChatTurn } from './gemini-config'
@@ -84,7 +85,9 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       'The ONLY async exception is summarize_whatsapp_groups — those summaries arrive as separate WhatsApp messages; confirm status briefly in your reply.',
       '',
       'For calendar / יומן / schedule questions, delegate to run_abc_agent agentId 06_calendar_optimizer — call him **אופטי** (the calendar advisor) in your replies.',
-      'For tasks, use Notion context (Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',
+      'Notion access: you CAN read Notion across ALL connected accounts via tools — get_notion_meetings (meetings), get_notion_tasks (tasks), search_notion (find an item), notion_status (diagnose access). NEVER tell the user you have no access to Notion; if a database fails, call notion_status and say which database needs to be shared with the integration.',
+      'For daily prep / "תכין אותי ליום" / "מה יש לי היום": call get_notion_meetings and get_notion_tasks (both accounts) and fold them into your answer, in addition to calendar/tasks tools.',
+      'For tasks, use Notion (get_notion_tasks + the injected Notion context: Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',
       'WhatsApp bridge buffers group messages since last restart — summarize_whatsapp_groups covers buffered activity, not phone "unread" badges.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
@@ -93,6 +96,11 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
 
   if (workflow) {
     parts.push('', '## Applicable workflow (S_Skills)', '', workflow, '', '---')
+  }
+
+  const memoryBlock = await getMemoryPromptBlock()
+  if (memoryBlock) {
+    parts.push('', memoryBlock, '', '---')
   }
 
   if (agentNeedsNotionContext(agentId)) {

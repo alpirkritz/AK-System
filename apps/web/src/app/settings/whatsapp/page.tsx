@@ -97,6 +97,11 @@ export default function WhatsAppSettingsPage() {
     enabled: tab === 'connection',
     refetchInterval: tab === 'connection' ? 10000 : false,
   })
+  const { data: syncStatus, refetch: refetchSyncStatus } = trpc.whatsapp.sync.status.useQuery(undefined, {
+    enabled: tab === 'connection',
+    refetchInterval: tab === 'connection' ? 15000 : false,
+    retry: false,
+  })
 
   const upsertGroup = trpc.whatsapp.groups.upsert.useMutation({
     onSuccess: () => {
@@ -124,7 +129,10 @@ export default function WhatsAppSettingsPage() {
   })
 
   const syncBridge = trpc.whatsapp.sync.pushToBridge.useMutation({
-    onSuccess: (res) => setMessage(`סונכרן ל-bridge — ${res.count} קבוצות פעילות`),
+    onSuccess: (res) => {
+      setMessage(`סונכרן ל-bridge — ${res.count} קבוצות פעילות`)
+      void utils.whatsapp.sync.status.invalidate()
+    },
     onError: (e) => setMessage(`שגיאת סנכרון: ${e.message}`),
   })
 
@@ -543,6 +551,20 @@ export default function WhatsAppSettingsPage() {
                   )}
                 </div>
               )}
+              {syncStatus && (
+                <div className="text-sm text-[#aaa]">
+                  סנכרון קבוצות:{' '}
+                  {syncStatus.inSync ? (
+                    <span className="text-[#47b86e]">
+                      {syncStatus.bridgeWatchedCount} מסונכרנות בברידג׳ = {syncStatus.dbEnabledCount} פעילות ב-DB
+                    </span>
+                  ) : (
+                    <span className="text-[#e8c547]">
+                      {syncStatus.bridgeWatchedCount} בברידג׳ / {syncStatus.dbEnabledCount} פעילות ב-DB — לחץ "סנכרן כללים ל-bridge"
+                    </span>
+                  )}
+                </div>
+              )}
               {connection.lastError && (
                 <div className="text-xs text-red-400">{connection.lastError}</div>
               )}
@@ -559,6 +581,7 @@ export default function WhatsAppSettingsPage() {
               <button
                 onClick={() => {
                   void refetchConnection()
+                  void refetchSyncStatus()
                   setMessage('סטטוס עודכן')
                 }}
                 className="btn btn-ghost text-[12px] py-2 px-4"

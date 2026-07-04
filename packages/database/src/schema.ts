@@ -162,6 +162,40 @@ export const facts = sqliteTable('facts', {
 export type Fact = typeof facts.$inferSelect
 export type NewFact = typeof facts.$inferInsert
 
+// ─── Hugo memory (custom instructions + memories/knowledge) ────────────────────
+
+/** Standing custom instructions injected into every agent run. Single row id='default'. */
+export const hugoInstructions = sqliteTable('hugo_instructions', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull().default(''),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const MEMORY_KINDS = ['instruction', 'memory', 'knowledge'] as const
+export type MemoryKind = (typeof MEMORY_KINDS)[number]
+export const MEMORY_SOURCES = ['manual', 'auto', 'chat'] as const
+export type MemorySource = (typeof MEMORY_SOURCES)[number]
+
+/** Discrete memories / knowledge items injected (pinned + recent) into agent prompts. */
+export const memories = sqliteTable('memories', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  kind: text('kind').notNull().default('memory'), // instruction | memory | knowledge
+  source: text('source').notNull().default('manual'), // manual | auto | chat
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  kindIdx: index('idx_memories_kind').on(table.kind),
+  pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
+}))
+
+export type HugoInstruction = typeof hugoInstructions.$inferSelect
+export type NewHugoInstruction = typeof hugoInstructions.$inferInsert
+export type Memory = typeof memories.$inferSelect
+export type NewMemory = typeof memories.$inferInsert
+
 // ─── Chat messages (web chat + telegram + cron push) ──────────────────────────
 
 export const chatMessages = sqliteTable('chat_messages', {

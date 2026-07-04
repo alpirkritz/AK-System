@@ -27,6 +27,7 @@ const navSections = [
   {
     title: 'מערכת',
     items: [
+      { href: '/memory', label: 'זיכרון והוראות', icon: '🧠' },
       { href: '/settings', label: 'הגדרות', icon: '⚙' },
       { href: '/settings/whatsapp', label: 'WhatsApp', icon: '💬' },
     ],
@@ -49,6 +50,7 @@ const MORE_ITEMS = [
   { href: '/updates', label: 'עדכונים', icon: '📰' },
   { href: '/agents', label: 'סוכנים', icon: '🤖' },
   { href: '/agents/manage', label: 'ניהול סוכנים', icon: '🛠' },
+  { href: '/memory', label: 'זיכרון', icon: '🧠' },
   { href: '/settings', label: 'הגדרות', icon: '⚙' },
   { href: '/settings/whatsapp', label: 'WhatsApp', icon: '💬' },
 ]

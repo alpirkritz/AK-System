@@ -72,6 +72,25 @@ const FACTS_TABLE = [
     created_at TEXT NOT NULL
   )`,
 ]
+const MEMORY_TABLES = [
+  `CREATE TABLE IF NOT EXISTS hugo_instructions (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'memory',
+    source TEXT NOT NULL DEFAULT 'manual',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_pinned ON memories(pinned, updated_at)`,
+]
 const CHAT_MESSAGES_TABLE = [
   `CREATE TABLE IF NOT EXISTS chat_messages (
     id TEXT PRIMARY KEY,
@@ -283,6 +302,9 @@ export function getDb() {
   for (const sql of FACTS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of MEMORY_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of HEALTH_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -348,6 +370,8 @@ export const expoPushTokens = schema.expoPushTokens
 export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
+export const hugoInstructions = schema.hugoInstructions
+export const memories = schema.memories
 
 // Re-export MEETING_CATEGORIES from pg (same value) and types from schema (sqlite has the type exports)
 export type MeetingCategory = typeof schemaPg.MEETING_CATEGORIES[number]
@@ -387,6 +411,12 @@ export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof schemaPg.whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof schemaPg.whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof schemaPg.whatsappGroups.$inferInsert
+export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
+export type NewHugoInstruction = typeof schemaPg.hugoInstructions.$inferInsert
+export type Memory = typeof schemaPg.memories.$inferSelect
+export type NewMemory = typeof schemaPg.memories.$inferInsert
+export { MEMORY_KINDS, MEMORY_SOURCES } from './schema'
+export type { MemoryKind, MemorySource } from './schema'
 
 /** Normalize select result to array (works with both SQLite .all() and Postgres Promise) */
 export async function queryRows<T>(q: Promise<T[]> | { all(): T[] }): Promise<T[]> {

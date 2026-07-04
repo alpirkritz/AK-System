@@ -17,7 +17,7 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 
 ## Prerequisites
 
-- [ ] Notion AK-System integration has access to task databases and calendar pages
+- [ ] Notion integrations for **all connected accounts** have access to the task and meeting databases (verify with `notion_status`)
 - [ ] `C_Core/brand_dna_and_compliance.md` reviewed and aligned
 - [ ] Today's date confirmed
 
@@ -64,20 +64,20 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 - **Action:** Set briefing date (YYYY-MM-DD)
 - **Output:** Confirmed date
 
-### Step 1.2 — Discover Notion Databases
-- **Input:** Notion API (`NOTION_API_KEY`)
-- **Action:** Search all shared databases and calendar-linked pages in workspace
-- **Output:** List of database IDs and titles to query
+### Step 1.2 — Confirm Notion Access
+- **Input:** Configured Notion accounts (`NOTION_ACCOUNTS`, or legacy `NOTION_API_KEY`)
+- **Action:** Optionally run `notion_status` to confirm each account/database is reachable; note any database that must be shared with its integration
+- **Output:** List of reachable task/meeting databases across all accounts
 
-### Step 1.3 — Load Today's Calendar
-- **Input:** Notion calendar views / event databases for today
-- **Action:** List events with time, title, location, attendees (redact PII in output)
-- **Output:** Schedule summary
+### Step 1.3 — Load Today's Meetings (all accounts)
+- **Input:** `get_notion_meetings` (range `today`) across every connected Notion account
+- **Action:** List meetings with time, title, attendees (redact PII in output)
+- **Output:** Schedule summary (Notion meetings + Google/Apple calendar events)
 
-### Step 1.4 — Scan All Tasks Related to User
-- **Input:** Task databases (explicit): DT - Action items, Con Action items, Personal to-do list, DAZ workspace (tasks assigned to @Alpir Kritzler)
-- **Action:** Query open items (tasks from task DBs, not checklist blocks). Exclude Status = Done. Also pull recent meeting action items by searching meeting notes pages (Notion search + open pages; do not rely on DB filter queries).
-- **Output:** Consolidated task list across all task databases
+### Step 1.4 — Scan All Tasks Related to User (all accounts)
+- **Input:** `get_notion_tasks` across every connected account (Personal To-do, DT - Action items, Con Action items, DAZ meetings/tasks assigned to @Alpir Kritzler)
+- **Action:** Query open items (exclude Status = Done). Use `search_notion` to pull recent meeting action items by keyword when needed.
+- **Output:** Consolidated task list across all task databases and accounts
 
 ### Step 1.5 — Triage and Prioritize
 - **Input:** Schedule summary + consolidated task list
@@ -89,8 +89,8 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 - **Output:** Prioritized list → proceed to Stage 2
 
 ### Step 1.6 — Fallback (if Notion unavailable)
-- **Input:** Empty Notion results or API error
-- **Action:** Log blocker in brief; do not fabricate tasks. Note which databases need sharing with AK-System integration
+- **Input:** Empty Notion results or API error (per-account/per-database)
+- **Action:** Log blocker in brief; do not fabricate tasks. Run `notion_status` and note which account/database needs sharing with its integration. Continue with the accounts/databases that succeeded (partial failure never blanks the whole brief).
 - **Output:** Partial context with explicit gap → proceed to Stage 2
 
 ---

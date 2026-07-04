@@ -13,6 +13,7 @@ import { notificationsRouter } from './routers/notifications'
 import { vatRouter } from './routers/vat'
 import { whatsappRouter } from './routers/whatsapp'
 import { agentsRouter } from './routers/agents'
+import { memoryRouter } from './routers/memory'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -41,6 +42,7 @@ export const appRouter = router({
   vat: vatRouter,
   whatsapp: whatsappRouter,
   agents: agentsRouter,
+  memory: memoryRouter,
 })
 
 export type AppRouter = typeof appRouter
