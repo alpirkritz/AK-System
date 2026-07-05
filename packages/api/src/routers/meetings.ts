@@ -12,6 +12,7 @@ import {
   fetchAppleCalendarEvents,
   invalidateAppleCalendarCache,
 } from '../services/apple-calendar'
+import { FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB } from '../lib/calendar-filters'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -147,12 +148,11 @@ export const meetingsRouter = router({
   }),
 
   purgeFreeBusy: protectedProcedure.mutation(async ({ ctx }) => {
-    const FREE_BUSY_TITLES = ['פנוי', 'לא פנוי', 'Tentative', 'Free', 'Busy']
     const rows = await ctx.db
       .select({ id: meetings.id })
       .from(meetings)
       .where(and(
-        inArray(meetings.title, FREE_BUSY_TITLES),
+        inArray(meetings.title, FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB),
         eq(meetings.calendarSource, 'google'),
       ))
     if (rows.length > 0) {
@@ -214,12 +214,11 @@ export const meetingsRouter = router({
       const activeEventIds = new Set(allEvents.map((e) => e.id))
 
       // Purge previously-synced free/busy placeholder meetings from the DB
-      const FREE_BUSY_TITLES = ['פנוי', 'לא פנוי', 'Tentative', 'Free', 'Busy']
       const freeBusyIds = await ctx.db
         .select({ id: meetings.id })
         .from(meetings)
         .where(and(
-          inArray(meetings.title, FREE_BUSY_TITLES),
+          inArray(meetings.title, FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB),
           eq(meetings.calendarSource, 'google'),
         ))
       if (freeBusyIds.length > 0) {

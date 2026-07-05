@@ -14,6 +14,7 @@ import {
   warmAppleCalendarCache,
   AppleCalendarEvent,
 } from '../services/apple-calendar'
+import { isFreeBusyPlaceholderTitle } from '../lib/calendar-filters'
 
 let cacheWarmed = false
 
@@ -112,6 +113,7 @@ export const calendarRouter = router({
       const events = await fetchAllEvents(now, end)
       return events
         .filter((e) => new Date(e.start) >= now)
+        .filter((e) => !isFreeBusyPlaceholderTitle(e.title))
         .slice(0, input.limit)
     }),
 
