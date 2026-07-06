@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import {
+  resolveWhatsAppGroupDisplayName,
   summarizeGroupMessages,
   verifyWhatsAppBridgeAuth,
   type BufferedGroupMessage,
@@ -17,9 +18,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let body: { groupJid?: string; messages?: BufferedGroupMessage[] }
+  let body: { groupJid?: string; groupName?: string; messages?: BufferedGroupMessage[] }
   try {
-    body = (await request.json()) as { groupJid?: string; messages?: BufferedGroupMessage[] }
+    body = (await request.json()) as {
+      groupJid?: string
+      groupName?: string
+      messages?: BufferedGroupMessage[]
+    }
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
@@ -31,10 +36,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const summary = await summarizeGroupMessages(groupJid, messages)
+    const displayName = await resolveWhatsAppGroupDisplayName(groupJid, body.groupName)
+    const summary = await summarizeGroupMessages(displayName, groupJid, messages)
     try {
-      const name = groupJid.split('@')[0] || 'קבוצה'
-      const pushTitle = `📋 סיכום קבוצה — ${name}`
+      const pushTitle = `📋 סיכום קבוצה — ${displayName}`
       const pushBody = summary.slice(0, 240)
       await createNotification({
         title: pushTitle,

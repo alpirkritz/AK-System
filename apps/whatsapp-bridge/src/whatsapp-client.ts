@@ -14,7 +14,7 @@ import pino from 'pino'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { config, getSelfChatTarget, isSelfChatJid, setSelfJid } from './config.js'
-import { isGroupWatched } from './group-config.js'
+import { isGroupWatched, getGroupRule } from './group-config.js'
 import { onGroupMessage } from './rules-engine.js'
 import { bufferGroupMessage, clearGroupBuffer, getGroupBuffer, getGroupLastActivity } from './group-buffer.js'
 
@@ -426,13 +426,16 @@ export async function requestGroupSummary(groupJid: string): Promise<{ ok: boole
     return { ok: false, error: 'AK_GROUP_SUMMARY_URL or AK_WEBHOOK_URL not configured' }
   }
 
+  const rule = getGroupRule(groupJid)
+  const groupName = rule?.name?.trim() || groupJid.split('@')[0] || 'קבוצה'
+
   const res = await fetch(summaryUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.bridgeSecret}`,
     },
-    body: JSON.stringify({ groupJid, messages }),
+    body: JSON.stringify({ groupJid, groupName, messages }),
   })
 
   if (!res.ok) {

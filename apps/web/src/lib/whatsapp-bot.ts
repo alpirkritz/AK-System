@@ -6,7 +6,7 @@ import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 import { sendBrowserPush } from './web-push'
 import { sendExpoPush } from './expo-push'
 import { createNotification } from './notification-store'
-import { chatMessages, getDb, desc, eq } from '@ak-system/database'
+import { chatMessages, getDb, desc, eq, whatsappGroups } from '@ak-system/database'
 
 function normalizeEchoText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
@@ -244,6 +244,7 @@ export async function summarizeFomoMessages(
 }
 
 export async function summarizeGroupMessages(
+  groupName: string,
   groupJid: string,
   messages: BufferedGroupMessage[],
 ): Promise<string> {
@@ -260,24 +261,45 @@ export async function summarizeGroupMessages(
   })
 
   const prompt = [
-    'Summarize the following WhatsApp group conversation for personal triage.',
-    `Group: ${groupJid}`,
-    'Respond in Hebrew unless most messages are in English.',
-    'Be concise: key topics, decisions, action items, questions needing reply.',
-    'Do not invent facts not present in the messages.',
+    `A friend is briefing the user about what happened in the WhatsApp group "${groupName}".`,
+    'Write in natural spoken Hebrew (unless most messages are in English).',
+    'Sound like a friend telling you over coffee — not a report, not bullet points, no labels like "נושא:" or "הלך הרוח:".',
+    'Cover naturally: what the conversation was about, what people discussed, any outcome or decision, and the overall vibe.',
+    '2–4 short sentences. Under 400 characters total for the body.',
+    'Do not invent facts not in the messages. Do not quote long excerpts.',
+    'If nothing meaningful happened, say that plainly in a casual tone.',
     '',
     'Messages:',
     lines.join('\n'),
   ].join('\n')
 
   const result = await model.generateContent(prompt)
-  const summary = result.response.text().trim()
-  if (!summary) throw new Error('Empty summary from Gemini')
+  const body = result.response.text().trim()
+  if (!body) throw new Error('Empty summary from Gemini')
 
-  const header = `📋 סיכום קבוצה\n${groupJid.split('@')[0]}\n\n`
-  const full = (header + summary).slice(0, 65000)
+  const header = `📋 סיכום קבוצה — ${groupName}\n\n`
+  const full = (header + body).slice(0, 65000)
   await saveChatMessage('assistant', full, 'whatsapp')
   return full
+}
+
+/** Resolve display name: explicit > DB > JID fragment. */
+export async function resolveWhatsAppGroupDisplayName(
+  groupJid: string,
+  groupName?: string | null,
+): Promise<string> {
+  const trimmed = groupName?.trim()
+  if (trimmed) return trimmed
+
+  const db = getDb()
+  const rows = await db
+    .select({ name: whatsappGroups.name })
+    .from(whatsappGroups)
+    .where(eq(whatsappGroups.jid, groupJid))
+    .limit(1)
+  if (rows[0]?.name?.trim()) return rows[0].name.trim()
+
+  return groupJid.split('@')[0] || 'קבוצה'
 }
 
 export function verifyWhatsAppBridgeAuth(request: Request): boolean {
