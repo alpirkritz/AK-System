@@ -71,9 +71,7 @@ https://<your-domain>/api/auth/callback/google
 
 ## 7. Cron jobs
 
-Railway has no built-in cron. Use GitHub Actions (included in this repo) or [cron-job.org](https://cron-job.org).
-
-See [cron-setup.md](./cron-setup.md).
+Cron runs on the **EC2 instance** (not Railway). See [cron-setup.md](./cron-setup.md).
 
 ## 8. Helm mobile app
 
@@ -93,5 +91,5 @@ Then build APK: see [helm-apk-build.md](./helm-apk-build.md).
 | Build uses old commit | Settings → Source → correct branch → Redeploy |
 | "table not found" | Check volume mounted at `/data`; redeploy runs `db:push` |
 | OAuth redirect mismatch | Update Google Console URIs to match `NEXTAUTH_URL` |
-| Cron 401 | Set `CRON_SECRET` in Railway and GitHub repo secrets |
+| Cron 401 | Set `CRON_SECRET` in Railway variables (legacy deploy only) |
 | Helm sign-in fails | Add `GOOGLE_ANDROID_CLIENT_ID` to Railway variables |

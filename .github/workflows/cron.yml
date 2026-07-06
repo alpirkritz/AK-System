@@ -1,91 +1,34 @@
-# Production cron — calls Railway-deployed AK System endpoints.
-# Required GitHub secrets: APP_URL, CRON_SECRET (same value as Railway CRON_SECRET)
+# DISABLED — cron runs on the EC2 instance via scripts/install-server-cron.sh
+# (deploy/crontab.example → localhost:3000). See docs/deploy/cron-setup.md.
+#
+# Manual debug only. Requires GitHub secrets APP_URL + CRON_SECRET matching production.
 
 name: Production Cron
 
 on:
-  schedule:
-    # Times below are UTC. Israel (IST) = UTC+2 (winter) / UTC+3 (summer).
-    - cron: '0 4 * * *'      # ~07:00 IST — morning briefing
-    - cron: '0 17 * * *'     # ~20:00 IST — daily meeting summary
-    - cron: '*/5 * * * *'    # pre-meeting briefing
-    - cron: '* * * * *'      # task reminder
-    - cron: '0 */6 * * *'    # feed sync
-    - cron: '*/15 * * * *'   # whatsapp group summary + ABC agent triggers
   workflow_dispatch:
     inputs:
       endpoint:
-        description: 'Cron endpoint path (e.g. /api/cron/morning-briefing)'
+        description: 'Cron endpoint path'
         required: true
+        type: choice
+        options:
+          - /api/cron/morning-briefing
+          - /api/cron/calendar-sync
+          - /api/cron/daily-meeting-summary
+          - /api/cron/pre-meeting-briefing
+          - /api/cron/task-reminder
+          - /api/cron/feed-sync
+          - /api/cron/whatsapp-group-summary
+          - /api/cron/agent-triggers
         default: '/api/cron/morning-briefing'
 
 jobs:
-  morning-briefing:
-    if: github.event.schedule == '0 4 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/morning-briefing')
+  trigger:
     runs-on: ubuntu-latest
     steps:
-      - name: Call morning briefing
+      - name: Call cron endpoint
         run: |
           curl -sf -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/morning-briefing"
-
-  daily-meeting-summary:
-    if: github.event.schedule == '0 17 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/daily-meeting-summary')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call daily meeting summary
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/daily-meeting-summary"
-
-  pre-meeting-briefing:
-    if: github.event.schedule == '*/5 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/pre-meeting-briefing')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call pre-meeting briefing
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/pre-meeting-briefing"
-
-  task-reminder:
-    if: github.event.schedule == '* * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/task-reminder')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call task reminder
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/task-reminder"
-
-  feed-sync:
-    if: github.event.schedule == '0 */6 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/feed-sync')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call feed sync
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/feed-sync"
-
-  whatsapp-group-summary:
-    if: github.event.schedule == '*/15 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/whatsapp-group-summary')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call whatsapp group summary
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/whatsapp-group-summary"
-
-  agent-triggers:
-    if: github.event.schedule == '*/15 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.endpoint == '/api/cron/agent-triggers')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call ABC agent triggers
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/agent-triggers"
+            "${{ secrets.APP_URL }}${{ github.event.inputs.endpoint }}"

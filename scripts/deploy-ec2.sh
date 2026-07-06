@@ -122,7 +122,13 @@ else
   fi
 fi
 
-# ── 6. Re-sync WhatsApp group rules to the bridge ─────────────────────────────
+# ── 6. Server cron (replaces GitHub Actions — see docs/deploy/cron-setup.md) ───
+step "Install server cron"
+ssh "${SSH_OPTS[@]}" "$REMOTE" \
+  "cd '$DEPLOY_PATH' && APP_URL=http://127.0.0.1:3000 bash scripts/install-server-cron.sh" \
+  || echo "⚠  cron install skipped (check CRON_SECRET in deploy/production.env)"
+
+# ── 7. Re-sync WhatsApp group rules to the bridge ─────────────────────────────
 # The bridge holds its watch config in memory + a persisted file; re-push from the
 # DB (source of truth) so a fresh container/volume is guaranteed to match. Non-fatal.
 if [ -n "$COMPOSE_PROFILES" ]; then
@@ -137,5 +143,5 @@ echo ""
 echo "════════════════════════════════════════════════════════════"
 echo "✓  Deploy complete → ${REMOTE}:${DEPLOY_PATH}"
 echo "   Logs:   ssh ${REMOTE} 'cd $DEPLOY_PATH && docker compose -f $COMPOSE_FILE logs -f web'"
-echo "   Cron:   ssh ${REMOTE} 'cd $DEPLOY_PATH && bash scripts/install-server-cron.sh'"
+echo "   Cron:   crontab on instance (localhost:3000) — bash scripts/install-server-cron-remote.sh to refresh"
 echo "════════════════════════════════════════════════════════════"

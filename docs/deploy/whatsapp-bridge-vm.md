@@ -87,4 +87,4 @@ Set Railway `WHATSAPP_BRIDGE_URL` only when Mac bridge is reachable (e.g. via Ta
 
 ## Cron
 
-WhatsApp group summaries use `/api/cron/whatsapp-group-summary` — already included in [`.github/workflows/cron.yml`](../../.github/workflows/cron.yml) when `CRON_SECRET` and bridge are configured.
+WhatsApp group summaries use `/api/cron/whatsapp-group-summary` — included in [`deploy/crontab.example`](../../deploy/crontab.example) on EC2 (see [cron-setup.md](./cron-setup.md)).

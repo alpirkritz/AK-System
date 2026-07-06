@@ -1,77 +1,72 @@
 # Cron Jobs (Production)
 
-AK System cron endpoints run scheduled tasks (morning briefing, task reminders, etc.). They need an external trigger. On EC2 the recommended approach is the instance's own `crontab` — no external CI/CD.
+AK System cron endpoints run scheduled tasks (morning briefing, task reminders, WhatsApp summaries, etc.). They are triggered **on the EC2 instance** — no GitHub Actions, no Railway.
 
-## Option A: Server crontab on EC2 (recommended)
+## Setup (EC2 — recommended)
 
-Runs on the instance itself, calling the local web app. No GitHub Actions required.
+Cron runs on the server itself, calling the local web app at `http://127.0.0.1:3000`.
 
-### Setup
+### First install
 
 1. Deploy the app (see [ec2-production.md](./ec2-production.md)).
 2. Ensure `CRON_SECRET` is set in `deploy/production.env` (the generator creates one if missing).
-3. On the instance, install the crontab:
+3. On the instance:
 
 ```bash
 cd /opt/ak-system
-bash scripts/install-server-cron.sh   # uses http://127.0.0.1:3000 by default
+bash scripts/install-server-cron.sh
 ```
 
-The template is [`deploy/crontab.example`](../../deploy/crontab.example); the installer substitutes
-`CRON_SECRET` and the target URL. Verify with `crontab -l`.
-
-### Timezone
-
-Cron times in the template are UTC (Ubuntu default). To use local time:
+Or from your Mac (uses `deploy/ec2.env` for SSH):
 
 ```bash
-sudo timedatectl set-timezone Asia/Jerusalem
+bash scripts/install-server-cron-remote.sh
 ```
 
-Then adjust the hour-based jobs in `deploy/crontab.example` and re-run the installer.
+The template is [`deploy/crontab.example`](../../deploy/crontab.example). The installer substitutes `CRON_SECRET` and `APP_URL` (default `http://127.0.0.1:3000`). Verify with `crontab -l`.
 
-## Option B: GitHub Actions (legacy)
+`scripts/deploy-ec2.sh` re-installs cron automatically after each deploy.
 
-Workflow: [`.github/workflows/cron.yml`](../../.github/workflows/cron.yml)
-
-### Setup
-
-1. Deploy web app to Railway and note the URL (e.g. `https://ak-system.up.railway.app`).
-2. Generate a secret: `openssl rand -base64 32`
-3. Set **the same value** in:
-   - Railway variable: `CRON_SECRET`
-   - GitHub repo → **Settings → Secrets and variables → Actions**:
-     - `CRON_SECRET` — the bearer token
-     - `APP_URL` — `https://ak-system.up.railway.app` (no trailing slash)
-
-4. Push to `main` — the workflow runs on schedule automatically.
-
-### Schedule (Israel time, UTC in workflow)
+### Schedule (UTC on Ubuntu)
 
 | Job | Cron (UTC) | Endpoint | Local time (IST, UTC+3) |
 |-----|------------|----------|-------------------------|
 | Morning briefing | `0 4 * * *` | `/api/cron/morning-briefing` | 07:00 |
+| Calendar sync | `*/15 * * * *` | `/api/cron/calendar-sync` | every 15 min |
 | Daily meeting summary | `0 17 * * *` | `/api/cron/daily-meeting-summary` | 20:00 |
 | Pre-meeting briefing | `*/5 * * * *` | `/api/cron/pre-meeting-briefing` | every 5 min |
 | Task reminder | `* * * * *` | `/api/cron/task-reminder` | every minute |
 | Feed sync | `0 */6 * * *` | `/api/cron/feed-sync` | every 6 hours |
 | WhatsApp group summary | `*/15 * * * *` | `/api/cron/whatsapp-group-summary` | every 15 min |
-| ABC agent triggers (full LLM) | `*/15 * * * *` | `/api/cron/agent-triggers` | every 15 min (per-agent schedule in `/agents`) |
+| ABC agent triggers | `*/15 * * * *` | `/api/cron/agent-triggers` | every 15 min |
 
-Adjust cron expressions in `.github/workflows/cron.yml` if your `TIMEZONE` differs.
+Adjust times in `deploy/crontab.example` if your instance timezone differs:
 
-### Manual trigger
+```bash
+sudo timedatectl set-timezone Asia/Jerusalem
+```
 
-GitHub → **Actions** → **Production Cron** → **Run workflow**.
+### Timezone for in-app logic
 
-## Option C: cron-job.org
+Set `TIMEZONE=Asia/Jerusalem` in `deploy/production.env` so WhatsApp/agent schedules match local time.
 
-1. Create account at [cron-job.org](https://cron-job.org)
-2. For each endpoint, create a job:
-   - URL: `https://<domain>/api/cron/morning-briefing`
-   - Method: GET or POST
-   - Header: `Authorization: Bearer <CRON_SECRET>`
-   - Schedule: as above
+## Manual trigger (debug)
+
+From the EC2 instance:
+
+```bash
+SECRET=$(grep '^CRON_SECRET=' /opt/ak-system/deploy/production.env | cut -d= -f2-)
+curl -s -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:3000/api/cron/morning-briefing
+```
+
+From your Mac (via public URL):
+
+```bash
+export CRON_SECRET=$(grep '^CRON_SECRET=' deploy/production.env | cut -d= -f2-)
+export APP_URL=$(grep '^NEXT_PUBLIC_APP_URL=' deploy/production.env | cut -d= -f2-)
+
+curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/morning-briefing"
+```
 
 ## Security
 
@@ -79,13 +74,10 @@ When `CRON_SECRET` is set, requests without `Authorization: Bearer <CRON_SECRET>
 
 Always set `CRON_SECRET` in production — otherwise cron endpoints are publicly callable.
 
-## Verify
+## Legacy: GitHub Actions
 
-```bash
-export CRON_SECRET=your-secret
-export APP_URL=https://your-app.up.railway.app
+[`.github/workflows/cron.yml`](../../.github/workflows/cron.yml) is **disabled** (schedule removed). It previously called a Railway URL via GitHub secrets — that path is no longer used. Do not re-enable unless you have a stable external URL and matching secrets.
 
-curl -s -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/morning-briefing"
-```
+## Alternative: cron-job.org
 
-Expected: JSON response with `ok: true` or task-specific payload (not 401).
+If you cannot use EC2 crontab, use [cron-job.org](https://cron-job.org) with your public HTTPS URL and `Authorization: Bearer <CRON_SECRET>` header.
