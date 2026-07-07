@@ -37,11 +37,13 @@ export {
   NOTIFICATION_TYPES,
   resolveNotificationChannels,
   getSchedulablePreference,
+  getNotificationRouting,
   markNotificationSent,
   wasNotificationSentInSlot,
   type NotificationChannel,
   type ResolvedChannels,
 } from './services/notification-preferences'
+export { getDefaultTriggerMessage } from './agents-meta'
 
 export const appRouter = router({
   people: peopleRouter,

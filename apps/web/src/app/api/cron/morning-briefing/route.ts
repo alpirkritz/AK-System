@@ -8,6 +8,7 @@ import {
 } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
+import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
 
@@ -58,6 +59,12 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    const routed = await runEventAgentIfRouted('morning_briefing')
+    if (routed !== null) {
+      await markNotificationSent('morning_briefing')
+      return NextResponse.json({ ok: true, mode: 'agent' })
+    }
+
     const caller = await createServiceCaller()
     const today = new Date().toISOString().split('T')[0]
     const scopeIds = await getAgentCalendarIds()

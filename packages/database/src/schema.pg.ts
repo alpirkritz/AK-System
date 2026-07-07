@@ -303,5 +303,7 @@ export const notificationPreferences = pgTable('notification_preferences', {
   channelTelegram: boolean('channel_telegram').notNull().default(true),
   scheduleTimes: text('schedule_times'),
   lastSentAt: text('last_sent_at'),
+  agentId: text('agent_id'),
+  triggerMessage: text('trigger_message'),
   updatedAt: text('updated_at').notNull(),
 })

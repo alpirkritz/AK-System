@@ -383,6 +383,8 @@ export const notificationPreferences = sqliteTable('notification_preferences', {
   channelTelegram: integer('channel_telegram', { mode: 'boolean' }).notNull().default(true),
   scheduleTimes: text('schedule_times'), // JSON ["07:00"] — schedulable types only
   lastSentAt: text('last_sent_at'), // per-slot dedup for schedulable types
+  agentId: text('agent_id'), // ABC agent to run for this event; null = built-in template
+  triggerMessage: text('trigger_message'), // custom prompt for the routed agent
   updatedAt: text('updated_at').notNull(),
 })
 

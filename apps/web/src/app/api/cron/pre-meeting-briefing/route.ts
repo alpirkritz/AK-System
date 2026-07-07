@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import { resolveNotificationChannels } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
+import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
@@ -29,6 +31,11 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
   }
 
   try {
+    const channels = await resolveNotificationChannels('pre_meeting_briefing')
+    if (!channels.enabled) {
+      return NextResponse.json({ ok: true, skipped: 'disabled' })
+    }
+
     const now = new Date()
     const windowStart = new Date(now.getTime() + WINDOW_START_MIN * 60 * 1000)
     const windowEnd = new Date(now.getTime() + WINDOW_END_MIN * 60 * 1000)
@@ -80,6 +87,11 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         openTasks.length > 0 ? `משימות פתוחות: ${openTasks.map((t) => t.title).join(', ')}` : '',
       ].filter(Boolean)
       const text = lines.join('\n').slice(0, 4000)
+      const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context: text })
+      if (routed !== null) {
+        sent++
+        continue
+      }
       const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'pre_meeting_briefing' })
       if (pushed.telegram || pushed.whatsapp) sent++
     }

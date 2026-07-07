@@ -13,6 +13,10 @@ export interface NotificationTypeDef {
   availableChannels: NotificationChannel[]
   schedulable: boolean
   defaultTime?: string
+  /** Whether this event can run an ABC agent instead of the built-in template. */
+  routable?: boolean
+  /** Suggested agent for the UI picker (not auto-applied). */
+  suggestedAgentId?: string
 }
 
 const ALL_CHANNELS: NotificationChannel[] = ['whatsapp', 'push', 'telegram']
@@ -28,6 +32,8 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     availableChannels: ALL_CHANNELS,
     schedulable: true,
     defaultTime: '07:00',
+    routable: true,
+    suggestedAgentId: '06_calendar_optimizer',
   },
   {
     id: 'task_reminder',
@@ -36,6 +42,7 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     description: 'נשלח כשמשימה מגיעה למועד או באיחור — לא ניתן לקבוע שעה',
     availableChannels: ALL_CHANNELS,
     schedulable: false,
+    routable: true,
   },
   {
     id: 'pre_meeting_briefing',
@@ -44,6 +51,8 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     description: '15 דקות לפני כל פגישה',
     availableChannels: ALL_CHANNELS,
     schedulable: false,
+    routable: true,
+    suggestedAgentId: '04_meeting_prep_herald',
   },
   {
     id: 'daily_meeting_summary',
@@ -53,6 +62,8 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     availableChannels: ALL_CHANNELS,
     schedulable: true,
     defaultTime: '20:00',
+    routable: true,
+    suggestedAgentId: '03_morning_briefing',
   },
   {
     id: 'feed_digest',
@@ -117,6 +128,8 @@ export interface NotificationPrefItem extends NotificationTypeDef {
   enabled: boolean
   channels: { whatsapp: boolean; push: boolean; telegram: boolean }
   scheduleTimes: string[]
+  agentId: string | null
+  triggerMessage: string | null
 }
 
 export interface ChannelStatus {
@@ -199,6 +212,22 @@ export async function getSchedulablePreference(
   } catch (err) {
     console.warn('[notification-preferences] getSchedulable failed:', err)
     return { enabled: true, scheduleTimes: fallbackTimes, lastSentAt: null }
+  }
+}
+
+/** Read agent routing for an event type. agentId null = use built-in template. */
+export async function getNotificationRouting(
+  typeId: string,
+): Promise<{ agentId: string | null; triggerMessage: string | null }> {
+  const def = TYPE_BY_ID.get(typeId)
+  if (!def?.routable) return { agentId: null, triggerMessage: null }
+  try {
+    const row = await getRow(typeId)
+    const agentId = row?.agentId?.trim() || null
+    return { agentId, triggerMessage: row?.triggerMessage?.trim() || null }
+  } catch (err) {
+    console.warn('[notification-preferences] getRouting failed:', err)
+    return { agentId: null, triggerMessage: null }
   }
 }
 
@@ -285,6 +314,8 @@ export async function listNotificationPreferences(): Promise<NotificationPrefIte
       },
       scheduleTimes:
         times.length > 0 ? times : def.defaultTime ? [def.defaultTime] : [],
+      agentId: row?.agentId?.trim() || null,
+      triggerMessage: row?.triggerMessage?.trim() || null,
     }
   })
 }
@@ -294,6 +325,8 @@ export interface UpsertPreferenceInput {
   enabled?: boolean
   channels?: { whatsapp?: boolean; push?: boolean; telegram?: boolean }
   scheduleTimes?: string[]
+  agentId?: string | null
+  triggerMessage?: string | null
 }
 
 /** Create or update a single preference. Returns the merged catalog item. */
@@ -304,6 +337,9 @@ export async function upsertNotificationPreference(
   if (!def) throw new Error(`Unknown notification type: ${input.typeId}`)
   if (input.scheduleTimes && !def.schedulable) {
     throw new Error('סוג התראה זה אינו תומך בקביעת שעה')
+  }
+  if (input.agentId && !def.routable) {
+    throw new Error('סוג התראה זה אינו תומך בניתוב לסוכן')
   }
 
   const db = getDb()
@@ -319,6 +355,13 @@ export async function upsertNotificationPreference(
           ? [def.defaultTime]
           : []
 
+  const agentId =
+    input.agentId !== undefined ? (input.agentId?.trim() || null) : (prev?.agentId ?? null)
+  const triggerMessage =
+    input.triggerMessage !== undefined
+      ? (input.triggerMessage?.trim() || null)
+      : (prev?.triggerMessage ?? null)
+
   const row = {
     typeId: input.typeId,
     enabled: input.enabled ?? (prev ? !!prev.enabled : true),
@@ -327,6 +370,8 @@ export async function upsertNotificationPreference(
     channelTelegram: input.channels?.telegram ?? (prev ? !!prev.channelTelegram : true),
     scheduleTimes: scheduleTimes.length > 0 ? JSON.stringify(scheduleTimes) : null,
     lastSentAt: prev?.lastSentAt ?? null,
+    agentId,
+    triggerMessage,
     updatedAt: now,
   }
 
@@ -348,6 +393,8 @@ export async function upsertNotificationPreference(
       telegram: def.availableChannels.includes('telegram') && row.channelTelegram,
     },
     scheduleTimes,
+    agentId,
+    triggerMessage,
   }
 }
 

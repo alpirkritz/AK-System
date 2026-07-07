@@ -236,8 +236,15 @@ const NOTIFICATION_PREFERENCES_TABLE = [
     channel_telegram INTEGER NOT NULL DEFAULT 1,
     schedule_times TEXT,
     last_sent_at TEXT,
+    agent_id TEXT,
+    trigger_message TEXT,
     updated_at TEXT NOT NULL
   )`,
+]
+
+const NOTIFICATION_PREFERENCES_COLUMNS = [
+  'ALTER TABLE notification_preferences ADD COLUMN agent_id TEXT',
+  'ALTER TABLE notification_preferences ADD COLUMN trigger_message TEXT',
 ]
 
 const GOOGLE_CONNECTIONS_TABLE = [
@@ -361,6 +368,9 @@ export function getDb() {
   }
   for (const sql of NOTIFICATION_PREFERENCES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of NOTIFICATION_PREFERENCES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }

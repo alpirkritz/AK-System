@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { getDb, userSettings, notificationPreferences } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
 import { createTestCaller } from '../test-utils'
-import { resolveNotificationChannels } from '../services/notification-preferences'
+import {
+  resolveNotificationChannels,
+  getNotificationRouting,
+} from '../services/notification-preferences'
 
 describe('settings agentCalendars router', () => {
   beforeEach(async () => {
@@ -119,5 +122,51 @@ describe('settings notifications router', () => {
     expect(reset).toBeGreaterThanOrEqual(1)
     const resolved = await resolveNotificationChannels('feed_digest')
     expect(resolved.enabled).toBe(true)
+  })
+
+  it('list exposes routable flag and the available agents', async () => {
+    const caller = await createTestCaller()
+    const res = await caller.settings.notifications.list()
+    const morning = res.items.find((i) => i.id === 'morning_briefing')
+    expect(morning?.routable).toBe(true)
+    expect(morning?.suggestedAgentId).toBe('06_calendar_optimizer')
+    const feed = res.items.find((i) => i.id === 'feed_digest')
+    expect(feed?.routable).toBeFalsy()
+    expect(Array.isArray(res.agents)).toBe(true)
+  })
+
+  it('persists agentId + triggerMessage for a routable type', async () => {
+    const caller = await createTestCaller()
+    await caller.settings.notifications.upsert({
+      typeId: 'morning_briefing',
+      agentId: '06_calendar_optimizer',
+      triggerMessage: 'סכם את היומן והצע אופטימיזציה',
+    })
+    const routing = await getNotificationRouting('morning_briefing')
+    expect(routing.agentId).toBe('06_calendar_optimizer')
+    expect(routing.triggerMessage).toBe('סכם את היומן והצע אופטימיזציה')
+  })
+
+  it('clearing agentId reverts to the template (null routing)', async () => {
+    const caller = await createTestCaller()
+    await caller.settings.notifications.upsert({
+      typeId: 'morning_briefing',
+      agentId: '06_calendar_optimizer',
+    })
+    await caller.settings.notifications.upsert({ typeId: 'morning_briefing', agentId: null })
+    const routing = await getNotificationRouting('morning_briefing')
+    expect(routing.agentId).toBeNull()
+  })
+
+  it('rejects agentId for a non-routable type', async () => {
+    const caller = await createTestCaller()
+    await expect(
+      caller.settings.notifications.upsert({ typeId: 'feed_digest', agentId: '06_calendar_optimizer' }),
+    ).rejects.toThrow()
+  })
+
+  it('getNotificationRouting returns null routing for non-routable types', async () => {
+    const routing = await getNotificationRouting('feed_digest')
+    expect(routing.agentId).toBeNull()
   })
 })

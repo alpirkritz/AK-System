@@ -113,6 +113,66 @@ States: loading skeleton while `list` query runs; saving indicator per row; disa
 - Per-group FOMO/keyword/summary editing (stays in `/settings/whatsapp`).
 - Splitting Web Push and Expo into separate toggles (bundled as one "push" channel).
 
+## Event routing (v2)
+
+Let the owner map an event to an ABC agent from the UI: instead of the built-in lightweight template, the chosen agent runs a full LLM pass when the event fires. Example: morning briefing runs the Calendar Optimizer (`06_calendar_optimizer`); pre-meeting briefing runs the Meeting Prep Herald (`04_meeting_prep_herald`).
+
+### Routable types
+
+Only `cron` types are routable in this version. Each gets a `routable` flag and a `suggestedAgentId` used as the default option in the UI (not auto-applied — the row stays on "template" until the user picks an agent).
+
+| type_id | routable | suggested agent |
+|---------|----------|-----------------|
+| `morning_briefing` | yes | `06_calendar_optimizer` |
+| `pre_meeting_briefing` | yes | `04_meeting_prep_herald` |
+| `daily_meeting_summary` | yes | `03_morning_briefing` |
+| `task_reminder` | yes | none (template) |
+| `feed_digest` | no | — |
+| `agent_run`, `whatsapp_*`, `hugo_reply` | no | — |
+
+### Data model additions
+
+Add two nullable columns to `notification_preferences` (both schemas + `CREATE TABLE` in `index.ts`):
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `agent_id` | text nullable | ABC agent id from `A_Agents/`; null = use the built-in template |
+| `trigger_message` | text nullable | Custom prompt for the agent; null = `getDefaultTriggerMessage(agentId)` |
+
+Backwards compatible: `agent_id` null preserves current template behavior.
+
+### API additions
+
+- Catalog gains `routable` and `suggestedAgentId`; `NotificationPrefItem` gains `agentId` and `triggerMessage`.
+- `settings.notifications.list` also returns `agents: { id, name }[]` (from `listAgentSummaries`) for the picker.
+- `upsert` accepts `agentId?: string | null` and `triggerMessage?: string | null`; rejects a non-null `agentId` for a non-routable type with `BAD_REQUEST`.
+- New service `getNotificationRouting(typeId): Promise<{ agentId: string | null; triggerMessage: string | null }>`.
+
+### Dispatcher
+
+New module `apps/web/src/lib/notification-event-runner.ts`:
+
+- `runEventAgentIfRouted(typeId, options?): Promise<string | null>` — reads routing; if no `agentId`, returns `null` so the caller runs its existing template. Otherwise builds the message (`triggerMessage` or default) optionally appended with `options.context`, calls `runAgentForUser({ agentId, channel: 'cron' })`, delivers via `pushAssistantMessage(text, 'cron', { typeId, title, url })`, and returns the agent text.
+
+Cron routes call the dispatcher first, after the existing `enabled`/schedule/slot checks, and fall back to their template only when it returns `null`:
+- `morning-briefing`, `daily-meeting-summary` — no `context`; on agent path still call `markNotificationSent`.
+- `pre-meeting-briefing` — per meeting in the window, pass the assembled briefing text as `context`.
+- `task-reminder` — pass the due-task list as `context`, only when there are due tasks.
+
+`feed-sync` stays template-only (not routable).
+
+### UI additions
+
+In each routable card in `apps/web/src/app/settings/notifications/page.tsx`:
+- A `<select>` "סוכן מטפל" with "תבנית מערכת (ללא סוכן)" plus every agent from the `agents` list; default option label notes the suggested agent.
+- When an agent is selected, a `<textarea>` "הוראות לטריגר" (placeholder = default trigger message) saved on blur.
+
+### Out of scope (v2)
+
+- Routing agents for `agent_run`, `feed_digest`, WhatsApp, or Hugo types.
+- Replacing `agent_triggers` in `/agents` (kept for multi-schedule agents).
+- Selecting stored `memories` for the trigger (free text only).
+
 ## Open questions
 
 - None.

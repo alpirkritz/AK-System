@@ -1,5 +1,22 @@
 # Report — notification-preferences
 
+## Event routing (v2)
+
+### QA
+
+- `pnpm --filter @ak-system/api run test` — 9 files, 73 tests passed (5 new `settings.notifications` cases: routable flag + agents list, `agentId`/`triggerMessage` persistence, clearing an agent reverts routing to null, rejecting `agentId` for a non-routable type, and null routing for non-routable types).
+- `pnpm --filter @ak-system/web build` — success; `/settings/notifications` compiles (3.33 kB) with the new agent picker and trigger textarea.
+- `drizzle-kit push` applied `agent_id` and `trigger_message` as a clean additive change; the SQLite runtime migration adds the two columns via guarded `ALTER TABLE`.
+- Playwright: added a routable-picker persistence test (`routable event exposes an agent picker that persists`) that self-skips when no agents are present in the environment.
+
+### Reviewer Verdict
+
+**APPROVED**
+
+- Matches the v2 spec: only `cron` types are routable; a shared dispatcher (`notification-event-runner.ts`) runs the mapped ABC agent and delivers via `pushAssistantMessage`, and each cron route falls back to its built-in template when no agent is set (`agentId` null preserves prior behavior).
+- Enabled/schedule/slot checks stay ahead of the agent run so a disabled or off-slot event never triggers an LLM call; `markNotificationSent` still fires on the agent path for the two schedulable briefings.
+- `upsert` rejects an `agentId` on a non-routable type; the UI only renders the picker/textarea for routable types and saves on change/blur.
+
 ## QA
 
 - `pnpm test` — 9 files, 68 tests passed (includes 8 new `settings.notifications` cases covering catalog listing, channel resolution defaults, push-only types, per-channel disable, full-type disable, schedulable validation, time persistence, and reset).

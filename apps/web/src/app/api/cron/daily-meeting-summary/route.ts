@@ -6,6 +6,7 @@ import {
 } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
+import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 import type { MeetingCategory } from '@ak-system/database'
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
@@ -63,6 +64,12 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    const routed = await runEventAgentIfRouted('daily_meeting_summary')
+    if (routed !== null) {
+      await markNotificationSent('daily_meeting_summary')
+      return NextResponse.json({ ok: true, mode: 'agent' })
+    }
+
     const today = new Date().toISOString().split('T')[0]
     const caller = await createServiceCaller()
     const [events, dbMeetings, allTasks] = await Promise.all([

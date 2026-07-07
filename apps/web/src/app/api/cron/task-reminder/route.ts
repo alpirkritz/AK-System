@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
+import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
 /**
  * Cron: Task reminder poller (run every 1 min per Second Brain spec).
@@ -41,6 +42,11 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
       lines.push(`• [${t.priority}] ${t.title}${t.dueDate ? ` (${t.dueDate})` : ''}`)
     }
     const text = lines.join('\n').slice(0, 4000)
+
+    const routed = await runEventAgentIfRouted('task_reminder', { url: '/tasks', context: text })
+    if (routed !== null) {
+      return NextResponse.json({ ok: true, reminded: dueOrOverdue.length, mode: 'agent' })
+    }
 
     const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'task_reminder' })
     return NextResponse.json({

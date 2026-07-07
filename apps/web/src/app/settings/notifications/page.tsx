@@ -77,6 +77,7 @@ export default function NotificationSettingsPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [timeDrafts, setTimeDrafts] = useState<Record<string, string>>({})
+  const [triggerDrafts, setTriggerDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -102,6 +103,8 @@ export default function NotificationSettingsPage() {
 
   const channels = data?.channels
   const items = data?.items ?? []
+  const agents = data?.agents ?? []
+  const agentNameById = new Map(agents.map((a) => [a.id, a.name]))
   const scheduleByAgent = new Map(
     (triggers?.agents ?? []).map((a) => [a.agentId, a]),
   )
@@ -131,6 +134,18 @@ export default function NotificationSettingsPage() {
     setSavingId(typeId)
     setMessage(null)
     upsert.mutate({ typeId, scheduleTimes: times })
+  }
+
+  function saveAgent(typeId: string, agentId: string) {
+    setSavingId(typeId)
+    setMessage(null)
+    upsert.mutate({ typeId, agentId: agentId || null })
+  }
+
+  function saveTrigger(typeId: string, raw: string) {
+    setSavingId(typeId)
+    setMessage(null)
+    upsert.mutate({ typeId, triggerMessage: raw.trim() || null })
   }
 
   const grouped = CATEGORY_ORDER.map((cat) => ({
@@ -270,6 +285,49 @@ export default function NotificationSettingsPage() {
                                 }}
                               />
                             </div>
+                          )}
+                        </div>
+                      )}
+
+                      {item.enabled && item.routable && (
+                        <div className="mt-3 pt-3 border-t border-[#1a1a1a] flex flex-col gap-2">
+                          <label className="flex items-center gap-2 text-[12px] text-[#999]">
+                            <span className="w-20 shrink-0">סוכן מטפל</span>
+                            <select
+                              className="input text-[12px] py-1 px-2 flex-1"
+                              value={item.agentId ?? ''}
+                              onChange={(e) => saveAgent(item.id, e.target.value)}
+                            >
+                              <option value="">
+                                תבנית מערכת (ללא סוכן)
+                                {item.suggestedAgentId
+                                  ? ` — מומלץ: ${agentNameById.get(item.suggestedAgentId) ?? item.suggestedAgentId}`
+                                  : ''}
+                              </option>
+                              {agents.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {item.agentId && (
+                            <label className="flex items-start gap-2 text-[12px] text-[#999]">
+                              <span className="w-20 shrink-0 pt-1.5">הוראות</span>
+                              <textarea
+                                className="input text-[12px] py-1 px-2 flex-1 min-h-[52px]"
+                                value={triggerDrafts[item.id] ?? item.triggerMessage ?? ''}
+                                placeholder="מה לבקש מהסוכן (ריק = ברירת מחדל)"
+                                onChange={(e) =>
+                                  setTriggerDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                                }
+                                onBlur={(e) => {
+                                  if (e.target.value.trim() !== (item.triggerMessage ?? '')) {
+                                    saveTrigger(item.id, e.target.value)
+                                  }
+                                }}
+                              />
+                            </label>
                           )}
                         </div>
                       )}

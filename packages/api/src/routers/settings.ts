@@ -8,6 +8,7 @@ import {
   resetNotificationPreferences,
   getChannelStatus,
 } from '../services/notification-preferences'
+import { listAgentSummaries } from '../agents-meta'
 
 const timeSchema = z.string().regex(/^\d{2}:\d{2}$/)
 
@@ -29,7 +30,8 @@ export const settingsRouter = router({
   notifications: router({
     list: protectedProcedure.query(async () => {
       const items = await listNotificationPreferences()
-      return { items, channels: getChannelStatus() }
+      const agents = listAgentSummaries().map((a) => ({ id: a.id, name: a.name }))
+      return { items, channels: getChannelStatus(), agents }
     }),
 
     upsert: protectedProcedure
@@ -45,6 +47,8 @@ export const settingsRouter = router({
             })
             .optional(),
           scheduleTimes: z.array(timeSchema).optional(),
+          agentId: z.string().nullable().optional(),
+          triggerMessage: z.string().max(4000).nullable().optional(),
         }),
       )
       .mutation(async ({ input }) => {
