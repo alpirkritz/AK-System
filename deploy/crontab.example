@@ -6,14 +6,14 @@
 # Adjust if your instance timezone differs (timedatectl set-timezone ...).
 SHELL=/bin/bash
 
-# Morning briefing — ~07:00 IST
-0 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/morning-briefing >/dev/null 2>&1
+# Morning briefing — every 15 min; the route sends at the time set in Settings > Notifications (default 07:00 IST)
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/morning-briefing >/dev/null 2>&1
 
 # Calendar → meetings sync — every 15 min
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/calendar-sync >/dev/null 2>&1
 
-# Daily meeting summary — ~20:00 IST
-0 17 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
+# Daily meeting summary — every 15 min; the route sends at the time set in Settings > Notifications (default 20:00 IST)
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
 
 # Pre-meeting briefing — every 5 min
 */5 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/pre-meeting-briefing >/dev/null 2>&1

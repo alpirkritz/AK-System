@@ -80,7 +80,7 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         openTasks.length > 0 ? `משימות פתוחות: ${openTasks.map((t) => t.title).join(', ')}` : '',
       ].filter(Boolean)
       const text = lines.join('\n').slice(0, 4000)
-      const pushed = await pushAssistantMessage(text)
+      const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'pre_meeting_briefing' })
       if (pushed.telegram || pushed.whatsapp) sent++
     }
     return NextResponse.json({ ok: true, briefed: sent, total: toBrief.length })

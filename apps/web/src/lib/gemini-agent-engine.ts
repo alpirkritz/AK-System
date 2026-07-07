@@ -16,6 +16,7 @@ import {
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
+import { getAgentCalendarScopePromptBlock } from '@ak-system/api'
 
 export type { ChatTurn } from './gemini-config'
 
@@ -101,6 +102,11 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
   const memoryBlock = await getMemoryPromptBlock()
   if (memoryBlock) {
     parts.push('', memoryBlock, '', '---')
+  }
+
+  const calendarScopeBlock = await getAgentCalendarScopePromptBlock()
+  if (calendarScopeBlock) {
+    parts.push('', calendarScopeBlock, '', '---')
   }
 
   if (agentNeedsNotionContext(agentId)) {

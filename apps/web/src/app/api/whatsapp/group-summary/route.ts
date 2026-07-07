@@ -8,6 +8,7 @@ import {
 import { sendBrowserPush } from '@/lib/web-push'
 import { sendExpoPush } from '@/lib/expo-push'
 import { createNotification } from '@/lib/notification-store'
+import { resolveNotificationChannels } from '@ak-system/api'
 
 /**
  * POST /api/whatsapp/group-summary — Gemini summary of buffered group messages.
@@ -39,16 +40,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const displayName = await resolveWhatsAppGroupDisplayName(groupJid, body.groupName)
     const summary = await summarizeGroupMessages(displayName, groupJid, messages)
     try {
-      const pushTitle = `📋 סיכום קבוצה — ${displayName}`
-      const pushBody = summary.slice(0, 240)
-      await createNotification({
-        title: pushTitle,
-        body: pushBody,
-        url: '/settings/whatsapp',
-        type: 'fomo',
-      })
-      await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
-      await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+      const channels = await resolveNotificationChannels('whatsapp_group_summary')
+      if (channels.push) {
+        const pushTitle = `📋 סיכום קבוצה — ${displayName}`
+        const pushBody = summary.slice(0, 240)
+        await createNotification({
+          title: pushTitle,
+          body: pushBody,
+          url: '/settings/whatsapp',
+          type: 'fomo',
+        })
+        await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
+        await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+      }
     } catch (pushErr) {
       console.warn('[WhatsApp group-summary] Web push failed:', pushErr)
     }

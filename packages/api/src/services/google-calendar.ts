@@ -53,6 +53,53 @@ async function listCalendars(
     }))
 }
 
+export type GoogleCalendarCatalogEntry = {
+  id: string
+  name: string
+  color: string
+  source: 'google'
+  accountEmail: string
+}
+
+/** List all Google sub-calendars across connected accounts (no events required). */
+export async function listAllGoogleCalendars(): Promise<GoogleCalendarCatalogEntry[]> {
+  if (!isGoogleIntegrationConfigured()) return []
+
+  const connections = await listGoogleConnections()
+  if (connections.length === 0) return []
+
+  const entries: GoogleCalendarCatalogEntry[] = []
+
+  for (const conn of connections) {
+    try {
+      const accessToken = await getAccessTokenForConnection(conn)
+      const oauth2Client = new google.auth.OAuth2()
+      oauth2Client.setCredentials({ access_token: accessToken })
+      const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
+
+      let calendars = await listCalendars(calendarClient)
+      if (calendars.length === 0) {
+        calendars = [{ id: 'primary', summary: 'יומן ראשי' }]
+      }
+
+      for (const cal of calendars) {
+        entries.push({
+          id: makeGoogleCalendarId(conn.calendarEmail, cal.id),
+          name: `${cal.summary} (${conn.calendarEmail})`,
+          color: cal.backgroundColor || '#4285f4',
+          source: 'google',
+          accountEmail: conn.calendarEmail,
+        })
+      }
+    } catch (err) {
+      console.warn('[Google Calendar] catalog list error for', conn.calendarEmail, err)
+    }
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name, 'he'))
+  return entries
+}
+
 async function fetchEventsFromCalendar(
   calendar: calendar_v3.Calendar,
   calendarId: string,
@@ -235,6 +282,7 @@ export async function declineGoogleEvent(eventId: string, calendarId: string): P
   await calendarClient.events.patch({
     calendarId: nativeCalendarId,
     eventId: nativeEventId,
+    sendUpdates: 'none',
     requestBody: { attendees },
   })
 }

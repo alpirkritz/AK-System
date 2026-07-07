@@ -14,11 +14,18 @@ import { vatRouter } from './routers/vat'
 import { whatsappRouter } from './routers/whatsapp'
 import { agentsRouter } from './routers/agents'
 import { memoryRouter } from './routers/memory'
+import { settingsRouter } from './routers/settings'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
 export { getGoogleCalendarAuthUrl, exchangeGoogleCalendarCode } from './google-calendar-auth'
 export { upsertGoogleCalendarConnection } from './services/google-connections'
+export {
+  getAgentCalendarIds,
+  setAgentCalendarIds,
+  filterEventsByCalendarScope,
+  getAgentCalendarScopePromptBlock,
+} from './services/agent-calendar-scope'
 export {
   pushConfigToBridge,
   isBridgeConfigured,
@@ -26,6 +33,15 @@ export {
   getBridgeWatchedGroups,
   type GroupRulePayload,
 } from './services/whatsapp-bridge-client'
+export {
+  NOTIFICATION_TYPES,
+  resolveNotificationChannels,
+  getSchedulablePreference,
+  markNotificationSent,
+  wasNotificationSentInSlot,
+  type NotificationChannel,
+  type ResolvedChannels,
+} from './services/notification-preferences'
 
 export const appRouter = router({
   people: peopleRouter,
@@ -43,6 +59,7 @@ export const appRouter = router({
   whatsapp: whatsappRouter,
   agents: agentsRouter,
   memory: memoryRouter,
+  settings: settingsRouter,
 })
 
 export type AppRouter = typeof appRouter

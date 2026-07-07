@@ -288,3 +288,20 @@ export const memories = pgTable('memories', {
   kindIdx: index('idx_memories_kind').on(table.kind),
   pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
 }))
+
+export const userSettings = pgTable('user_settings', {
+  id: text('id').primaryKey(),
+  agentCalendarIds: text('agent_calendar_ids'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const notificationPreferences = pgTable('notification_preferences', {
+  typeId: text('type_id').primaryKey(),
+  enabled: boolean('enabled').notNull().default(true),
+  channelWhatsapp: boolean('channel_whatsapp').notNull().default(true),
+  channelPush: boolean('channel_push').notNull().default(true),
+  channelTelegram: boolean('channel_telegram').notNull().default(true),
+  scheduleTimes: text('schedule_times'),
+  lastSentAt: text('last_sent_at'),
+  updatedAt: text('updated_at').notNull(),
+})

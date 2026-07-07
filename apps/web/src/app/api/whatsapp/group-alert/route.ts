@@ -10,6 +10,7 @@ import { sendBrowserPush } from '@/lib/web-push'
 import { sendExpoPush } from '@/lib/expo-push'
 import { createNotification } from '@/lib/notification-store'
 import { getDb, whatsappGroups } from '@ak-system/database'
+import { resolveNotificationChannels } from '@ak-system/api'
 import { eq } from 'drizzle-orm'
 
 function fallbackFomoSnippet(messages: BufferedGroupMessage[]): string {
@@ -67,16 +68,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await saveChatMessage('assistant', text, 'whatsapp')
     await sendWhatsAppMessage(text)
     try {
-      const pushTitle = type === 'fomo' ? `🔔 FOMO — ${name}` : `🔑 ${name}`
-      const pushBody = text.slice(0, 240)
-      await createNotification({
-        title: pushTitle,
-        body: pushBody,
-        url: '/settings/whatsapp',
-        type: 'fomo',
-      })
-      await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
-      await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+      const channels = await resolveNotificationChannels(
+        type === 'fomo' ? 'whatsapp_fomo' : 'whatsapp_keyword',
+      )
+      if (channels.push) {
+        const pushTitle = type === 'fomo' ? `🔔 FOMO — ${name}` : `🔑 ${name}`
+        const pushBody = text.slice(0, 240)
+        await createNotification({
+          title: pushTitle,
+          body: pushBody,
+          url: '/settings/whatsapp',
+          type: 'fomo',
+        })
+        await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
+        await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+      }
     } catch (pushErr) {
       console.warn('[WhatsApp group-alert] Web push failed:', pushErr)
     }

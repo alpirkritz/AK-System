@@ -90,6 +90,11 @@ const MEMORY_TABLES = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind)`,
   `CREATE INDEX IF NOT EXISTS idx_memories_pinned ON memories(pinned, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS user_settings (
+    id TEXT PRIMARY KEY,
+    agent_calendar_ids TEXT,
+    updated_at TEXT NOT NULL
+  )`,
 ]
 const CHAT_MESSAGES_TABLE = [
   `CREATE TABLE IF NOT EXISTS chat_messages (
@@ -222,6 +227,19 @@ const AGENT_TRIGGERS_TABLE = [
   )`,
 ]
 
+const NOTIFICATION_PREFERENCES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS notification_preferences (
+    type_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    channel_whatsapp INTEGER NOT NULL DEFAULT 1,
+    channel_push INTEGER NOT NULL DEFAULT 1,
+    channel_telegram INTEGER NOT NULL DEFAULT 1,
+    schedule_times TEXT,
+    last_sent_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+]
+
 const GOOGLE_CONNECTIONS_TABLE = [
   `CREATE TABLE IF NOT EXISTS google_connections (
     id TEXT PRIMARY KEY,
@@ -341,6 +359,9 @@ export function getDb() {
   for (const sql of GOOGLE_CONNECTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of NOTIFICATION_PREFERENCES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }
 
@@ -370,8 +391,10 @@ export const expoPushTokens = schema.expoPushTokens
 export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
+export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
+export const userSettings = schema.userSettings
 
 // Re-export MEETING_CATEGORIES from pg (same value) and types from schema (sqlite has the type exports)
 export type MeetingCategory = typeof schemaPg.MEETING_CATEGORIES[number]
@@ -411,6 +434,8 @@ export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof schemaPg.whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof schemaPg.whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof schemaPg.whatsappGroups.$inferInsert
+export type NotificationPreference = typeof schemaPg.notificationPreferences.$inferSelect
+export type NewNotificationPreference = typeof schemaPg.notificationPreferences.$inferInsert
 export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof schemaPg.hugoInstructions.$inferInsert
 export type Memory = typeof schemaPg.memories.$inferSelect

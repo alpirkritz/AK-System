@@ -7,6 +7,7 @@ import {
   GoogleCalendarEvent,
   listGoogleConnections,
   hasGoogleCalendarConnections,
+  listAllGoogleCalendars,
 } from '../services/google-calendar'
 import {
   fetchAppleCalendarEvents,
@@ -116,6 +117,39 @@ export const calendarRouter = router({
         .filter((e) => !isFreeBusyPlaceholderTitle(e.title))
         .slice(0, input.limit)
     }),
+
+  catalog: protectedProcedure.query(async () => {
+    const googleCals = await listAllGoogleCalendars()
+
+    const appleMap = new Map<string, { id: string; name: string; color: string; source: 'apple' }>()
+    if (isAppleCalendarAvailable()) {
+      const now = new Date()
+      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const end = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+      const appleEvents = await fetchAppleCalendarEvents(start, end)
+      for (const ev of appleEvents) {
+        const id = ev.calendarId || 'apple:unknown'
+        if (!appleMap.has(id)) {
+          appleMap.set(id, {
+            id,
+            name: ev.calendarName || id,
+            color: ev.calendarColor || '#888888',
+            source: 'apple',
+          })
+        }
+      }
+    }
+
+    const calendars = [
+      ...googleCals,
+      ...Array.from(appleMap.values()),
+    ].sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'google' ? -1 : 1
+      return a.name.localeCompare(b.name, 'he')
+    })
+
+    return { calendars }
+  }),
 
   conflicts: protectedProcedure
     .input(z.object({

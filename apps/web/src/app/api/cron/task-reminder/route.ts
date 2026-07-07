@@ -42,7 +42,7 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     }
     const text = lines.join('\n').slice(0, 4000)
 
-    const pushed = await pushAssistantMessage(text)
+    const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'task_reminder' })
     return NextResponse.json({
       ok: true,
       reminded: dueOrOverdue.length,

@@ -6,6 +6,7 @@ import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
 import { getGeminiModelOptions } from './gemini-config'
 import { getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
+import { filterEventsByCalendarScope, getAgentCalendarIds } from '@ak-system/api'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -410,41 +411,49 @@ export async function executeTool(
 
   switch (name) {
     case 'get_today_schedule': {
+      const scopeIds = await getAgentCalendarIds()
       const [events, allTasks] = await Promise.all([
         caller.calendar.events({ startDate: todayStr, endDate: todayStr }),
         caller.tasks.list(),
       ])
+      const scopedEvents = filterEventsByCalendarScope(events, scopeIds)
       const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === todayStr)
-      return { date: todayStr, events, dueTasks }
+      return { date: todayStr, events: scopedEvents, dueTasks }
     }
 
     case 'get_week_schedule': {
+      const scopeIds = await getAgentCalendarIds()
       const weekEnd = addDays(today, 7).toISOString().split('T')[0]
       const [events, allTasks] = await Promise.all([
         caller.calendar.events({ startDate: todayStr, endDate: weekEnd }),
         caller.tasks.list(),
       ])
+      const scopedEvents = filterEventsByCalendarScope(events, scopeIds)
       const dueTasks = allTasks.filter(
         (t) => !t.done && t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEnd,
       )
-      return { startDate: todayStr, endDate: weekEnd, events, dueTasks }
+      return { startDate: todayStr, endDate: weekEnd, events: scopedEvents, dueTasks }
     }
 
     case 'get_upcoming_meetings': {
+      const scopeIds = await getAgentCalendarIds()
       const limit = (args.limit as number | undefined) ?? 5
-      const events = await caller.calendar.upcoming({ limit })
-      return { events }
+      const events = await caller.calendar.upcoming({ limit: 50 })
+      const scoped = filterEventsByCalendarScope(events, scopeIds).slice(0, limit)
+      return { events: scoped }
     }
 
     case 'get_next_meeting_brief': {
+      const scopeIds = await getAgentCalendarIds()
       const [upcoming, allMeetings, allPeople, allTasks] = await Promise.all([
-        caller.calendar.upcoming({ limit: 10 }),
+        caller.calendar.upcoming({ limit: 50 }),
         caller.meetings.list(),
         caller.people.list(),
         caller.tasks.list(),
       ])
 
-      const calEvent = upcoming[0] ?? null
+      const scopedUpcoming = filterEventsByCalendarScope(upcoming, scopeIds)
+      const calEvent = scopedUpcoming[0] ?? null
       if (!calEvent) return { calEvent: null, message: 'No upcoming events found in calendar.' }
 
       const linkedMeeting =
@@ -487,9 +496,14 @@ export async function executeTool(
     }
 
     case 'get_calendar_conflicts': {
+      const scopeIds = await getAgentCalendarIds()
       const days = (args.days as number | undefined) ?? 7
       const endDate = addDays(today, days).toISOString().split('T')[0]
-      const conflicts = await caller.calendar.conflicts({ startDate: todayStr, endDate })
+      const conflicts = await caller.calendar.conflicts({
+        startDate: todayStr,
+        endDate,
+        calendarIds: scopeIds ?? undefined,
+      })
       return { conflicts, count: conflicts.length }
     }
 

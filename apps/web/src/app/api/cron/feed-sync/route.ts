@@ -36,7 +36,7 @@ async function runSync(_request: NextRequest): Promise<NextResponse> {
         if (latest.length > 0) {
           const lines = latest.map((i) => `• ${i.title}\n  ${i.sourceName}`)
           const digest = `📰 עדכון כלכלה וחדשות\n\n${lines.join('\n\n')}`
-          await pushAssistantMessage(digest.slice(0, 4000))
+          await pushAssistantMessage(digest.slice(0, 4000), 'cron', { typeId: 'feed_digest' })
         }
       } catch (digestErr) {
         console.warn('[cron/feed-sync] Push digest failed:', digestErr)

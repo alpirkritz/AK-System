@@ -107,6 +107,7 @@ export async function runAgentTrigger(agentId: string): Promise<{
     await pushAssistantMessage(pushText, 'cron', {
       title: `${agentName} — סיים`,
       url: `/agents?agent=${encodeURIComponent(agentId)}`,
+      typeId: 'agent_run',
     })
 
     await updateRunStatus(agentId, 'ok')

@@ -3,6 +3,7 @@ import { notifyNotionInbox } from './notion'
 import { sendBrowserPush } from './web-push'
 import { sendExpoPush } from './expo-push'
 import { createNotification } from './notification-store'
+import { resolveNotificationChannels } from '@ak-system/api'
 
 export type AgentNotifyChannel = 'web' | 'whatsapp' | 'telegram' | 'cron'
 
@@ -45,10 +46,13 @@ export async function notifyAgentRunComplete(options: {
     }
   }
 
-  const url =
-    options.agentId === HUGO_AGENT_ID
-      ? '/chat'
-      : `/agents?agent=${encodeURIComponent(options.agentId)}`
+  const isHugo = options.agentId === HUGO_AGENT_ID
+  const url = isHugo ? '/chat' : `/agents?agent=${encodeURIComponent(options.agentId)}`
+
+  const channels = await resolveNotificationChannels(isHugo ? 'hugo_reply' : 'agent_run')
+  if (!channels.push) {
+    return { notion, webPush: 0, expoPush: 0 }
+  }
 
   try {
     await createNotification({ title, body: short, url, type: 'agent' })

@@ -1,7 +1,23 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import {
+  getSchedulablePreference,
+  markNotificationSent,
+  wasNotificationSentInSlot,
+} from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import type { MeetingCategory } from '@ak-system/database'
+
+const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
+
+function currentSlot(): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date())
+}
 
 const CATEGORY_LABELS: Record<MeetingCategory, string> = {
   work: 'עבודה',
@@ -29,6 +45,20 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
     const token = auth?.replace(/^Bearer\s+/i, '')
     if (token !== secret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
+  const pref = await getSchedulablePreference('daily_meeting_summary')
+  if (!pref.enabled) {
+    return NextResponse.json({ ok: true, skipped: 'disabled' })
+  }
+  if (pref.scheduleTimes.length > 0) {
+    const slot = currentSlot()
+    if (!pref.scheduleTimes.includes(slot)) {
+      return NextResponse.json({ ok: true, skipped: 'not-scheduled', slot })
+    }
+    if (wasNotificationSentInSlot(pref.lastSentAt, slot, TIMEZONE)) {
+      return NextResponse.json({ ok: true, skipped: 'already-sent', slot })
     }
   }
 
@@ -87,7 +117,8 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
     }
     const text = (lines.length > 2 ? lines.join('\n') : lines[0] + '\nאין אירועים היום.').slice(0, 4000)
 
-    const pushed = await pushAssistantMessage(text)
+    const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'daily_meeting_summary' })
+    await markNotificationSent('daily_meeting_summary')
     return NextResponse.json({
       ok: true,
       eventsCount: events.length,

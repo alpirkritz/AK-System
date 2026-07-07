@@ -545,6 +545,24 @@ export default function SettingsPage() {
   const [upcomingCount, setUpcomingCount]       = useState<number>(5)
   const [timezone, setTimezone]                 = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
   const [savedFlash, setSavedFlash]             = useState(false)
+  const [agentCals, setAgentCals]               = useState<string[] | null>(null)
+
+  const { data: agentCalData } = trpc.settings.agentCalendars.get.useQuery(undefined, {
+    enabled: hydrated,
+  })
+  const { data: catalogData, isFetching: catalogLoading } = trpc.calendar.catalog.useQuery(undefined, {
+    enabled: hydrated,
+  })
+  const setAgentCalendars = trpc.settings.agentCalendars.set.useMutation({
+    onSuccess: (data) => {
+      setAgentCals(data.calendarIds)
+      flash()
+    },
+  })
+
+  useEffect(() => {
+    if (agentCalData) setAgentCals(agentCalData.calendarIds)
+  }, [agentCalData])
 
   useEffect(() => {
     setConflictEnabled(readLS(LS.CONFLICT_ENABLED, true))
@@ -587,6 +605,30 @@ export default function SettingsPage() {
     })
   }, [calEvents])
 
+  const agentCatalog = useMemo(() => {
+    const cals = catalogData?.calendars ?? []
+    return cals.map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      source: c.source,
+      accountEmail: c.accountEmail,
+    }))
+  }, [catalogData])
+
+  const agentCatalogGroups = useMemo(() => {
+    const groups = new Map<string, typeof agentCatalog>()
+    for (const cal of agentCatalog) {
+      const key =
+        cal.source === 'google'
+          ? (cal.accountEmail ?? 'Google')
+          : 'Exchange / Apple'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(cal)
+    }
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, 'he'))
+  }, [agentCatalog])
+
   // ── Helpers ───────────────────────────────────────────────────────────────────
   function flash() {
     setSavedFlash(true)
@@ -627,6 +669,18 @@ export default function SettingsPage() {
     setSyncCals(finalIds)
     writeLS(LS.SYNC_CALENDARS, finalIds ?? [])
     flash()
+  }
+
+  function toggleAgentCalendar(id: string) {
+    const allIds = agentCatalog.map((c) => c.id)
+    if (allIds.length === 0) return
+    const current = agentCals ?? allIds
+    const next = current.includes(id)
+      ? current.filter((c) => c !== id)
+      : [...current, id]
+    const finalIds = next.length === allIds.length ? null : next
+    setAgentCals(finalIds)
+    setAgentCalendars.mutate({ calendarIds: finalIds })
   }
 
   function clearDismissed() {
@@ -673,7 +727,7 @@ export default function SettingsPage() {
 
       <Link
         href="/memory"
-        className="card p-4 mb-8 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
         style={{ border: '1px solid #222' }}
       >
         <div>
@@ -685,6 +739,48 @@ export default function SettingsPage() {
         <span className="text-[#e8c547] text-lg">🧠</span>
       </Link>
 
+      {/* ── Section: Agent Calendars ─────────────────────────────────────────── */}
+      <Section
+        icon={
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
+            <rect x="2" y="3" width="16" height="15" rx="2" stroke="#e8c547" strokeWidth="1.5" />
+            <path d="M6 2v3M14 2v3M2 8h16" stroke="#e8c547" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="10" cy="13" r="2" stroke="#e8c547" strokeWidth="1.5" />
+          </svg>
+        }
+        title="יומנים לסוכנים"
+        description="הוגו, אופטי וסיכומי בוקר יתייחסו רק ליומנים שסימנת"
+      >
+        <div>
+          <div className="px-5 pt-4 pb-2">
+            <div className="text-sm text-[#ccc]">יומנים לניתוח</div>
+            <div className="text-xs text-[#555] mt-0.5">
+              כולל תתי-יומנים (למשל dragontail תחת alpirkritz@gmail.com). נשמר בשרת — עובד גם ב-WhatsApp.
+            </div>
+          </div>
+          {catalogLoading ? (
+            <div className="px-5 py-3 text-xs text-[#444]">טוען יומנים…</div>
+          ) : agentCatalog.length === 0 ? (
+            <div className="px-5 py-3 text-xs text-[#555]">לא נמצאו יומנים — ודא שהיומן מחובר</div>
+          ) : (
+            <div className="px-5 py-3 flex flex-col gap-3">
+              {agentCatalogGroups.map(([group, cals]) => (
+                <div key={group}>
+                  <div className="text-[10px] text-[#444] uppercase tracking-wider font-medium mb-1 px-2">
+                    {group}
+                  </div>
+                  <CalendarCheckboxList
+                    calendars={cals}
+                    selected={agentCals}
+                    onToggle={toggleAgentCalendar}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Section>
+
       <Suspense fallback={null}>
         <GoogleAccountsCard />
       </Suspense>
@@ -693,6 +789,20 @@ export default function SettingsPage() {
       <NotionCard />
 
       {/* ── Section: Notifications ───────────────────────────────────────────── */}
+      <Link
+        href="/settings/notifications"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
+        style={{ border: '1px solid #222' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#ddd]">התראות וערוצים</div>
+          <div className="text-xs text-[#555] mt-0.5">
+            מה נשלח ומתי — הפעלה או כיבוי לכל ערוץ (WhatsApp / פוש / Telegram) ושעות לתדריכים
+          </div>
+        </div>
+        <span className="text-[#e8c547] text-lg">🔔</span>
+      </Link>
+
       <NotificationsCard />
 
       {/* ── Section: Calendar Conflicts ──────────────────────────────────────── */}

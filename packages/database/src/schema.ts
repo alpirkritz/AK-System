@@ -196,6 +196,18 @@ export type NewHugoInstruction = typeof hugoInstructions.$inferInsert
 export type Memory = typeof memories.$inferSelect
 export type NewMemory = typeof memories.$inferInsert
 
+// ─── User settings (agent preferences, persisted server-side) ─────────────────
+
+/** Single-row preferences (id='default'). */
+export const userSettings = sqliteTable('user_settings', {
+  id: text('id').primaryKey(),
+  agentCalendarIds: text('agent_calendar_ids'), // JSON string[] or null = all calendars
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type UserSettings = typeof userSettings.$inferSelect
+export type NewUserSettings = typeof userSettings.$inferInsert
+
 // ─── Chat messages (web chat + telegram + cron push) ──────────────────────────
 
 export const chatMessages = sqliteTable('chat_messages', {
@@ -360,6 +372,22 @@ export type WhatsappLabel = typeof whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof whatsappGroups.$inferInsert
+
+// ─── Notification preferences (per type × channel routing) ───────────────────
+
+export const notificationPreferences = sqliteTable('notification_preferences', {
+  typeId: text('type_id').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  channelWhatsapp: integer('channel_whatsapp', { mode: 'boolean' }).notNull().default(true),
+  channelPush: integer('channel_push', { mode: 'boolean' }).notNull().default(true),
+  channelTelegram: integer('channel_telegram', { mode: 'boolean' }).notNull().default(true),
+  scheduleTimes: text('schedule_times'), // JSON ["07:00"] — schedulable types only
+  lastSentAt: text('last_sent_at'), // per-slot dedup for schedulable types
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect
+export type NewNotificationPreference = typeof notificationPreferences.$inferInsert
 
 export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
