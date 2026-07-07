@@ -1,6 +1,12 @@
 import EventKit
 import Foundation
 
+struct Attendee: Codable {
+    let email: String?
+    let name: String?
+    let responseStatus: String  // accepted | declined | tentative | needsAction | unknown
+}
+
 // Output structure for each calendar event
 struct CalendarEvent: Codable {
     let id: String
@@ -18,6 +24,7 @@ struct CalendarEvent: Codable {
     let status: String
     let organizer: String?
     let attendeeStatus: String  // "accepted" | "declined" | "tentative" | "needsAction" | "unknown"
+    let attendees: [Attendee]
 }
 
 let store = EKEventStore()
@@ -52,6 +59,39 @@ func attendeeStatus(_ ev: EKEvent) -> String {
     case .pending:   return "needsAction"
     default:         return "unknown"
     }
+}
+
+func participantResponseStatus(_ status: EKParticipantStatus) -> String {
+    switch status {
+    case .accepted:  return "accepted"
+    case .declined:  return "declined"
+    case .tentative: return "tentative"
+    case .pending:   return "needsAction"
+    default:         return "unknown"
+    }
+}
+
+func attendeeEmail(_ participant: EKParticipant) -> String? {
+    let urlString = participant.url.absoluteString
+    guard urlString.lowercased().hasPrefix("mailto:") else {
+        return nil
+    }
+    let email = String(urlString.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+    return email.isEmpty ? nil : email
+}
+
+func extractAttendees(_ ev: EKEvent) -> [Attendee] {
+    guard let attendees = ev.attendees, !attendees.isEmpty else { return [] }
+    var out: [Attendee] = []
+    for p in attendees {
+        if p.isCurrentUser { continue }
+        out.append(Attendee(
+            email: attendeeEmail(p),
+            name: p.name,
+            responseStatus: participantResponseStatus(p.participantStatus)
+        ))
+    }
+    return out
 }
 
 store.requestFullAccessToEvents { granted, error in
@@ -105,7 +145,8 @@ store.requestFullAccessToEvents { granted, error in
             url:        ev.url?.absoluteString,
             status:         eventStatus(ev.status),
             organizer:      ev.organizer?.name,
-            attendeeStatus: attendeeStatus(ev)
+            attendeeStatus: attendeeStatus(ev),
+            attendees:      extractAttendees(ev)
         )
 
         // Prefer Exchange-sourced copy over local duplicate

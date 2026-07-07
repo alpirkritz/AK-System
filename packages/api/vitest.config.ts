@@ -11,6 +11,7 @@ export default defineConfig({
     globals: true,
     pool: 'forks',
     environment: 'node',
+    include: ['src/**/*.test.ts', '../../scripts/**/*.test.ts'],
   },
   resolve: {
     alias: {

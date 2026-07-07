@@ -2,7 +2,8 @@
 <!--
   launchd agent for the Outlook → Google Dragontail bridge.
   Template: __RUN_SCRIPT__, __WORKDIR__, __LOG__ are substituted by
-  scripts/install-outlook-bridge.sh with absolute paths for this machine.
+  scripts/install-outlook-bridge.sh. Runner and log live under ~/.ak-system/
+  (launchd cannot execute scripts inside Google Drive).
   Runs every 900s while the Mac is awake (skipped runs coalesce, not queued).
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -13,8 +14,9 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/bash</string>
-    <string>__RUN_SCRIPT__</string>
+    <string>/usr/bin/osascript</string>
+    <string>-e</string>
+    <string>do shell script "bash __RUN_SCRIPT__"</string>
   </array>
 
   <key>WorkingDirectory</key>

@@ -3,7 +3,7 @@
 > **Slug:** `outlook-to-google-bridge`
 > **Stack:** next-trpc-monorepo
 > **Status:** Approved
-> **Last Updated:** 2026-07-04
+> **Last Updated:** 2026-07-06
 
 ## Goal
 
@@ -23,6 +23,8 @@ Replace the unreliable iCalendar feed path with a Mac-local bridge that reads th
 - As a user, I want Outlook edits/deletions to propagate to Dragontail.
 - As a user, I want the bridge to touch only the copies it created, never the 3200 real Dragontail events.
 - As a user, I want the sync to run automatically while the Mac is awake, without manual intervention.
+- As a user, I want the bridge to avoid creating duplicate events when the meeting already exists in Dragontail (e.g. from a legacy feed or manual entry).
+- As a user, I want meeting attendees from Outlook to appear on the Google Calendar event.
 
 ## Acceptance criteria
 
@@ -32,6 +34,8 @@ Replace the unreliable iCalendar feed path with a Mac-local bridge that reads th
 - Given an event deleted from Outlook within the sync window, When the bridge runs, Then the tagged copy is deleted — and untagged Dragontail events are never deleted.
 - Given the Mac is awake, When ~15 minutes elapse, Then launchd runs the bridge again.
 - Given a `cancelled` event, When the bridge runs, Then it is skipped/removed and not created.
+- Given an Outlook event whose normalized `title+start` already exists in Dragontail without bridge tags, When the bridge runs, Then it patches the existing event (adopts it) instead of creating a duplicate.
+- Given an Outlook event with attendees (email available from EventKit), When the bridge creates or updates the Dragontail copy, Then `attendees` are written to the Google event with `sendUpdates=none` (no invitation emails).
 
 ## Data model
 
@@ -39,7 +43,7 @@ No schema change. Copy identification uses Google event fields:
 
 - `extendedProperties.private.akSource = 'outlook-exchange'`
 - `extendedProperties.private.akSourceUid = <eventIdentifier>_<startISO>` (unique also for recurring occurrences)
-- `extendedProperties.private.akSig = <hash of title|start|end|location|notes|allDay>`
+- `extendedProperties.private.akSig = <hash of title|start|end|location|notes|allDay|attendees>`
 
 The bridge reads the `alpirkritz@gmail.com` refresh token from the local SQLite `google_connections`, populated by reconnecting the account with the write scope.
 
@@ -59,11 +63,15 @@ No new tRPC procedure. Single change in `packages/api`:
 
 ## Bridge logic (scripts/outlook-to-google-sync.ts)
 
-1. Run the Swift helper for window `-7d .. +60d`, filter to `calSource==='Exchange'` and calendar `OUTLOOK_SOURCE_CALENDAR` (default `Calendar`), skip holidays.
-2. Map each event to `akSourceUid` and compute `akSig`.
-3. Fetch existing Dragontail copies with `privateExtendedProperty=akSource=outlook-exchange` within the window.
-4. Diff: insert new, patch when `akSig` differs, delete copies whose UID disappeared from Outlook.
+1. Run the Swift helper for window `-7d .. +60d`, filter to `calSource==='Exchange'` and calendar `OUTLOOK_SOURCE_CALENDAR` (default `Calendar`), skip holidays. Helper exports `attendees[]` (`email`, `name`, `responseStatus`) per event.
+2. Map each event to `akSourceUid` and compute `akSig` (includes attendees).
+3. Fetch **all** Dragontail events in the sync window (for dedup) plus tagged copies (for delete tracking).
+4. Diff:
+   - Match by `akSourceUid` first, then by normalized `title+start` (`matchKey`) to avoid duplicates.
+   - Insert when no match; patch when `akSig` differs or when adopting an untagged existing event; skip when unchanged.
+   - Delete tagged copies whose UID disappeared from Outlook.
 5. all-day → `start.date`; timed → `start.dateTime` (helper already emits local offset). Skip `status==='cancelled'`.
+6. POST/PATCH include `attendees` (email required) and `sendUpdates=none`.
 
 ## config (env, in apps/web/.env.local)
 

@@ -255,6 +255,9 @@ export async function listGoogleConnections(): Promise<GoogleConnection[]> {
   const fromSqlite = fetchGoogleConnectionsFromSqlite()
   if (fromSqlite.length > 0) return fromSqlite
 
+  // Mac bridge/cron sets DATABASE_PATH explicitly — don't fall through to dead Supabase.
+  if (process.env.DATABASE_PATH) return fromSqlite
+
   if (hasSupabaseGoogleCredentials()) {
     const fromSupabase = await fetchGoogleConnectionsFromSupabase()
     if (fromSupabase.length > 0) return fromSupabase

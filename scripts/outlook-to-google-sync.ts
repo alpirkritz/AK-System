@@ -42,9 +42,16 @@ const DAYS_BACK = Number(process.env.OUTLOOK_BRIDGE_DAYS_BACK || 7)
 const DAYS_FWD = Number(process.env.OUTLOOK_BRIDGE_DAYS_FWD || 60)
 const TIME_ZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
 
-const AK_SOURCE = 'outlook-exchange'
-const HELPER_TIMEOUT_MS = 20_000
+export const AK_SOURCE = 'outlook-exchange'
+const HELPER_TIMEOUT_MS = Number(process.env.OUTLOOK_BRIDGE_HELPER_TIMEOUT_MS || 60_000)
+const WRITE_DELAY_MS = Number(process.env.OUTLOOK_BRIDGE_WRITE_DELAY_MS || 300)
 const DRY_RUN = process.argv.includes('--dry-run')
+
+export interface SourceAttendee {
+  email: string | null
+  name: string | null
+  responseStatus?: string
+}
 
 interface RawEvent {
   id: string
@@ -62,9 +69,10 @@ interface RawEvent {
   status: string
   organizer?: string | null
   attendeeStatus?: string
+  attendees?: SourceAttendee[]
 }
 
-interface SourceEvent {
+export interface SourceEvent {
   uid: string
   sig: string
   title: string
@@ -73,15 +81,27 @@ interface SourceEvent {
   allDay: boolean
   location: string | null
   description: string | null
+  attendees: SourceAttendee[]
 }
 
-interface GoogleEvent {
+export interface GoogleEvent {
   id: string
+  summary?: string
+  start?: { date?: string; dateTime?: string }
+  end?: { date?: string; dateTime?: string }
+  attendees?: Array<{ email?: string; self?: boolean }>
   extendedProperties?: { private?: Record<string, string> }
 }
 
+/** Bump when attendee storage strategy changes (forces one-time cleanup PATCH). */
+export const ATTENDEES_CLEARED_VERSION = '1'
+
 function log(...args: unknown[]): void {
   console.log('[outlook-bridge]', ...args)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function resolveHelperPath(): string {
@@ -131,24 +151,67 @@ function runHelper(timeMin: Date, timeMax: Date): Promise<RawEvent[]> {
   })
 }
 
-function signature(e: {
-  title: string; start: string; end: string; location: string | null; description: string | null; allDay: boolean
+export function normalizeStart(start: string, allDay: boolean): string {
+  if (allDay) return start.slice(0, 10)
+  return new Date(start).toISOString()
+}
+
+export function matchKey(e: { title: string; start: string; allDay: boolean }): string {
+  const title = e.title.trim().replace(/\s+/g, ' ').toLowerCase()
+  const start = normalizeStart(e.start, e.allDay)
+  return `${title}|${start}`
+}
+
+function attendeesSig(attendees: SourceAttendee[]): string {
+  return attendees
+    .filter((a) => a.email)
+    .map((a) => `${a.email}|${a.responseStatus ?? ''}`)
+    .sort()
+    .join(',')
+}
+
+export function signature(e: {
+  title: string
+  start: string
+  end: string
+  location: string | null
+  description: string | null
+  allDay: boolean
+  attendees: SourceAttendee[]
 }): string {
   return createHash('sha1')
-    .update([e.title, e.start, e.end, e.location ?? '', e.description ?? '', e.allDay ? '1' : '0'].join('|'))
+    .update([
+      e.title,
+      e.start,
+      e.end,
+      e.location ?? '',
+      e.description ?? '',
+      e.allDay ? '1' : '0',
+      attendeesSig(e.attendees),
+    ].join('|'))
     .digest('hex')
     .slice(0, 16)
 }
 
-function toSourceEvents(raw: RawEvent[]): SourceEvent[] {
+function parseAttendees(raw: RawEvent): SourceAttendee[] {
+  if (!Array.isArray(raw.attendees)) return []
+  return raw.attendees.map((a) => ({
+    email: a.email ?? null,
+    name: a.name ?? null,
+    responseStatus: a.responseStatus,
+  }))
+}
+
+export function toSourceEvents(raw: RawEvent[], sourceCalendar = SOURCE_CALENDAR): SourceEvent[] {
   const out: SourceEvent[] = []
   for (const e of raw) {
     if (e.calSource !== 'Exchange') continue
-    if (e.calendar !== SOURCE_CALENDAR) continue
+    if (e.calendar !== sourceCalendar) continue
     if (e.status === 'cancelled') continue
     if (!e.title) continue
     const location = e.location && e.location.length > 0 ? e.location : null
     const description = e.notes && e.notes.length > 0 ? e.notes : null
+    const attendees = parseAttendees(e)
     const base = {
       title: e.title,
       start: e.start,
@@ -156,6 +219,7 @@ function toSourceEvents(raw: RawEvent[]): SourceEvent[] {
       allDay: e.allDay,
       location,
       description,
+      attendees,
     }
     out.push({
       uid: `${e.id}_${e.start}`,
@@ -183,23 +247,153 @@ function isoDatePlusOne(date: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-function eventBody(e: SourceEvent): Record<string, unknown> {
+export function mapRsvp(status?: string): string | undefined {
+  if (
+    status === 'accepted' ||
+    status === 'declined' ||
+    status === 'tentative' ||
+    status === 'needsAction'
+  ) {
+    return status
+  }
+  return undefined
+}
+
+export function eventBody(
+  e: SourceEvent,
+  opts: { akSource?: string; timeZone?: string } = {},
+): Record<string, unknown> {
+  const akSource = opts.akSource ?? AK_SOURCE
+  const timeZone = opts.timeZone ?? TIME_ZONE
   const start = e.allDay
     ? { date: allDayDates(e.start, e.end).start }
-    : { dateTime: e.start, timeZone: TIME_ZONE }
+    : { dateTime: e.start, timeZone }
   const end = e.allDay
     ? { date: allDayDates(e.start, e.end).end }
-    : { dateTime: e.end, timeZone: TIME_ZONE }
+    : { dateTime: e.end, timeZone }
+
+  let description = e.description ?? undefined
+  if (e.attendees.length > 0) {
+    const attendeeList = e.attendees
+      .map((a) => (a.email ? `${a.name ?? a.email} <${a.email}>` : (a.name ?? '')))
+      .filter(Boolean)
+      .join(', ')
+    const note = `משתתפים: ${attendeeList}`
+    description = description ? `${description}\n\n${note}` : note
+  }
+
   return {
     summary: e.title,
     location: e.location ?? undefined,
-    description: e.description ?? undefined,
+    description,
     start,
     end,
+    // Explicitly clear any attendees previously written to Google Calendar.
+    // Never set real attendees — Google would send invitation emails on their behalf.
+    attendees: [],
     extendedProperties: {
-      private: { akSource: AK_SOURCE, akSourceUid: e.uid, akSig: e.sig },
+      private: {
+        akSource,
+        akSourceUid: e.uid,
+        akSig: e.sig,
+        akAttendeesCleared: ATTENDEES_CLEARED_VERSION,
+      },
     },
   }
+}
+
+export function isBridgeCopy(ev: GoogleEvent, akSource = AK_SOURCE): boolean {
+  return ev.extendedProperties?.private?.akSource === akSource
+}
+
+export function googleEventMatchFields(
+  ev: GoogleEvent,
+): { title: string; start: string; allDay: boolean } | null {
+  const title = ev.summary?.trim()
+  if (!title) return null
+  if (ev.start?.date) {
+    return { title, start: ev.start.date, allDay: true }
+  }
+  if (ev.start?.dateTime) {
+    return { title, start: ev.start.dateTime, allDay: false }
+  }
+  return null
+}
+
+export interface SyncAction {
+  action: 'create' | 'update' | 'adopt' | 'unchanged'
+  source: SourceEvent
+  match?: GoogleEvent
+}
+
+export function needsAttendeeCleanup(
+  match: GoogleEvent,
+  akSource = AK_SOURCE,
+): boolean {
+  if (!isBridgeCopy(match, akSource)) return false
+  return match.extendedProperties?.private?.akAttendeesCleared !== ATTENDEES_CLEARED_VERSION
+}
+
+export function planSyncActions(
+  sources: SourceEvent[],
+  existingCopies: GoogleEvent[],
+  allInWindow: GoogleEvent[],
+  akSource = AK_SOURCE,
+): SyncAction[] {
+  const existingByUid = new Map<string, GoogleEvent>()
+  for (const ev of existingCopies) {
+    const uid = ev.extendedProperties?.private?.akSourceUid
+    if (uid) existingByUid.set(uid, ev)
+  }
+
+  const existingByMatchKey = new Map<string, GoogleEvent>()
+  for (const ev of allInWindow) {
+    const fields = googleEventMatchFields(ev)
+    if (!fields) continue
+    const key = matchKey(fields)
+    if (!existingByMatchKey.has(key)) {
+      existingByMatchKey.set(key, ev)
+    }
+  }
+
+  const actions: SyncAction[] = []
+  for (const s of sources) {
+    let match = existingByUid.get(s.uid)
+    let adopted = false
+
+    if (!match) {
+      match = existingByMatchKey.get(matchKey(s))
+      if (match && !isBridgeCopy(match, akSource)) {
+        adopted = true
+      }
+    }
+
+    if (!match) {
+      actions.push({ action: 'create', source: s })
+      continue
+    }
+
+    const tagged = isBridgeCopy(match, akSource)
+    const sameUid = match.extendedProperties?.private?.akSourceUid === s.uid
+    const sameSig = match.extendedProperties?.private?.akSig === s.sig
+
+    if (tagged && sameUid && sameSig) {
+      if (match && needsAttendeeCleanup(match, akSource)) {
+        actions.push({ action: 'update', source: s, match })
+        continue
+      }
+      actions.push({ action: 'unchanged', source: s, match })
+      continue
+    }
+
+    if (adopted) {
+      actions.push({ action: 'adopt', source: s, match })
+    } else {
+      actions.push({ action: 'update', source: s, match })
+    }
+  }
+
+  return actions
 }
 
 async function gcalFetch(
@@ -218,27 +412,30 @@ async function gcalFetch(
   })
 }
 
-async function listExistingCopies(
+async function listDragontailEvents(
   accessToken: string,
   timeMin: Date,
   timeMax: Date,
+  opts: { taggedOnly?: boolean } = {},
 ): Promise<GoogleEvent[]> {
   const events: GoogleEvent[] = []
   let pageToken: string | undefined
   const calId = encodeURIComponent(DRAGONTAIL_GCAL_ID)
   do {
     const params = new URLSearchParams({
-      privateExtendedProperty: `akSource=${AK_SOURCE}`,
       timeMin: timeMin.toISOString(),
       timeMax: timeMax.toISOString(),
       singleEvents: 'true',
       showDeleted: 'false',
       maxResults: '2500',
     })
+    if (opts.taggedOnly) {
+      params.set('privateExtendedProperty', `akSource=${AK_SOURCE}`)
+    }
     if (pageToken) params.set('pageToken', pageToken)
     const res = await gcalFetch(accessToken, 'GET', `calendars/${calId}/events?${params}`)
     if (!res.ok) {
-      throw new Error(`list existing failed: ${res.status} ${await res.text()}`)
+      throw new Error(`list events failed: ${res.status} ${await res.text()}`)
     }
     const data = (await res.json()) as { items?: GoogleEvent[]; nextPageToken?: string }
     if (data.items) events.push(...data.items)
@@ -270,68 +467,99 @@ async function main(): Promise<void> {
 
   const raw = await runHelper(timeMin, timeMax)
   const sources = toSourceEvents(raw)
-  log(`source: ${sources.length} Outlook events (calendar "${SOURCE_CALENDAR}")`)
+  const attendeesWithEmail = sources.reduce(
+    (n, s) => n + s.attendees.filter((a) => a.email).length,
+    0,
+  )
+  const attendeesSkipped = sources.reduce(
+    (n, s) => n + s.attendees.filter((a) => !a.email && a.name).length,
+    0,
+  )
+  log(
+    `source: ${sources.length} Outlook events (calendar "${SOURCE_CALENDAR}"), ` +
+    `${attendeesWithEmail} attendees with email, ${attendeesSkipped} name-only`,
+  )
 
-  const existing = await listExistingCopies(accessToken, timeMin, timeMax)
-  log(`existing copies in Dragontail: ${existing.length}`)
+  const [existingCopies, allInWindow] = await Promise.all([
+    listDragontailEvents(accessToken, timeMin, timeMax, { taggedOnly: true }),
+    listDragontailEvents(accessToken, timeMin, timeMax),
+  ])
+  log(`existing copies in Dragontail: ${existingCopies.length}, all in window: ${allInWindow.length}`)
 
-  const existingByUid = new Map<string, GoogleEvent>()
-  for (const ev of existing) {
-    const uid = ev.extendedProperties?.private?.akSourceUid
-    if (uid) existingByUid.set(uid, ev)
-  }
-
+  const actions = planSyncActions(sources, existingCopies, allInWindow)
   const sourceUids = new Set(sources.map((s) => s.uid))
   const calId = encodeURIComponent(DRAGONTAIL_GCAL_ID)
   let created = 0
   let updated = 0
+  let adopted = 0
   let deleted = 0
   let unchanged = 0
 
-  for (const s of sources) {
-    const match = existingByUid.get(s.uid)
-    if (!match) {
-      if (DRY_RUN) { created++; continue }
-      const res = await gcalFetch(accessToken, 'POST', `calendars/${calId}/events`, eventBody(s))
-      if (res.ok) created++
-      else log('insert failed:', s.title, res.status, (await res.text()).slice(0, 160))
-      continue
-    }
-    if (match.extendedProperties?.private?.akSig === s.sig) {
+  for (const { action, source: s, match } of actions) {
+    if (action === 'unchanged') {
       unchanged++
       continue
     }
-    if (DRY_RUN) { updated++; continue }
+    if (action === 'create') {
+      if (DRY_RUN) { created++; continue }
+      const res = await gcalFetch(
+        accessToken,
+        'POST',
+        `calendars/${calId}/events?sendUpdates=none`,
+        eventBody(s),
+      )
+      if (res.ok) created++
+      else log('insert failed:', s.title, res.status, (await res.text()).slice(0, 160))
+      if (WRITE_DELAY_MS > 0) await sleep(WRITE_DELAY_MS)
+      continue
+    }
+    if (!match) continue
+    if (DRY_RUN) {
+      if (action === 'adopt') adopted++
+      else updated++
+      continue
+    }
     const res = await gcalFetch(
       accessToken,
       'PATCH',
-      `calendars/${calId}/events/${encodeURIComponent(match.id)}`,
+      `calendars/${calId}/events/${encodeURIComponent(match.id)}?sendUpdates=none`,
       eventBody(s),
     )
-    if (res.ok) updated++
-    else log('patch failed:', s.title, res.status, (await res.text()).slice(0, 160))
+    if (res.ok) {
+      if (action === 'adopt') adopted++
+      else updated++
+    } else {
+      log('patch failed:', s.title, res.status, (await res.text()).slice(0, 160))
+    }
+    if (WRITE_DELAY_MS > 0) await sleep(WRITE_DELAY_MS)
   }
 
-  for (const ev of existing) {
+  for (const ev of existingCopies) {
     const uid = ev.extendedProperties?.private?.akSourceUid
     if (uid && sourceUids.has(uid)) continue
     if (DRY_RUN) { deleted++; continue }
     const res = await gcalFetch(
       accessToken,
       'DELETE',
-      `calendars/${calId}/events/${encodeURIComponent(ev.id)}`,
+      `calendars/${calId}/events/${encodeURIComponent(ev.id)}?sendUpdates=none`,
     )
     if (res.ok || res.status === 410) deleted++
     else log('delete failed:', ev.id, res.status)
   }
 
   log(
-    `${DRY_RUN ? '[dry-run] ' : ''}done — created ${created}, updated ${updated}, ` +
-    `deleted ${deleted}, unchanged ${unchanged}`,
+    `${DRY_RUN ? '[dry-run] ' : ''}done — created ${created}, adopted ${adopted}, ` +
+    `updated ${updated}, deleted ${deleted}, unchanged ${unchanged}`,
   )
 }
 
-main().catch((err) => {
-  console.error('[outlook-bridge] FATAL:', err instanceof Error ? err.message : err)
-  process.exit(1)
-})
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isMain) {
+  main().catch((err) => {
+    console.error('[outlook-bridge] FATAL:', err instanceof Error ? err.message : err)
+    process.exit(1)
+  })
+}
