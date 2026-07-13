@@ -143,8 +143,15 @@ const FINANCE_TABLES = [
     source TEXT NOT NULL DEFAULT 'ibkr_email',
     raw_email_id TEXT,
     description TEXT,
+    email_subject TEXT,
+    action_type TEXT NOT NULL DEFAULT 'trade',
+    account TEXT,
+    source_detail TEXT,
+    notion_page_id TEXT,
+    imported_at TEXT,
     created_at TEXT NOT NULL
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_finance_trades_notion_page_id ON finance_trades(notion_page_id)`,
   `CREATE TABLE IF NOT EXISTS finance_transactions (
     id TEXT PRIMARY KEY,
     amount TEXT NOT NULL,
@@ -157,6 +164,15 @@ const FINANCE_TABLES = [
     raw_data TEXT,
     created_at TEXT NOT NULL
   )`,
+]
+
+const FINANCE_TRADES_COLUMNS = [
+  'ALTER TABLE finance_trades ADD COLUMN email_subject TEXT',
+  "ALTER TABLE finance_trades ADD COLUMN action_type TEXT NOT NULL DEFAULT 'trade'",
+  'ALTER TABLE finance_trades ADD COLUMN account TEXT',
+  'ALTER TABLE finance_trades ADD COLUMN source_detail TEXT',
+  'ALTER TABLE finance_trades ADD COLUMN notion_page_id TEXT',
+  'ALTER TABLE finance_trades ADD COLUMN imported_at TEXT',
 ]
 
 const PUSH_SUBSCRIPTIONS_TABLE = [
@@ -240,6 +256,10 @@ const NOTIFICATION_PREFERENCES_TABLE = [
     trigger_message TEXT,
     updated_at TEXT NOT NULL
   )`,
+]
+
+const USER_SETTINGS_COLUMNS = [
+  'ALTER TABLE user_settings ADD COLUMN agent_display_names TEXT',
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [
@@ -342,6 +362,9 @@ export function getDb() {
   for (const sql of FINANCE_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of FINANCE_TRADES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -370,6 +393,9 @@ export function getDb() {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of NOTIFICATION_PREFERENCES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of USER_SETTINGS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })

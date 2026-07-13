@@ -67,7 +67,7 @@ export default function AgentsPage() {
         <h1 className="text-2xl font-bold tracking-tight">סוכנים</h1>
         <div className="flex items-center gap-3">
           <Link href="/agents/manage" className="btn btn-ghost text-sm">
-            ערוך הוראות
+            ערוך הוראות ושמות
           </Link>
           <span className="text-xs text-[#555]">ABC · {ENGINE_LABELS[engine] ?? engine}</span>
         </div>

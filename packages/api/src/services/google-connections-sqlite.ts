@@ -44,6 +44,19 @@ export function updateGoogleAccessTokenSqlite(input: {
   `)
 }
 
+/** Clear cached access token after invalid_grant so the next call forces refresh. */
+export function clearGoogleAccessTokenSqlite(connectionId: string): void {
+  const db = getDb()
+  const now = new Date().toISOString()
+  db.run(sql`
+    UPDATE google_connections
+    SET access_token = NULL,
+        token_expires_at = ${now},
+        updated_at = ${now}
+    WHERE id = ${connectionId}
+  `)
+}
+
 export function upsertGoogleConnectionSqlite(input: {
   userId: string
   calendarEmail: string

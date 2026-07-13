@@ -13,6 +13,7 @@ import {
   invalidateAppleCalendarCache,
 } from '../services/apple-calendar'
 import { FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB } from '../lib/calendar-filters'
+import { localDateRangeToUtc } from '../lib/calendar-dates'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -171,8 +172,7 @@ export const meetingsRouter = router({
       calendarIds: z.array(z.string()).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const start = new Date(input.startDate)
-      const end = new Date(input.endDate)
+      const { timeMin, timeMax } = localDateRangeToUtc(input.startDate, input.endDate)
 
       // Invalidate both caches so we get full fresh data (no stale cache / token)
       invalidateAppleCalendarCache()
@@ -182,11 +182,11 @@ export const meetingsRouter = router({
       const googleConfigured = isGoogleCalendarConfigured()
       const [googleResult, appleResult] = await Promise.allSettled([
         googleConfigured
-          ? fetchGoogleCalendarEvents(start, end)
-          : Promise.resolve([]),
-        fetchAppleCalendarEvents(start, end),
+          ? fetchGoogleCalendarEvents(timeMin, timeMax)
+          : Promise.resolve({ events: [], errors: [] }),
+        fetchAppleCalendarEvents(timeMin, timeMax),
       ])
-      const googleEvents = googleResult.status === 'fulfilled' ? googleResult.value : []
+      const googleEvents = googleResult.status === 'fulfilled' ? googleResult.value.events : []
       const appleEvents  = appleResult.status  === 'fulfilled' ? appleResult.value  : []
 
       // Track which sources were successfully fetched so we only delete

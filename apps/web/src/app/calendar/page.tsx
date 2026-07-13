@@ -17,6 +17,7 @@ import MonthView from './components/MonthView'
 import EventDetailPanel from './components/EventDetailPanel'
 import SkeletonGrid from './components/SkeletonGrid'
 import NotConnectedBanner from './components/NotConnectedBanner'
+import CalendarFetchErrorBanner from './components/CalendarFetchErrorBanner'
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false)
@@ -116,7 +117,7 @@ export default function CalendarPage() {
     { retry: false },
   )
 
-  const { data: rawEvents = [], isLoading: loadingEvents } = trpc.calendar.events.useQuery(
+  const { data: calData, isLoading: loadingEvents } = trpc.calendar.events.useQuery(
     fetchRange,
     {
       enabled: isConnected === true,
@@ -124,6 +125,8 @@ export default function CalendarPage() {
       refetchIntervalInBackground: false,
     },
   )
+  const rawEvents = calData?.events ?? []
+  const googleErrors = calData?.googleErrors ?? []
 
   // ── Calendar filter state ─────────────────────────────────────
   const calendars = extractCalendars(rawEvents as CalEvent[])
@@ -232,6 +235,7 @@ export default function CalendarPage() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Main calendar area */}
         <div className="flex flex-col flex-1 relative overflow-hidden min-w-0">
+          {googleErrors.length > 0 && <CalendarFetchErrorBanner errors={googleErrors} />}
           {isLoading && <SkeletonGrid />}
           {!checking && isConnected === false && <NotConnectedBanner />}
           {!isLoading && isConnected === true && view === 'day' && (

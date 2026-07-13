@@ -76,6 +76,27 @@ describe('notion-config', () => {
     expect(getAssistantTarget()).toEqual({ token: 'ntn_a', databaseId: 'p-inbox' })
   })
 
+  it('parses the extended db types (people/projects/companies/meeting_notes)', () => {
+    process.env.NOTION_ACCOUNTS = JSON.stringify([
+      {
+        label: 'Work',
+        token: 'ntn_w',
+        databases: [
+          { id: 'ppl', name: 'People', type: 'people' },
+          { id: 'prj', name: 'Projects', type: 'projects' },
+          { id: 'cmp', name: 'Companies', type: 'companies' },
+          { id: 'notes', name: 'AI Meeting Notes', type: 'meeting_notes' },
+        ],
+      },
+    ])
+    __resetNotionConfigCache()
+
+    expect(getDatabasesByType('people').map((d) => d.database.id)).toEqual(['ppl'])
+    expect(getDatabasesByType('projects').map((d) => d.database.id)).toEqual(['prj'])
+    expect(getDatabasesByType('companies').map((d) => d.database.id)).toEqual(['cmp'])
+    expect(getDatabasesByType('meeting_notes').map((d) => d.database.id)).toEqual(['notes'])
+  })
+
   it('defaults db type to tasks and name to id when omitted', () => {
     process.env.NOTION_ACCOUNTS = JSON.stringify([
       { label: 'X', token: 'ntn_x', databases: [{ id: 'only-id' }] },

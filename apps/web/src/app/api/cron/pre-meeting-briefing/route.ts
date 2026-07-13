@@ -41,12 +41,13 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     const windowEnd = new Date(now.getTime() + WINDOW_END_MIN * 60 * 1000)
 
     const caller = await createServiceCaller()
-    const [upcoming, allMeetings, allPeople, allTasks] = await Promise.all([
+    const [upcomingResult, allMeetings, allPeople, allTasks] = await Promise.all([
       caller.calendar.upcoming({ limit: 10 }),
       caller.meetings.list(),
       caller.people.list(),
       caller.tasks.list(),
     ])
+    const upcoming = upcomingResult.events
 
     const toBrief: typeof upcoming = []
     for (const e of upcoming) {

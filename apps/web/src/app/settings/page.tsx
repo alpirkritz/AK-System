@@ -4,6 +4,11 @@ import { useState, useEffect, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
+import {
+  getOrCreatePushSubscription,
+  installForegroundPushListener,
+  showForegroundNotification,
+} from '@/lib/push-client'
 
 // ── localStorage keys (shared with ConflictsWidget and dashboard) ─────────────
 import { LS } from '@/lib/ls-keys'
@@ -236,6 +241,11 @@ function GoogleAccountsCard() {
   const searchParams = useSearchParams()
   const utils = trpc.useUtils()
   const { data, isLoading, refetch } = trpc.calendar.googleAccounts.useQuery()
+  const { data: healthData, isLoading: healthLoading, refetch: refetchHealth } =
+    trpc.calendar.googleHealth.useQuery(undefined, {
+      enabled: (data?.accounts.length ?? 0) > 0,
+      refetchOnWindowFocus: true,
+    })
   const [oauthMsg, setOauthMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -245,7 +255,9 @@ function GoogleAccountsCard() {
     if (connected) {
       setOauthMsg(`חשבון ${email || 'Google'} חובר בהצלחה ✓`)
       void utils.calendar.googleAccounts.invalidate()
+      void utils.calendar.googleHealth.invalidate()
       void refetch()
+      void refetchHealth()
       window.history.replaceState({}, '', '/settings')
     } else if (err) {
       const messages: Record<string, string> = {
@@ -258,11 +270,41 @@ function GoogleAccountsCard() {
       setOauthMsg(messages[err] || `שגיאת חיבור: ${err}`)
       window.history.replaceState({}, '', '/settings')
     }
-  }, [searchParams, refetch, utils.calendar.googleAccounts])
+  }, [searchParams, refetch, refetchHealth, utils.calendar.googleAccounts, utils.calendar.googleHealth])
 
   const connected = new Set((data?.accounts ?? []).map((a) => a.email.toLowerCase()))
   const personalOk = connected.has(PERSONAL_GOOGLE)
   const dazOk = connected.has(DAZ_GOOGLE)
+
+  const healthByEmail = new Map(
+    (healthData?.accounts ?? []).map((a) => [a.email.toLowerCase(), a]),
+  )
+
+  function accountStatus(email: string, hasToken: boolean) {
+    if (isLoading || (hasToken && healthLoading)) {
+      return <span className="text-xs text-[#555]">בודק…</span>
+    }
+    if (!hasToken) {
+      return (
+        <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(email)}`} className="btn btn-primary text-xs py-1.5 px-3">
+          חבר
+        </a>
+      )
+    }
+    const health = healthByEmail.get(email.toLowerCase())
+    if (!health || health.status === 'ok') {
+      return <span className="text-xs text-[#47b86e]">פעיל ✓</span>
+    }
+    return (
+      <div className="flex flex-col items-end gap-1 max-w-[220px]">
+        <span className="text-xs text-red-400">שגיאת חיבור</span>
+        <span className="text-[10px] text-[#666] text-left leading-snug">{health.error}</span>
+        <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(email)}`} className="btn btn-ghost text-[10px] py-1 px-2">
+          חבר מחדש
+        </a>
+      </div>
+    )
+  }
 
   return (
     <Section
@@ -274,31 +316,15 @@ function GoogleAccountsCard() {
         <div className="px-5 py-3 text-xs text-[#aaa] border-b border-[#1a1a1a]">{oauthMsg}</div>
       )}
       <Row label="אישי" description={PERSONAL_GOOGLE}>
-        {isLoading ? (
-          <span className="text-xs text-[#555]">טוען…</span>
-        ) : personalOk ? (
-          <span className="text-xs text-[#47b86e]">מחובר ✓</span>
-        ) : (
-          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(PERSONAL_GOOGLE)}`} className="btn btn-primary text-xs py-1.5 px-3">
-            חבר
-          </a>
-        )}
+        {accountStatus(PERSONAL_GOOGLE, personalOk)}
       </Row>
       <Row label="דאז" description={DAZ_GOOGLE}>
-        {isLoading ? (
-          <span className="text-xs text-[#555]">טוען…</span>
-        ) : dazOk ? (
-          <span className="text-xs text-[#47b86e]">מחובר ✓</span>
-        ) : (
-          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(DAZ_GOOGLE)}`} className="btn btn-ghost text-xs py-1.5 px-3">
-            חבר
-          </a>
-        )}
+        {accountStatus(DAZ_GOOGLE, dazOk)}
       </Row>
       <div className="px-5 py-3 text-xs text-[#555] leading-relaxed">
         {connected.size === 0
           ? 'אין חשבונות מחוברים — לחץ "חבר" ואשר גישה ליומן ול-Gmail.'
-          : `${connected.size} חשבון/ות מחוברים. אירועים ומיילים נאספים מכל החשבונות.`}
+          : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל.`}
       </div>
     </Section>
   )
@@ -405,15 +431,6 @@ function NotionCard() {
   )
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const raw = atob(base64)
-  const arr = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
-  return arr
-}
-
 function NotificationsCard() {
   const { data: vapidKey } = trpc.push.getVapidPublicKey.useQuery()
   const subscribe = trpc.push.subscribe.useMutation()
@@ -423,6 +440,7 @@ function NotificationsCard() {
   const [status, setStatus] = useState<string | null>(null)
 
   useEffect(() => {
+    installForegroundPushListener()
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setPermission('unsupported')
       return
@@ -438,24 +456,12 @@ function NotificationsCard() {
         setStatus('הדפדפן לא תומך בנוטיפיקציות')
         return
       }
-      const perm = await Notification.requestPermission()
-      setPermission(perm)
-      if (perm !== 'granted') {
-        setStatus('ההרשאה נדחתה — אפשר נוטיפיקציות בהגדרות הדפדפן')
-        return
-      }
       if (!vapidKey) {
         setStatus('מפתחות VAPID לא מוגדרים בשרת')
         return
       }
-      const reg = await navigator.serviceWorker.ready
-      let sub = await reg.pushManager.getSubscription()
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
-        })
-      }
+      const sub = await getOrCreatePushSubscription(vapidKey)
+      setPermission(Notification.permission)
       const json = sub.toJSON()
       if (json.endpoint && json.keys) {
         await subscribe.mutateAsync({
@@ -464,8 +470,8 @@ function NotificationsCard() {
         })
       }
       setStatus('נוטיפיקציות הופעלו ✓')
-    } catch {
-      setStatus('שגיאה בהפעלת נוטיפיקציות')
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'שגיאה בהפעלת נוטיפיקציות')
     } finally {
       setBusy(false)
     }
@@ -474,12 +480,13 @@ function NotificationsCard() {
   async function test() {
     setBusy(true)
     setStatus(null)
+    const title = 'AK System'
+    const body = 'נוטיפיקציית בדיקה ✓'
+    const url = '/chat'
     try {
-      const res = await sendTest.mutateAsync({
-        title: 'AK System',
-        body: 'נוטיפיקציית בדיקה ✓',
-        url: '/chat',
-      })
+      const res = await sendTest.mutateAsync({ title, body, url })
+      // Foreground fallback — Chrome on Mac often skips the OS banner when this tab is focused.
+      showForegroundNotification(title, body, url)
       setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.expoSent ?? 0} Helm`)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'שליחת בדיקה נכשלה')
@@ -580,10 +587,11 @@ export default function SettingsPage() {
   // ── Calendar fetch (used for the calendar selector) ──────────────────────────
   const today   = new Date().toISOString().split('T')[0]
   const in14    = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
-  const { data: calEvents = [], isFetching: calLoading } = trpc.calendar.events.useQuery(
+  const { data: calData, isFetching: calLoading } = trpc.calendar.events.useQuery(
     { startDate: today, endDate: in14 },
     { enabled: hydrated }
   )
+  const calEvents = calData?.events ?? []
 
   const calendars = useMemo(() => {
     const map = new Map<string, { id: string; name: string; color: string; source: string }>()

@@ -99,14 +99,21 @@ export const financeTrades = sqliteTable('finance_trades', {
   commission: text('commission'),
   currency: text('currency').notNull().default('USD'),
   tradeDate: text('trade_date').notNull(),
-  source: text('source').notNull().default('ibkr_email'),
+  source: text('source').notNull().default('ibkr_email'), // 'ibkr_email' | 'notion_import' | 'manual'
   rawEmailId: text('raw_email_id'),
   description: text('description'),
+  emailSubject: text('email_subject'),
+  actionType: text('action_type').notNull().default('trade'), // 'trade' | 'dividend' | 'interest' | 'transfer'
+  account: text('account'),
+  sourceDetail: text('source_detail'),
+  notionPageId: text('notion_page_id'),
+  importedAt: text('imported_at'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   tradeDateIdx: index('idx_finance_trades_trade_date').on(table.tradeDate),
   rawEmailIdIdx: index('idx_finance_trades_raw_email_id').on(table.rawEmailId),
   symbolIdx: index('idx_finance_trades_symbol').on(table.symbol),
+  notionPageIdIdx: index('idx_finance_trades_notion_page_id').on(table.notionPageId),
 }))
 
 export const financeTransactions = sqliteTable('finance_transactions', {
@@ -202,6 +209,7 @@ export type NewMemory = typeof memories.$inferInsert
 export const userSettings = sqliteTable('user_settings', {
   id: text('id').primaryKey(),
   agentCalendarIds: text('agent_calendar_ids'), // JSON string[] or null = all calendars
+  agentDisplayNames: text('agent_display_names'), // JSON Record<agentId, displayName>
   updatedAt: text('updated_at').notNull(),
 })
 

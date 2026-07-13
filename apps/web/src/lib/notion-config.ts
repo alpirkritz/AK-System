@@ -17,7 +17,15 @@
  * IDs so existing deployments keep working unchanged.
  */
 
-export type NotionDbType = 'tasks' | 'meetings' | 'assistant'
+export type NotionDbType =
+  | 'tasks'
+  | 'meetings'
+  | 'assistant'
+  | 'ibkr_transactions'
+  | 'people'
+  | 'projects'
+  | 'companies'
+  | 'meeting_notes'
 
 export interface NotionDatabaseConfig {
   id: string
@@ -31,7 +39,16 @@ export interface NotionAccountConfig {
   databases: NotionDatabaseConfig[]
 }
 
-const DB_TYPES: NotionDbType[] = ['tasks', 'meetings', 'assistant']
+const DB_TYPES: NotionDbType[] = [
+  'tasks',
+  'meetings',
+  'assistant',
+  'ibkr_transactions',
+  'people',
+  'projects',
+  'companies',
+  'meeting_notes',
+]
 
 /** Historical task databases (single legacy account). */
 const LEGACY_TASK_DATABASES: NotionDatabaseConfig[] = [

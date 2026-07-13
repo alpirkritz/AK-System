@@ -1,10 +1,50 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { financeTrades, financeTransactions } from '@ak-system/database'
+import { financeTrades, financeTransactions, agentTriggers } from '@ak-system/database'
 import { eq, desc, gte, and, like, sql, count, sum } from 'drizzle-orm'
-import { fetchIBKRTrades, listIBKREmails } from '../services/ibkr-parser'
+import { listIBKREmails } from '../services/ibkr-parser'
+import { importIBKREmails } from '../services/ibkr-import-service'
+import { importIBKRFromNotion, isNotionIbkrConfigured } from '../services/notion-ibkr-import'
+import { computeFifoPnl, type TradeInput } from '../services/pnl'
 import { parseCSV } from '../services/csv-parser'
 import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
+
+type JournalPeriod = 'today' | 'week' | 'month' | 'all'
+
+/** Inclusive lower-bound ISO timestamp for a journal period (empty = all-time). */
+function periodSince(period: JournalPeriod): string {
+  const now = new Date()
+  if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  if (period === 'week') {
+    const d = new Date(now)
+    d.setDate(d.getDate() - 7)
+    return d.toISOString()
+  }
+  if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  return ''
+}
+
+function toTradeInputs(
+  rows: Array<{
+    id: string
+    symbol: string
+    direction: string
+    quantity: string
+    price: string
+    commission: string | null
+    tradeDate: string
+  }>,
+): TradeInput[] {
+  return rows.map((r) => ({
+    id: r.id,
+    symbol: r.symbol,
+    direction: r.direction === 'buy' ? 'buy' : 'sell',
+    quantity: parseFloat(r.quantity) || 0,
+    price: parseFloat(r.price) || 0,
+    commission: r.commission ? parseFloat(r.commission) || 0 : 0,
+    tradeDate: r.tradeDate,
+  }))
+}
 
 const idInput = z.object({ id: z.string().min(1) })
 
@@ -36,49 +76,19 @@ export const financeRouter = router({
   syncIBKREmails: protectedProcedure
     .input(z.object({ maxEmails: z.number().min(1).max(500).default(100) }))
     .mutation(async ({ ctx, input }) => {
-      const trades = await fetchIBKRTrades(input.maxEmails)
-      let inserted = 0
-      let skipped = 0
+      return importIBKREmails({ maxEmails: input.maxEmails }, ctx.db)
+    }),
 
-      // Pre-load existing trades for deduplication (rawEmailId|symbol|direction as key)
-      const existingRows = await ctx.db
-        .select({
-          rawEmailId: financeTrades.rawEmailId,
-          symbol: financeTrades.symbol,
-          direction: financeTrades.direction,
-        })
-        .from(financeTrades)
-      const existingKeys = new Set(
-        existingRows.map((r) => `${r.rawEmailId}|${r.symbol}|${r.direction}`)
-      )
+  /** האם מוגדר בסיס נתונים של IBKR ב-Notion (לכפתור ייבוא היסטוריה) */
+  notionIbkrConfigured: protectedProcedure.query(() => {
+    return { configured: isNotionIbkrConfigured() }
+  }),
 
-      for (const trade of trades) {
-        const key = `${trade.rawEmailId}|${trade.symbol}|${trade.direction}`
-        if (existingKeys.has(key)) {
-          skipped++
-          continue
-        }
-
-        const id = 'ft' + Date.now() + Math.random().toString(36).slice(2, 7)
-        await ctx.db.insert(financeTrades).values({
-          id,
-          symbol: trade.symbol,
-          direction: trade.direction,
-          quantity: String(trade.quantity),
-          price: String(trade.price),
-          commission: String(trade.commission),
-          currency: trade.currency,
-          tradeDate: trade.tradeDate,
-          source: 'ibkr_email',
-          rawEmailId: trade.rawEmailId,
-          description: trade.description ?? null,
-          createdAt: new Date().toISOString(),
-        })
-        existingKeys.add(key)
-        inserted++
-      }
-
-      return { inserted, skipped, total: trades.length }
+  /** ייבוא חד-פעמי של היסטוריית עסקאות מ-Notion → finance_trades (עם dedupe) */
+  importFromNotion: protectedProcedure
+    .input(z.object({ dryRun: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      return importIBKRFromNotion({ dryRun: input.dryRun }, ctx.db)
     }),
 
   listTrades: protectedProcedure
@@ -335,4 +345,101 @@ export const financeRouter = router({
       totalTransactions: txnCountAll?.value ?? 0,
     }
   }),
+
+  // ─── Trading Journal ───────────────────────────────────────────────────────
+
+  /** מצב יומי + P&L ממומש (FIFO) לתקופה נבחרת, כולל סטטוס סנכרון אחרון */
+  getTradingJournal: protectedProcedure
+    .input(z.object({ period: z.enum(['today', 'week', 'month', 'all']).default('today') }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select()
+        .from(financeTrades)
+        .orderBy(desc(financeTrades.tradeDate))
+
+      const { sells } = computeFifoPnl(toTradeInputs(rows))
+      const realizedById = new Map<string, number>()
+      for (const sell of sells) {
+        if (sell.id) realizedById.set(sell.id, sell.realizedPnl)
+      }
+
+      const since = periodSince(input.period)
+      let buysNotional = 0
+      let sellsNotional = 0
+      let realizedPnl = 0
+
+      const trades = rows
+        .filter((r) => !since || r.tradeDate >= since)
+        .map((r) => {
+          const quantity = parseFloat(r.quantity) || 0
+          const price = parseFloat(r.price) || 0
+          const notional = quantity * price
+          if (r.direction === 'buy') buysNotional += notional
+          else sellsNotional += notional
+          const pnl = r.direction === 'sell' ? realizedById.get(r.id) ?? null : null
+          if (pnl != null) realizedPnl += pnl
+          return {
+            id: r.id,
+            tradeDate: r.tradeDate,
+            symbol: r.symbol,
+            direction: r.direction,
+            quantity,
+            price,
+            currency: r.currency,
+            realizedPnl: pnl,
+          }
+        })
+
+      const [trigger] = await ctx.db
+        .select()
+        .from(agentTriggers)
+        .where(eq(agentTriggers.agentId, '05_ibkr_daily_import'))
+        .limit(1)
+
+      return {
+        period: input.period,
+        tradesCount: trades.length,
+        buysNotional,
+        sellsNotional,
+        realizedPnl,
+        trades,
+        lastSync: trigger
+          ? { at: trigger.lastRunAt ?? null, status: trigger.lastRunStatus ?? null }
+          : null,
+      }
+    }),
+
+  /** דירוג סימבולים לפי P&L ממומש (FIFO) — מנצחים מול מפסידים */
+  getSymbolRanking: protectedProcedure
+    .input(
+      z.object({
+        period: z.enum(['today', 'week', 'month', 'all']).default('all'),
+        limit: z.number().min(1).max(50).default(5),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.select().from(financeTrades)
+      const { sells } = computeFifoPnl(toTradeInputs(rows))
+
+      const since = periodSince(input.period)
+      const bySymbol: Record<string, number> = {}
+      for (const sell of sells) {
+        if (since && sell.tradeDate < since) continue
+        bySymbol[sell.symbol] = (bySymbol[sell.symbol] ?? 0) + sell.realizedPnl
+      }
+
+      const entries = Object.entries(bySymbol).map(([symbol, realizedPnl]) => ({ symbol, realizedPnl }))
+      const EPS = 0.005
+      const winners = entries
+        .filter((e) => e.realizedPnl > EPS)
+        .sort((a, b) => b.realizedPnl - a.realizedPnl)
+        .slice(0, input.limit)
+      const losers = entries
+        .filter((e) => e.realizedPnl < -EPS)
+        .sort((a, b) => a.realizedPnl - b.realizedPnl)
+        .slice(0, input.limit)
+      const breakeven = entries.filter((e) => Math.abs(e.realizedPnl) <= EPS)
+
+      return { winners, losers, breakeven }
+    }),
 })

@@ -48,13 +48,13 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 **Agent:** `04_meeting_prep_herald`
 
 ### Step 1.1 — Determine Mode
-- **Input:** Trigger (morning run or tag)
-- **Action:** Morning → list today's meetings (skip declined/canceled). Tagged → focus on the given meeting/person/company/project.
+- **Input:** Trigger (morning run or tag) + injected **Google Calendar context** (authoritative meeting list)
+- **Action:** Morning → brief every meeting in today's calendar (skip declined/canceled). Tagged → focus on the given meeting/person/company/project.
 - **Output:** Target meeting(s) / context
 
 ### Step 1.2 — Identify Participants & Entities
-- **Input:** Meeting records (Meetings DT / Meetings Alpir Con), People, Companies, Projects
-- **Action:** List participants (internal/external) and linked entities
+- **Input:** `get_notion_meetings` (meeting records), `get_notion_people`, `get_notion_companies`, `get_notion_projects`
+- **Action:** List participants (internal/external) and linked entities; use `search_notion` to resolve a name/topic
 - **Output:** Participant + entity map
 
 ---
@@ -64,12 +64,12 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 **Agent:** `04_meeting_prep_herald`
 
 ### Step 2.1 — Pull Open Action Items
-- **Input:** DT - Action items, Con Action items
-- **Action:** Prefer items not in Complete/Done; prefer items assigned to me; if meeting is about an entity, prioritize related tasks via relations
+- **Input:** `get_notion_tasks`
+- **Action:** Prefer items not in Complete/Done; prefer items assigned to me; if meeting is about an entity, prioritize related tasks (use `search_notion`)
 - **Output:** Relevant open action items
 
 ### Step 2.2 — Pull Recent Meeting Notes
-- **Input:** AI Meeting Notes
+- **Input:** `get_notion_meeting_notes` (+ injected "Recent Meeting Notes"), `get_next_meeting_brief` for the next event's local notes
 - **Action:** Find what was discussed recently and what was decided / committed
 - **Output:** Recent context per meeting
 
@@ -103,7 +103,8 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 
 | Error | Action |
 |---|---|
-| No meetings today | Report "no meetings today"; still surface top open items |
+| Calendar/Notion context shows a "data may be incomplete" warning or a tool returns `errors` | Say the data is partial and name the failing source; do NOT claim "no meetings today" |
+| No meetings today (and no errors) | Report "no meetings today"; still surface top open items |
 | Meeting notes missing | Note the gap; proceed with action items |
 | Ambiguous tag | Ask for the specific meeting/entity |
 

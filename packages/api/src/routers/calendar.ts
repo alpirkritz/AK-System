@@ -1,14 +1,17 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
+import { localDateRangeToUtc } from '../lib/calendar-dates'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
   declineGoogleEvent,
   GoogleCalendarEvent,
+  GoogleCalendarFetchError,
   listGoogleConnections,
   hasGoogleCalendarConnections,
   listAllGoogleCalendars,
 } from '../services/google-calendar'
+import { probeGoogleCalendarHealth } from '../services/google-calendar-health'
 import {
   fetchAppleCalendarEvents,
   isAppleCalendarAvailable,
@@ -20,6 +23,11 @@ import { isFreeBusyPlaceholderTitle } from '../lib/calendar-filters'
 let cacheWarmed = false
 
 type CalendarEvent = GoogleCalendarEvent | AppleCalendarEvent
+
+export type CalendarEventsResult = {
+  events: CalendarEvent[]
+  googleErrors: GoogleCalendarFetchError[]
+}
 
 export interface ConflictPair {
   eventA: CalendarEvent
@@ -54,15 +62,32 @@ function mergeAndDedupe(events: CalendarEvent[]): CalendarEvent[] {
   })
 }
 
-async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
+async function fetchAllEvents(startDate: string, endDate: string): Promise<CalendarEventsResult> {
+  const { timeMin, timeMax } = localDateRangeToUtc(startDate, endDate)
+  const googleErrors: GoogleCalendarFetchError[] = []
+
   const [googleResult, appleResult] = await Promise.allSettled([
     isGoogleCalendarConfigured()
-      ? fetchGoogleCalendarEvents(start, end)
-      : Promise.resolve([] as GoogleCalendarEvent[]),
-    fetchAppleCalendarEvents(start, end),
+      ? fetchGoogleCalendarEvents(timeMin, timeMax)
+      : Promise.resolve({ events: [] as GoogleCalendarEvent[], errors: [] }),
+    fetchAppleCalendarEvents(timeMin, timeMax),
   ])
 
-  const google = googleResult.status === 'fulfilled' ? googleResult.value : []
+  let google: GoogleCalendarEvent[] = []
+  if (googleResult.status === 'fulfilled') {
+    google = googleResult.value.events
+    googleErrors.push(...googleResult.value.errors)
+  } else {
+    console.warn('[Calendar Router] Google fetch error:', googleResult.reason)
+    googleErrors.push({
+      email: 'google',
+      message:
+        googleResult.reason instanceof Error
+          ? googleResult.reason.message
+          : 'Google Calendar fetch failed',
+    })
+  }
+
   const apple = appleResult.status === 'fulfilled' ? appleResult.value : []
 
   if (appleResult.status === 'rejected') {
@@ -71,9 +96,8 @@ async function fetchAllEvents(start: Date, end: Date): Promise<CalendarEvent[]> 
 
   const all = [...google, ...apple]
   all.sort((a, b) => a.start.localeCompare(b.start))
-  // סנן אירועי "פנוי" (transparency: transparent) — אלו הצגות ביומן אחר שאינן חוסמות זמן
   const filtered = all.filter((e) => (e as GoogleCalendarEvent).transparency !== 'transparent')
-  return mergeAndDedupe(filtered)
+  return { events: mergeAndDedupe(filtered), googleErrors }
 }
 
 export const calendarRouter = router({
@@ -87,10 +111,14 @@ export const calendarRouter = router({
     }
   }),
 
+  googleHealth: protectedProcedure.query(async () => {
+    const accounts = await probeGoogleCalendarHealth()
+    return { accounts }
+  }),
+
   isConnected: protectedProcedure.query(async () => {
     if (!cacheWarmed && isAppleCalendarAvailable()) {
       cacheWarmed = true
-      // fire-and-forget – non-blocking; no dynamic import (static import above)
       try { warmAppleCalendarCache() } catch (_) { /* ignore */ }
     }
     const googleConnected =
@@ -99,11 +127,7 @@ export const calendarRouter = router({
   }),
 
   events: protectedProcedure.input(rangeInput).query(async ({ input }) => {
-    const start = new Date(input.startDate)
-    const end = new Date(input.endDate)
-    // extend end by 1 day so all-day events on the last day are included
-    end.setDate(end.getDate() + 1)
-    return fetchAllEvents(start, end)
+    return fetchAllEvents(input.startDate, input.endDate)
   }),
 
   upcoming: protectedProcedure
@@ -111,11 +135,18 @@ export const calendarRouter = router({
     .query(async ({ input }) => {
       const now = new Date()
       const end = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
-      const events = await fetchAllEvents(now, end)
-      return events
+      const endDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: process.env.TIMEZONE || 'Asia/Jerusalem',
+      }).format(end)
+      const startDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: process.env.TIMEZONE || 'Asia/Jerusalem',
+      }).format(now)
+      const { events, googleErrors } = await fetchAllEvents(startDate, endDate)
+      const filtered = events
         .filter((e) => new Date(e.start) >= now)
         .filter((e) => !isFreeBusyPlaceholderTitle(e.title))
         .slice(0, input.limit)
+      return { events: filtered, googleErrors }
     }),
 
   catalog: protectedProcedure.query(async () => {
@@ -158,12 +189,8 @@ export const calendarRouter = router({
       calendarIds: z.array(z.string()).optional(),
     }))
     .query(async ({ input }): Promise<ConflictPair[]> => {
-      const start = new Date(input.startDate)
-      const end = new Date(input.endDate)
-      end.setDate(end.getDate() + 1)
-      let events = await fetchAllEvents(start, end)
+      let { events } = await fetchAllEvents(input.startDate, input.endDate)
 
-      // filter to selected calendars if specified
       if (input.calendarIds && input.calendarIds.length > 0) {
         const ids = new Set(input.calendarIds)
         events = events.filter((e) => e.calendarId && ids.has(e.calendarId))
@@ -171,8 +198,6 @@ export const calendarRouter = router({
 
       const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
 
-      // exclude all-day, declined, cancelled, and day-spanning blocks
-      // (e.g. Out of Office / Focus Time marked as regular events but >= 8 h long)
       events = events.filter((e) => {
         if (e.isAllDay) return false
         if (e.status === 'cancelled') return false

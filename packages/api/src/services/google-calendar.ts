@@ -126,6 +126,25 @@ async function fetchEventsFromCalendar(
   return events
 }
 
+/**
+ * Fetch a single sub-calendar with one retry on transient failure. A silent per-calendar
+ * failure previously dropped that calendar's events (e.g. the work calendar holding the
+ * day's timed meetings) with no error surfaced — see docs/specs/agent-calendar-data-parity.
+ */
+async function fetchEventsFromCalendarWithRetry(
+  calendar: calendar_v3.Calendar,
+  calendarId: string,
+  timeMin: Date,
+  timeMax: Date
+): Promise<calendar_v3.Schema$Event[]> {
+  try {
+    return await fetchEventsFromCalendar(calendar, calendarId, timeMin, timeMax)
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    return fetchEventsFromCalendar(calendar, calendarId, timeMin, timeMax)
+  }
+}
+
 function mapGoogleEvent(
   e: calendar_v3.Schema$Event,
   cal: { id: string; summary: string; backgroundColor?: string },
@@ -173,69 +192,129 @@ function mapGoogleEvent(
   }
 }
 
+type ConnectionFetchResult = {
+  events: GoogleCalendarEvent[]
+  errors: GoogleCalendarFetchError[]
+}
+
 async function fetchEventsForConnection(
   conn: GoogleConnection,
   timeMin: Date,
-  timeMax: Date
-): Promise<GoogleCalendarEvent[]> {
-  const accessToken = await getAccessTokenForConnection(conn)
-  const oauth2Client = new google.auth.OAuth2()
-  oauth2Client.setCredentials({ access_token: accessToken })
-  const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
+  timeMax: Date,
+  forceRefresh = false,
+): Promise<ConnectionFetchResult> {
+  const run = async (token: string): Promise<ConnectionFetchResult> => {
+    const oauth2Client = new google.auth.OAuth2()
+    oauth2Client.setCredentials({ access_token: token })
+    const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client })
 
-  const calendars = await listCalendars(calendarClient)
-  if (calendars.length === 0) {
-    calendars.push({ id: 'primary', summary: 'יומן ראשי' })
-  }
+    const calendars = await listCalendars(calendarClient)
+    if (calendars.length === 0) {
+      calendars.push({ id: 'primary', summary: 'יומן ראשי' })
+    }
 
-  const results = await Promise.allSettled(
-    calendars.map((cal) =>
-      fetchEventsFromCalendar(calendarClient, cal.id, timeMin, timeMax).then((evs) =>
-        evs.map((e) => ({ event: e, cal }))
+    const results = await Promise.allSettled(
+      calendars.map((cal) =>
+        fetchEventsFromCalendarWithRetry(calendarClient, cal.id, timeMin, timeMax)
       )
     )
-  )
 
-  const events: GoogleCalendarEvent[] = []
-  const seenIds = new Set<string>()
+    const events: GoogleCalendarEvent[] = []
+    const errors: GoogleCalendarFetchError[] = []
+    const seenIds = new Set<string>()
 
-  for (const result of results) {
-    if (result.status !== 'fulfilled') continue
-    for (const { event: e, cal } of result.value) {
-      const mapped = mapGoogleEvent(e, cal, conn.calendarEmail)
-      if (!mapped) continue
-      if (seenIds.has(mapped.id)) continue
-      seenIds.add(mapped.id)
-      events.push(mapped)
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!
+      const cal = calendars[i]!
+      if (result.status !== 'fulfilled') {
+        // Surface the failure instead of silently dropping this calendar's events —
+        // otherwise a transient failure hides the day's meetings and the agent
+        // reports an empty day (docs/specs/agent-calendar-data-parity).
+        const raw = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        console.warn('[Google Calendar] sub-calendar fetch error:', conn.calendarEmail, cal.summary, raw)
+        errors.push({
+          email: conn.calendarEmail,
+          message: `היומן "${cal.summary}" לא נטען: ${raw.slice(0, 160)}`,
+        })
+        continue
+      }
+      for (const e of result.value) {
+        const mapped = mapGoogleEvent(e, cal, conn.calendarEmail)
+        if (!mapped) continue
+        if (seenIds.has(mapped.id)) continue
+        seenIds.add(mapped.id)
+        events.push(mapped)
+      }
     }
+
+    return { events, errors }
   }
 
-  return events
+  try {
+    const accessToken = await getAccessTokenForConnection(conn, { forceRefresh })
+    return await run(accessToken)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const authError =
+      msg.includes('invalid_grant') ||
+      msg.includes('Invalid Credentials') ||
+      msg.includes('UNAUTHENTICATED')
+    if (!forceRefresh && authError) {
+      const accessToken = await getAccessTokenForConnection(conn, { forceRefresh: true })
+      return await run(accessToken)
+    }
+    throw err
+  }
+}
+
+export type GoogleCalendarFetchError = {
+  email: string
+  message: string
+}
+
+export type GoogleCalendarFetchResult = {
+  events: GoogleCalendarEvent[]
+  errors: GoogleCalendarFetchError[]
+}
+
+function formatFetchError(email: string, err: unknown): GoogleCalendarFetchError {
+  const raw = err instanceof Error ? err.message : String(err)
+  const message = raw.includes('invalid_grant')
+    ? 'טוקן OAuth פג תוקף — נתק והתחבר מחדש מחשבון Google בהגדרות'
+    : raw
+  return { email, message }
 }
 
 export async function fetchGoogleCalendarEvents(
   timeMin: Date,
   timeMax: Date
-): Promise<GoogleCalendarEvent[]> {
-  if (!isGoogleIntegrationConfigured()) return []
+): Promise<GoogleCalendarFetchResult> {
+  if (!isGoogleIntegrationConfigured()) return { events: [], errors: [] }
 
   try {
     const connections = await listGoogleConnections()
-    if (connections.length === 0) return []
+    if (connections.length === 0) return { events: [], errors: [] }
 
     const results = await Promise.allSettled(
       connections.map((conn) => fetchEventsForConnection(conn, timeMin, timeMax))
     )
 
     const allEvents: GoogleCalendarEvent[] = []
+    const errors: GoogleCalendarFetchError[] = []
     const seenIds = new Set<string>()
 
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!
+      const email = connections[i]!.calendarEmail
       if (result.status === 'rejected') {
-        console.warn('[Google Calendar] account fetch error:', result.reason)
+        const err = formatFetchError(email, result.reason)
+        console.warn('[Google Calendar] account fetch error:', email, result.reason)
+        errors.push(err)
         continue
       }
-      for (const ev of result.value) {
+      // Bubble up per-sub-calendar failures so callers can warn the user.
+      errors.push(...result.value.errors)
+      for (const ev of result.value.events) {
         if (seenIds.has(ev.id)) continue
         seenIds.add(ev.id)
         allEvents.push(ev)
@@ -243,7 +322,7 @@ export async function fetchGoogleCalendarEvents(
     }
 
     allEvents.sort((a, b) => a.start.localeCompare(b.start))
-    return allEvents
+    return { events: allEvents, errors }
   } catch (err) {
     console.error('[Google Calendar]', err)
     throw err

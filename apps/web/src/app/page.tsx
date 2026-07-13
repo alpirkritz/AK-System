@@ -69,10 +69,11 @@ export default function DashboardPage() {
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
-  const { data: calEvents = [] } = trpc.calendar.events.useQuery(
+  const { data: calData } = trpc.calendar.events.useQuery(
     { startDate: today, endDate: calRange === 'today' ? today : weekEnd },
     { staleTime: 5 * 60_000 },
   )
+  const calEvents = calData?.events ?? []
 
   const utils = trpc.useUtils()
   const toggleTask = trpc.tasks.toggleDone.useMutation({

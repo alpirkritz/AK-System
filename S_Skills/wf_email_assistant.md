@@ -31,7 +31,8 @@ LOAD INBOXES → ANALYZE → TRIAGE → RECOMMEND → NOTIFY → LEARN
 ## Stage 1: Load Inboxes
 
 ### Step 1.1 — Pull New Threads
-- **Action:** Review new/unread threads across connected inboxes since the last run
+- **Input:** `search_gmail` (query `is:unread newer_than:2d`; widen/narrow as needed)
+- **Action:** Pull recent unread threads across all connected Google accounts. If the tool returns an auth/scope error, report it and stop — do not fabricate threads.
 - **Output:** Candidate threads
 
 ---
@@ -39,7 +40,7 @@ LOAD INBOXES → ANALYZE → TRIAGE → RECOMMEND → NOTIFY → LEARN
 ## Stage 2: Analyze
 
 ### Step 2.1 — Classify Each Thread
-- **Action:** Determine sender (internal/external/automated), topic, and whether it needs reply / action / nothing. Use Notion, Slack, Calendar context (meeting today, project, known person).
+- **Action:** Determine sender (internal/external/automated), topic, and whether it needs reply / action / nothing. Use context from the injected Google Calendar block + `get_today_schedule` (meeting today?) and `get_notion_meetings` / `get_notion_people` (project, known person). Slack is not connected.
 - **Output:** Per-thread analysis
 
 ---

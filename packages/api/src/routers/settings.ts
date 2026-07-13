@@ -8,7 +8,12 @@ import {
   resetNotificationPreferences,
   getChannelStatus,
 } from '../services/notification-preferences'
-import { listAgentSummaries } from '../agents-meta'
+import {
+  getAgentDisplayNamesMap,
+  getAgentDisplayNamesRaw,
+  listAgentsWithDisplayNames,
+  setAgentDisplayName,
+} from '../services/agent-display-names'
 
 const timeSchema = z.string().regex(/^\d{2}:\d{2}$/)
 
@@ -27,11 +32,41 @@ export const settingsRouter = router({
       }),
   }),
 
+  agentDisplayNames: router({
+    get: protectedProcedure.query(async () => {
+      const [names, rawNames, agents] = await Promise.all([
+        getAgentDisplayNamesMap(),
+        getAgentDisplayNamesRaw(),
+        listAgentsWithDisplayNames(),
+      ])
+      return { names, rawNames, agents }
+    }),
+
+    set: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.string().min(1),
+          displayName: z.string().max(40).nullable(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        try {
+          const names = await setAgentDisplayName(input.agentId, input.displayName)
+          return { names }
+        } catch (err) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: err instanceof Error ? err.message : 'שמירת השם נכשלה',
+          })
+        }
+      }),
+  }),
+
   notifications: router({
     list: protectedProcedure.query(async () => {
       const items = await listNotificationPreferences()
-      const agents = listAgentSummaries().map((a) => ({ id: a.id, name: a.name }))
-      return { items, channels: getChannelStatus(), agents }
+      const agents = await listAgentsWithDisplayNames()
+      return { items, channels: await getChannelStatus(), agents: agents.map((a) => ({ id: a.id, name: a.name })) }
     }),
 
     upsert: protectedProcedure

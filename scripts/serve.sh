@@ -46,7 +46,8 @@ fi
 
 echo "▶  Starting web app (production) on :${PORT}..."
 pnpm --filter @ak-system/web start &
-PIDS+=($!)
+WEB_PID=$!
+PIDS+=($WEB_PID)
 
 if [ "${SKIP_BRIDGE:-0}" != "1" ]; then
   echo "▶  Starting WhatsApp bridge..."
@@ -59,14 +60,38 @@ if [ "${SKIP_TUNNEL:-0}" != "1" ]; then
   echo "▶  Starting Cloudflare Tunnel..."
   bash "$SCRIPT_DIR/tunnel.sh" &
   PIDS+=($!)
+
+  # Auto-sync tunnel URL into .env files and restart web so Next.js picks up HTTPS URL.
+  (
+    TUNNEL_LOG="/tmp/ak-tunnel.log"
+    for _ in $(seq 1 90); do
+      URL="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | tail -1 || true)"
+      if [ -n "$URL" ]; then
+        CURRENT="$(grep '^NEXT_PUBLIC_APP_URL=' "$ROOT_DIR/apps/web/.env.local" 2>/dev/null | cut -d= -f2- || true)"
+        if [ "$CURRENT" != "$URL" ]; then
+          echo "▶  Tunnel ready: $URL — syncing env and restarting web..."
+          bash "$SCRIPT_DIR/set-tunnel-url.sh" "$URL" >/dev/null
+          kill "$WEB_PID" 2>/dev/null || true
+          sleep 2
+          pnpm --filter @ak-system/web start &
+          WEB_PID=$!
+          PIDS[0]=$WEB_PID
+        fi
+        echo ""
+        echo "✓  Push-ready HTTPS URL: $URL"
+        echo "   Mac: open in Chrome → Settings → הפעל נוטיפיקציות → שלח בדיקה"
+        echo "   Phone (PWA): same URL → Add to Home Screen → enable notifications"
+        echo "   Phone (Helm APK): rebuild if URL changed → pnpm mobile:apk"
+        break
+      fi
+      sleep 1
+    done
+  ) &
 fi
 
 echo ""
 echo "✓  AK System is starting. Web on http://localhost:${PORT}"
-echo "   Push notifications require opening the app via the HTTPS tunnel URL."
-echo "   1. Watch /tmp/ak-tunnel.log for the *.trycloudflare.com URL"
-echo "   2. Run: bash scripts/set-tunnel-url.sh https://YOUR-URL.trycloudflare.com"
-echo "   3. Restart serve (Ctrl-C then pnpm serve again)"
+echo "   Push notifications require the HTTPS tunnel URL (auto-synced when ready)."
 echo ""
 
 wait

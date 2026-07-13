@@ -1,9 +1,9 @@
-import { agentNotifiesNotion, getAgentDisplayName, HUGO_AGENT_ID } from './abc-agents'
+import { agentNotifiesNotion, HUGO_AGENT_ID } from './abc-agents'
 import { notifyNotionInbox } from './notion'
 import { sendBrowserPush } from './web-push'
 import { sendExpoPush } from './expo-push'
 import { createNotification } from './notification-store'
-import { resolveNotificationChannels } from '@ak-system/api'
+import { resolveAgentDisplayName, resolveNotificationChannels } from '@ak-system/api'
 
 export type AgentNotifyChannel = 'web' | 'whatsapp' | 'telegram' | 'cron'
 
@@ -25,7 +25,7 @@ export async function notifyAgentRunComplete(options: {
   summary: string
   channel: AgentNotifyChannel
 }): Promise<{ notion: boolean; webPush: number; expoPush: number }> {
-  const agentName = getAgentDisplayName(options.agentId)
+  const agentName = await resolveAgentDisplayName(options.agentId)
   const short = excerpt(options.summary)
   const title = `${agentName} — סיים`
 

@@ -50,6 +50,24 @@ export interface NotionSearchHit {
   status: string
 }
 
+/** Generic Notion page projection — used for people/projects/companies/meeting notes. */
+export interface NotionEntry {
+  account: string
+  db: string
+  title: string
+  date: string
+  status: string
+  people: string
+  snippet: string
+  /** Resolved relation properties: property name -> related page titles. */
+  relations: Record<string, string[]>
+}
+
+export interface NotionEntriesResult {
+  entries: NotionEntry[]
+  errors: NotionFetchError[]
+}
+
 export interface NotionFetchError {
   account: string
   db: string
@@ -68,6 +86,7 @@ export interface NotionContext {
     today: NotionMeeting[]
     upcoming: NotionMeeting[]
   }
+  meetingNotes: NotionEntry[]
   calendarReview: string
   errors: NotionFetchError[]
 }
@@ -212,6 +231,61 @@ function getAssignee(props: Record<string, NotionProp>): string {
     if (pv?.type === 'people') return plain(pv)
   }
   return ''
+}
+
+/** First non-empty rich_text property value — used as a short snippet for entries. */
+function getSnippet(props: Record<string, NotionProp>): string {
+  for (const pv of Object.values(props)) {
+    if (pv?.type === 'rich_text') {
+      const v = plain(pv).trim()
+      if (v) return v.slice(0, 200)
+    }
+  }
+  return ''
+}
+
+/** Relation properties on a page: property name -> related page IDs. */
+function getRelationIds(props: Record<string, NotionProp>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [name, pv] of Object.entries(props)) {
+    if (pv?.type === 'relation' && Array.isArray(pv.relation)) {
+      const ids = (pv.relation as Array<{ id?: string }>)
+        .map((r) => r?.id ?? '')
+        .filter(Boolean)
+      if (ids.length) out[name] = ids
+    }
+  }
+  return out
+}
+
+// ─── Related page title resolution (cached + bounded) ────────────────────────
+
+/** Max related pages resolved to titles per getNotionEntries call. */
+const RELATION_RESOLVE_CAP = 80
+const pageTitleCache = new Map<string, string>()
+
+/** Resolve a Notion page ID to its title, cached across calls. */
+async function resolvePageTitle(token: string, pageId: string): Promise<string> {
+  const cached = pageTitleCache.get(pageId)
+  if (cached !== undefined) return cached
+  try {
+    const data = await notionRequest<{ properties: Record<string, NotionProp> }>(
+      token,
+      'GET',
+      `/pages/${pageId}`,
+    )
+    const title = getTitle(data.properties) || ''
+    pageTitleCache.set(pageId, title)
+    return title
+  } catch {
+    pageTitleCache.set(pageId, '')
+    return ''
+  }
+}
+
+/** Clear the module-level page-title cache — for tests. */
+export function __resetNotionCache(): void {
+  pageTitleCache.clear()
 }
 
 async function queryDatabase(
@@ -373,6 +447,97 @@ export async function getNotionMeetings(): Promise<NotionMeetingsResult> {
   return result
 }
 
+// ─── Generic entries (people / projects / companies / meeting notes) ─────────
+
+export interface GetNotionEntriesOptions {
+  limit?: number
+  /** Resolve `relation` properties to related page titles (extra API calls, cached + capped). */
+  resolveRelations?: boolean
+}
+
+/**
+ * Fetch entries from every database of a given type across all accounts.
+ * Fault-tolerant: a single failing database records an error and never blanks
+ * the whole result. Meeting-note entries are sorted most-recent first.
+ *
+ * When `resolveRelations` is set, each entry's Notion `relation` properties are
+ * resolved to related page titles (bounded by `RELATION_RESOLVE_CAP`, cached).
+ */
+export async function getNotionEntries(
+  type: Extract<NotionDbType, 'people' | 'projects' | 'companies' | 'meeting_notes'>,
+  options: GetNotionEntriesOptions = {},
+): Promise<NotionEntriesResult> {
+  const { limit = 50, resolveRelations = false } = options
+  const result: NotionEntriesResult = { entries: [], errors: [] }
+  const seen = new Set<string>()
+  // Per-entry relation IDs, kept alongside entries for optional resolution.
+  const rawRelations: Array<{ token: string; entry: NotionEntry; ids: Record<string, string[]> }> = []
+
+  for (const { accountLabel, token, database } of getDatabasesByType(type)) {
+    let pages: Array<{ properties: Record<string, NotionProp> }>
+    try {
+      pages = await queryDatabase(token, database.id)
+    } catch (err) {
+      result.errors.push({
+        account: accountLabel,
+        db: database.name,
+        message: err instanceof Error ? err.message : 'query failed',
+      })
+      continue
+    }
+    for (const page of pages) {
+      const props = page.properties
+      const title = getTitle(props).trim()
+      if (!title) continue
+      const entry: NotionEntry = {
+        account: accountLabel,
+        db: database.name,
+        title,
+        date: getDue(props),
+        status: getStatus(props),
+        people: getAssignee(props),
+        snippet: getSnippet(props),
+        relations: {},
+      }
+      const key = `${entry.account}:${entry.db}:${entry.title}:${entry.date}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.entries.push(entry)
+      if (resolveRelations) {
+        const ids = getRelationIds(props)
+        if (Object.keys(ids).length) rawRelations.push({ token, entry, ids })
+      }
+    }
+  }
+
+  if (type === 'meeting_notes') {
+    result.entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  } else {
+    result.entries.sort((a, b) => a.title.localeCompare(b.title))
+  }
+  result.entries = result.entries.slice(0, limit)
+
+  if (resolveRelations) {
+    const kept = new Set(result.entries)
+    let budget = RELATION_RESOLVE_CAP
+    for (const { token, entry, ids } of rawRelations) {
+      if (!kept.has(entry) || budget <= 0) continue
+      for (const [propName, pageIds] of Object.entries(ids)) {
+        const titles: string[] = []
+        for (const pageId of pageIds) {
+          if (budget <= 0) break
+          budget--
+          const title = await resolvePageTitle(token, pageId)
+          if (title) titles.push(title)
+        }
+        if (titles.length) entry.relations[propName] = titles
+      }
+    }
+  }
+
+  return result
+}
+
 // ─── Search ────────────────────────────────────────────────────────────────
 
 export async function searchNotion(
@@ -384,7 +549,14 @@ export async function searchNotion(
   const errors: NotionFetchError[] = []
   if (!q) return { hits, errors }
 
-  const targets = [...getDatabasesByType('tasks'), ...getDatabasesByType('meetings')]
+  const targets = [
+    ...getDatabasesByType('tasks'),
+    ...getDatabasesByType('meetings'),
+    ...getDatabasesByType('people'),
+    ...getDatabasesByType('projects'),
+    ...getDatabasesByType('companies'),
+    ...getDatabasesByType('meeting_notes'),
+  ]
   for (const { accountLabel, token, database } of targets) {
     let pages: Array<{ properties: Record<string, NotionProp> }>
     try {
@@ -503,9 +675,10 @@ export async function getNotionContext(): Promise<NotionContext> {
   if (!isNotionConfigured()) {
     throw new Error('Notion is not configured (set NOTION_ACCOUNTS or NOTION_API_KEY)')
   }
-  const [tasks, meetings, calendarReview] = await Promise.all([
+  const [tasks, meetings, notes, calendarReview] = await Promise.all([
     getNotionTasks(),
     getNotionMeetings(),
+    getNotionEntries('meeting_notes', { limit: 8 }),
     fetchTodayCalendarReview(),
   ])
   return {
@@ -517,8 +690,9 @@ export async function getNotionContext(): Promise<NotionContext> {
       highPriority: tasks.highPriority,
     },
     meetings: { today: meetings.today, upcoming: meetings.upcoming },
+    meetingNotes: notes.entries,
     calendarReview,
-    errors: [...tasks.errors, ...meetings.errors],
+    errors: [...tasks.errors, ...meetings.errors, ...notes.errors],
   }
 }
 
@@ -551,6 +725,15 @@ export function formatNotionContextForPrompt(ctx: NotionContext): string {
     '### Tasks — Soon (3 days)',
     ...ctx.tasks.soon.map((t) => `- ${t.title} due ${t.due} (${t.account}/${t.db})`),
     ...(ctx.tasks.soon.length === 0 ? ['- None'] : []),
+    '',
+    '### Recent Meeting Notes',
+    ...ctx.meetingNotes.slice(0, 6).map((n) => {
+      const when = n.date ? `${n.date} ` : ''
+      const who = n.people ? ` — ${n.people}` : ''
+      const snip = n.snippet ? `: ${n.snippet}` : ''
+      return `- ${when}${n.title} (${n.account}/${n.db})${who}${snip}`
+    }),
+    ...(ctx.meetingNotes.length === 0 ? ['- None'] : []),
     '',
     '### Calendar Review',
     ctx.calendarReview || '_No calendar review page found for today._',

@@ -594,3 +594,115 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Manual: VAPID keys, `pnpm serve` + tunnel, Railway + EAS APK, Fold 7 device QA.
 
 ---
+
+## 2026-07-12 — Hugo (Dev Pipeline) — agent-calendar-data-parity
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — PM → Dev → Tests → QA
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Live calendar analysis (06_calendar_optimizer via WhatsApp/web) must match the rich Notion Inbox output that uses the same connections + instructions.
+- **Context:** Live runs sometimes reported "only all-day events / no meetings" while the archived Notion review showed a full timed schedule.
+
+### Root cause
+- `fetchEventsForConnection` (`google-calendar.ts`) silently dropped any sub-calendar whose `events.list` transiently failed (`Promise.allSettled` → `if (!fulfilled) continue`). The work calendar's timed meetings vanished with no error; health probe stayed green (only `calendarList.list`). `calendarWarning` also only fired at zero events, so all-day events masked the failure.
+
+### Actions Taken
+1. PM spec at `docs/specs/agent-calendar-data-parity.md`.
+2. `google-calendar.ts`: per-sub-calendar retry + surface each failure as a `GoogleCalendarFetchError`; `fetchEventsForConnection` returns `{ events, errors }`; `fetchGoogleCalendarEvents` merges them.
+3. `agent-calendar-context.ts`: prompt now warns "נתונים חלקיים" / "אל תצהיר שהיום פנוי" whenever errors exist, even with events present.
+4. `conversation-engine.ts`: `calendarWarning` now fires on any `googleErrors` (today/week/upcoming), not only zero events.
+5. Tests: new partial-data prompt case in `agent-calendar-context.test.ts`.
+
+### Outputs
+- Spec: `docs/specs/agent-calendar-data-parity.md`
+- Verify: `@ak-system/api` tests 89/89 green; `@ak-system/web` build green.
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (engineering reliability fix)
+
+### Blockers / Escalations
+- Deploy to EC2, then confirm via `scripts/probe-agent-calendar-context.mts` that Dragontail timed events appear (or an explicit per-calendar error is listed).
+
+---
+
+## 2026-07-12 — Hugo (Dev Pipeline) — calendar off-by-one (small-ICU) + optimizer 8h filter
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — diagnose → fix → test → deploy → verify
+**Status:** Completed (root cause fixed, verified on EC2)
+
+### Stand-up
+- **Goal:** Make live agent calendar output match the rich Notion review (same connections/instructions). Also: exclude all-day + ≥8h events for `06_calendar_optimizer` only.
+
+### TRUE root cause (found via in-container probe on EC2)
+- The EC2 web container runs a **small-ICU** Node build (`process.config icu_small=false → icu false`). `Intl` formats **local midnight as hour "24"** instead of "00".
+- `localMidnightToUtc` (`packages/api/src/lib/calendar-dates.ts`) subtracts the local time-of-day to snap to midnight; with hour=24 it subtracted a full extra day, so **every server-side calendar fetch was shifted one day earlier**. Only multi-day all-day events overlapped the wrong window, which is why live agent/app replies showed "only all-day events, no meetings." Notion looked fine because its Calendar Review page is a saved snapshot.
+- Local Mac (full ICU) returned hour=0, so tests + local runs never reproduced it.
+
+### Actions Taken
+1. Fix: `const hour = Number(...) % 24` in `localMidnightToUtc` — normalizes the "24" quirk.
+2. Regression test: ICU-independent round-trip in `calendar-dates.test.ts` (midnight instant must format back to the same date).
+3. `06_calendar_optimizer` scope: `isExcludedFromCalendarOptimizer` in `calendar-filters.ts` (all-day + ≥8h) wired via `getAgentCalendarContext({ forCalendarOptimizer })` for agentId `06` only; unit tests added.
+4. Also (prior turn, same session): per-sub-calendar retry + error surfacing in `google-calendar.ts`; partial-data prompt warning; `calendarWarning` on any error.
+
+### Verification (EC2, live probe)
+- Before fix: window = July 11, `total: 4` (all all-day), `timed: 0`.
+- After fix: `today 2026-07-12, total: 11, timed: 7, dragontail: 7, errors: []` — matches Notion (Sync R&D, Agentic Infra Training, Shani 1:1, Tinko 1:1, …).
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (reliability fix)
+
+### Blockers / Escalations
+- Consider baking full ICU into the runtime image (or `--icu-data-dir`) to prevent similar `Intl` quirks; not required now (`% 24` fix is ICU-agnostic). Tests 93/93 green; web build green.
+
+---
+
+## 2026-07-12 — Hugo (Dev Pipeline) — calendar optimizer never omits events (אבא וצף)
+
+**Workflow:** diagnose → fix → test → deploy → verify (probe)
+**Status:** Completed (verified on EC2)
+
+### Stand-up
+- **Goal:** Agent 06 missed the personal busy block "אבא וצף" (10:15–12:30, personal gmail calendar). Match Notion behavior of listing every event.
+
+### Diagnosis (in-container probe)
+- Data was correct: אבא וצף IS in the context agent 06 receives (TIMED, opaque, in scope). The LLM dropped it because it had 0 attendees.
+- Key data insight: **all** events in this dataset have `attendees: []` (even real meetings like Shani 1:1, Tinko 1:1). So an attendee-count heuristic is unusable for classifying personal-vs-meeting.
+
+### Actions Taken
+1. Added a strong directive in `formatAgentCalendarContextForPrompt`: list EVERY event, never omit; personal blocks (e.g. אבא וצף) are real commitments; judge conflicts by title/type/calendar, NOT by attendee count (attendee lists are often empty).
+2. Reinforced `A_Agents/06_calendar_optimizer.md` "How to present": always render a full schedule table of every event; personal blocks listed as "חסימת זמן אישי"; don't use attendee count to dismiss meetings.
+3. Rejected+reverted an initial per-event "no-attendee = personal block" tag after the EC2 probe showed it mislabeled ALL meetings (would have suppressed real conflicts). Verification caught this before it shipped as the final state.
+4. Test: `agent-calendar-context.test.ts` asserts אבא וצף is listed and the attendee-count caveat is present (94/94 green).
+
+### Verification (EC2 probe, forCalendarOptimizer=true)
+- All 7 timed events listed including "10:15 אבא וצף"; no false personal-block tags; load 8.6h.
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (prompt/behavior refinement)
+
+---
+
+## 2026-07-13 — Hugo (Dev Pipeline) — Meeting Prep (04) + Email (07) data-source cleanup
+
+**Workflow:** PM spec → dev → tests → QA (lint/build) — [`docs/specs/agent-data-sources-cleanup.md`](../docs/specs/agent-data-sources-cleanup.md)
+**Status:** Completed locally (build + 22 web tests green); EC2 deploy + live verify pending user's Notion DB IDs
+
+### Stand-up
+- **Goal:** Agents 04 and 07 felt disconnected. Root cause: cards/workflows instructed reading data sources with no tool/config mapping (Notion People/Projects/Companies/AI Meeting Notes, Slack), so the model flailed.
+
+### Actions Taken
+1. Extended Notion integration: new `NotionDbType`s `people | projects | companies | meeting_notes` (`notion-config.ts`); generic `getNotionEntries()` fetcher + expanded `searchNotion` coverage + injected "Recent Meeting Notes" (`notion.ts`).
+2. Exposed tools `get_notion_people/projects/companies/meeting_notes` and broadened `search_notion` (`conversation-engine.ts`).
+3. Added `07_email_assistant` to `CALENDAR_CONTEXT_AGENTS` so it gets today's schedule (`abc-agents.ts`).
+4. Rewrote `A_Agents/04` + `wf_meeting_prep`: Google Calendar authoritative for today's meetings, named exact Notion tools, partial-data warning (never claim empty day on errors).
+5. Rewrote `A_Agents/07` + `wf_email_assistant`: explicit `search_gmail` (`is:unread newer_than:2d`), removed Slack (no integration), added calendar/Notion cross-ref, report scope errors instead of fabricating.
+6. Documented new `NOTION_ACCOUNTS` types in env examples; added Vitest for the new types/fetchers.
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (instruction alignment + read-only data wiring)
+
+### Blockers / Escalations
+- Meeting Prep enrichment (People/Projects/Companies/Meeting Notes) returns data only after the user adds those DB IDs to `NOTION_ACCOUNTS` on the server and shares each DB with the integration. Verify with `notion_status`. Also confirm Gmail `gmail.readonly` consent on both Google accounts for `search_gmail`.
+
+---

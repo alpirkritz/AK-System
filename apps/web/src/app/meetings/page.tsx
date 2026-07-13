@@ -64,10 +64,11 @@ export default function MeetingsPage() {
   // Fetch all available calendars (next 14 days is enough to discover them)
   const today = new Date().toISOString().split('T')[0]
   const in14  = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
-  const { data: calEvents = [], isFetching: calsLoading } = trpc.calendar.events.useQuery(
+  const { data: calData, isFetching: calsLoading } = trpc.calendar.events.useQuery(
     { startDate: today, endDate: in14 },
     { enabled: panelOpen, staleTime: 60_000 }
   )
+  const calEvents = calData?.events ?? []
 
   // Derive unique calendars from events
   const allCalendars = useMemo(() => {

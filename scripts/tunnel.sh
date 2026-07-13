@@ -15,7 +15,7 @@
 set -euo pipefail
 
 PORT="${WEB_PORT:-3000}"
-TARGET="http://localhost:${PORT}"
+TARGET="http://127.0.0.1:${PORT}"
 
 if ! command -v cloudflared >/dev/null 2>&1; then
   echo "✗  cloudflared not found. Install it first:"
@@ -28,8 +28,9 @@ if [ -n "${CLOUDFLARE_TUNNEL_NAME:-}" ]; then
   exec cloudflared tunnel run --url "${TARGET}" "${CLOUDFLARE_TUNNEL_NAME}"
 else
   LOG="/tmp/ak-tunnel.log"
+  : > "$LOG"
   echo "▶  Starting quick Cloudflare Tunnel → ${TARGET}"
   echo "   Log: ${LOG}  (look for *.trycloudflare.com URL)"
   echo "   Then run: bash scripts/set-tunnel-url.sh https://YOUR-URL.trycloudflare.com"
-  exec cloudflared tunnel --url "${TARGET}" 2>&1 | tee "$LOG"
+  exec cloudflared tunnel --protocol http2 --url "${TARGET}" 2>&1 | tee "$LOG"
 fi

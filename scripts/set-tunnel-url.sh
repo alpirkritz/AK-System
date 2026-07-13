@@ -40,15 +40,19 @@ set_var "$BRIDGE_ENV" AK_WEBHOOK_URL "${URL}/api/whatsapp/webhook"
 
 MOBILE_ENV="$ROOT_DIR/apps/mobile/.env"
 GOOGLE_ID="$(grep '^GOOGLE_CLIENT_ID=' "$WEB_ENV" | cut -d= -f2- | tr -d '"' || true)"
+ANDROID_ID="$(grep '^GOOGLE_ANDROID_CLIENT_ID=' "$WEB_ENV" | cut -d= -f2- | tr -d '"' || true)"
 if [ -f "$MOBILE_ENV" ] || [ -n "$GOOGLE_ID" ]; then
   cat > "$MOBILE_ENV" <<EOF
 EXPO_PUBLIC_API_URL=${URL}
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=${GOOGLE_ID}
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=${ANDROID_ID}
 EOF
-  echo "   apps/mobile/.env: EXPO_PUBLIC_API_URL, EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID"
+  echo "   apps/mobile/.env: EXPO_PUBLIC_API_URL, Google client IDs"
 fi
 
 echo "✓  Updated tunnel URL to $URL"
+echo "$URL" > "$ROOT_DIR/deploy/tunnel.url"
+echo "   deploy/tunnel.url (open this file for the current URL)"
 echo "   apps/web/.env.local: NEXTAUTH_URL, NEXT_PUBLIC_APP_URL"
 echo "   apps/whatsapp-bridge/.env: AK_WEBHOOK_URL"
 echo ""

@@ -2,9 +2,14 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
-import { API_URL, sendTestPush, unregisterExpoPushToken } from '../lib/api'
+import {
+  API_URL,
+  registerExpoPushToken,
+  sendTestPush,
+  unregisterExpoPushToken,
+} from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { ensurePushPermissions, getExpoPushToken, syncPushToken } from '../lib/notifications'
+import { ensurePushPermissions, getExpoPushToken } from '../lib/notifications'
 import { colors } from '../lib/theme'
 
 export default function SettingsScreen() {
@@ -12,6 +17,7 @@ export default function SettingsScreen() {
   const router = useRouter()
   const [pushStatus, setPushStatus] = useState<string | null>(null)
   const [permission, setPermission] = useState<string>('unknown')
+  const [expoToken, setExpoToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -31,8 +37,14 @@ export default function SettingsScreen() {
       return
     }
     try {
-      await syncPushToken(token)
-      setPushStatus('התראות הופעלו ✓')
+      const pushToken = await getExpoPushToken()
+      if (!pushToken) {
+        setPushStatus('לא התקבל token מהמכשיר')
+        return
+      }
+      await registerExpoPushToken(token, pushToken)
+      setExpoToken(pushToken)
+      setPushStatus('התראות הופעלו ורשומות בשרת ✓')
     } catch (err) {
       setPushStatus(err instanceof Error ? err.message : 'הפעלה נכשלה')
     } finally {
@@ -94,6 +106,11 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>התראות Push</Text>
         <Text style={styles.muted}>סטטוס: {permLabel}</Text>
+        {expoToken ? (
+          <Text style={styles.muted} numberOfLines={1}>
+            token: {expoToken.replace('ExponentPushToken[', '…').slice(0, 24)}
+          </Text>
+        ) : null}
       </View>
 
       <Pressable style={styles.button} onPress={onEnablePush} disabled={busy}>

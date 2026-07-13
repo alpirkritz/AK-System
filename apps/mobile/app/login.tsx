@@ -56,8 +56,9 @@ export default function LoginScreen() {
       await signIn(accessToken, user)
       try {
         await syncPushToken(accessToken)
-      } catch {
-        // Push is optional on first login
+      } catch (err) {
+        // Push is optional on first login — log so failures are diagnosable.
+        console.warn('[helm] push token sync failed on login:', err)
       }
       router.replace('/chat')
     } catch (err) {

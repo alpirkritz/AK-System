@@ -30,7 +30,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, '')
+  const host = req.nextUrl.hostname
+  const isLocal = host === 'localhost' || host === '127.0.0.1'
+  // Keep auth redirects on the same origin the user opened (localhost vs tunnel).
+  // Using NEXT_PUBLIC_APP_URL for localhost sent users to a stale tunnel → Cloudflare 1033.
+  const appOrigin = (
+    isLocal ? req.nextUrl.origin : (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin)
+  ).replace(/\/$/, '')
   const callbackUrl = `${appOrigin}${req.nextUrl.pathname}${req.nextUrl.search}`
 
   const signInUrl = new URL('/login', appOrigin)

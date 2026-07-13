@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import {
   getSchedulablePreference,
+  localTodayIso,
   markNotificationSent,
   wasNotificationSentInSlot,
 } from '@ak-system/api'
@@ -70,13 +71,14 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true, mode: 'agent' })
     }
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = localTodayIso()
     const caller = await createServiceCaller()
-    const [events, dbMeetings, allTasks] = await Promise.all([
+    const [calResult, dbMeetings, allTasks] = await Promise.all([
       caller.calendar.events({ startDate: today, endDate: today }),
       caller.meetings.list(),
       caller.tasks.list(),
     ])
+    const events = calResult.events
 
     const todayMeetings = dbMeetings.filter((m) => m.date === today)
     const meetingByCalId = new Map<string, (typeof todayMeetings)[number]>()

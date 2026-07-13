@@ -26,6 +26,23 @@ export {
   filterEventsByCalendarScope,
   getAgentCalendarScopePromptBlock,
 } from './services/agent-calendar-scope'
+export { localTodayIso, localDateRangeToUtc, getDefaultTimezone } from './lib/calendar-dates'
+export { probeGoogleCalendarHealth, type GoogleAccountHealth } from './services/google-calendar-health'
+export {
+  getAgentCalendarContext,
+  formatAgentCalendarContextForPrompt,
+  type AgentCalendarContext,
+} from './services/agent-calendar-context'
+export {
+  getAgentDisplayNamesMap,
+  getAgentDisplayNamesRaw,
+  listAgentsWithDisplayNames,
+  resolveAgentDisplayName,
+  setAgentDisplayName,
+  buildCustomAgentAliases,
+  applyDisplayName,
+  type AgentWithDisplayName,
+} from './services/agent-display-names'
 export {
   pushConfigToBridge,
   isBridgeConfigured,
@@ -44,6 +61,11 @@ export {
   type ResolvedChannels,
 } from './services/notification-preferences'
 export { getDefaultTriggerMessage } from './agents-meta'
+export {
+  importIBKREmails,
+  formatImportReport,
+  type IbkrImportResult,
+} from './services/ibkr-import-service'
 
 export const appRouter = router({
   people: peopleRouter,

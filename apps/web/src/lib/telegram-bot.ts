@@ -1,4 +1,5 @@
 import { formatAgentList, parseAgentCommand } from './abc-agents'
+import { buildCustomAgentAliases, getAgentDisplayNamesRaw } from '@ak-system/api'
 import { runAgentForUser } from './agent-runner'
 import { resolveIntent, saveChatMessage } from './conversation-engine'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
@@ -63,7 +64,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
   try {
     await saveChatMessage('user', userText, 'telegram')
 
-    const agentCommand = parseAgentCommand(userText)
+    const customAliases = buildCustomAgentAliases(await getAgentDisplayNamesRaw())
+    const agentCommand = parseAgentCommand(userText, customAliases)
     if (agentCommand) {
       if (agentCommand.agentId === '__list__') {
         const list = formatAgentList()

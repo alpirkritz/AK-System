@@ -100,11 +100,18 @@ export const financeTrades = pgTable('finance_trades', {
   source: text('source').notNull().default('ibkr_email'),
   rawEmailId: text('raw_email_id'),
   description: text('description'),
+  emailSubject: text('email_subject'),
+  actionType: text('action_type').notNull().default('trade'),
+  account: text('account'),
+  sourceDetail: text('source_detail'),
+  notionPageId: text('notion_page_id'),
+  importedAt: text('imported_at'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   tradeDateIdx: index('idx_finance_trades_trade_date').on(table.tradeDate),
   rawEmailIdIdx: index('idx_finance_trades_raw_email_id').on(table.rawEmailId),
   symbolIdx: index('idx_finance_trades_symbol').on(table.symbol),
+  notionPageIdIdx: index('idx_finance_trades_notion_page_id').on(table.notionPageId),
 }))
 
 export const financeTransactions = pgTable('finance_transactions', {
@@ -292,6 +299,7 @@ export const memories = pgTable('memories', {
 export const userSettings = pgTable('user_settings', {
   id: text('id').primaryKey(),
   agentCalendarIds: text('agent_calendar_ids'),
+  agentDisplayNames: text('agent_display_names'),
   updatedAt: text('updated_at').notNull(),
 })
 

@@ -19,3 +19,17 @@ export function isFreeBusyPlaceholderTitle(title: string): boolean {
   if ((FREE_BUSY_PLACEHOLDER_TITLES_HE as readonly string[]).includes(t)) return true
   return (FREE_BUSY_PLACEHOLDER_TITLES_EN as readonly string[]).includes(t.toLowerCase())
 }
+
+/** Calendar optimizer (06) ignores all-day blocks and timed events ≥ 8 hours. */
+export const CALENDAR_OPTIMIZER_MAX_EVENT_MS = 8 * 60 * 60 * 1000
+
+export function isExcludedFromCalendarOptimizer(event: {
+  start: string
+  end: string
+  isAllDay?: boolean
+}): boolean {
+  if (event.isAllDay) return true
+  if (!event.start.includes('T')) return true
+  const durationMs = new Date(event.end).getTime() - new Date(event.start).getTime()
+  return durationMs >= CALENDAR_OPTIMIZER_MAX_EVENT_MS
+}

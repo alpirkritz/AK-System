@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, FunctionCallingMode } from '@google/generative-ai'
 import {
+  agentNeedsCalendarContext,
   agentNeedsNotionContext,
   getAbcRootPath,
   getAgentInstructions,
@@ -16,7 +17,7 @@ import {
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
-import { getAgentCalendarScopePromptBlock } from '@ak-system/api'
+import { getAgentCalendarScopePromptBlock, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt } from '@ak-system/api'
 
 export type { ChatTurn } from './gemini-config'
 
@@ -31,7 +32,7 @@ function formatDateLabel(): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().split('T')[0]!
+  return localTodayIso()
 }
 
 async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChannel): Promise<string> {
@@ -56,6 +57,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     'Do NOT tell the user to check Notion Inbox or open Notion as the only way to see results.',
     'Notion archiving and push notifications are handled automatically by the platform after you respond.',
     'Use your tools (calendar, tasks, meetings, contacts, Gmail, WhatsApp, etc.) and deliver a complete answer here.',
+    'If calendar tools return `calendarErrors`, report the connection problem — never describe the day as empty when errors are present.',
     '',
     'Follow your agent card instructions exactly. Recommendations only unless the user explicitly approves an action.',
     'Respond in the same language the user writes in: Hebrew for Hebrew, English for English.',
@@ -107,6 +109,22 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
   const calendarScopeBlock = await getAgentCalendarScopePromptBlock()
   if (calendarScopeBlock) {
     parts.push('', calendarScopeBlock, '', '---')
+  }
+
+  if (agentNeedsCalendarContext(agentId)) {
+    try {
+      const calCtx = await getAgentCalendarContext({
+        forCalendarOptimizer: agentId === '06_calendar_optimizer',
+      })
+      parts.push('', formatAgentCalendarContextForPrompt(calCtx), '', '---')
+    } catch (err) {
+      parts.push(
+        '',
+        `_Google Calendar context unavailable: ${err instanceof Error ? err.message : 'error'}_`,
+        '',
+        '---',
+      )
+    }
   }
 
   if (agentNeedsNotionContext(agentId)) {

@@ -68,6 +68,14 @@ const NOTION_CONTEXT_AGENTS = new Set([
   '08_startup_coo',
 ])
 
+/** Agents that receive pre-fetched Google Calendar events in the system prompt. */
+const CALENDAR_CONTEXT_AGENTS = new Set([
+  '03_morning_briefing',
+  '04_meeting_prep_herald',
+  '06_calendar_optimizer',
+  '07_email_assistant',
+])
+
 /** Agents whose runs are archived to Notion Inbox (orchestrator excluded — routing only). */
 const NOTION_NOTIFY_AGENTS = new Set([
   '02_agent_trainer',
@@ -163,6 +171,10 @@ export function agentNeedsNotionContext(agentId: string): boolean {
   return NOTION_CONTEXT_AGENTS.has(agentId)
 }
 
+export function agentNeedsCalendarContext(agentId: string): boolean {
+  return CALENDAR_CONTEXT_AGENTS.has(agentId)
+}
+
 /** All registered ABC agent IDs — used for run_abc_agent tool enum. */
 export function getRunnableAgentIds(): string[] {
   return listAgents().map((a) => a.id)
@@ -184,9 +196,11 @@ export function getAgentEngine(): 'gemini' | 'cursor' {
   return 'cursor'
 }
 
-export function resolveAgentId(input: string): string | null {
+export function resolveAgentId(input: string, extraAliases?: Record<string, string>): string | null {
   const trimmed = input.trim().toLowerCase()
   if (!trimmed) return null
+
+  if (extraAliases?.[trimmed]) return extraAliases[trimmed]
 
   if (AGENT_ALIASES[trimmed]) return AGENT_ALIASES[trimmed]
 
@@ -230,11 +244,16 @@ export function getDefaultTriggerMessage(agentId: string): string {
   return messages[agentId] ?? 'הרץ workflow לפי ההוראות'
 }
 
-function resolveAgentPhrase(text: string): { agentId: string; remainder: string } | null {
+function resolveAgentPhrase(
+  text: string,
+  extraAliases?: Record<string, string>,
+): { agentId: string; remainder: string } | null {
   const lower = text.trim().toLowerCase()
   if (!lower) return null
 
-  const aliasEntries = Object.entries(AGENT_ALIASES).sort((a, b) => b[0].length - a[0].length)
+  const aliasEntries = Object.entries({ ...AGENT_ALIASES, ...extraAliases }).sort(
+    (a, b) => b[0].length - a[0].length,
+  )
   for (const [alias, id] of aliasEntries) {
     const aliasLower = alias.toLowerCase()
     if (lower === aliasLower || lower.startsWith(`${aliasLower} `) || lower.startsWith(`${aliasLower}-`)) {
@@ -253,7 +272,7 @@ function resolveAgentPhrase(text: string): { agentId: string; remainder: string 
     }
   }
 
-  const direct = resolveAgentId(lower.split(/\s+/)[0] ?? '')
+  const direct = resolveAgentId(lower.split(/\s+/)[0] ?? '', extraAliases)
   if (direct) {
     const firstWord = lower.split(/\s+/)[0] ?? ''
     return { agentId: direct, remainder: text.trim().slice(firstWord.length).trim() }
@@ -265,7 +284,10 @@ function resolveAgentPhrase(text: string): { agentId: string; remainder: string 
 const RUN_AGENT_PREFIX = /^(?:תר(?:יץ|וץ)|הפעל|run)\s+(?:את\s+(?:ה)?)?/iu
 const DEFAULT_RUN_MESSAGE = 'תרוץ — בצע את ה-workflow היומי שלך לפי הוראות הסוכן'
 
-export function parseAgentCommand(text: string): { agentId: string; message: string } | null {
+export function parseAgentCommand(
+  text: string,
+  extraAliases?: Record<string, string>,
+): { agentId: string; message: string } | null {
   const trimmed = text.trim()
 
   if (/^\/(?:agents|סוכנים)\s*$/i.test(trimmed)) {
@@ -274,21 +296,21 @@ export function parseAgentCommand(text: string): { agentId: string; message: str
 
   const slashMatch = trimmed.match(/^\/(?:agent|סוכן)\s+(\S+)\s+(.*)$/is)
   if (slashMatch) {
-    const agentId = resolveAgentId(slashMatch[1]!)
+    const agentId = resolveAgentId(slashMatch[1]!, extraAliases)
     const message = slashMatch[2]?.trim()
     if (agentId && message) return { agentId, message }
   }
 
   const atMatch = trimmed.match(/^@(\S+)\s+(.*)$/is)
   if (atMatch) {
-    const agentId = resolveAgentId(atMatch[1]!)
+    const agentId = resolveAgentId(atMatch[1]!, extraAliases)
     const message = atMatch[2]?.trim()
     if (agentId && message) return { agentId, message }
   }
 
   if (RUN_AGENT_PREFIX.test(trimmed)) {
     const rest = trimmed.replace(RUN_AGENT_PREFIX, '').trim()
-    const resolved = resolveAgentPhrase(rest)
+    const resolved = resolveAgentPhrase(rest, extraAliases)
     if (resolved) {
       const message = resolved.remainder || DEFAULT_RUN_MESSAGE
       return { agentId: resolved.agentId, message }

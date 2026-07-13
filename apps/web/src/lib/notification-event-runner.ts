@@ -1,5 +1,4 @@
-import { getDefaultTriggerMessage, getNotificationRouting } from '@ak-system/api'
-import { getAgentDisplayName } from './abc-agents'
+import { getDefaultTriggerMessage, getNotificationRouting, resolveAgentDisplayName } from '@ak-system/api'
 import { runAgentForUser } from './agent-runner'
 import { pushAssistantMessage } from './push-notifications'
 
@@ -27,7 +26,7 @@ export async function runEventAgentIfRouted(
 
   const result = await runAgentForUser({ agentId, message, channel: 'cron' })
 
-  const agentName = getAgentDisplayName(agentId)
+  const agentName = await resolveAgentDisplayName(agentId)
   await pushAssistantMessage(`🤖 ${agentName}\n\n${result.text}`, 'cron', {
     title: `${agentName} — ${typeId}`,
     url: options?.url ?? '/chat',

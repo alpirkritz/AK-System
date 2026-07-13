@@ -4,8 +4,9 @@ import { useState, useRef, useCallback, useMemo, memo, lazy, Suspense } from 're
 import { trpc } from '@/lib/trpc'
 
 const VatTab = lazy(() => import('./VatTab'))
+const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
 
-type Tab = 'portfolio' | 'cashflow' | 'import' | 'vat'
+type Tab = 'portfolio' | 'journal' | 'cashflow' | 'import' | 'vat'
 
 const CATEGORIES = [
   'מזון', 'אוכל בחוץ', 'רכב', 'ביגוד', 'בריאות', 'חשבונות',
@@ -60,6 +61,8 @@ export default function FinancePage() {
   const [dirFilter, setDirFilter] = useState<'all' | 'income' | 'expense'>('all')
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [notionImporting, setNotionImporting] = useState(false)
+  const [notionResult, setNotionResult] = useState<string | null>(null)
   const [showDiag, setShowDiag] = useState(false)
   const [debugQuery, setDebugQuery] = useState('interactivebrokers')
   const [runDebug, setRunDebug] = useState(false)
@@ -103,11 +106,31 @@ export default function FinancePage() {
       setSyncResult(`נסרקו ${res.total} מיילים — יובאו ${res.inserted} עסקאות חדשות (${res.skipped} כפולות)`)
       utils.finance.getSummary.invalidate()
       utils.finance.listTrades.invalidate()
+      utils.finance.getTradingJournal.invalidate()
+      utils.finance.getSymbolRanking.invalidate()
       setSyncing(false)
     },
     onError: (err) => {
       setSyncResult(`שגיאה: ${err.message}`)
       setSyncing(false)
+    },
+  })
+
+  const { data: notionConfig } = trpc.finance.notionIbkrConfigured.useQuery()
+
+  const notionImportMutation = trpc.finance.importFromNotion.useMutation({
+    onSuccess: (res) => {
+      const errNote = res.failed > 0 ? ` — ${res.failed} דולגו (שדות חסרים)` : ''
+      setNotionResult(`יובאו ${res.inserted} עסקאות מ-Notion (${res.skipped} כפולות)${errNote}`)
+      utils.finance.getSummary.invalidate()
+      utils.finance.listTrades.invalidate()
+      utils.finance.getTradingJournal.invalidate()
+      utils.finance.getSymbolRanking.invalidate()
+      setNotionImporting(false)
+    },
+    onError: (err) => {
+      setNotionResult(`שגיאה: ${err.message}`)
+      setNotionImporting(false)
     },
   })
 
@@ -165,6 +188,13 @@ export default function FinancePage() {
     setSyncing(true)
     setSyncResult(null)
     syncMutation.mutate({ maxEmails: 100 })
+  }
+
+  const handleNotionImport = () => {
+    if (!window.confirm('לייבא את היסטוריית העסקאות מ-Notion? כפילויות ידולגו אוטומטית.')) return
+    setNotionImporting(true)
+    setNotionResult(null)
+    notionImportMutation.mutate({ dryRun: false })
   }
 
   const handleImportFile = useCallback((file: File) => {
@@ -276,6 +306,7 @@ export default function FinancePage() {
       <div className="flex gap-1 mb-6 border-b border-[#1a1a1a]">
         {([
           ['portfolio', 'פורטפוליו', '📊'],
+          ['journal', 'יומן מסחר', '📓'],
           ['cashflow', 'תזרים', '🔄'],
           ['import', 'ייבוא', '⬆️'],
           ['vat', 'דיווח מע"מ', '📋'],
@@ -406,6 +437,13 @@ export default function FinancePage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Trading Journal Tab ───────────────────────────────────── */}
+      {tab === 'journal' && (
+        <Suspense fallback={<div className="text-[#555] text-sm">טוען...</div>}>
+          <TradingJournalTab />
+        </Suspense>
       )}
 
       {/* ── Cash Flow Tab ─────────────────────────────────────────── */}
@@ -618,6 +656,39 @@ export default function FinancePage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Notion historical import */}
+            <div className="card">
+              <h2 className="font-semibold mb-1">ייבוא היסטוריה מ-Notion</h2>
+              <p className="text-xs text-[#555] mb-4">
+                ייבוא חד-פעמי של היסטוריית העסקאות מבסיס הנתונים 📈 IBKR Transactions ב-Notion.
+                כפילויות מדולגות אוטומטית — אפשר להריץ שוב בבטחה.
+              </p>
+              <button
+                className="btn btn-primary w-full"
+                onClick={handleNotionImport}
+                disabled={notionImporting || notionConfig?.configured === false}
+              >
+                {notionImporting ? '⏳ מייבא מ-Notion...' : '📥 ייבא היסטוריה מ-Notion'}
+              </button>
+              {notionConfig?.configured === false && (
+                <div className="mt-3 text-xs text-[#888]">
+                  לא הוגדר בסיס נתונים של IBKR ב-Notion — הוסף אותו ל-<code className="bg-[#1a1a1a] px-1 rounded text-[#e8c547]">NOTION_ACCOUNTS</code>
+                </div>
+              )}
+              {notionResult && (
+                <div
+                  className="mt-3 text-xs px-3 py-2 rounded-lg"
+                  style={{
+                    background: notionResult.startsWith('שגיאה') ? '#e8477a11' : '#47b86e11',
+                    color: notionResult.startsWith('שגיאה') ? '#e8477a' : '#47b86e',
+                    border: `1px solid ${notionResult.startsWith('שגיאה') ? '#e8477a33' : '#47b86e33'}`,
+                  }}
+                >
+                  {notionResult}
+                </div>
+              )}
             </div>
 
             {/* CSV Upload */}

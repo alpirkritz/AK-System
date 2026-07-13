@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import {
   fetchGoogleConnectionsFromSqlite,
   updateGoogleAccessTokenSqlite,
+  clearGoogleAccessTokenSqlite,
   upsertGoogleConnectionSqlite,
 } from './google-connections-sqlite'
 
@@ -285,51 +286,72 @@ export function parseGoogleCalendarId(
   return { email: match[1], calendarId: match[2] }
 }
 
-export async function getAccessTokenForConnection(conn: GoogleConnection): Promise<string> {
+export async function getAccessTokenForConnection(
+  conn: GoogleConnection,
+  options?: { forceRefresh?: boolean },
+): Promise<string> {
   const cacheKey = conn.id
-  const cached = tokenCache.get(cacheKey)
-  if (cached && Date.now() < cached.expiryMs - FIVE_MIN_MS) {
-    return cached.accessToken
-  }
+  const forceRefresh = options?.forceRefresh ?? false
 
-  const expiryMs = new Date(conn.tokenExpiresAt).getTime()
-  if (conn.accessToken && Date.now() < expiryMs - FIVE_MIN_MS) {
-    return conn.accessToken
+  if (!forceRefresh) {
+    const cached = tokenCache.get(cacheKey)
+    if (cached && Date.now() < cached.expiryMs - FIVE_MIN_MS) {
+      return cached.accessToken
+    }
+
+    const expiryMs = new Date(conn.tokenExpiresAt).getTime()
+    if (conn.accessToken && Date.now() < expiryMs - FIVE_MIN_MS) {
+      return conn.accessToken
+    }
   }
 
   const oauth2Client = new google.auth.OAuth2(getClientId(), getClientSecret())
   oauth2Client.setCredentials({ refresh_token: conn.refreshToken })
-  const { credentials } = await oauth2Client.refreshAccessToken()
-  const accessToken = credentials.access_token
-  if (!accessToken) throw new Error(`לא התקבל access token עבור ${conn.calendarEmail}`)
+  try {
+    const { credentials } = await oauth2Client.refreshAccessToken()
+    const accessToken = credentials.access_token
+    if (!accessToken) throw new Error(`לא התקבל access token עבור ${conn.calendarEmail}`)
 
-  const newExpiryMs = credentials.expiry_date ?? Date.now() + 3600 * 1000
-  const tokenExpiresAt = new Date(newExpiryMs).toISOString()
+    const newExpiryMs = credentials.expiry_date ?? Date.now() + 3600 * 1000
+    const tokenExpiresAt = new Date(newExpiryMs).toISOString()
 
-  tokenCache.set(cacheKey, { accessToken, expiryMs: newExpiryMs })
+    tokenCache.set(cacheKey, { accessToken, expiryMs: newExpiryMs })
 
-  // Persist refreshed token so restarts and other workers see a valid access token
-  if (conn.id !== 'env') {
-    try {
-      updateGoogleAccessTokenSqlite({
-        connectionId: conn.id,
-        accessToken,
-        tokenExpiresAt,
-      })
-    } catch (err) {
-      console.warn('[Google] SQLite token persist failed:', err)
+    if (conn.id !== 'env') {
+      try {
+        updateGoogleAccessTokenSqlite({
+          connectionId: conn.id,
+          accessToken,
+          tokenExpiresAt,
+        })
+      } catch (err) {
+        console.warn('[Google] SQLite token persist failed:', err)
+      }
+      if (hasSupabaseGoogleCredentials() && Date.now() >= supabaseUnavailableUntil) {
+        void supabasePatch(`calendar_connections?id=eq.${conn.id}`, {
+          access_token: accessToken,
+          token_expires_at: tokenExpiresAt,
+        }).catch(() => {})
+      }
+      conn.accessToken = accessToken
+      conn.tokenExpiresAt = tokenExpiresAt
     }
-    if (hasSupabaseGoogleCredentials() && Date.now() >= supabaseUnavailableUntil) {
-      void supabasePatch(`calendar_connections?id=eq.${conn.id}`, {
-        access_token: accessToken,
-        token_expires_at: tokenExpiresAt,
-      }).catch(() => {})
+
+    return accessToken
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('invalid_grant') && conn.id !== 'env') {
+      tokenCache.delete(cacheKey)
+      try {
+        clearGoogleAccessTokenSqlite(conn.id)
+      } catch (clearErr) {
+        console.warn('[Google] clear access token failed:', clearErr)
+      }
+      conn.accessToken = ''
+      conn.tokenExpiresAt = new Date(0).toISOString()
     }
-    conn.accessToken = accessToken
-    conn.tokenExpiresAt = tokenExpiresAt
+    throw err
   }
-
-  return accessToken
 }
 
 export async function getConnectionForCalendarId(

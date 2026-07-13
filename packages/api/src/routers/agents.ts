@@ -7,10 +7,10 @@ import {
   getDefaultScheduleTimes,
   getDefaultTriggerMessage,
   isAgentSchedulable,
-  listAgentSummaries,
   parseJsonTimes,
   stringifyJsonTimes,
 } from '../agents-meta'
+import { listAgentsWithDisplayNames } from '../services/agent-display-names'
 
 const scheduleTimesSchema = z.array(z.string().regex(/^\d{2}:\d{2}$/))
 
@@ -41,7 +41,7 @@ function rowToConfig(
 export const agentsRouter = router({
   triggers: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      const agents = listAgentSummaries()
+      const agents = await listAgentsWithDisplayNames()
       const rows = await ctx.db.select().from(agentTriggers).all()
       const byId = new Map(rows.map((r) => [r.agentId, r]))
       return {
@@ -59,7 +59,7 @@ export const agentsRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const agents = listAgentSummaries()
+        const agents = await listAgentsWithDisplayNames()
         const agent = agents.find((a) => a.id === input.agentId)
         if (!agent) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'סוכן לא נמצא' })
@@ -120,7 +120,7 @@ export const agentsRouter = router({
           })
         }
 
-        const agents = listAgentSummaries()
+        const agents = await listAgentsWithDisplayNames()
         if (!agents.some((a) => a.id === input.agentId)) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'סוכן לא נמצא' })
         }
@@ -137,7 +137,7 @@ export const agentsRouter = router({
           .where(eq(agentTriggers.enabled, true))
           .all()
 
-        const agents = listAgentSummaries()
+        const agents = await listAgentsWithDisplayNames()
         const nameById = new Map(agents.map((a) => [a.id, a.name]))
 
         const due = rows

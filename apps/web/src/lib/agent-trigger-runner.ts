@@ -1,8 +1,8 @@
 import { agentTriggers, getDb } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
+import { importIBKREmails, formatImportReport, resolveAgentDisplayName } from '@ak-system/api'
 import {
   getDefaultTriggerMessage,
-  getAgentDisplayName,
   getAgentEngine,
 } from './abc-agents'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
@@ -68,12 +68,50 @@ async function updateRunStatus(
   }
 }
 
+const IBKR_AGENT_ID = '05_ibkr_daily_import'
+
+/**
+ * IBKR daily import runs as deterministic code (Gmail → finance_trades), not
+ * through the LLM. This keeps the import working even when the Gemini engine is
+ * unavailable or overloaded.
+ */
+async function runIbkrImportTrigger(agentId: string): Promise<{
+  ok: boolean
+  text?: string
+  error?: string
+}> {
+  const agentName = await resolveAgentDisplayName(agentId)
+  try {
+    await saveAgentMessage(agentId, 'user', await resolveTriggerMessage(agentId))
+    const result = await importIBKREmails({ maxEmails: 100 })
+    const text = formatImportReport(result)
+
+    await saveAgentMessage(agentId, 'assistant', text)
+    await pushAssistantMessage(`🤖 ${agentName}\n\n${text}`, 'cron', {
+      title: `${agentName} — סיים`,
+      url: `/agents?agent=${encodeURIComponent(agentId)}`,
+      typeId: 'agent_run',
+    })
+    await updateRunStatus(agentId, 'ok')
+    return { ok: true, text }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'IBKR import failed'
+    console.error('[runIbkrImportTrigger]', err)
+    await updateRunStatus(agentId, 'error', msg.slice(0, 500))
+    return { ok: false, error: msg }
+  }
+}
+
 /** Run an ABC agent from a trigger (manual or cron). */
 export async function runAgentTrigger(agentId: string): Promise<{
   ok: boolean
   text?: string
   error?: string
 }> {
+  if (agentId === IBKR_AGENT_ID) {
+    return runIbkrImportTrigger(agentId)
+  }
+
   if (getAgentEngine() !== 'gemini') {
     return {
       ok: false,
@@ -102,7 +140,7 @@ export async function runAgentTrigger(agentId: string): Promise<{
 
     await saveAgentMessage(agentId, 'assistant', result.text)
 
-    const agentName = getAgentDisplayName(agentId)
+    const agentName = await resolveAgentDisplayName(agentId)
     const pushText = `🤖 ${agentName}\n\n${result.text}`
     await pushAssistantMessage(pushText, 'cron', {
       title: `${agentName} — סיים`,

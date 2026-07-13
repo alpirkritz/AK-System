@@ -10,6 +10,8 @@ export interface IBKRTrade {
   tradeDate: string
   description?: string
   rawEmailId: string
+  emailSubject?: string
+  account?: string
 }
 
 // Run separate queries per domain and merge — Gmail API doesn't reliably support
@@ -65,7 +67,23 @@ export async function listIBKREmails(
   }))
 }
 
+/** Extracts the IBKR account number from a subject/body like "... (U1234567)". */
+function extractAccount(text: string): string | undefined {
+  const m = text.match(/\((U[A-Z0-9]{5,})\)/i)
+  return m ? m[1]!.toUpperCase() : undefined
+}
+
 export function parseIBKREmail(msg: GmailMessage): IBKRTrade[] {
+  const account = extractAccount(msg.subject) ?? extractAccount(msg.body)
+  const trades = parseIBKRTrades(msg)
+  for (const trade of trades) {
+    trade.emailSubject = msg.subject
+    if (account) trade.account = account
+  }
+  return trades
+}
+
+function parseIBKRTrades(msg: GmailMessage): IBKRTrade[] {
   const tradeDate = parseEmailDate(msg.date)
 
   // ── Strategy 0 (primary): subject line ───────────────────────────────────

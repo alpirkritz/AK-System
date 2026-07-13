@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetNotionConfigCache } from './notion-config'
 import {
+  __resetNotionCache,
   formatNotionContextForPrompt,
   getNotionContext,
+  getNotionEntries,
   getNotionMeetings,
   getNotionStatus,
   getNotionTasks,
@@ -61,6 +63,29 @@ function installFetchMock() {
         next_cursor: null,
       })
     }
+    if (href.includes('/databases/p-people/query')) {
+      return jsonOk({
+        results: [
+          {
+            id: 'pe1',
+            properties: {
+              Name: titleProp('Dana Levi'),
+              Role: { type: 'rich_text', rich_text: [{ plain_text: 'CFO at Acme' }] },
+              Company: { type: 'relation', relation: [{ id: 'co1' }] },
+            },
+          },
+          { id: 'pe2', properties: { Name: titleProp('Avi Cohen') } },
+        ],
+        has_more: false,
+        next_cursor: null,
+      })
+    }
+    if (href.includes('/pages/co1')) {
+      return jsonOk({ properties: { Name: titleProp('Acme Inc') } })
+    }
+    if (href.includes('/databases/broken-people/query')) {
+      return fail(404, 'object_not_found: share the database with the integration')
+    }
     if (href.includes('/databases/broken/query')) {
       return fail(404, 'object_not_found: share the database with the integration')
     }
@@ -79,15 +104,20 @@ beforeEach(() => {
       databases: [
         { id: 'p-tasks', name: 'Personal To-do', type: 'tasks' },
         { id: 'p-meet', name: 'Meetings', type: 'meetings' },
+        { id: 'p-people', name: 'People', type: 'people' },
       ],
     },
     {
       label: 'DAZ',
       token: 'ntn_b',
-      databases: [{ id: 'broken', name: 'Broken DB', type: 'tasks' }],
+      databases: [
+        { id: 'broken', name: 'Broken DB', type: 'tasks' },
+        { id: 'broken-people', name: 'Broken People', type: 'people' },
+      ],
     },
   ])
   __resetNotionConfigCache()
+  __resetNotionCache()
   installFetchMock()
 })
 
@@ -126,6 +156,46 @@ describe('searchNotion', () => {
   it('returns nothing for an empty query', async () => {
     const { hits } = await searchNotion('   ')
     expect(hits).toEqual([])
+  })
+
+  it('matches entries in the extended databases (people)', async () => {
+    const { hits } = await searchNotion('dana')
+    expect(hits.map((h) => h.title)).toContain('Dana Levi')
+    expect(hits.find((h) => h.title === 'Dana Levi')).toMatchObject({
+      db: 'People',
+      type: 'people',
+    })
+  })
+})
+
+describe('getNotionEntries (extended db types)', () => {
+  it('returns people entries and records the failing database as an error', async () => {
+    const { entries, errors } = await getNotionEntries('people')
+    expect(entries.map((e) => e.title).sort()).toEqual(['Avi Cohen', 'Dana Levi'])
+    expect(entries.find((e) => e.title === 'Dana Levi')?.snippet).toBe('CFO at Acme')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ account: 'DAZ', db: 'Broken People' })
+  })
+
+  it('returns empty (no errors) for a type with no configured databases', async () => {
+    const { entries, errors } = await getNotionEntries('projects')
+    expect(entries).toEqual([])
+    expect(errors).toEqual([])
+  })
+
+  it('leaves relations empty by default (no extra page fetches)', async () => {
+    const { entries } = await getNotionEntries('people')
+    const dana = entries.find((e) => e.title === 'Dana Levi')!
+    expect(dana.relations).toEqual({})
+  })
+
+  it('resolves relation properties to related page titles when requested', async () => {
+    const { entries } = await getNotionEntries('people', { resolveRelations: true })
+    const dana = entries.find((e) => e.title === 'Dana Levi')!
+    expect(dana.relations).toEqual({ Company: ['Acme Inc'] })
+    // Avi has no relations
+    const avi = entries.find((e) => e.title === 'Avi Cohen')!
+    expect(avi.relations).toEqual({})
   })
 })
 

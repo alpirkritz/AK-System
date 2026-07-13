@@ -3,6 +3,7 @@ import {
   filterEventsByCalendarScope,
   getAgentCalendarIds,
   getSchedulablePreference,
+  localTodayIso,
   markNotificationSent,
   wasNotificationSentInSlot,
 } from '@ak-system/api'
@@ -66,13 +67,13 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     }
 
     const caller = await createServiceCaller()
-    const today = new Date().toISOString().split('T')[0]
+    const today = localTodayIso()
     const scopeIds = await getAgentCalendarIds()
-    const [events, allTasks] = await Promise.all([
+    const [calResult, allTasks] = await Promise.all([
       caller.calendar.events({ startDate: today, endDate: today }),
       caller.tasks.list(),
     ])
-    const scopedEvents = filterEventsByCalendarScope(events, scopeIds)
+    const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
     const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === today)
 
     const lines: string[] = ['📅 סיכום הבוקר – ' + today]

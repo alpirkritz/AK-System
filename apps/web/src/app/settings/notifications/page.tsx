@@ -179,17 +179,31 @@ export default function NotificationSettingsPage() {
           <StatusPill label="WhatsApp" ok={!!channels?.whatsapp} />
           <StatusPill label="Telegram" ok={!!channels?.telegram} />
           <StatusPill
-            label="פוש למכשיר"
-            ok={!!channels?.push && permission === 'granted'}
+            label="פוש PWA (מק/דפדפן)"
+            ok={!!channels?.push && (channels?.webPushDevices ?? 0) > 0 && permission === 'granted'}
+          />
+          <StatusPill
+            label="פוש Helm (טלפון)"
+            ok={(channels?.expoPushDevices ?? 0) > 0}
           />
         </div>
         {permission !== 'granted' && (
           <p className="text-[11px] text-[#555] mt-2">
-            כדי לקבל פוש במכשיר הזה, הפעל נוטיפיקציות ב{' '}
+            כדי לקבל פוש PWA במכשיר הזה, הפעל נוטיפיקציות ב{' '}
             <Link href="/settings" className="text-[#e8c547] hover:underline">
               הגדרות
             </Link>
             .
+          </p>
+        )}
+        {(channels?.webPushDevices ?? 0) === 0 && channels?.push && permission === 'granted' && (
+          <p className="text-[11px] text-[#555] mt-2">
+            VAPID מוגדר בשרת אבל המכשיר הזה עדיין לא רשום — לחץ &quot;הפעל נוטיפיקציות&quot; בהגדרות.
+          </p>
+        )}
+        {(channels?.expoPushDevices ?? 0) === 0 && (
+          <p className="text-[11px] text-[#555] mt-2">
+            אין מכשיר Helm רשום — פתח את אפליקציית Helm → הגדרות → הפעל התראות Push.
           </p>
         )}
       </div>

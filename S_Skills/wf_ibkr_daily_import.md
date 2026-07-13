@@ -2,7 +2,7 @@
 
 > **Workflow ID:** `wf_ibkr_daily_import`
 > **Status:** Active
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-08
 > **Orchestrator:** `01_Hugo_orchestrator`
 > **Executing Agent:** `05_ibkr_daily_import`
 > **Agent instructions:** [`A_Agents/05_ibkr_daily_import.md`](../A_Agents/05_ibkr_daily_import.md)
@@ -11,7 +11,7 @@
 
 ## Purpose
 
-Daily import of Interactive Brokers transaction emails into the 📈 IBKR Transactions Notion database, with de-duplication and email cleanup.
+Daily import of Interactive Brokers transaction emails into the AK System `finance_trades` database, with de-duplication. The import is deterministic code (`syncIBKREmails` / `sync_ibkr_trades`), so it runs regardless of LLM availability. Notion "📈 IBKR Transactions" is a read-only historical source imported once via `importFromNotion`.
 
 ---
 
@@ -21,7 +21,7 @@ Daily import of Interactive Brokers transaction emails into the 📈 IBKR Transa
 [Trigger: Daily run]
         │
         ▼
-SCAN GMAIL → PARSE → DE-DUPE → INSERT → LABEL/ARCHIVE → REPORT
+SCAN GMAIL → PARSE → DE-DUPE → INSERT (finance_trades) → REPORT
 ```
 
 ---
@@ -51,25 +51,25 @@ SCAN GMAIL → PARSE → DE-DUPE → INSERT → LABEL/ARCHIVE → REPORT
 ## Stage 3: De-dupe
 
 ### Step 3.1 — Check Existing
-- **Input:** 📈 IBKR Transactions DB
-- **Action:** Check if exact Subject already exists; keep only missing transactions
-- **Output:** New transactions to insert
+- **Input:** `finance_trades` DB
+- **Action:** Check whether the trade already exists (`rawEmailId|symbol|direction` or email subject); keep only missing trades
+- **Output:** New trades to insert
 
 ---
 
 ## Stage 4: Insert
 
 ### Step 4.1 — Create Rows
-- **Action:** Insert into 📈 IBKR Transactions: Subject (title), Date, Action, Symbol, Quantity, Price, Currency (default USD), Account, Source (sender + Message Reference Number + Sent Date). Leave Fees/Gross/Net empty unless clearly available.
+- **Action:** Insert into `finance_trades`: Symbol, Direction, Quantity, Price, Commission (when available), Currency (default USD), Trade date, Account, Email subject + source detail (sender + Message Reference Number + Sent Date).
 - **Output:** Inserted rows
 
 ---
 
 ## Stage 5: Email Cleanup
 
-### Step 5.1 — Label & Archive
-- **Action:** For processed threads: apply labels `Interactive Brokers` and `archived by Notion agent`; archive (remove from Inbox)
-- **Output:** Cleaned inbox
+### Step 5.1 — (Not performed)
+- **Action:** None. Gmail access is read-only (`gmail.readonly`); threads are not labeled or archived.
+- **Output:** Inbox unchanged
 
 ---
 
@@ -86,8 +86,9 @@ SCAN GMAIL → PARSE → DE-DUPE → INSERT → LABEL/ARCHIVE → REPORT
 |---|---|
 | Unparseable fields | Skip insert; report missing fields |
 | Non-transaction email | Discard; do not insert |
-| Duplicate subject | Skip; do not double-insert |
-| Gmail/Notion access error | Report blocker; do not fabricate rows |
+| Duplicate trade | Skip; do not double-insert |
+| Gmail access error | Report blocker; do not fabricate rows |
+| LLM engine overloaded | Import still runs — it is deterministic code, not LLM-driven |
 
 ---
 
@@ -96,3 +97,4 @@ SCAN GMAIL → PARSE → DE-DUPE → INSERT → LABEL/ARCHIVE → REPORT
 | Date | Author | Change |
 |---|---|---|
 | 2026-06-28 | System | Imported from AI Instructions doc (IBKR Daily import) |
+| 2026-07-08 | System | Source of truth moved from Notion to `finance_trades`; import is deterministic code (LLM-independent); Gmail cleanup removed (read-only); Notion is a one-time historical source |

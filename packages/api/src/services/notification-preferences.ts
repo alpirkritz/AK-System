@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getDb, queryRows, notificationPreferences } from '@ak-system/database'
+import { getDb, queryRows, notificationPreferences, pushSubscriptions, expoPushTokens } from '@ak-system/database'
 import { isBridgeConfigured } from './whatsapp-bridge-client'
 
 export type NotificationChannel = 'whatsapp' | 'push' | 'telegram'
@@ -135,7 +135,12 @@ export interface NotificationPrefItem extends NotificationTypeDef {
 export interface ChannelStatus {
   whatsapp: boolean
   telegram: boolean
+  /** Web Push (PWA / Mac browser) — VAPID keys configured on server */
   push: boolean
+  /** At least one Web Push subscription registered */
+  webPushDevices: number
+  /** At least one Expo push token registered (Helm APK) */
+  expoPushDevices: number
 }
 
 function parseTimes(raw: string | null | undefined): string[] {
@@ -408,10 +413,17 @@ export async function resetNotificationPreferences(): Promise<number> {
 }
 
 /** Server-side connectivity of each delivery channel. */
-export function getChannelStatus(): ChannelStatus {
+export async function getChannelStatus(): Promise<ChannelStatus> {
+  const db = getDb()
+  const [webSubs, expoRows] = await Promise.all([
+    db.select().from(pushSubscriptions).all(),
+    db.select().from(expoPushTokens).all(),
+  ])
   return {
     whatsapp: isBridgeConfigured(),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ALLOWED_CHAT_ID),
-    push: Boolean(process.env.VAPID_PUBLIC_KEY),
+    push: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
+    webPushDevices: webSubs.length,
+    expoPushDevices: expoRows.length,
   }
 }

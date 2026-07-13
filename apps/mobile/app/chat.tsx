@@ -57,7 +57,9 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!token) return
-    syncPushToken(token).catch(() => {})
+    syncPushToken(token).catch((err) =>
+      console.warn('[helm] push token sync failed:', err),
+    )
     fetchNotifications(token, 1)
       .then((d) => setUnreadCount(d.unreadCount))
       .catch(() => {})

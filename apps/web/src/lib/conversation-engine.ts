@@ -5,8 +5,8 @@ import { getRunnableAgentIds } from './abc-agents'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
 import { getGeminiModelOptions } from './gemini-config'
-import { getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
-import { filterEventsByCalendarScope, getAgentCalendarIds } from '@ak-system/api'
+import { getNotionEntries, getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
+import { filterEventsByCalendarScope, getAgentCalendarIds, localTodayIso } from '@ak-system/api'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ type Caller = Awaited<ReturnType<typeof createApiCaller>>
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function todayIso(): string {
-  return new Date().toISOString().split('T')[0]
+  return localTodayIso()
 }
 
 function addDays(d: Date, n: number): Date {
@@ -215,13 +215,37 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'get_notion_people',
+    description:
+      "Read the user's People/contacts database from Notion (all accounts). Each person includes resolved relations (e.g. company, projects, manager/reports-to) so you can connect participants to context. Use to identify meeting participants, look up who someone is, or connect a person to meetings/projects. Part of meeting prep.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_notion_projects',
+    description:
+      "Read the user's Projects database from Notion (all accounts). Use to connect a meeting or topic to an active project, or list current projects. Part of meeting prep.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_notion_companies',
+    description:
+      "Read the user's Companies database from Notion (all accounts). Use to connect a meeting or person to a company/account. Part of meeting prep.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_notion_meeting_notes',
+    description:
+      "Read the user's AI Meeting Notes database from Notion (all accounts), most recent first. Use to find what was discussed and decided in past meetings when preparing for an upcoming one.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
     name: 'search_notion',
     description:
-      "Search the user's Notion task and meeting databases by keyword (all accounts). Use for: 'תחפש בנושן ...', 'find X in Notion', locating a specific meeting or task by name.",
+      "Search the user's Notion databases by keyword (all accounts): tasks, meetings, people, projects, companies, and meeting notes. Use for: 'תחפש בנושן ...', 'find X in Notion', locating a specific meeting, task, person, project, or note by name.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        query: { type: SchemaType.STRING, description: 'Keyword to match against task/meeting titles' },
+        query: { type: SchemaType.STRING, description: 'Keyword to match against titles across all Notion databases' },
       },
       required: ['query'],
     },
@@ -327,6 +351,17 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'sync_ibkr_trades',
+    description:
+      'Import Interactive Brokers trade-confirmation emails from Gmail into the trading database (deduplicated). Use for: IBKR import, ייבוא עסקאות, סנכרון מסחר, IBKR daily import.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        maxEmails: { type: SchemaType.NUMBER, description: 'Max emails to scan (default 100)' },
+      },
+    },
+  },
+  {
     name: 'get_whatsapp_status',
     description:
       'Get WhatsApp bridge connection status (connected, QR available, self JID). Use for: whatsapp status, וואטסאפ מחובר.',
@@ -412,47 +447,73 @@ export async function executeTool(
   switch (name) {
     case 'get_today_schedule': {
       const scopeIds = await getAgentCalendarIds()
-      const [events, allTasks] = await Promise.all([
+      const [calResult, allTasks] = await Promise.all([
         caller.calendar.events({ startDate: todayStr, endDate: todayStr }),
         caller.tasks.list(),
       ])
-      const scopedEvents = filterEventsByCalendarScope(events, scopeIds)
+      const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
       const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === todayStr)
-      return { date: todayStr, events: scopedEvents, dueTasks }
+      return {
+        date: todayStr,
+        events: scopedEvents,
+        dueTasks,
+        calendarErrors: calResult.googleErrors,
+        calendarWarning:
+          calResult.googleErrors.length > 0
+            ? 'Google Calendar fetch had errors — data may be incomplete (some calendars did not load). Do NOT report zero/low load as fact; tell the user which calendars failed and that meetings may be missing.'
+            : undefined,
+      }
     }
 
     case 'get_week_schedule': {
       const scopeIds = await getAgentCalendarIds()
       const weekEnd = addDays(today, 7).toISOString().split('T')[0]
-      const [events, allTasks] = await Promise.all([
+      const [calResult, allTasks] = await Promise.all([
         caller.calendar.events({ startDate: todayStr, endDate: weekEnd }),
         caller.tasks.list(),
       ])
-      const scopedEvents = filterEventsByCalendarScope(events, scopeIds)
+      const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
       const dueTasks = allTasks.filter(
         (t) => !t.done && t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEnd,
       )
-      return { startDate: todayStr, endDate: weekEnd, events: scopedEvents, dueTasks }
+      return {
+        startDate: todayStr,
+        endDate: weekEnd,
+        events: scopedEvents,
+        dueTasks,
+        calendarErrors: calResult.googleErrors,
+        calendarWarning:
+          calResult.googleErrors.length > 0
+            ? 'Google Calendar fetch had errors — data may be incomplete (some calendars did not load). Do NOT report zero/low load as fact; tell the user which calendars failed and that meetings may be missing.'
+            : undefined,
+      }
     }
 
     case 'get_upcoming_meetings': {
       const scopeIds = await getAgentCalendarIds()
       const limit = (args.limit as number | undefined) ?? 5
-      const events = await caller.calendar.upcoming({ limit: 50 })
-      const scoped = filterEventsByCalendarScope(events, scopeIds).slice(0, limit)
-      return { events: scoped }
+      const upcoming = await caller.calendar.upcoming({ limit: 50 })
+      const scoped = filterEventsByCalendarScope(upcoming.events, scopeIds).slice(0, limit)
+      return {
+        events: scoped,
+        calendarErrors: upcoming.googleErrors,
+        calendarWarning:
+          upcoming.googleErrors.length > 0
+            ? 'Google Calendar fetch had errors — data may be incomplete (some calendars did not load). Do NOT claim there are no upcoming meetings; tell the user which calendars failed.'
+            : undefined,
+      }
     }
 
     case 'get_next_meeting_brief': {
       const scopeIds = await getAgentCalendarIds()
-      const [upcoming, allMeetings, allPeople, allTasks] = await Promise.all([
+      const [upcomingResult, allMeetings, allPeople, allTasks] = await Promise.all([
         caller.calendar.upcoming({ limit: 50 }),
         caller.meetings.list(),
         caller.people.list(),
         caller.tasks.list(),
       ])
 
-      const scopedUpcoming = filterEventsByCalendarScope(upcoming, scopeIds)
+      const scopedUpcoming = filterEventsByCalendarScope(upcomingResult.events, scopeIds)
       const calEvent = scopedUpcoming[0] ?? null
       if (!calEvent) return { calEvent: null, message: 'No upcoming events found in calendar.' }
 
@@ -591,6 +652,26 @@ export async function executeTool(
       }
     }
 
+    case 'get_notion_people': {
+      const { entries, errors } = await getNotionEntries('people', { resolveRelations: true })
+      return { people: entries, count: entries.length, errors }
+    }
+
+    case 'get_notion_projects': {
+      const { entries, errors } = await getNotionEntries('projects', { resolveRelations: true })
+      return { projects: entries, count: entries.length, errors }
+    }
+
+    case 'get_notion_companies': {
+      const { entries, errors } = await getNotionEntries('companies', { resolveRelations: true })
+      return { companies: entries, count: entries.length, errors }
+    }
+
+    case 'get_notion_meeting_notes': {
+      const { entries, errors } = await getNotionEntries('meeting_notes')
+      return { meetingNotes: entries, count: entries.length, errors }
+    }
+
     case 'search_notion': {
       const query = (args.query as string)?.trim() || ''
       if (!query) return { hits: [], count: 0 }
@@ -682,7 +763,8 @@ export async function executeTool(
       let target: (typeof allMeetings)[number] | null = null
 
       if (meetingTitle.toLowerCase() === 'next') {
-        const upcoming = await caller.calendar.upcoming({ limit: 5 })
+        const upcomingResult = await caller.calendar.upcoming({ limit: 5 })
+        const upcoming = upcomingResult.events
         if (upcoming.length > 0) {
           target =
             allMeetings.find(
@@ -742,6 +824,17 @@ export async function executeTool(
           snippet: m.bodySnippet,
         })),
         count: msgs.length,
+      }
+    }
+
+    case 'sync_ibkr_trades': {
+      const maxEmails = Math.min((args.maxEmails as number | undefined) ?? 100, 500)
+      const result = await caller.finance.syncIBKREmails({ maxEmails })
+      return {
+        inserted: result.inserted,
+        skipped: result.skipped,
+        total: result.total,
+        subjects: result.subjects.slice(0, 15),
       }
     }
 

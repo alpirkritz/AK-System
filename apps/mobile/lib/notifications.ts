@@ -1,3 +1,4 @@
+import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 import { registerExpoPushToken } from './api'
@@ -33,13 +34,15 @@ export async function getExpoPushToken(): Promise<string | null> {
   const granted = await ensurePushPermissions()
   if (!granted) return null
 
-  try {
-    const tokenData = await Notifications.getExpoPushTokenAsync()
-    return tokenData.data
-  } catch (err) {
-    console.warn('[helm] Expo push token failed:', err)
-    return null
+  // Standalone APK push requires the EAS projectId to attribute the token.
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId
+  if (!projectId) {
+    throw new Error('חסר EAS projectId — בנה APK מחדש עם app.config.ts מעודכן')
   }
+
+  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId })
+  return tokenData.data
 }
 
 export async function syncPushToken(accessToken: string): Promise<boolean> {

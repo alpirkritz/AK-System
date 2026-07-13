@@ -1,4 +1,5 @@
-import { formatAgentList, getAgentDisplayName, HUGO_AGENT_ID } from './abc-agents'
+import { formatAgentList, HUGO_AGENT_ID } from './abc-agents'
+import { resolveAgentDisplayName } from '@ak-system/api'
 import { runAgentForUser } from './agent-runner'
 import { saveChatMessage } from './conversation-engine'
 import { getGeminiModelOptions } from './gemini-config'
@@ -173,7 +174,7 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
     try {
       const channels = await resolveNotificationChannels('hugo_reply')
       if (channels.push) {
-        const pushTitle = getAgentDisplayName(HUGO_AGENT_ID)
+        const pushTitle = await resolveAgentDisplayName(HUGO_AGENT_ID)
         const pushBody = pushExcerpt(result.text)
         await createNotification({ title: pushTitle, body: pushBody, url: '/chat', type: 'hugo' })
         await sendBrowserPush(pushTitle, pushBody, '/chat')
