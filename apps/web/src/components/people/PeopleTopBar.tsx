@@ -28,7 +28,7 @@ export function PeopleTopBar({
       </div>
 
       <div className="flex-1 max-w-md relative">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555] pointer-events-none" />
+        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#5a688c] pointer-events-none" />
         <input
           type="text"
           className="input pr-10"

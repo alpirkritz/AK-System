@@ -5,7 +5,7 @@ import { trpc } from '@/lib/trpc'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 
-const COLORS = ['#e8c547', '#e8477a', '#47b8e8', '#47e8a8', '#b847e8']
+const COLORS = ['#2dd4bf', '#fb7185', '#38bdf8', '#47e8a8', '#b847e8']
 
 const GOAL_OPTIONS = ['Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly']
 
@@ -30,7 +30,7 @@ const EMPTY_FORM: PersonForm = {
   name: '',
   role: '',
   email: '',
-  color: '#e8c547',
+  color: '#2dd4bf',
   phone: '',
   company: '',
   jobTitle: '',
@@ -70,7 +70,7 @@ export function PersonModal({
         name: person.name,
         role: person.role ?? '',
         email: person.email ?? '',
-        color: person.color ?? '#e8c547',
+        color: person.color ?? '#2dd4bf',
         phone: person.phone ?? '',
         company: person.company ?? '',
         jobTitle: person.jobTitle ?? '',
@@ -125,7 +125,7 @@ export function PersonModal({
         <div className="flex flex-col gap-5 overflow-y-auto flex-1 pl-1" style={{ scrollbarWidth: 'thin' }}>
           {/* Basic Info */}
           <section>
-            <div className="text-xs font-semibold text-[#888] uppercase tracking-wider mb-3">פרטים בסיסיים</div>
+            <div className="text-xs font-semibold text-[#7a89ab] uppercase tracking-wider mb-3">פרטים בסיסיים</div>
             <div className="flex flex-col gap-3">
               <div>
                 <label className="label">שם מלא</label>
@@ -176,7 +176,7 @@ export function PersonModal({
 
           {/* Contact */}
           <section>
-            <div className="text-xs font-semibold text-[#888] uppercase tracking-wider mb-3">פרטי קשר</div>
+            <div className="text-xs font-semibold text-[#7a89ab] uppercase tracking-wider mb-3">פרטי קשר</div>
             <div className="flex flex-col gap-3">
               <div>
                 <label className="label">אימייל</label>
@@ -195,7 +195,7 @@ export function PersonModal({
 
           {/* Relationship */}
           <section>
-            <div className="text-xs font-semibold text-[#888] uppercase tracking-wider mb-3">ניהול קשר</div>
+            <div className="text-xs font-semibold text-[#7a89ab] uppercase tracking-wider mb-3">ניהול קשר</div>
             <div className="flex flex-col gap-3">
               <div>
                 <CreatableMultiSelect

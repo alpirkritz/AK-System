@@ -19,7 +19,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
-      backgroundColor: '#0f0f0f',
+      backgroundColor: '#0e1626',
     },
     ios: {
       supportsTablet: true,
@@ -28,7 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     android: {
       package: 'com.alpir.helm',
       adaptiveIcon: {
-        backgroundColor: '#0f0f0f',
+        backgroundColor: '#0e1626',
         foregroundImage: './assets/android-icon-foreground.png',
         backgroundImage: './assets/android-icon-background.png',
         monochromeImage: './assets/android-icon-monochrome.png',
@@ -48,7 +48,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
         'expo-notifications',
         {
           icon: './assets/icon.png',
-          color: '#e8c547',
+          color: '#2dd4bf',
         },
       ],
       'expo-secure-store',

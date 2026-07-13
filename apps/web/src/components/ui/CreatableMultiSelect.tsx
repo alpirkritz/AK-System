@@ -60,19 +60,19 @@ export function CreatableMultiSelect({
       <div
         className={cn(
           'input min-h-[42px] py-2 flex flex-wrap items-center gap-1.5 cursor-text',
-          open && 'border-[#e8c547] ring-2 ring-[#e8c547]/15'
+          open && 'border-[#2dd4bf] ring-2 ring-[#2dd4bf]/15'
         )}
         onClick={() => { setOpen(true); inputRef.current?.focus() }}
       >
         {value.map(item => (
           <span
             key={item}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#2a2a2a] text-xs text-[#f0ede6] border border-[#333]"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#2f4368] text-xs text-[#eef3fb] border border-[#3a507d]"
           >
             {item}
             <button
               type="button"
-              className="hover:bg-[#444] rounded p-0.5 transition-colors"
+              className="hover:bg-[#4d659c] rounded p-0.5 transition-colors"
               onClick={e => { e.stopPropagation(); remove(item) }}
               aria-label={`הסר ${item}`}
             >
@@ -83,7 +83,7 @@ export function CreatableMultiSelect({
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm text-[#f0ede6] py-0.5"
+          className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm text-[#eef3fb] py-0.5"
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
           onFocus={() => setOpen(true)}
@@ -98,11 +98,11 @@ export function CreatableMultiSelect({
           placeholder={value.length ? '' : placeholder}
           dir={dir}
         />
-        <ChevronDown className={cn('w-4 h-4 text-[#555] shrink-0 transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('w-4 h-4 text-[#5a688c] shrink-0 transition-transform', open && 'rotate-180')} />
       </div>
       {open && (filtered.length > 0 || showCreate) && (
         <div
-          className="absolute top-full mt-1 left-0 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg max-h-[200px] overflow-y-auto py-1"
+          className="absolute top-full mt-1 left-0 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg shadow-lg max-h-[200px] overflow-y-auto py-1"
           role="listbox"
         >
           {filtered.map(opt => (
@@ -110,7 +110,7 @@ export function CreatableMultiSelect({
               type="button"
               key={opt}
               role="option"
-              className="w-full text-right px-3 py-1.5 text-sm text-[#ccc] hover:bg-[#222] transition-colors"
+              className="w-full text-right px-3 py-1.5 text-sm text-[#b8c4dc] hover:bg-[#29395d] transition-colors"
               onClick={() => add(opt)}
             >
               {opt}
@@ -119,7 +119,7 @@ export function CreatableMultiSelect({
           {showCreate && (
             <button
               type="button"
-              className="w-full text-right px-3 py-1.5 text-sm text-[#e8c547] hover:bg-[#222] transition-colors border-t border-[#2a2a2a] mt-1 pt-1"
+              className="w-full text-right px-3 py-1.5 text-sm text-[#2dd4bf] hover:bg-[#29395d] transition-colors border-t border-[#2f4368] mt-1 pt-1"
               onClick={() => add(inputValue.trim())}
             >
               הוסף &quot;{inputValue.trim()}&quot;

@@ -51,7 +51,7 @@ export function FeedWidget() {
   return (
     <section aria-label="עדכוני חדשות">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-[#f0ede6]">עדכון כלכלה וחדשות</h2>
+        <h2 className="text-base font-semibold text-[#eef3fb]">עדכון כלכלה וחדשות</h2>
         <Link href="/updates" className="section-link">
           {SVG_ARROW_LEFT}
           כל העדכונים
@@ -60,13 +60,13 @@ export function FeedWidget() {
 
       <div className="card py-3 px-4">
         {isError ? (
-          <div className="text-sm text-[#666] py-2">
+          <div className="text-sm text-[#647399] py-2">
             לא ניתן לטעון עדכונים. גש לדף העדכונים והרץ סנכרון.
           </div>
         ) : isLoading ? (
-          <div className="text-sm text-[#555] py-2">טוען...</div>
+          <div className="text-sm text-[#5a688c] py-2">טוען...</div>
         ) : list.length === 0 ? (
-          <div className="text-sm text-[#555] py-2">
+          <div className="text-sm text-[#5a688c] py-2">
             אין עדכונים. הרץ סנכרון מדף העדכונים.
           </div>
         ) : (
@@ -77,11 +77,11 @@ export function FeedWidget() {
                   href={item?.link ?? '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-start gap-3 rounded-lg p-2.5 -mx-1 hover:bg-[#1a1a1a] transition-colors no-underline group"
+                  className="flex items-start gap-3 rounded-lg p-2.5 -mx-1 hover:bg-[#1d2b46] transition-colors no-underline group"
                 >
                   <div className="flex-1 min-w-0">
                     <div
-                      className="text-sm font-medium text-[#f0ede6] overflow-hidden text-ellipsis"
+                      className="text-sm font-medium text-[#eef3fb] overflow-hidden text-ellipsis"
                       style={{
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
@@ -94,15 +94,15 @@ export function FeedWidget() {
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-medium"
                         style={{
-                          background: '#e8c54722',
-                          color: '#e8c547',
-                          border: '1px solid #e8c54744',
+                          background: '#2dd4bf22',
+                          color: '#2dd4bf',
+                          border: '1px solid #2dd4bf44',
                         }}
                       >
                         {CATEGORY_LABELS[item?.category ?? ''] ?? item?.category ?? ''}
                       </span>
-                      <span className="text-[11px] text-[#555]">{item?.sourceName ?? ''}</span>
-                      <span className="text-[11px] text-[#444]">
+                      <span className="text-[11px] text-[#5a688c]">{item?.sourceName ?? ''}</span>
+                      <span className="text-[11px] text-[#4d659c]">
                         {item?.publishedAt ? fmtDate(item.publishedAt) : ''}
                       </span>
                     </div>

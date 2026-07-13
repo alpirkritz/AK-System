@@ -69,7 +69,7 @@ export function CreatableSelect({
           <input
             ref={inputRef}
             type="text"
-            className="flex-1 bg-transparent border-none outline-none min-w-0 text-[#f0ede6]"
+            className="flex-1 bg-transparent border-none outline-none min-w-0 text-[#eef3fb]"
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}
             onKeyDown={e => {
@@ -84,21 +84,21 @@ export function CreatableSelect({
             dir={dir}
           />
         ) : (
-          <span className={cn('flex-1 truncate', !value && 'text-[#666]')} dir={dir}>
+          <span className={cn('flex-1 truncate', !value && 'text-[#647399]')} dir={dir}>
             {value || placeholder}
           </span>
         )}
-        <ChevronDown className={cn('w-4 h-4 text-[#555] shrink-0 transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('w-4 h-4 text-[#5a688c] shrink-0 transition-transform', open && 'rotate-180')} />
       </div>
       {open && (
         <div
-          className="absolute top-full mt-1 left-0 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg max-h-[220px] overflow-y-auto py-1"
+          className="absolute top-full mt-1 left-0 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg shadow-lg max-h-[220px] overflow-y-auto py-1"
           role="listbox"
         >
           {!value ? null : (
             <button
               type="button"
-              className="w-full text-right px-3 py-1.5 text-xs text-[#555] hover:bg-[#222] transition-colors"
+              className="w-full text-right px-3 py-1.5 text-xs text-[#5a688c] hover:bg-[#29395d] transition-colors"
               onClick={() => handleSelect('')}
             >
               נקה
@@ -112,7 +112,7 @@ export function CreatableSelect({
               aria-selected={value === opt}
               className={cn(
                 'w-full text-right px-3 py-1.5 text-sm transition-colors',
-                value === opt ? 'text-[#e8c547] bg-[#e8c547]/10' : 'text-[#ccc] hover:bg-[#222]'
+                value === opt ? 'text-[#2dd4bf] bg-[#2dd4bf]/10' : 'text-[#b8c4dc] hover:bg-[#29395d]'
               )}
               onClick={() => handleSelect(opt)}
             >
@@ -122,7 +122,7 @@ export function CreatableSelect({
           {showCreate && (
             <button
               type="button"
-              className="w-full text-right px-3 py-1.5 text-sm text-[#e8c547] hover:bg-[#222] transition-colors border-t border-[#2a2a2a] mt-1 pt-1"
+              className="w-full text-right px-3 py-1.5 text-sm text-[#2dd4bf] hover:bg-[#29395d] transition-colors border-t border-[#2f4368] mt-1 pt-1"
               onClick={handleCreate}
             >
               הוסף &quot;{inputValue.trim()}&quot;

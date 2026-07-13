@@ -17,14 +17,14 @@ function RootNavigator() {
     if (!token && !inAuth) {
       router.replace('/login')
     } else if (token && inAuth) {
-      router.replace('/chat')
+      router.replace('/')
     }
   }, [token, loading, segments, router])
 
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color={colors.gold} size="large" />
+        <ActivityIndicator color={colors.accent} size="large" />
       </View>
     )
   }
@@ -35,13 +35,13 @@ function RootNavigator() {
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: colors.gold,
+          headerTintColor: colors.accent,
           headerTitleStyle: { fontWeight: '600' },
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="chat" options={{ title: 'Helm' }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ title: 'התראות' }} />
         <Stack.Screen name="settings" options={{ title: 'הגדרות' }} />
       </Stack>

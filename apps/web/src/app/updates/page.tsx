@@ -157,7 +157,7 @@ export default function UpdatesPage() {
             className="btn btn-ghost text-sm"
             onClick={handleSummarize}
             disabled={summarizing}
-            style={{ borderColor: '#e8c54744', color: '#e8c547' }}
+            style={{ borderColor: '#2dd4bf44', color: '#2dd4bf' }}
           >
             {summarizing ? '⏳ יוצר סיכומים...' : '✨ צור סיכומים (AI)'}
           </button>
@@ -165,9 +165,9 @@ export default function UpdatesPage() {
             <span
               className="text-xs px-3 py-1.5 rounded-lg"
               style={{
-                background: (syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#e8477a11' : '#47b86e11',
-                color: (syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#e8477a' : '#47b86e',
-                border: `1px solid ${(syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#e8477a33' : '#47b86e33'}`,
+                background: (syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#fb718511' : '#34d39911',
+                color: (syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#fb7185' : '#34d399',
+                border: `1px solid ${(syncResult ?? summaryResult)?.startsWith('שגיאה') ? '#fb718533' : '#34d39933'}`,
               }}
             >
               {syncResult ?? summaryResult}
@@ -178,15 +178,15 @@ export default function UpdatesPage() {
       </div>
 
       {/* טאבים עליונים: פיד | מקורות */}
-      <div className="flex gap-1 mb-6 border-b border-[#1a1a1a]">
+      <div className="flex gap-1 mb-6 border-b border-[#1d2b46]">
         {(['feed', 'sources'] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
             className="btn btn-ghost text-sm px-4 py-2 rounded-b-none"
             style={{
-              borderBottom: view === v ? '2px solid #e8c547' : '2px solid transparent',
-              color: view === v ? '#e8c547' : '#666',
+              borderBottom: view === v ? '2px solid #2dd4bf' : '2px solid transparent',
+              color: view === v ? '#2dd4bf' : '#647399',
             }}
           >
             {v === 'feed' ? 'פיד' : 'מקורות'}
@@ -196,40 +196,40 @@ export default function UpdatesPage() {
 
       {view === 'sources' && (
         <>
-          <p className="text-sm text-[#555] mb-4">
+          <p className="text-sm text-[#5a688c] mb-4">
             הוסף או הסר מקורות RSS. אחרי שינוי הרץ &quot;סנכרן מקורות&quot; בטאב פיד.
           </p>
           <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
             <div className="card p-0 overflow-hidden overflow-x-auto">
-              <div className="text-xs font-semibold text-[#666] uppercase tracking-wider px-4 py-3 border-b border-[#1a1a1a]">
+              <div className="text-xs font-semibold text-[#647399] uppercase tracking-wider px-4 py-3 border-b border-[#1d2b46]">
                 מקורות קיימים ({sources.length})
               </div>
               {sources.length === 0 ? (
-                <div className="px-4 py-8 text-sm text-[#555] text-center">אין מקורות. הוסף מקור בטופס.</div>
+                <div className="px-4 py-8 text-sm text-[#5a688c] text-center">אין מקורות. הוסף מקור בטופס.</div>
               ) : (
                 <table className="w-full text-sm min-w-[500px]">
                   <thead>
-                    <tr className="border-b border-[#222]">
-                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">שם</th>
-                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">כתובת RSS</th>
-                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">קטגוריה</th>
+                    <tr className="border-b border-[#29395d]">
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#5a688c] uppercase">שם</th>
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#5a688c] uppercase">כתובת RSS</th>
+                      <th className="text-right px-4 py-3 text-[11px] font-medium text-[#5a688c] uppercase">קטגוריה</th>
                       <th className="w-16 px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
                     {sources.map((src) => (
-                      <tr key={src.id} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
-                        <td className="px-4 py-3 font-medium text-[#f0ede6]">{src.name}</td>
-                        <td className="px-4 py-3 text-[#888] max-w-[200px] truncate" title={src.url}>{src.url}</td>
+                      <tr key={src.id} className="border-b border-[#1d2b46] hover:bg-[#1d2b46] transition-colors">
+                        <td className="px-4 py-3 font-medium text-[#eef3fb]">{src.name}</td>
+                        <td className="px-4 py-3 text-[#7a89ab] max-w-[200px] truncate" title={src.url}>{src.url}</td>
                         <td className="px-4 py-3">
-                          <span className="pill text-[10px]" style={{ background: '#e8c54722', color: '#e8c547', border: '1px solid #e8c54744' }}>
+                          <span className="pill text-[10px]" style={{ background: '#2dd4bf22', color: '#2dd4bf', border: '1px solid #2dd4bf44' }}>
                             {CATEGORY_OPTIONS.find((c) => c.id === src.category)?.label ?? src.category}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <button
                             type="button"
-                            className="btn btn-ghost text-[11px] py-1 px-2 text-[#e8477a] border-[#e8477a22]"
+                            className="btn btn-ghost text-[11px] py-1 px-2 text-[#fb7185] border-[#fb718522]"
                             onClick={() => deleteSourceMutation.mutate({ id: src.id })}
                             disabled={deleteSourceMutation.isPending}
                           >
@@ -280,7 +280,7 @@ export default function UpdatesPage() {
                   {addingSource ? 'מוסיף...' : 'הוסף מקור'}
                 </button>
                 {sourceMessage && (
-                  <div className="text-xs mt-2 px-3 py-2 rounded-lg" style={{ background: sourceMessage.startsWith('שגיאה') ? '#e8477a11' : '#47b86e11', color: sourceMessage.startsWith('שגיאה') ? '#e8477a' : '#47b86e', border: `1px solid ${sourceMessage.startsWith('שגיאה') ? '#e8477a33' : '#47b86e33'}` }}>
+                  <div className="text-xs mt-2 px-3 py-2 rounded-lg" style={{ background: sourceMessage.startsWith('שגיאה') ? '#fb718511' : '#34d39911', color: sourceMessage.startsWith('שגיאה') ? '#fb7185' : '#34d399', border: `1px solid ${sourceMessage.startsWith('שגיאה') ? '#fb718533' : '#34d39933'}` }}>
                     {sourceMessage}
                   </div>
                 )}
@@ -292,19 +292,19 @@ export default function UpdatesPage() {
 
       {view === 'feed' && (
         <>
-      <p className="text-sm text-[#555] mb-6">
+      <p className="text-sm text-[#5a688c] mb-6">
         כלכלה, בורסה בארה&quot;ב, טכנולוגיה ו-AI, בורסה ישראלית — מסוכמים ממקורות נבחרים.
       </p>
 
-      <div className="flex gap-1 mb-6 border-b border-[#1a1a1a] flex-wrap">
+      <div className="flex gap-1 mb-6 border-b border-[#1d2b46] flex-wrap">
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
             onClick={() => setCategoryAndSave(c.id)}
             className="btn btn-ghost text-sm px-4 py-2 rounded-b-none"
             style={{
-              borderBottom: category === c.id ? '2px solid #e8c547' : '2px solid transparent',
-              color: category === c.id ? '#e8c547' : '#666',
+              borderBottom: category === c.id ? '2px solid #2dd4bf' : '2px solid transparent',
+              color: category === c.id ? '#2dd4bf' : '#647399',
             }}
           >
             {c.label}
@@ -315,22 +315,22 @@ export default function UpdatesPage() {
       {isError ? (
         <div className="card text-center py-12">
           <div className="text-4xl mb-3">⚠️</div>
-          <div className="text-[#555] text-sm">שגיאה בטעינת העדכונים. וודא שהרצת סנכרון פעם אחת מדף זה.</div>
+          <div className="text-[#5a688c] text-sm">שגיאה בטעינת העדכונים. וודא שהרצת סנכרון פעם אחת מדף זה.</div>
         </div>
       ) : isLoading ? (
-        <div className="text-[#555] text-sm py-8">טוען...</div>
+        <div className="text-[#5a688c] text-sm py-8">טוען...</div>
       ) : list.length === 0 ? (
         <div className="card text-center py-12">
           <div className="text-4xl mb-3">📰</div>
-          <div className="text-[#555] text-sm">אין פריטים בקטגוריה זו</div>
-          <div className="text-xs text-[#444] mt-1">לחץ על &quot;סנכרן מקורות&quot; כדי למשוך עדכונים</div>
+          <div className="text-[#5a688c] text-sm">אין פריטים בקטגוריה זו</div>
+          <div className="text-xs text-[#4d659c] mt-1">לחץ על &quot;סנכרן מקורות&quot; כדי למשוך עדכונים</div>
         </div>
       ) : (
         <div className="space-y-3">
           {list.map((item, i) => (
             <div
               key={item?.id ?? `item-${i}`}
-              className="card hover:border-[#333] transition-colors"
+              className="card hover:border-[#3a507d] transition-colors"
             >
               <a
                 href={item?.link ?? '#'}
@@ -340,11 +340,11 @@ export default function UpdatesPage() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-semibold text-[#f0ede6] mb-1 overflow-hidden text-ellipsis" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                    <h3 className="text-sm font-semibold text-[#eef3fb] mb-1 overflow-hidden text-ellipsis" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                       {item?.title ?? ''}
                     </h3>
                     {item?.summary && (
-                      <p className="text-xs text-[#666] mb-2 overflow-hidden text-ellipsis" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                      <p className="text-xs text-[#647399] mb-2 overflow-hidden text-ellipsis" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                         {item.summary}
                       </p>
                     )}
@@ -352,18 +352,18 @@ export default function UpdatesPage() {
                       <span
                         className="pill text-[10px]"
                         style={{
-                          background: '#e8c54722',
-                          color: '#e8c547',
-                          border: '1px solid #e8c54744',
+                          background: '#2dd4bf22',
+                          color: '#2dd4bf',
+                          border: '1px solid #2dd4bf44',
                         }}
                       >
                         {CATEGORIES.find((x) => x.id === (item?.category ?? ''))?.label ?? item?.category ?? ''}
                       </span>
-                      <span className="text-[11px] text-[#555]">{item?.sourceName ?? ''}</span>
-                      <span className="text-[11px] text-[#444]">{item?.publishedAt ? fmtDate(item.publishedAt) : ''}</span>
+                      <span className="text-[11px] text-[#5a688c]">{item?.sourceName ?? ''}</span>
+                      <span className="text-[11px] text-[#4d659c]">{item?.publishedAt ? fmtDate(item.publishedAt) : ''}</span>
                     </div>
                   </div>
-                  <span className="text-[#555] shrink-0" aria-hidden>
+                  <span className="text-[#5a688c] shrink-0" aria-hidden>
                     ↗
                   </span>
                 </div>

@@ -56,8 +56,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className="relative inline-flex h-[22px] w-10 shrink-0 rounded-full transition-colors cursor-pointer"
       style={{
-        background: checked ? '#e8c547' : '#2a2a2a',
-        border: `1px solid ${checked ? '#e8c54766' : '#333'}`,
+        background: checked ? '#2dd4bf' : '#2f4368',
+        border: `1px solid ${checked ? '#2dd4bf66' : '#3a507d'}`,
       }}
     >
       <span
@@ -85,9 +85,9 @@ function OptionGroup<T extends string | number>({
           onClick={() => onChange(opt.value)}
           className="text-[12px] px-3 py-1.5 rounded-lg transition-all cursor-pointer"
           style={{
-            background: value === opt.value ? '#e8c54722' : '#1a1a1a',
-            color:      value === opt.value ? '#e8c547'   : '#666',
-            border:     `1px solid ${value === opt.value ? '#e8c54744' : '#222'}`,
+            background: value === opt.value ? '#2dd4bf22' : '#1d2b46',
+            color:      value === opt.value ? '#2dd4bf'   : '#647399',
+            border:     `1px solid ${value === opt.value ? '#2dd4bf44' : '#29395d'}`,
           }}
         >
           {opt.label}
@@ -113,16 +113,16 @@ function Section({
       <div className="flex items-center gap-3 mb-3">
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-          style={{ background: '#1a1a1a', border: '1px solid #222' }}
+          style={{ background: '#1d2b46', border: '1px solid #29395d' }}
         >
           {icon}
         </div>
         <div>
-          <div className="text-sm font-semibold text-[#ddd]">{title}</div>
-          <div className="text-xs text-[#555] mt-0.5">{description}</div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">{title}</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">{description}</div>
         </div>
       </div>
-      <div className="card p-0 overflow-hidden divide-y divide-[#1a1a1a]">
+      <div className="card p-0 overflow-hidden divide-y divide-[#1d2b46]">
         {children}
       </div>
     </div>
@@ -141,8 +141,8 @@ function Row({
   return (
     <div className="flex items-center justify-between gap-6 px-5 py-4">
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-[#ccc]">{label}</div>
-        {description && <div className="text-xs text-[#555] mt-0.5">{description}</div>}
+        <div className="text-sm text-[#b8c4dc]">{label}</div>
+        {description && <div className="text-xs text-[#5a688c] mt-0.5">{description}</div>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -180,7 +180,7 @@ function CalendarCheckboxList({
 
   if (calendars.length === 0) {
     return (
-      <div className="px-5 py-3 text-xs text-[#555]">
+      <div className="px-5 py-3 text-xs text-[#5a688c]">
         לא נמצאו יומנים — ודא שהיומן מחובר
       </div>
     )
@@ -194,13 +194,13 @@ function CalendarCheckboxList({
           <button
             key={cal.id}
             onClick={() => onToggle(cal.id)}
-            className="flex items-center gap-2.5 py-1.5 rounded-lg hover:bg-[#1a1a1a] transition-colors text-right px-2"
+            className="flex items-center gap-2.5 py-1.5 rounded-lg hover:bg-[#1d2b46] transition-colors text-right px-2"
           >
             <span
               className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center transition-all"
               style={{
                 background: checked ? cal.color : 'transparent',
-                border: `2px solid ${checked ? cal.color : '#333'}`,
+                border: `2px solid ${checked ? cal.color : '#3a507d'}`,
               }}
             >
               {checked && (
@@ -215,14 +215,14 @@ function CalendarCheckboxList({
                 </svg>
               )}
             </span>
-            <span className={`text-xs flex-1 truncate text-right ${checked ? 'text-[#ccc]' : 'text-[#555]'}`}>
+            <span className={`text-xs flex-1 truncate text-right ${checked ? 'text-[#b8c4dc]' : 'text-[#5a688c]'}`}>
               {cal.name}
             </span>
             <span
               className="text-[10px] px-1.5 py-0.5 rounded"
               style={{
                 background: cal.source === 'google' ? '#4285f422' : '#88888822',
-                color: cal.source === 'google' ? '#4285f4' : '#888',
+                color: cal.source === 'google' ? '#4285f4' : '#7a89ab',
               }}
             >
               {cal.source === 'google' ? 'Google' : 'Exchange'}
@@ -282,7 +282,7 @@ function GoogleAccountsCard() {
 
   function accountStatus(email: string, hasToken: boolean) {
     if (isLoading || (hasToken && healthLoading)) {
-      return <span className="text-xs text-[#555]">בודק…</span>
+      return <span className="text-xs text-[#5a688c]">בודק…</span>
     }
     if (!hasToken) {
       return (
@@ -293,12 +293,12 @@ function GoogleAccountsCard() {
     }
     const health = healthByEmail.get(email.toLowerCase())
     if (!health || health.status === 'ok') {
-      return <span className="text-xs text-[#47b86e]">פעיל ✓</span>
+      return <span className="text-xs text-[#34d399]">פעיל ✓</span>
     }
     return (
       <div className="flex flex-col items-end gap-1 max-w-[220px]">
         <span className="text-xs text-red-400">שגיאת חיבור</span>
-        <span className="text-[10px] text-[#666] text-left leading-snug">{health.error}</span>
+        <span className="text-[10px] text-[#647399] text-left leading-snug">{health.error}</span>
         <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(email)}`} className="btn btn-ghost text-[10px] py-1 px-2">
           חבר מחדש
         </a>
@@ -313,7 +313,7 @@ function GoogleAccountsCard() {
       description="יומן + Gmail — חבר קודם את החשבון האישי, אחר כך את דאז"
     >
       {oauthMsg && (
-        <div className="px-5 py-3 text-xs text-[#aaa] border-b border-[#1a1a1a]">{oauthMsg}</div>
+        <div className="px-5 py-3 text-xs text-[#97a4c2] border-b border-[#1d2b46]">{oauthMsg}</div>
       )}
       <Row label="אישי" description={PERSONAL_GOOGLE}>
         {accountStatus(PERSONAL_GOOGLE, personalOk)}
@@ -321,7 +321,7 @@ function GoogleAccountsCard() {
       <Row label="דאז" description={DAZ_GOOGLE}>
         {accountStatus(DAZ_GOOGLE, dazOk)}
       </Row>
-      <div className="px-5 py-3 text-xs text-[#555] leading-relaxed">
+      <div className="px-5 py-3 text-xs text-[#5a688c] leading-relaxed">
         {connected.size === 0
           ? 'אין חשבונות מחוברים — לחץ "חבר" ואשר גישה ליומן ול-Gmail.'
           : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל.`}
@@ -380,28 +380,28 @@ function NotionCard() {
       description="חשבונות ובסיסי נתונים שהוגו קורא מהם — פגישות ומשימות"
     >
       {!data && !error && (
-        <div className="px-5 py-3 text-xs text-[#555]">{loading ? 'בודק חיבור…' : 'טוען…'}</div>
+        <div className="px-5 py-3 text-xs text-[#5a688c]">{loading ? 'בודק חיבור…' : 'טוען…'}</div>
       )}
       {error && <div className="px-5 py-3 text-xs text-[#e8474a]">{error}</div>}
       {data && !data.configured && (
-        <div className="px-5 py-3 text-xs text-[#555] leading-relaxed">
-          לא הוגדרו חשבונות Notion. הגדר <code className="text-[#aaa]">NOTION_ACCOUNTS</code> או{' '}
-          <code className="text-[#aaa]">NOTION_API_KEY</code> בשרת.
+        <div className="px-5 py-3 text-xs text-[#5a688c] leading-relaxed">
+          לא הוגדרו חשבונות Notion. הגדר <code className="text-[#97a4c2]">NOTION_ACCOUNTS</code> או{' '}
+          <code className="text-[#97a4c2]">NOTION_API_KEY</code> בשרת.
         </div>
       )}
       {data?.configured &&
         data.accounts.map((acc) => (
           <div key={acc.label}>
-            <div className="px-5 pt-4 pb-2 text-sm text-[#ccc]">{acc.label}</div>
+            <div className="px-5 pt-4 pb-2 text-sm text-[#b8c4dc]">{acc.label}</div>
             {acc.databases.length === 0 && (
-              <div className="px-5 pb-3 text-xs text-[#555]">לא הוגדרו בסיסי נתונים לחשבון זה</div>
+              <div className="px-5 pb-3 text-xs text-[#5a688c]">לא הוגדרו בסיסי נתונים לחשבון זה</div>
             )}
             {acc.databases.map((db) => (
               <div key={`${acc.label}:${db.name}`} className="flex items-start justify-between gap-4 px-5 py-2">
                 <div className="min-w-0">
-                  <div className="text-xs text-[#ccc] truncate">
+                  <div className="text-xs text-[#b8c4dc] truncate">
                     {db.name}{' '}
-                    <span className="text-[10px] text-[#666]">
+                    <span className="text-[10px] text-[#647399]">
                       ({NOTION_DB_TYPE_LABELS[db.type] ?? db.type})
                     </span>
                   </div>
@@ -411,7 +411,7 @@ function NotionCard() {
                     </div>
                   )}
                 </div>
-                <span className={`text-xs shrink-0 ${db.ok ? 'text-[#47b86e]' : 'text-[#e8474a]'}`}>
+                <span className={`text-xs shrink-0 ${db.ok ? 'text-[#34d399]' : 'text-[#e8474a]'}`}>
                   {db.ok ? 'מחובר ✓' : 'לא נגיש'}
                 </span>
               </div>
@@ -531,7 +531,7 @@ function NotificationsCard() {
         </button>
       </Row>
       {status && (
-        <div className="px-5 py-3 text-xs text-[#888]" data-testid="notifications-status">
+        <div className="px-5 py-3 text-xs text-[#7a89ab]" data-testid="notifications-status">
           {status}
         </div>
       )}
@@ -602,7 +602,7 @@ export default function SettingsPage() {
         map.set(id, {
           id,
           name: ev.calendarName || (isApple ? 'Exchange' : id),
-          color: ev.calendarColor || '#888',
+          color: ev.calendarColor || '#7a89ab',
           source: isApple ? 'apple' : 'google',
         })
       }
@@ -705,14 +705,14 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">הגדרות</h1>
-          <p className="text-[#555] text-sm mt-1">התאמה אישית של המערכת</p>
+          <p className="text-[#5a688c] text-sm mt-1">התאמה אישית של המערכת</p>
         </div>
         <div
           className="text-[11px] px-2.5 py-1 rounded-full transition-all"
           style={{
-            background: savedFlash ? '#47b86e22' : 'transparent',
-            color: savedFlash ? '#47b86e' : 'transparent',
-            border: `1px solid ${savedFlash ? '#47b86e44' : 'transparent'}`,
+            background: savedFlash ? '#34d39922' : 'transparent',
+            color: savedFlash ? '#34d399' : 'transparent',
+            border: `1px solid ${savedFlash ? '#34d39944' : 'transparent'}`,
           }}
         >
           נשמר ✓
@@ -722,11 +722,11 @@ export default function SettingsPage() {
       <Link
         href="/settings/whatsapp"
         className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#25D36644] transition-colors"
-        style={{ border: '1px solid #222' }}
+        style={{ border: '1px solid #29395d' }}
       >
         <div>
-          <div className="text-sm font-semibold text-[#ddd]">WhatsApp</div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-sm font-semibold text-[#cdd7ea]">WhatsApp</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
             קבוצות, FOMO, מילות מפתח, סיכומים — הגדרות bridge
           </div>
         </div>
@@ -735,25 +735,39 @@ export default function SettingsPage() {
 
       <Link
         href="/memory"
-        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
-        style={{ border: '1px solid #222' }}
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
       >
         <div>
-          <div className="text-sm font-semibold text-[#ddd]">זיכרון והוראות להוגו</div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-sm font-semibold text-[#cdd7ea]">זיכרון והוראות</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
             הוראות קבועות, זיכרונות וידע — נשמרים בין deployים ומוזרקים לכל שיחה
           </div>
         </div>
-        <span className="text-[#e8c547] text-lg">🧠</span>
+        <span className="text-[#2dd4bf] text-lg">🧠</span>
+      </Link>
+
+      <Link
+        href="/agents/manage"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">ניהול סוכנים</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            עריכת הוראות ושמות לסוכנים המומחים (A_Agents)
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🛠</span>
       </Link>
 
       {/* ── Section: Agent Calendars ─────────────────────────────────────────── */}
       <Section
         icon={
           <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
-            <rect x="2" y="3" width="16" height="15" rx="2" stroke="#e8c547" strokeWidth="1.5" />
-            <path d="M6 2v3M14 2v3M2 8h16" stroke="#e8c547" strokeWidth="1.5" strokeLinecap="round" />
-            <circle cx="10" cy="13" r="2" stroke="#e8c547" strokeWidth="1.5" />
+            <rect x="2" y="3" width="16" height="15" rx="2" stroke="#2dd4bf" strokeWidth="1.5" />
+            <path d="M6 2v3M14 2v3M2 8h16" stroke="#2dd4bf" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="10" cy="13" r="2" stroke="#2dd4bf" strokeWidth="1.5" />
           </svg>
         }
         title="יומנים לסוכנים"
@@ -761,20 +775,20 @@ export default function SettingsPage() {
       >
         <div>
           <div className="px-5 pt-4 pb-2">
-            <div className="text-sm text-[#ccc]">יומנים לניתוח</div>
-            <div className="text-xs text-[#555] mt-0.5">
+            <div className="text-sm text-[#b8c4dc]">יומנים לניתוח</div>
+            <div className="text-xs text-[#5a688c] mt-0.5">
               כולל תתי-יומנים (למשל dragontail תחת alpirkritz@gmail.com). נשמר בשרת — עובד גם ב-WhatsApp.
             </div>
           </div>
           {catalogLoading ? (
-            <div className="px-5 py-3 text-xs text-[#444]">טוען יומנים…</div>
+            <div className="px-5 py-3 text-xs text-[#4d659c]">טוען יומנים…</div>
           ) : agentCatalog.length === 0 ? (
-            <div className="px-5 py-3 text-xs text-[#555]">לא נמצאו יומנים — ודא שהיומן מחובר</div>
+            <div className="px-5 py-3 text-xs text-[#5a688c]">לא נמצאו יומנים — ודא שהיומן מחובר</div>
           ) : (
             <div className="px-5 py-3 flex flex-col gap-3">
               {agentCatalogGroups.map(([group, cals]) => (
                 <div key={group}>
-                  <div className="text-[10px] text-[#444] uppercase tracking-wider font-medium mb-1 px-2">
+                  <div className="text-[10px] text-[#4d659c] uppercase tracking-wider font-medium mb-1 px-2">
                     {group}
                   </div>
                   <CalendarCheckboxList
@@ -799,16 +813,16 @@ export default function SettingsPage() {
       {/* ── Section: Notifications ───────────────────────────────────────────── */}
       <Link
         href="/settings/notifications"
-        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#e8c54744] transition-colors"
-        style={{ border: '1px solid #222' }}
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
       >
         <div>
-          <div className="text-sm font-semibold text-[#ddd]">התראות וערוצים</div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-sm font-semibold text-[#cdd7ea]">התראות וערוצים</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
             מה נשלח ומתי — הפעלה או כיבוי לכל ערוץ (WhatsApp / פוש / Telegram) ושעות לתדריכים
           </div>
         </div>
-        <span className="text-[#e8c547] text-lg">🔔</span>
+        <span className="text-[#2dd4bf] text-lg">🔔</span>
       </Link>
 
       <NotificationsCard />
@@ -856,13 +870,13 @@ export default function SettingsPage() {
         {/* Calendar selector */}
         <div>
           <div className="px-5 pt-4 pb-2">
-            <div className="text-sm text-[#ccc]">יומנים לבדיקה</div>
-            <div className="text-xs text-[#555] mt-0.5">
+            <div className="text-sm text-[#b8c4dc]">יומנים לבדיקה</div>
+            <div className="text-xs text-[#5a688c] mt-0.5">
               סמן אילו יומנים לכלול בבדיקת ההתנגשויות ובספירת הפגישות בדשבורד
             </div>
           </div>
           {calLoading ? (
-            <div className="px-5 py-3 text-xs text-[#444]">טוען יומנים…</div>
+            <div className="px-5 py-3 text-xs text-[#4d659c]">טוען יומנים…</div>
           ) : (
             <CalendarCheckboxList
               calendars={calendars}
@@ -895,10 +909,10 @@ export default function SettingsPage() {
       <Section
         icon={
           <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
-            <rect x="2" y="2" width="7" height="7" rx="1.5" stroke="#e8c547" strokeWidth="1.5" />
-            <rect x="11" y="2" width="7" height="7" rx="1.5" stroke="#e8c547" strokeWidth="1.5" />
-            <rect x="2" y="11" width="7" height="7" rx="1.5" stroke="#e8c547" strokeWidth="1.5" />
-            <rect x="11" y="11" width="7" height="7" rx="1.5" stroke="#e8c547" strokeWidth="1.5" />
+            <rect x="2" y="2" width="7" height="7" rx="1.5" stroke="#2dd4bf" strokeWidth="1.5" />
+            <rect x="11" y="2" width="7" height="7" rx="1.5" stroke="#2dd4bf" strokeWidth="1.5" />
+            <rect x="2" y="11" width="7" height="7" rx="1.5" stroke="#2dd4bf" strokeWidth="1.5" />
+            <rect x="11" y="11" width="7" height="7" rx="1.5" stroke="#2dd4bf" strokeWidth="1.5" />
           </svg>
         }
         title="דשבורד"
@@ -932,9 +946,9 @@ export default function SettingsPage() {
       <Section
         icon={
           <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
-            <rect x="2" y="3" width="16" height="15" rx="2" stroke="#47b8e8" strokeWidth="1.5" />
-            <path d="M6 2v3M14 2v3M2 8h16" stroke="#47b8e8" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M6 12h8M6 15h5" stroke="#47b8e8" strokeWidth="1.5" strokeLinecap="round" />
+            <rect x="2" y="3" width="16" height="15" rx="2" stroke="#38bdf8" strokeWidth="1.5" />
+            <path d="M6 2v3M14 2v3M2 8h16" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M6 12h8M6 15h5" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         }
         title="סנכרון פגישות"
@@ -942,13 +956,13 @@ export default function SettingsPage() {
       >
         <div>
           <div className="px-5 pt-4 pb-2">
-            <div className="text-sm text-[#ccc]">יומנים לסנכרון</div>
-            <div className="text-xs text-[#555] mt-0.5">
+            <div className="text-sm text-[#b8c4dc]">יומנים לסנכרון</div>
+            <div className="text-xs text-[#5a688c] mt-0.5">
               רק פגישות מיומנים מסומנים ייובאו בעת לחיצה על ״סנכרן מיומן״
             </div>
           </div>
           {calLoading ? (
-            <div className="px-5 py-3 text-xs text-[#444]">טוען יומנים…</div>
+            <div className="px-5 py-3 text-xs text-[#4d659c]">טוען יומנים…</div>
           ) : (
             <CalendarCheckboxList
               calendars={calendars}

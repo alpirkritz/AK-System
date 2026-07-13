@@ -20,11 +20,11 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center p-4 bg-[#0f0f0f]">
+    <div className="min-h-[100dvh] flex items-center justify-center p-4 bg-[#0e1626]">
       <div className="card w-full max-w-sm p-8 text-center space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-[#e8c547]">My Space</h1>
-          <p className="text-sm text-[#888] mt-2">התחבר עם Google כדי להמשיך</p>
+          <h1 className="text-2xl font-bold text-[#2dd4bf]">My Space</h1>
+          <p className="text-sm text-[#7a89ab] mt-2">התחבר עם Google כדי להמשיך</p>
         </div>
 
         {error ? (
@@ -48,7 +48,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh] bg-[#0f0f0f]" />}>
+    <Suspense fallback={<div className="min-h-[100dvh] bg-[#0e1626]" />}>
       <LoginForm />
     </Suspense>
   )

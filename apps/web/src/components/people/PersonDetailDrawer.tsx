@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 
-const COLORS = ['#e8c547', '#e8477a', '#47b8e8', '#47e8a8', '#b847e8']
+const COLORS = ['#2dd4bf', '#fb7185', '#38bdf8', '#47e8a8', '#b847e8']
 const GOAL_OPTIONS = ['Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly']
 
 interface Props {
@@ -58,7 +58,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
         contactFrequencyDays: person.contactFrequencyDays?.toString() ?? '',
         lastContact: person.lastContact ? person.lastContact.slice(0, 10) : '',
         notes: person.notes ?? '',
-        color: person.color ?? '#e8c547',
+        color: person.color ?? '#2dd4bf',
       })
     }
   }, [person])
@@ -118,7 +118,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
     )
   }
 
-  const color = person.color ?? '#e8c547'
+  const color = person.color ?? '#2dd4bf'
 
   return (
     <>
@@ -139,12 +139,12 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 {person.name[0]}
               </div>
               <div>
-                <h2 className="text-lg font-bold text-[#f0ede6] leading-tight">{person.name}</h2>
+                <h2 className="text-lg font-bold text-[#eef3fb] leading-tight">{person.name}</h2>
                 {(person.jobTitle || person.role) && (
-                  <p className="text-sm text-[#888]">{person.jobTitle || person.role}</p>
+                  <p className="text-sm text-[#7a89ab]">{person.jobTitle || person.role}</p>
                 )}
                 {person.company && (
-                  <p className="text-xs text-[#666]">{person.company}</p>
+                  <p className="text-xs text-[#647399]">{person.company}</p>
                 )}
               </div>
             </div>
@@ -192,7 +192,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
         <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ scrollbarWidth: 'thin' }}>
           {/* Key fields */}
           <section className="mb-6">
-            <h3 className="text-[11px] font-semibold text-[#555] uppercase tracking-wider mb-3">פרטים</h3>
+            <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">פרטים</h3>
             {editing ? (
               <div className="space-y-3">
                 <div>
@@ -307,7 +307,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 <FieldRow label="טלפון" value={person.phone} dir="ltr" />
                 {person.tags && (
                   <div>
-                    <span className="text-[11px] text-[#555]">תגיות</span>
+                    <span className="text-[11px] text-[#5a688c]">תגיות</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {person.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
                         <span key={tag} className="pill text-[10px]">{tag}</span>
@@ -328,8 +328,8 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 )}
                 {person.notes && (
                   <div>
-                    <span className="text-[11px] text-[#555]">הערות</span>
-                    <p className="text-sm text-[#ccc] mt-1 whitespace-pre-wrap leading-relaxed">{person.notes}</p>
+                    <span className="text-[11px] text-[#5a688c]">הערות</span>
+                    <p className="text-sm text-[#b8c4dc] mt-1 whitespace-pre-wrap leading-relaxed">{person.notes}</p>
                   </div>
                 )}
               </div>
@@ -339,21 +339,21 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           {/* Activity timeline */}
           {related && related.meetings.length > 0 && (
             <section className="mb-6">
-              <h3 className="text-[11px] font-semibold text-[#555] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5" />
                 פגישות ({related.meetings.length})
               </h3>
               <div className="space-y-2">
                 {related.meetings.slice(0, 10).map(meeting => (
-                  <div key={meeting.id} className="flex items-center gap-3 py-2 border-b border-[#1f1f1f] last:border-0">
-                    <span className="text-[10px] text-[#555] tabular-nums w-[70px] shrink-0">
+                  <div key={meeting.id} className="flex items-center gap-3 py-2 border-b border-[#223052] last:border-0">
+                    <span className="text-[10px] text-[#5a688c] tabular-nums w-[70px] shrink-0">
                       {format(new Date(meeting.date), 'dd/MM/yy')}
                     </span>
-                    <span className="text-xs text-[#aaa] truncate">{meeting.title}</span>
+                    <span className="text-xs text-[#97a4c2] truncate">{meeting.title}</span>
                   </div>
                 ))}
                 {related.meetings.length > 10 && (
-                  <p className="text-[11px] text-[#555]">+ עוד {related.meetings.length - 10} פגישות</p>
+                  <p className="text-[11px] text-[#5a688c]">+ עוד {related.meetings.length - 10} פגישות</p>
                 )}
               </div>
             </section>
@@ -362,21 +362,21 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           {/* Related tasks */}
           {related && related.tasks.length > 0 && (
             <section>
-              <h3 className="text-[11px] font-semibold text-[#555] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <CheckSquare className="w-3.5 h-3.5" />
                 משימות ({related.tasks.length})
               </h3>
               <div className="space-y-2">
                 {related.tasks.slice(0, 10).map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null }) => (
-                  <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#1f1f1f] last:border-0">
+                  <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
                         onClick={() => toggleTaskDone.mutate({ id: task.id })}
                         disabled={toggleTaskDone.isPending}
                         className={cn(
-                          'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547] focus-visible:ring-offset-1 focus-visible:ring-offset-[#161616]',
-                          task.done ? 'bg-success border-success text-white' : 'border-[#444] hover:border-[#666] hover:bg-[#222]'
+                          'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf] focus-visible:ring-offset-1 focus-visible:ring-offset-[#16233b]',
+                          task.done ? 'bg-success border-success text-white' : 'border-[#4d659c] hover:border-[#647399] hover:bg-[#29395d]'
                         )}
                         title={task.done ? 'בטל סימון' : 'סמן בוצע'}
                         aria-label={task.done ? 'בטל סימון משימה' : 'סמן משימה כבוצעה'}
@@ -385,18 +385,18 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                       </button>
                       <span className={cn(
                         'text-xs truncate flex-1',
-                        task.done ? 'text-[#555] line-through' : 'text-[#aaa]'
+                        task.done ? 'text-[#5a688c] line-through' : 'text-[#97a4c2]'
                       )}>
                         {task.title}
                       </span>
                       {task.dueDate && (
-                        <span className="text-[10px] text-[#555] tabular-nums shrink-0">
+                        <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
                           {format(new Date(task.dueDate), 'dd/MM')}
                         </span>
                       )}
                     </div>
                     {(task.meetingTitle || task.projectName) && (
-                      <div className="text-[10px] text-[#555] pr-6 flex flex-wrap gap-x-2 gap-y-0">
+                      <div className="text-[10px] text-[#5a688c] pr-6 flex flex-wrap gap-x-2 gap-y-0">
                         {task.meetingTitle && (
                           <span>מפגישה: {task.meetingTitle}{task.meetingDate ? ` (${format(new Date(task.meetingDate), 'dd/MM/yy')})` : ''}</span>
                         )}
@@ -414,7 +414,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
 
         {/* Sticky footer for edit mode */}
         {editing && (
-          <div className="border-t border-[#2a2a2a] p-4 flex items-center gap-2 justify-end bg-[#161616]">
+          <div className="border-t border-[#2f4368] p-4 flex items-center gap-2 justify-end bg-[#16233b]">
             <button className="btn btn-ghost flex items-center gap-1.5" onClick={() => setEditing(false)}>
               <XCircle className="w-4 h-4" />
               ביטול
@@ -438,8 +438,8 @@ function FieldRow({ label, value, dir }: { label: string; value?: string | null;
   if (!value) return null
   return (
     <div>
-      <span className="text-[11px] text-[#555]">{label}</span>
-      <p className="text-sm text-[#ccc] mt-0.5" dir={dir}>{value}</p>
+      <span className="text-[11px] text-[#5a688c]">{label}</span>
+      <p className="text-sm text-[#b8c4dc] mt-0.5" dir={dir}>{value}</p>
     </div>
   )
 }

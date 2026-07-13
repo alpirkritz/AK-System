@@ -11,7 +11,7 @@ export default function TimeGutter() {
       {hours.map((h) => (
         <div
           key={h}
-          className="absolute right-0 text-[10px] text-[#3a3a3a] pr-2 leading-none"
+          className="absolute right-0 text-[10px] text-[#435a8c] pr-2 leading-none"
           style={{ top: (h - DAY_START) * HOUR_HEIGHT - 6 }}
         >
           {String(h).padStart(2, '0')}:00

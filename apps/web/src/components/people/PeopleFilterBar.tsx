@@ -55,7 +55,7 @@ function FilterDropdown({
           'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all',
           value
             ? 'border-primary/30 bg-primary/10 text-primary-300'
-            : 'border-surface-border text-text-muted hover:border-[#444] hover:text-text-body'
+            : 'border-surface-border text-text-muted hover:border-[#4d659c] hover:text-text-body'
         )}
         onClick={() => setOpen(!open)}
       >
@@ -64,11 +64,11 @@ function FilterDropdown({
         <ChevronDown className={cn('w-3 h-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg min-w-[160px] max-h-[240px] overflow-y-auto py-1">
+        <div className="absolute top-full mt-1 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg shadow-lg min-w-[160px] max-h-[240px] overflow-y-auto py-1">
           <button
             className={cn(
               'w-full text-right px-3 py-1.5 text-xs transition-colors',
-              !value ? 'text-primary-300 bg-primary/5' : 'text-[#aaa] hover:bg-[#222]'
+              !value ? 'text-primary-300 bg-primary/5' : 'text-[#97a4c2] hover:bg-[#29395d]'
             )}
             onClick={() => { onChange(''); setOpen(false) }}
           >
@@ -79,7 +79,7 @@ function FilterDropdown({
               key={opt}
               className={cn(
                 'w-full text-right px-3 py-1.5 text-xs transition-colors',
-                value === opt ? 'text-primary-300 bg-primary/5' : 'text-[#aaa] hover:bg-[#222]'
+                value === opt ? 'text-primary-300 bg-primary/5' : 'text-[#97a4c2] hover:bg-[#29395d]'
               )}
               onClick={() => { onChange(opt); setOpen(false) }}
             >
@@ -127,7 +127,7 @@ function TagsFilterDropdown({
           'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all',
           selectedTags.length > 0
             ? 'border-primary/30 bg-primary/10 text-primary-300'
-            : 'border-surface-border text-text-muted hover:border-[#444] hover:text-text-body'
+            : 'border-surface-border text-text-muted hover:border-[#4d659c] hover:text-text-body'
         )}
         onClick={() => setOpen(!open)}
       >
@@ -140,22 +140,22 @@ function TagsFilterDropdown({
         <ChevronDown className={cn('w-3 h-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg min-w-[180px] max-h-[240px] overflow-y-auto py-1">
+        <div className="absolute top-full mt-1 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg shadow-lg min-w-[180px] max-h-[240px] overflow-y-auto py-1">
           {allTags.length === 0 && (
-            <div className="px-3 py-2 text-xs text-[#555]">אין תגיות</div>
+            <div className="px-3 py-2 text-xs text-[#5a688c]">אין תגיות</div>
           )}
           {allTags.map(tag => (
             <button
               key={tag}
               className={cn(
                 'w-full text-right px-3 py-1.5 text-xs transition-colors flex items-center gap-2',
-                selectedTags.includes(tag) ? 'text-primary-300 bg-primary/5' : 'text-[#aaa] hover:bg-[#222]'
+                selectedTags.includes(tag) ? 'text-primary-300 bg-primary/5' : 'text-[#97a4c2] hover:bg-[#29395d]'
               )}
               onClick={() => toggle(tag)}
             >
               <span className={cn(
                 'w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] shrink-0',
-                selectedTags.includes(tag) ? 'bg-primary border-primary text-[#0f0f0f]' : 'border-[#444]'
+                selectedTags.includes(tag) ? 'bg-primary border-primary text-[#0e1626]' : 'border-[#4d659c]'
               )}>
                 {selectedTags.includes(tag) && '✓'}
               </span>
@@ -209,7 +209,7 @@ export function PeopleFilterBar({
         ))}
       </div>
 
-      <div className="w-px h-5 bg-[#2a2a2a]" />
+      <div className="w-px h-5 bg-[#2f4368]" />
 
       <div className="flex items-center gap-2">
         <TagsFilterDropdown
@@ -242,13 +242,13 @@ export function PeopleFilterBar({
 
       {hasActiveFilters && (
         <>
-          <div className="w-px h-5 bg-[#2a2a2a]" />
+          <div className="w-px h-5 bg-[#2f4368]" />
           <div className="flex items-center gap-1.5 flex-wrap">
             {filters.tags.map(tag => (
               <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary-300 border border-primary/20">
                 {tag}
                 <button
-                  className="hover:text-[#f0ede6] transition-colors"
+                  className="hover:text-[#eef3fb] transition-colors"
                   onClick={() => onSetFilter('tags', filters.tags.filter(t => t !== tag))}
                   aria-label={`הסר תגית ${tag}`}
                 >
@@ -257,7 +257,7 @@ export function PeopleFilterBar({
               </span>
             ))}
             <button
-              className="text-xs text-[#666] hover:text-[#e8477a] transition-colors"
+              className="text-xs text-[#647399] hover:text-[#fb7185] transition-colors"
               onClick={onClearFilters}
             >
               נקה הכל

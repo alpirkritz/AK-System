@@ -18,14 +18,14 @@ export default function DayColumn({ day, events, onEventClick }: DayColumnProps)
 
   return (
     <div
-      className={`relative flex-1 ${today ? 'bg-[#e8c547]/[0.015]' : ''}`}
+      className={`relative flex-1 ${today ? 'bg-[#2dd4bf]/[0.015]' : ''}`}
       style={{ height: VISIBLE_HOURS * HOUR_HEIGHT }}
     >
       {/* Hour grid lines */}
       {hours.map((h) => (
         <div
           key={h}
-          className="absolute inset-x-0 border-t border-[#141414]"
+          className="absolute inset-x-0 border-t border-[#141f36]"
           style={{ top: (h - DAY_START) * HOUR_HEIGHT }}
         />
       ))}
@@ -34,7 +34,7 @@ export default function DayColumn({ day, events, onEventClick }: DayColumnProps)
       {hours.map((h) => (
         <div
           key={`half-${h}`}
-          className="absolute inset-x-0 border-t border-[#0e0e0e]"
+          className="absolute inset-x-0 border-t border-[#0c1424]"
           style={{ top: (h - DAY_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
         />
       ))}

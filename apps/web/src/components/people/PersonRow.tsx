@@ -8,15 +8,15 @@ import { cn } from '@/lib/cn'
 import type { Person } from '@ak-system/database'
 
 const TAG_COLORS: Record<string, string> = {
-  business: '#47b8e8',
+  business: '#38bdf8',
   friend: '#47e8a8',
   mentor: '#b847e8',
 }
 
 const GOAL_COLORS: Record<string, string> = {
-  'Bi-Weekly': '#47b8e8',
+  'Bi-Weekly': '#38bdf8',
   Monthly: '#47e8a8',
-  'Bi-Monthly': '#e8c547',
+  'Bi-Monthly': '#2dd4bf',
   Quarterly: '#b847e8',
 }
 
@@ -71,26 +71,26 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
           <div
             className="avatar w-8 h-8 text-xs border"
             style={{
-              background: (person.color ?? '#e8c547') + '18',
-              color: person.color ?? '#e8c547',
-              borderColor: (person.color ?? '#e8c547') + '30',
+              background: (person.color ?? '#2dd4bf') + '18',
+              color: person.color ?? '#2dd4bf',
+              borderColor: (person.color ?? '#2dd4bf') + '30',
             }}
           >
             {person.name[0]}
           </div>
-          <span className="font-medium text-[#f0ede6] text-sm truncate max-w-[200px]">
+          <span className="font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
             {person.name}
           </span>
         </div>
       </td>
 
       {/* Company */}
-      <td className="table-cell text-[#aaa] truncate max-w-[160px]" title={person.company ?? undefined}>
+      <td className="table-cell text-[#97a4c2] truncate max-w-[160px]" title={person.company ?? undefined}>
         {person.company || '—'}
       </td>
 
       {/* Role */}
-      <td className="table-cell text-[#888] truncate max-w-[140px]" title={person.jobTitle ?? person.role ?? undefined}>
+      <td className="table-cell text-[#7a89ab] truncate max-w-[140px]" title={person.jobTitle ?? person.role ?? undefined}>
         {person.jobTitle || person.role || '—'}
       </td>
 
@@ -100,14 +100,14 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
           <span
             className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
             style={{
-              background: (GOAL_COLORS[person.goal] ?? '#888') + '18',
-              color: GOAL_COLORS[person.goal] ?? '#888',
+              background: (GOAL_COLORS[person.goal] ?? '#7a89ab') + '18',
+              color: GOAL_COLORS[person.goal] ?? '#7a89ab',
             }}
           >
             {person.goal}
           </span>
         ) : (
-          <span className="text-[#444]">—</span>
+          <span className="text-[#4d659c]">—</span>
         )}
       </td>
 
@@ -119,15 +119,15 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
               key={tag}
               className="text-[10px] font-medium px-2 py-0.5 rounded-full"
               style={{
-                background: (TAG_COLORS[tag.toLowerCase()] ?? '#e8c547') + '18',
-                color: TAG_COLORS[tag.toLowerCase()] ?? '#e8c547',
+                background: (TAG_COLORS[tag.toLowerCase()] ?? '#2dd4bf') + '18',
+                color: TAG_COLORS[tag.toLowerCase()] ?? '#2dd4bf',
               }}
             >
               {tag}
             </span>
           ))}
           {tags.length > 2 && (
-            <span className="text-[10px] text-[#555]" title={tags.slice(2).join(', ')}>
+            <span className="text-[10px] text-[#5a688c]" title={tags.slice(2).join(', ')}>
               +{tags.length - 2}
             </span>
           )}
@@ -139,12 +139,12 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
         {person.lastContact ? (
           <div className="contact-health">
             {health && <span className={cn('contact-health-dot', health)} />}
-            <span className="text-[#aaa] text-xs">
+            <span className="text-[#97a4c2] text-xs">
               {formatDistanceToNow(new Date(person.lastContact), { addSuffix: true, locale: he })}
             </span>
           </div>
         ) : (
-          <span className="text-[#444] text-xs">—</span>
+          <span className="text-[#4d659c] text-xs">—</span>
         )}
       </td>
 

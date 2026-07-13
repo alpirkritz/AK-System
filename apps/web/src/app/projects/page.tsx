@@ -39,13 +39,13 @@ export default function ProjectsPage() {
                 <div className="flex items-center gap-3 mb-3">
                   <div
                     className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
-                    style={{ background: (p.color ?? '#47b8e8') + '22', color: p.color ?? '#47b8e8' }}
+                    style={{ background: (p.color ?? '#38bdf8') + '22', color: p.color ?? '#38bdf8' }}
                   >
                     📁
                   </div>
                   <div className="font-semibold text-[15px]">{p.name}</div>
                 </div>
-                <div className="text-xs text-[#666] mt-auto pt-2 border-t border-[#1f1f1f]">
+                <div className="text-xs text-[#647399] mt-auto pt-2 border-t border-[#223052]">
                   ◈ {projectMeetings.length} פגישות · ◻ {projectTasks.length} משימות
                 </div>
               </div>

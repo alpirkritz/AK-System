@@ -37,7 +37,7 @@ function SkeletonCards() {
             <div className="skeleton h-4 w-12 rounded-full" />
             <div className="skeleton h-4 w-14 rounded-full" />
           </div>
-          <div className="border-t border-[#1f1f1f] pt-2.5">
+          <div className="border-t border-[#223052] pt-2.5">
             <div className="skeleton h-3 w-28 rounded" />
           </div>
         </div>

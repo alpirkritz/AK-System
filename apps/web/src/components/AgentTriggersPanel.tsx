@@ -21,8 +21,8 @@ function Toggle({
       onClick={() => onChange(!checked)}
       className="relative inline-flex h-[22px] w-10 shrink-0 rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       style={{
-        background: checked ? '#e8c547' : '#2a2a2a',
-        border: `1px solid ${checked ? '#e8c54766' : '#333'}`,
+        background: checked ? '#2dd4bf' : '#2f4368',
+        border: `1px solid ${checked ? '#2dd4bf66' : '#3a507d'}`,
       }}
     >
       <span
@@ -117,7 +117,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
 
   if (isLoading) {
     return (
-      <div className="text-xs text-[#555] px-1 py-2">טוען טריגרים...</div>
+      <div className="text-xs text-[#5a688c] px-1 py-2">טוען טריגרים...</div>
     )
   }
 
@@ -126,29 +126,29 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
   const running = run.isPending
 
   return (
-    <div className="border border-[#1a1a1a] rounded-xl bg-[#0d0d0d] mb-3">
+    <div className="border border-[#1d2b46] rounded-xl bg-[#0d0d0d] mb-3">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-[#aaa] hover:text-[#f0ede6] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-[#97a4c2] hover:text-[#eef3fb] transition-colors"
       >
         <span>
           טריגרים
-          <span className="text-[10px] text-[#555] mr-2">סוכן מלא AI</span>
+          <span className="text-[10px] text-[#5a688c] mr-2">סוכן מלא AI</span>
         </span>
-        <span className="text-[#555]">{expanded ? '▲' : '▼'}</span>
+        <span className="text-[#5a688c]">{expanded ? '▲' : '▼'}</span>
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
-          <p className="text-[11px] text-[#555] leading-relaxed">
+        <div className="px-4 pb-4 space-y-3 border-t border-[#1d2b46] pt-3">
+          <p className="text-[11px] text-[#5a688c] leading-relaxed">
             הרצה אוטומטית של {agentName} לפי שעות (במקביל לדיג&apos;סטים הקלים של המערכת).
             דורש מנוע Gemini.
           </p>
 
           {config.schedulable ? (
             <div className="flex items-center justify-between gap-3">
-              <label className="text-sm text-[#aaa]">טריגר יומי פעיל</label>
+              <label className="text-sm text-[#97a4c2]">טריגר יומי פעיל</label>
               <Toggle
                 checked={enabled}
                 disabled={upsert.isPending}
@@ -159,12 +159,12 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
               />
             </div>
           ) : (
-            <p className="text-xs text-[#666]">סוכן זה מיועד להרצה ידנית בלבד (ללא לוח זמנים).</p>
+            <p className="text-xs text-[#647399]">סוכן זה מיועד להרצה ידנית בלבד (ללא לוח זמנים).</p>
           )}
 
           {config.schedulable && (
             <div>
-              <label className="text-xs text-[#555] block mb-1">שעות (HH:MM, מופרד בפסיק)</label>
+              <label className="text-xs text-[#5a688c] block mb-1">שעות (HH:MM, מופרד בפסיק)</label>
               <input
                 type="text"
                 className="input w-full text-sm"
@@ -180,7 +180,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
           )}
 
           <div>
-            <label className="text-xs text-[#555] block mb-1">הודעת טריגר (אופציונלי)</label>
+            <label className="text-xs text-[#5a688c] block mb-1">הודעת טריגר (אופציונלי)</label>
             <textarea
               className="input w-full text-sm min-h-[60px] resize-y"
               value={triggerMessage}
@@ -206,7 +206,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
             )}
             <button
               type="button"
-              className="btn btn-ghost text-sm border border-[#333]"
+              className="btn btn-ghost text-sm border border-[#3a507d]"
               disabled={running || upsert.isPending}
               onClick={() => run.mutate({ agentId })}
             >
@@ -214,7 +214,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
             </button>
           </div>
 
-          <div className="text-[11px] text-[#555]">
+          <div className="text-[11px] text-[#5a688c]">
             ריצה אחרונה: {formatLastRun(config.lastRunAt)}
             {config.lastRunStatus === 'ok' && (
               <span className="text-green-500/80 mr-1"> · הצליח</span>
@@ -225,7 +225,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
           </div>
 
           {message && (
-            <p className="text-xs text-[#e8c547]">{message}</p>
+            <p className="text-xs text-[#2dd4bf]">{message}</p>
           )}
         </div>
       )}

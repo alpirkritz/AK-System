@@ -22,23 +22,23 @@ export default function WeekView({ events, weekStart, onEventClick }: WeekViewPr
   return (
     <div className="flex flex-col h-full">
       {/* Day column headers */}
-      <div className="flex border-b border-[#1a1a1a] bg-[#080808] shrink-0">
+      <div className="flex border-b border-[#1d2b46] bg-[#0a1120] shrink-0">
         <div className="w-14 shrink-0" />
         {days.map((day, i) => {
           const today = isToday(day)
           return (
             <div
               key={i}
-              className={`flex-1 text-center py-2.5 px-1 border-r border-[#1a1a1a] first:border-r-0
-                ${today ? 'bg-[#e8c547]/[0.03]' : ''}`}
+              className={`flex-1 text-center py-2.5 px-1 border-r border-[#1d2b46] first:border-r-0
+                ${today ? 'bg-[#2dd4bf]/[0.03]' : ''}`}
             >
-              <div className="text-[11px] text-[#555] font-medium uppercase tracking-wide">
+              <div className="text-[11px] text-[#5a688c] font-medium uppercase tracking-wide">
                 {HE_DAYS[day.getDay()]}
               </div>
               <div
                 className={`text-lg font-semibold mt-0.5 w-8 h-8 mx-auto flex items-center
                   justify-center rounded-full transition-colors
-                  ${today ? 'bg-[#e8c547] text-black' : 'text-[#999]'}`}
+                  ${today ? 'bg-[#2dd4bf] text-black' : 'text-[#8593b3]'}`}
               >
                 {day.getDate()}
               </div>
@@ -55,18 +55,18 @@ export default function WeekView({ events, weekStart, onEventClick }: WeekViewPr
         <div ref={scrollRef} className="flex h-full overflow-y-auto">
           <TimeGutter />
           <div
-            className="flex flex-1 min-w-0 border-r border-[#1a1a1a]"
+            className="flex flex-1 min-w-0 border-r border-[#1d2b46]"
             style={{ height: VISIBLE_HOURS * HOUR_HEIGHT }}
           >
             {days.map((day, di) => (
-              <div key={di} className="flex-1 border-r border-[#1a1a1a] first:border-r-0">
+              <div key={di} className="flex-1 border-r border-[#1d2b46] first:border-r-0">
                 <DayColumn day={day} events={eventsForDay(day)} onEventClick={onEventClick} />
               </div>
             ))}
           </div>
         </div>
         {/* Fade at bottom signals scrollable content */}
-        <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[#080808] to-transparent pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[#0a1120] to-transparent pointer-events-none" />
       </div>
     </div>
   )

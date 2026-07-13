@@ -80,15 +80,15 @@ const SummaryCard = memo(function SummaryCard({
     <div className="card flex flex-col gap-1">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-lg">{icon}</span>
-        <span className="text-xs text-[#666] font-medium">{label}</span>
+        <span className="text-xs text-[#647399] font-medium">{label}</span>
       </div>
       <div
         className="text-2xl font-bold tracking-tight"
-        style={{ color: color ?? '#f0ede6' }}
+        style={{ color: color ?? '#eef3fb' }}
       >
         {value}
       </div>
-      {sub && <div className="text-xs text-[#555]">{sub}</div>}
+      {sub && <div className="text-xs text-[#5a688c]">{sub}</div>}
     </div>
   )
 })
@@ -330,7 +330,7 @@ function EntryForm({
 
   const aiBadge = (field: string) =>
     ocrFields.has(field) ? (
-      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e8c54722] text-[#e8c547] mr-1">
+      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#2dd4bf22] text-[#2dd4bf] mr-1">
         AI
       </span>
     ) : null
@@ -354,18 +354,18 @@ function EntryForm({
         {!isEdit && (
           <div className="mb-5">
             <div
-              className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors hover:border-[#e8c547]"
-              style={{ borderColor: ocrLoading ? '#e8c547' : '#2a2a2a' }}
+              className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors hover:border-[#2dd4bf]"
+              style={{ borderColor: ocrLoading ? '#2dd4bf' : '#2f4368' }}
               onClick={() => fileRef.current?.click()}
             >
               {ocrLoading ? (
-                <div className="text-sm text-[#e8c547]">
+                <div className="text-sm text-[#2dd4bf]">
                   מנתח חשבונית...
                 </div>
               ) : (
                 <>
                   <div className="text-2xl mb-1">📄</div>
-                  <div className="text-xs text-[#888]">
+                  <div className="text-xs text-[#7a89ab]">
                     העלה חשבונית (PDF / תמונה) למילוי אוטומטי
                   </div>
                 </>
@@ -520,9 +520,9 @@ function EntryForm({
                 onChange={(e) =>
                   setForm((f) => ({ ...f, isVatExempt: e.target.checked }))
                 }
-                className="w-4 h-4 accent-[#e8c547]"
+                className="w-4 h-4 accent-[#2dd4bf]"
               />
-              <span className="text-sm text-[#888]">
+              <span className="text-sm text-[#7a89ab]">
                 {aiBadge('isVatExempt')}
                 פטור ממע״מ (ארנונה, ועד בית, ביטוח לאומי וכו׳)
               </span>
@@ -549,16 +549,16 @@ function EntryForm({
             <div
               className="rounded-lg p-3 text-xs flex flex-col gap-1"
               style={{
-                background: '#1a1a1a',
-                border: '1px solid #222',
+                background: '#1d2b46',
+                border: '1px solid #29395d',
               }}
             >
-              <div className="text-[#666] font-semibold mb-1">פירוט מחושב:</div>
+              <div className="text-[#647399] font-semibold mb-1">פירוט מחושב:</div>
               {form.entryType === 'income' ? (
                 form.isVatExempt ? (
                   <div>
                     הכנסה פטורת מע״מ:{' '}
-                    <span className="text-[#47b86e] font-semibold">
+                    <span className="text-[#34d399] font-semibold">
                       {fmt(amount)}
                     </span>
                   </div>
@@ -566,7 +566,7 @@ function EntryForm({
                   <>
                     <div>
                       הכנסה כולל מע״מ:{' '}
-                      <span className="text-[#47b86e] font-semibold">
+                      <span className="text-[#34d399] font-semibold">
                         {fmt(preview.incomeInclVat)}
                       </span>
                     </div>
@@ -575,7 +575,7 @@ function EntryForm({
                     </div>
                     <div>
                       מע״מ עסקאות:{' '}
-                      <span className="text-[#e8c547]">
+                      <span className="text-[#2dd4bf]">
                         {fmt(preview.vatFromIncome)}
                       </span>
                     </div>
@@ -584,7 +584,7 @@ function EntryForm({
               ) : form.isVatExempt ? (
                 <div>
                   הוצאה פטורת מע״מ:{' '}
-                  <span className="text-[#e8477a] font-semibold">
+                  <span className="text-[#fb7185] font-semibold">
                     {fmt(amount)}
                   </span>
                 </div>
@@ -592,7 +592,7 @@ function EntryForm({
                 <>
                   <div>
                     הוצאה מקורית: {fmt(amount)} × {fmtPct(deduction)} ={' '}
-                    <span className="text-[#e8477a] font-semibold">
+                    <span className="text-[#fb7185] font-semibold">
                       {fmt(preview.computedExpense)}
                     </span>
                   </div>
@@ -601,7 +601,7 @@ function EntryForm({
                   </div>
                   <div>
                     מע״מ תשומות:{' '}
-                    <span className="text-[#e8c547]">
+                    <span className="text-[#2dd4bf]">
                       {fmt(preview.vatFromExpenses)}
                     </span>
                   </div>
@@ -629,14 +629,14 @@ function AnnualSummaryView({ year }: { year: number }) {
   const { data, isLoading } = trpc.vat.annualSummary.useQuery({ year })
 
   if (isLoading) {
-    return <div className="text-[#555] text-sm">טוען סיכום שנתי...</div>
+    return <div className="text-[#5a688c] text-sm">טוען סיכום שנתי...</div>
   }
 
   if (!data || data.groups.length === 0) {
     return (
       <div className="card text-center py-12">
         <div className="text-4xl mb-3">📊</div>
-        <div className="text-[#555] text-sm">
+        <div className="text-[#5a688c] text-sm">
           אין נתונים לשנת {year}
         </div>
       </div>
@@ -661,13 +661,13 @@ function AnnualSummaryView({ year }: { year: number }) {
           icon="💰"
           label="סה״כ הכנסות"
           value={fmt(data.grandTotalIncomeInclVat)}
-          color="#47b86e"
+          color="#34d399"
         />
         <SummaryCard
           icon="💸"
           label="סה״כ הוצאות (שנתי)"
           value={fmt(data.grandTotalExpenseForAnnual)}
-          color="#e8477a"
+          color="#fb7185"
         />
         <SummaryCard
           icon="📈"
@@ -683,16 +683,16 @@ function AnnualSummaryView({ year }: { year: number }) {
           icon="🏦"
           label="סה״כ מע״מ לתשלום"
           value={fmt(data.grandVatToPay)}
-          color={data.grandVatToPay >= 0 ? '#e8c547' : '#47b86e'}
+          color={data.grandVatToPay >= 0 ? '#2dd4bf' : '#34d399'}
         />
       </div>
 
       {/* Groups by Tax Code */}
       {data.groups.map((group) => (
         <div key={group.taxCode} className="mb-6">
-          <h3 className="text-sm font-semibold text-[#888] mb-3 uppercase tracking-wider">
+          <h3 className="text-sm font-semibold text-[#7a89ab] mb-3 uppercase tracking-wider">
             סעיף {group.taxCode} — {taxCodeLabels[group.taxCode] ?? group.taxCode}
-            <span className="text-[#555] font-normal mr-2">
+            <span className="text-[#5a688c] font-normal mr-2">
               ({group.entries.length} רשומות)
             </span>
           </h3>
@@ -700,12 +700,12 @@ function AnnualSummaryView({ year }: { year: number }) {
           <div className="card p-0 overflow-hidden overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
-                <tr className="border-b border-[#222]">
+                <tr className="border-b border-[#29395d]">
                   {['תאריך', 'חשבונית', 'פרטים', 'הכנסה כולל מע"מ', 'הוצאה מחושבת', 'מע"מ', 'סה"כ ללא מע"מ'].map(
                     (h) => (
                       <th
                         key={h}
-                        className="text-right px-3 py-2 text-[11px] font-medium text-[#555] uppercase"
+                        className="text-right px-3 py-2 text-[11px] font-medium text-[#5a688c] uppercase"
                       >
                         {h}
                       </th>
@@ -732,28 +732,28 @@ function AnnualSummaryView({ year }: { year: number }) {
                   return (
                     <tr
                       key={entry.id}
-                      className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors"
+                      className="border-b border-[#1d2b46] hover:bg-[#1d2b46] transition-colors"
                     >
-                      <td className="px-3 py-2 text-[#666] whitespace-nowrap">
+                      <td className="px-3 py-2 text-[#647399] whitespace-nowrap">
                         {fmtDate(entry.date)}
                       </td>
-                      <td className="px-3 py-2 text-[#666]">
+                      <td className="px-3 py-2 text-[#647399]">
                         {entry.invoiceNumber ?? '—'}
                       </td>
                       <td className="px-3 py-2 max-w-[200px] truncate">
                         {entry.description}
                       </td>
-                      <td className="px-3 py-2 text-[#47b86e]">
+                      <td className="px-3 py-2 text-[#34d399]">
                         {b.incomeInclVat > 0 ? fmt(b.incomeInclVat) : '—'}
                       </td>
-                      <td className="px-3 py-2 text-[#e8477a]">
+                      <td className="px-3 py-2 text-[#fb7185]">
                         {b.computedExpense > 0
                           ? fmt(b.computedExpense)
                           : b.vatExemptExpense > 0
                           ? fmt(b.vatExemptExpense)
                           : '—'}
                       </td>
-                      <td className="px-3 py-2 text-[#e8c547]">
+                      <td className="px-3 py-2 text-[#2dd4bf]">
                         {b.vatFromIncome > 0
                           ? fmt(b.vatFromIncome)
                           : b.vatFromExpenses > 0
@@ -769,16 +769,16 @@ function AnnualSummaryView({ year }: { year: number }) {
                   )
                 })}
                 {/* Subtotal */}
-                <tr className="bg-[#1a1a1a] font-semibold">
+                <tr className="bg-[#1d2b46] font-semibold">
                   <td className="px-3 py-2" colSpan={3}>
                     סה״כ סעיף {group.taxCode}
                   </td>
-                  <td className="px-3 py-2 text-[#47b86e]">
+                  <td className="px-3 py-2 text-[#34d399]">
                     {group.totalIncomeInclVat > 0
                       ? fmt(group.totalIncomeInclVat)
                       : '—'}
                   </td>
-                  <td className="px-3 py-2 text-[#e8477a]">
+                  <td className="px-3 py-2 text-[#fb7185]">
                     {group.totalComputedExpense + group.totalVatExemptExpense >
                     0
                       ? fmt(
@@ -787,7 +787,7 @@ function AnnualSummaryView({ year }: { year: number }) {
                         )
                       : '—'}
                   </td>
-                  <td className="px-3 py-2 text-[#e8c547]">
+                  <td className="px-3 py-2 text-[#2dd4bf]">
                     {group.totalVatFromIncome + group.totalVatFromExpenses > 0
                       ? fmt(
                           group.totalVatFromIncome + group.totalVatFromExpenses
@@ -891,24 +891,24 @@ export default function VatTab() {
               key={p.index}
               className="btn btn-ghost text-xs px-3 py-1.5"
               style={{
-                color: selectedPeriod === p.index ? '#e8c547' : '#666',
+                color: selectedPeriod === p.index ? '#2dd4bf' : '#647399',
                 borderColor:
-                  selectedPeriod === p.index ? '#e8c54744' : '#2a2a2a',
+                  selectedPeriod === p.index ? '#2dd4bf44' : '#2f4368',
                 background:
-                  selectedPeriod === p.index ? '#e8c54711' : 'transparent',
+                  selectedPeriod === p.index ? '#2dd4bf11' : 'transparent',
               }}
               onClick={() => setSelectedPeriod(p.index)}
             >
               {p.label}
             </button>
           ))}
-          <div className="w-px bg-[#2a2a2a] mx-1" />
+          <div className="w-px bg-[#2f4368] mx-1" />
           <button
             className="btn btn-ghost text-xs px-3 py-1.5"
             style={{
-              color: isAnnual ? '#e8c547' : '#666',
-              borderColor: isAnnual ? '#e8c54744' : '#2a2a2a',
-              background: isAnnual ? '#e8c54711' : 'transparent',
+              color: isAnnual ? '#2dd4bf' : '#647399',
+              borderColor: isAnnual ? '#2dd4bf44' : '#2f4368',
+              background: isAnnual ? '#2dd4bf11' : 'transparent',
             }}
             onClick={() => setSelectedPeriod('annual')}
           >
@@ -934,7 +934,7 @@ export default function VatTab() {
               icon="💰"
               label="הכנסות כולל מע״מ"
               value={summaryLoading ? '...' : fmt(summary?.totalIncomeInclVat ?? 0)}
-              color="#47b86e"
+              color="#34d399"
             />
             <SummaryCard
               icon="🧾"
@@ -952,7 +952,7 @@ export default function VatTab() {
                         (summary?.totalVatExemptExpense ?? 0)
                     )
               }
-              color="#e8477a"
+              color="#fb7185"
             />
             <SummaryCard
               icon="📊"
@@ -971,21 +971,21 @@ export default function VatTab() {
               label="מע״מ לתשלום"
               value={summaryLoading ? '...' : fmt(summary?.vatToPay ?? 0)}
               color={
-                (summary?.vatToPay ?? 0) >= 0 ? '#e8c547' : '#47b86e'
+                (summary?.vatToPay ?? 0) >= 0 ? '#2dd4bf' : '#34d399'
               }
             />
           </div>
 
           {/* Entries Table */}
           {entriesLoading ? (
-            <div className="text-[#555] text-sm">טוען...</div>
+            <div className="text-[#5a688c] text-sm">טוען...</div>
           ) : entries.length === 0 ? (
             <div className="card text-center py-12">
               <div className="text-4xl mb-3">📋</div>
-              <div className="text-[#555] text-sm">
+              <div className="text-[#5a688c] text-sm">
                 אין רשומות לתקופה זו
               </div>
-              <div className="text-xs text-[#444] mt-1">
+              <div className="text-xs text-[#4d659c] mt-1">
                 לחץ "הוסף רשומה" כדי להתחיל
               </div>
             </div>
@@ -993,7 +993,7 @@ export default function VatTab() {
             <div className="card p-0 overflow-hidden overflow-x-auto">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-[#222]">
+                  <tr className="border-b border-[#29395d]">
                     {[
                       '#',
                       'קטגוריה',
@@ -1008,7 +1008,7 @@ export default function VatTab() {
                     ].map((h) => (
                       <th
                         key={h}
-                        className="text-right px-3 py-2 text-[11px] font-medium text-[#555] uppercase"
+                        className="text-right px-3 py-2 text-[11px] font-medium text-[#5a688c] uppercase"
                       >
                         {h}
                       </th>
@@ -1037,34 +1037,34 @@ export default function VatTab() {
                     return (
                       <tr
                         key={entry.id}
-                        className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors group"
+                        className="border-b border-[#1d2b46] hover:bg-[#1d2b46] transition-colors group"
                         style={{
                           background: isIncome
                             ? 'rgba(71,184,110,0.04)'
                             : undefined,
                         }}
                       >
-                        <td className="px-3 py-2 text-[#555]">{idx + 1}</td>
+                        <td className="px-3 py-2 text-[#5a688c]">{idx + 1}</td>
                         <td className="px-3 py-2">
                           <span className="pill text-xs">
                             {entry.category}
                           </span>
                           {exempt && (
-                            <span className="pill text-[10px] mr-1 text-[#e8c547] border-[#e8c54744]">
+                            <span className="pill text-[10px] mr-1 text-[#2dd4bf] border-[#2dd4bf44]">
                               פטור
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-[#666] whitespace-nowrap">
+                        <td className="px-3 py-2 text-[#647399] whitespace-nowrap">
                           {fmtDate(entry.date)}
                         </td>
-                        <td className="px-3 py-2 text-[#666]">
+                        <td className="px-3 py-2 text-[#647399]">
                           {entry.invoiceNumber ?? '—'}
                         </td>
                         <td className="px-3 py-2 max-w-[180px] truncate">
                           {entry.description}
                         </td>
-                        <td className="px-3 py-2 text-[#47b86e]">
+                        <td className="px-3 py-2 text-[#34d399]">
                           {isIncome
                             ? fmt(
                                 b.incomeInclVat > 0
@@ -1073,13 +1073,13 @@ export default function VatTab() {
                               )
                             : '—'}
                         </td>
-                        <td className="px-3 py-2 text-[#e8477a]">
+                        <td className="px-3 py-2 text-[#fb7185]">
                           {!isIncome ? fmt(amt) : '—'}
                         </td>
-                        <td className="px-3 py-2 text-[#888]">
+                        <td className="px-3 py-2 text-[#7a89ab]">
                           {!isIncome && !exempt ? fmtPct(ded) : '—'}
                         </td>
-                        <td className="px-3 py-2 text-[#e8c547]">
+                        <td className="px-3 py-2 text-[#2dd4bf]">
                           {b.vatFromIncome > 0
                             ? fmt(b.vatFromIncome)
                             : b.vatFromExpenses > 0
@@ -1100,7 +1100,7 @@ export default function VatTab() {
                               ערוך
                             </button>
                             <button
-                              className="btn btn-ghost text-[11px] py-1 px-2 text-[#e8477a] border-[#e8477a22]"
+                              className="btn btn-ghost text-[11px] py-1 px-2 text-[#fb7185] border-[#fb718522]"
                               onClick={() =>
                                 deleteMutation.mutate({ id: entry.id })
                               }

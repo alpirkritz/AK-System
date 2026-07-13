@@ -195,9 +195,9 @@ export function MeetingModal({
                     }
                     className="cursor-pointer py-1.5 px-2.5 rounded-[20px] border text-sm transition-all"
                     style={{
-                      borderColor: selected ? p.color ?? '#e8c547' : '#2a2a2a',
-                      background: selected ? (p.color ?? '#e8c547') + '22' : 'transparent',
-                      color: selected ? p.color ?? '#e8c547' : '#888',
+                      borderColor: selected ? p.color ?? '#2dd4bf' : '#2f4368',
+                      background: selected ? (p.color ?? '#2dd4bf') + '22' : 'transparent',
+                      color: selected ? p.color ?? '#2dd4bf' : '#7a89ab',
                     }}
                   >
                     {p.name}

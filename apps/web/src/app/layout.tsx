@@ -22,7 +22,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#0f0f0f',
+  themeColor: '#0e1626',
 }
 
 export const metadata: Metadata = {
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl" className={`dark ${heebo.variable}`}>
-      <body className="min-h-screen bg-[#0f0f0f] text-[#f0ede6]">
+      <body className="min-h-screen bg-[#0e1626] text-[#eef3fb]">
         <SessionProvider>
           <TRPCProvider>
             <DashboardLayout>{children}</DashboardLayout>

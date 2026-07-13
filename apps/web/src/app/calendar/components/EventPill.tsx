@@ -23,7 +23,7 @@ export default function EventPill({ ev, onClick, showTime = false }: EventPillPr
       className="w-full text-right text-[10px] px-1.5 py-[3px] rounded-[4px] truncate
         text-[#d4d4d4] transition-all duration-150 cursor-pointer
         hover:brightness-125 hover:text-white
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
         active:scale-[0.97]"
       style={{
         background: s.bg,

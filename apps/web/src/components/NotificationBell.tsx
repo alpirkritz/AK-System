@@ -14,7 +14,7 @@ export function NotificationBell() {
   return (
     <Link
       href="/notifications"
-      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg border border-[#2a2a2a] bg-[#161616] text-[#e8c547] hover:bg-[#1f1f1f] transition-colors"
+      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg border border-[#2f4368] bg-[#16233b] text-[#2dd4bf] hover:bg-[#223052] transition-colors"
       aria-label={count > 0 ? `${count} התראות שלא נקראו` : 'התראות'}
       data-testid="notification-bell"
       onMouseEnter={() => refetch()}

@@ -38,8 +38,8 @@ function Toggle({
       onClick={() => onChange(!checked)}
       className="relative inline-flex h-[22px] w-10 shrink-0 rounded-full transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
       style={{
-        background: checked ? '#e8c547' : '#2a2a2a',
-        border: `1px solid ${checked ? '#e8c54766' : '#333'}`,
+        background: checked ? '#2dd4bf' : '#2f4368',
+        border: `1px solid ${checked ? '#2dd4bf66' : '#3a507d'}`,
       }}
     >
       <span
@@ -55,14 +55,14 @@ function StatusPill({ label, ok }: { label: string; ok: boolean }) {
     <div
       className="flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px]"
       style={{
-        background: ok ? '#47b86e18' : '#1a1a1a',
-        border: `1px solid ${ok ? '#47b86e44' : '#2a2a2a'}`,
-        color: ok ? '#47b86e' : '#666',
+        background: ok ? '#34d39918' : '#1d2b46',
+        border: `1px solid ${ok ? '#34d39944' : '#2f4368'}`,
+        color: ok ? '#34d399' : '#647399',
       }}
     >
       <span
         className="w-2 h-2 rounded-full"
-        style={{ background: ok ? '#47b86e' : '#555' }}
+        style={{ background: ok ? '#34d399' : '#5a688c' }}
       />
       {label} — {ok ? 'מחובר' : 'לא מחובר'}
     </div>
@@ -157,24 +157,24 @@ export default function NotificationSettingsPage() {
   return (
     <div className="max-w-3xl mx-auto pb-16" data-testid="notification-prefs">
       <div className="mb-6">
-        <Link href="/settings" className="text-xs text-[#555] hover:text-[#888]">
+        <Link href="/settings" className="text-xs text-[#5a688c] hover:text-[#7a89ab]">
           ← חזרה להגדרות
         </Link>
         <h1 className="text-xl font-bold mt-2">התראות וערוצים</h1>
-        <p className="text-xs text-[#555] mt-1">
+        <p className="text-xs text-[#5a688c] mt-1">
           כל סוגי ההתראות במקום אחד — הפעלה או כיבוי לכל ערוץ, ושעות לתדריכים היומיים.
         </p>
       </div>
 
       {message && (
-        <div className="card p-3 mb-4 text-[13px] text-[#e8c547]" role="status">
+        <div className="card p-3 mb-4 text-[13px] text-[#2dd4bf]" role="status">
           {message}
         </div>
       )}
 
       {/* Channel status */}
       <div className="mb-6">
-        <div className="text-[11px] text-[#555] uppercase tracking-wider mb-2">מצב ערוצים</div>
+        <div className="text-[11px] text-[#5a688c] uppercase tracking-wider mb-2">מצב ערוצים</div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label="WhatsApp" ok={!!channels?.whatsapp} />
           <StatusPill label="Telegram" ok={!!channels?.telegram} />
@@ -188,21 +188,21 @@ export default function NotificationSettingsPage() {
           />
         </div>
         {permission !== 'granted' && (
-          <p className="text-[11px] text-[#555] mt-2">
+          <p className="text-[11px] text-[#5a688c] mt-2">
             כדי לקבל פוש PWA במכשיר הזה, הפעל נוטיפיקציות ב{' '}
-            <Link href="/settings" className="text-[#e8c547] hover:underline">
+            <Link href="/settings" className="text-[#2dd4bf] hover:underline">
               הגדרות
             </Link>
             .
           </p>
         )}
         {(channels?.webPushDevices ?? 0) === 0 && channels?.push && permission === 'granted' && (
-          <p className="text-[11px] text-[#555] mt-2">
+          <p className="text-[11px] text-[#5a688c] mt-2">
             VAPID מוגדר בשרת אבל המכשיר הזה עדיין לא רשום — לחץ &quot;הפעל נוטיפיקציות&quot; בהגדרות.
           </p>
         )}
         {(channels?.expoPushDevices ?? 0) === 0 && (
-          <p className="text-[11px] text-[#555] mt-2">
+          <p className="text-[11px] text-[#5a688c] mt-2">
             אין מכשיר Helm רשום — פתח את אפליקציית Helm → הגדרות → הפעל התראות Push.
           </p>
         )}
@@ -219,9 +219,9 @@ export default function NotificationSettingsPage() {
           {grouped.map((group) => (
             <div key={group.cat}>
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold text-[#ddd]">{group.title}</div>
+                <div className="text-sm font-semibold text-[#cdd7ea]">{group.title}</div>
                 {group.cat === 'agent' && (
-                  <Link href="/agents" className="text-[12px] text-[#e8c547] hover:underline">
+                  <Link href="/agents" className="text-[12px] text-[#2dd4bf] hover:underline">
                     ערוך שעות סוכנים ←
                   </Link>
                 )}
@@ -244,13 +244,13 @@ export default function NotificationSettingsPage() {
                     <div key={item.id} className="card p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
-                          <div className="text-[14px] text-[#ddd] flex items-center gap-2">
+                          <div className="text-[14px] text-[#cdd7ea] flex items-center gap-2">
                             {item.label}
                             {saving && (
-                              <span className="text-[10px] text-[#555]">שומר…</span>
+                              <span className="text-[10px] text-[#5a688c]">שומר…</span>
                             )}
                           </div>
-                          <div className="text-[12px] text-[#666] mt-0.5">
+                          <div className="text-[12px] text-[#647399] mt-0.5">
                             {item.description}
                           </div>
                         </div>
@@ -261,7 +261,7 @@ export default function NotificationSettingsPage() {
                       </div>
 
                       {item.enabled && (
-                        <div className="mt-3 pt-3 border-t border-[#1a1a1a] flex flex-wrap items-center gap-x-5 gap-y-2">
+                        <div className="mt-3 pt-3 border-t border-[#1d2b46] flex flex-wrap items-center gap-x-5 gap-y-2">
                           {(['whatsapp', 'push', 'telegram'] as Channel[])
                             .filter((ch) => item.availableChannels.includes(ch))
                             .map((ch) => {
@@ -269,7 +269,7 @@ export default function NotificationSettingsPage() {
                               return (
                                 <label
                                   key={ch}
-                                  className="flex items-center gap-2 text-[12px] text-[#999]"
+                                  className="flex items-center gap-2 text-[12px] text-[#8593b3]"
                                   title={connected ? undefined : `${CHANNEL_LABELS[ch]} לא מחובר`}
                                 >
                                   <Toggle
@@ -283,7 +283,7 @@ export default function NotificationSettingsPage() {
                             })}
 
                           {item.schedulable && (
-                            <div className="flex items-center gap-2 text-[12px] text-[#999]">
+                            <div className="flex items-center gap-2 text-[12px] text-[#8593b3]">
                               <span>שעה</span>
                               <input
                                 className="input text-[12px] py-1 px-2 w-24 text-center"
@@ -304,8 +304,8 @@ export default function NotificationSettingsPage() {
                       )}
 
                       {item.enabled && item.routable && (
-                        <div className="mt-3 pt-3 border-t border-[#1a1a1a] flex flex-col gap-2">
-                          <label className="flex items-center gap-2 text-[12px] text-[#999]">
+                        <div className="mt-3 pt-3 border-t border-[#1d2b46] flex flex-col gap-2">
+                          <label className="flex items-center gap-2 text-[12px] text-[#8593b3]">
                             <span className="w-20 shrink-0">סוכן מטפל</span>
                             <select
                               className="input text-[12px] py-1 px-2 flex-1"
@@ -326,7 +326,7 @@ export default function NotificationSettingsPage() {
                             </select>
                           </label>
                           {item.agentId && (
-                            <label className="flex items-start gap-2 text-[12px] text-[#999]">
+                            <label className="flex items-start gap-2 text-[12px] text-[#8593b3]">
                               <span className="w-20 shrink-0 pt-1.5">הוראות</span>
                               <textarea
                                 className="input text-[12px] py-1 px-2 flex-1 min-h-[52px]"
@@ -347,8 +347,8 @@ export default function NotificationSettingsPage() {
                       )}
 
                       {group.cat === 'agent' && (
-                        <div className="mt-3 pt-3 border-t border-[#1a1a1a]">
-                          <div className="text-[11px] text-[#555] mb-1.5">
+                        <div className="mt-3 pt-3 border-t border-[#1d2b46]">
+                          <div className="text-[11px] text-[#5a688c] mb-1.5">
                             סוכנים מתוזמנים ({(triggers?.agents ?? []).filter((a) => a.enabled).length} פעילים)
                           </div>
                           <div className="flex flex-col gap-1">
@@ -361,8 +361,8 @@ export default function NotificationSettingsPage() {
                                     key={a.agentId}
                                     className="flex items-center justify-between text-[12px]"
                                   >
-                                    <span className="text-[#999]">{a.name}</span>
-                                    <span className="text-[#555]">
+                                    <span className="text-[#8593b3]">{a.name}</span>
+                                    <span className="text-[#5a688c]">
                                       {cfg?.enabled
                                         ? (cfg.scheduleTimes.join(', ') || '—')
                                         : 'כבוי'}

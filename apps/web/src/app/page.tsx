@@ -13,6 +13,14 @@ function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
 }
 
+function greeting(hour: number): string {
+  if (hour < 5) return 'לילה טוב'
+  if (hour < 12) return 'בוקר טוב'
+  if (hour < 17) return 'צהריים טובים'
+  if (hour < 21) return 'ערב טוב'
+  return 'לילה טוב'
+}
+
 function isPastMeeting(date: string, time: string, tz: string): boolean {
   const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
   const meetingStr = `${date} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
@@ -120,8 +128,11 @@ export default function DashboardPage() {
     <div className="space-y-8">
       {/* ── Header ──────────────────────────────────────────────── */}
       <header>
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-[#f0ede6]">דשבורד</h1>
-        <p className="text-sm text-[#888] mt-1">
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-[#eef3fb]">
+          {greeting(new Date().getHours())}
+          <span className="text-[#2dd4bf]"> 👋</span>
+        </h1>
+        <p className="text-sm text-[#7a89ab] mt-1">
           {new Date().toLocaleDateString('he-IL', {
             weekday: 'long',
             day: 'numeric',
@@ -138,7 +149,7 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between mb-2">
               <div
                 className="text-2xl font-bold"
-                style={{ color: '#e8c547' }}
+                style={{ color: '#2dd4bf' }}
               >
                 {calMeetingCount}
               </div>
@@ -155,29 +166,31 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="text-sm font-semibold text-[#f0ede6]">פגישות ביומן</div>
-            <div className="text-xs text-[#777] mt-0.5">
+            <div className="text-sm font-semibold text-[#eef3fb]">אירועים ביומן</div>
+            <div className="text-xs text-[#6f7ea0] mt-0.5">
               {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
             </div>
           </div>
 
           {/* Open tasks KPI */}
           <div className="card">
-            <div className="text-2xl font-bold" style={{ color: '#e8477a' }}>
+            <div className="text-2xl font-bold" style={{ color: '#fb7185' }}>
               {openTasks.length}
             </div>
-            <div className="text-sm font-semibold text-[#f0ede6] mt-2">משימות פתוחות</div>
-            <div className="text-xs text-[#777] mt-0.5">ממתינות לביצוע</div>
+            <div className="text-sm font-semibold text-[#eef3fb] mt-2">משימות פתוחות</div>
+            <div className="text-xs text-[#6f7ea0] mt-0.5">ממתינות לביצוע</div>
           </div>
 
-          {/* Recurring meetings KPI */}
-          <div className="card">
-            <div className="text-2xl font-bold" style={{ color: '#47b8e8' }}>
-              {recurringMeetings.length}
+          {/* Upcoming CRM meetings KPI */}
+          <Link href="/meetings" className="card card-interactive no-underline block">
+            <div className="text-2xl font-bold" style={{ color: '#38bdf8' }}>
+              {futureMeetings.length}
             </div>
-            <div className="text-sm font-semibold text-[#f0ede6] mt-2">חוזרות</div>
-            <div className="text-xs text-[#777] mt-0.5">פגישות שבועיות</div>
-          </div>
+            <div className="text-sm font-semibold text-[#eef3fb] mt-2">פגישות קרובות</div>
+            <div className="text-xs text-[#6f7ea0] mt-0.5">
+              {recurringMeetings.length > 0 ? `כולל ${recurringMeetings.length} חוזרות` : 'ניהול פגישות'}
+            </div>
+          </Link>
         </div>
       </section>
 
@@ -217,7 +230,7 @@ export default function DashboardPage() {
         <section aria-label="פגישות קרובות">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <h2 className="text-base font-semibold text-[#f0ede6]">פגישות קרובות</h2>
+              <h2 className="text-base font-semibold text-[#eef3fb]">פגישות קרובות</h2>
               {pastCount > 0 && (
                 <button
                   onClick={() => setShowPast((v) => !v)}
@@ -235,7 +248,7 @@ export default function DashboardPage() {
           </div>
 
           {upcomingMeetings.length === 0 ? (
-            <div className="card text-sm text-[#777] py-4 px-5">
+            <div className="card text-sm text-[#6f7ea0] py-4 px-5">
               אין פגישות קרובות
             </div>
           ) : (
@@ -250,13 +263,13 @@ export default function DashboardPage() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={`font-semibold text-sm truncate ${past ? 'text-[#888]' : 'text-[#f0ede6]'}`}>
+                        <span className={`font-semibold text-sm truncate ${past ? 'text-[#7a89ab]' : 'text-[#eef3fb]'}`}>
                           {m.title}
                         </span>
                         {past && (
                           <span
                             className="text-[10px] px-1.5 py-0.5 rounded shrink-0 font-medium"
-                            style={{ background: '#ffffff12', color: '#888', border: '1px solid #3a3a3a' }}
+                            style={{ background: '#ffffff12', color: '#7a89ab', border: '1px solid #435a8c' }}
                           >
                             עבר
                           </span>
@@ -268,7 +281,7 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <div className="flex gap-3 mt-1.5 items-center">
-                        <span className="text-xs text-[#999]">
+                        <span className="text-xs text-[#8593b3]">
                           {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
                         </span>
                         <div className="flex gap-1">
@@ -279,9 +292,9 @@ export default function DashboardPage() {
                                 key={pid}
                                 className="avatar text-[10px] border-[1.5px]"
                                 style={{
-                                  background: (p.color ?? '#e8c547') + '22',
-                                  color: p.color ?? '#e8c547',
-                                  borderColor: (p.color ?? '#e8c547') + '33',
+                                  background: (p.color ?? '#2dd4bf') + '22',
+                                  color: p.color ?? '#2dd4bf',
+                                  borderColor: (p.color ?? '#2dd4bf') + '33',
                                 }}
                               >
                                 {p.name[0]}
@@ -302,7 +315,7 @@ export default function DashboardPage() {
         {/* Open Tasks */}
         <section aria-label="משימות פתוחות">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-[#f0ede6]">משימות פתוחות</h2>
+            <h2 className="text-base font-semibold text-[#eef3fb]">משימות פתוחות</h2>
             <Link href="/tasks" className="section-link">
               {SVG_ARROW_LEFT}
               הכל
@@ -311,7 +324,7 @@ export default function DashboardPage() {
 
           <div className="card py-3 px-4">
             {openTasks.length === 0 ? (
-              <div className="text-[#777] text-sm py-2">
+              <div className="text-[#6f7ea0] text-sm py-2">
                 אין משימות פתוחות
               </div>
             ) : (
@@ -335,7 +348,7 @@ export default function DashboardPage() {
                         </svg>
                       )}
                     </button>
-                    <span className="flex-1 text-sm text-[#f0ede6]">{t.title}</span>
+                    <span className="flex-1 text-sm text-[#eef3fb]">{t.title}</span>
                     {priorityLabel && (
                       <span
                         className="priority-badge"
@@ -351,9 +364,9 @@ export default function DashboardPage() {
                       <div
                         className="avatar w-[22px] h-[22px] text-[9px] border"
                         style={{
-                          background: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '22',
-                          color: getPerson(t.assigneeId)?.color ?? '#e8c547',
-                          borderColor: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '33',
+                          background: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '22',
+                          color: getPerson(t.assigneeId)?.color ?? '#2dd4bf',
+                          borderColor: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '33',
                         }}
                       >
                         {getPerson(t.assigneeId)?.name[0]}

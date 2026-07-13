@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 
-const COLORS = ['#47b8e8', '#e8c547', '#e8477a', '#47e8a8', '#b847e8']
+const COLORS = ['#38bdf8', '#2dd4bf', '#fb7185', '#47e8a8', '#b847e8']
 
 export function ProjectModal({
   open,
@@ -14,7 +14,7 @@ export function ProjectModal({
   onClose: () => void
   editingId: string | null
 }) {
-  const [form, setForm] = useState({ name: '', color: '#47b8e8' })
+  const [form, setForm] = useState({ name: '', color: '#38bdf8' })
   const [error, setError] = useState<string | null>(null)
   const { data: project } = trpc.projects.getById.useQuery({ id: editingId! }, { enabled: !!editingId && open })
   const utils = trpc.useUtils()
@@ -31,9 +31,9 @@ export function ProjectModal({
     if (!open) return
     setError(null)
     if (editingId && project) {
-      setForm({ name: project.name, color: project.color ?? '#47b8e8' })
+      setForm({ name: project.name, color: project.color ?? '#38bdf8' })
     } else {
-      setForm({ name: '', color: '#47b8e8' })
+      setForm({ name: '', color: '#38bdf8' })
     }
   }, [open, editingId, project])
 

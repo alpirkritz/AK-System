@@ -32,7 +32,7 @@ export default function MeetingDetailPage() {
   const project = mx?.projectId ? projects.find((p) => p.id === mx.projectId) : null
 
   const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
-  const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#888' }
+  const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
 
   function formatDuration(start: string, end: string): string {
     const diffMs = new Date(end).getTime() - new Date(start).getTime()
@@ -97,7 +97,7 @@ export default function MeetingDetailPage() {
   const tasks = tasksList.filter((t) => t.meetingId === id)
 
   if (isLoading || !meeting) {
-    return <div className="text-[#888]">טוען...</div>
+    return <div className="text-[#7a89ab]">טוען...</div>
   }
 
   const peopleIds = mx?.peopleIds ?? []
@@ -201,7 +201,7 @@ export default function MeetingDetailPage() {
           {moreOpen && (
             <div
               className="absolute right-0 top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl"
-              style={{ minWidth: 180, background: '#141414', border: '1px solid #222' }}
+              style={{ minWidth: 180, background: '#141f36', border: '1px solid #29395d' }}
             >
               <button
                 className="flex items-center gap-2 w-full px-3.5 py-2.5 text-sm text-right hover:bg-[#1e1e1e] transition-colors"
@@ -237,9 +237,9 @@ export default function MeetingDetailPage() {
           <span
             className="text-[11px] px-2 py-0.5 rounded-full"
             style={{
-              background: (SOURCE_COLOR[mx.calendarSource] ?? '#888') + '22',
-              color: SOURCE_COLOR[mx.calendarSource] ?? '#888',
-              border: `1px solid ${(SOURCE_COLOR[mx.calendarSource] ?? '#888')}33`,
+              background: (SOURCE_COLOR[mx.calendarSource] ?? '#7a89ab') + '22',
+              color: SOURCE_COLOR[mx.calendarSource] ?? '#7a89ab',
+              border: `1px solid ${(SOURCE_COLOR[mx.calendarSource] ?? '#7a89ab')}33`,
             }}
           >
             {SOURCE_LABEL[mx.calendarSource] ?? mx.calendarSource}
@@ -248,15 +248,15 @@ export default function MeetingDetailPage() {
       </div>
 
       {/* ── Metadata row ───────────────────────────────────────────────────── */}
-      <div className="text-[#666] text-sm mb-7 flex items-center gap-3 flex-wrap">
+      <div className="text-[#647399] text-sm mb-7 flex items-center gap-3 flex-wrap">
         📅 {new Date(meeting.date + 'T00:00:00').toLocaleDateString('he-IL')} · {meeting.time}
         {mx.endTime && (
-          <span className="text-[#555]">
+          <span className="text-[#5a688c]">
             · {formatDuration(`${meeting.date}T${meeting.time}`, mx.endTime)}
           </span>
         )}
         {mx.location && (
-          <span className="flex items-center gap-1 text-[#555]">📍 {mx.location}</span>
+          <span className="flex items-center gap-1 text-[#5a688c]">📍 {mx.location}</span>
         )}
 
         {/* Project pill — or actionable CTA when missing */}
@@ -266,7 +266,7 @@ export default function MeetingDetailPage() {
           </Link>
         ) : (
           <button
-            className="text-[11px] text-[#3a3a3a] hover:text-[#777] transition-colors border border-dashed rounded-full px-2.5 py-0.5"
+            className="text-[11px] text-[#435a8c] hover:text-[#6f7ea0] transition-colors border border-dashed rounded-full px-2.5 py-0.5"
             style={{ borderColor: '#2e2e2e' }}
             onClick={() => setMeetingModalOpen(true)}
             title="שייך לפרויקט"
@@ -282,7 +282,7 @@ export default function MeetingDetailPage() {
         {/* Left: Attendees + Notes */}
         <div>
           <div className="card">
-            <div className="text-xs font-semibold text-[#555] mb-3 uppercase tracking-wider">משתתפים</div>
+            <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">משתתפים</div>
             {peopleIds.map((pid) => {
               const p = getPerson(pid)
               return p ? (
@@ -290,16 +290,16 @@ export default function MeetingDetailPage() {
                   <div
                     className="avatar w-[34px] h-[34px] text-[13px] border-[1.5px]"
                     style={{
-                      background: (p.color ?? '#e8c547') + '22',
-                      color: p.color ?? '#e8c547',
-                      borderColor: (p.color ?? '#e8c547') + '33',
+                      background: (p.color ?? '#2dd4bf') + '22',
+                      color: p.color ?? '#2dd4bf',
+                      borderColor: (p.color ?? '#2dd4bf') + '33',
                     }}
                   >
                     {p.name[0]}
                   </div>
                   <div>
                     <div className="text-sm font-medium">{p.name}</div>
-                    <div className="text-[11px] text-[#555]">{p.role}</div>
+                    <div className="text-[11px] text-[#5a688c]">{p.role}</div>
                   </div>
                 </div>
               ) : null
@@ -309,10 +309,10 @@ export default function MeetingDetailPage() {
           {/* Notes card — inline editing */}
           <div className="card mt-4">
             <div className="flex justify-between items-center mb-2.5">
-              <div className="text-xs font-semibold text-[#555] uppercase tracking-wider">הערות</div>
+              <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">הערות</div>
               {!editingNotes && meeting.notes && (
                 <button
-                  className="text-[11px] text-[#444] hover:text-[#888] transition-colors"
+                  className="text-[11px] text-[#4d659c] hover:text-[#7a89ab] transition-colors"
                   onClick={startEditNotes}
                 >
                   ✏ ערוך
@@ -348,7 +348,7 @@ export default function MeetingDetailPage() {
               </div>
             ) : meeting.notes ? (
               <div
-                className="text-sm text-[#aaa] leading-relaxed cursor-pointer hover:text-[#ccc] transition-colors whitespace-pre-wrap"
+                className="text-sm text-[#97a4c2] leading-relaxed cursor-pointer hover:text-[#b8c4dc] transition-colors whitespace-pre-wrap"
                 onClick={startEditNotes}
                 title="לחץ לעריכה"
               >
@@ -357,7 +357,7 @@ export default function MeetingDetailPage() {
             ) : (
               /* Signifier: empty notes actively invite action */
               <button
-                className="text-sm text-[#3a3a3a] hover:text-[#666] transition-colors w-full text-right"
+                className="text-sm text-[#435a8c] hover:text-[#647399] transition-colors w-full text-right"
                 onClick={startEditNotes}
               >
                 + הוסף הערות ›
@@ -370,11 +370,11 @@ export default function MeetingDetailPage() {
         <div>
           <div className="card">
             <div className="flex justify-between items-center mb-3">
-              <div className="text-xs font-semibold text-[#555] uppercase tracking-wider">
+              <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">
                 פעולות שהוחלטו ({tasks.length})
               </div>
               <button
-                className="text-[11px] text-[#444] hover:text-[#888] transition-colors"
+                className="text-[11px] text-[#4d659c] hover:text-[#7a89ab] transition-colors"
                 onClick={() => {
                   setEditingTaskId(null)
                   setTaskModalOpen(true)
@@ -387,8 +387,8 @@ export default function MeetingDetailPage() {
             {/* Empty state — signifier: invite task creation */}
             {tasks.length === 0 && (
               <button
-                className="w-full text-sm text-[#3a3a3a] hover:text-[#666] transition-colors text-right py-2.5 mb-3 border border-dashed rounded-lg px-3"
-                style={{ borderColor: '#222' }}
+                className="w-full text-sm text-[#435a8c] hover:text-[#647399] transition-colors text-right py-2.5 mb-3 border border-dashed rounded-lg px-3"
+                style={{ borderColor: '#29395d' }}
 onClick={() => {
                   setEditingTaskId(null)
                   setTaskModalOpen(true)
@@ -411,7 +411,7 @@ onClick={() => {
                   className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                   style={{
                     textDecoration: t.done ? 'line-through' : 'none',
-                    color: t.done ? '#555' : '#f0ede6',
+                    color: t.done ? '#5a688c' : '#eef3fb',
                   }}
                   onClick={() => {
                     setEditingTaskId(t.id)
@@ -421,7 +421,7 @@ onClick={() => {
                 >
                   {t.title}
                   {(t as { dueDate?: string }).dueDate && (
-                    <span className="text-[11px] text-[#666] mr-2">
+                    <span className="text-[11px] text-[#647399] mr-2">
                       · {new Date((t as { dueDate: string }).dueDate).toLocaleDateString('he-IL')}
                     </span>
                   )}
@@ -434,9 +434,9 @@ onClick={() => {
                   <div
                     className="avatar w-[22px] h-[22px] text-[9px] border"
                     style={{
-                      background: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '22',
-                      color: getPerson(t.assigneeId)?.color ?? '#e8c547',
-                      borderColor: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '33',
+                      background: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '22',
+                      color: getPerson(t.assigneeId)?.color ?? '#2dd4bf',
+                      borderColor: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '33',
                     }}
                   >
                     {getPerson(t.assigneeId)?.name[0]}
@@ -446,7 +446,7 @@ onClick={() => {
             ))}
 
             {/* Quick task add — batch affordance, always visible */}
-            <div className="flex gap-2 mt-3 pt-3 border-t border-[#1a1a1a]">
+            <div className="flex gap-2 mt-3 pt-3 border-t border-[#1d2b46]">
               <input
                 className="input flex-1 text-sm py-1.5"
                 placeholder="+ הוסף פעולה מהירה…"

@@ -58,7 +58,7 @@ function isGoogleEvent(ev: CalEvent) {
 }
 
 function calColor(ev: CalEvent): string {
-  return ev.calendarColor || '#888'
+  return ev.calendarColor || '#7a89ab'
 }
 
 function isoDateStr(d: Date) {
@@ -103,18 +103,18 @@ const ConflictCard = memo(function ConflictCard({
 
   return (
     <div
-      className="rounded-xl border border-[#2a1a1a] mb-3"
+      className="rounded-xl border border-[#34203a] mb-3"
       style={{ background: 'rgba(232,71,74,0.04)' }}
       role="alert"
     >
       <div
-        className="flex items-center gap-2 px-4 py-2 rounded-t-xl border-b border-[#2a1a1a]"
+        className="flex items-center gap-2 px-4 py-2 rounded-t-xl border-b border-[#34203a]"
         style={{ background: 'rgba(232,71,74,0.07)' }}
       >
         <span className="text-[11px] font-semibold text-[#e8474a]">
           חפיפה · {mins} דק׳
         </span>
-        <span className="text-[11px] text-[#666]">
+        <span className="text-[11px] text-[#647399]">
           {fmtDate(overlapStart)} {fmtTime(overlapStart)}–{fmtTime(overlapEnd)}
         </span>
       </div>
@@ -131,9 +131,9 @@ const ConflictCard = memo(function ConflictCard({
               style={{ background: calColor(ev) }}
             />
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-[#ddd] truncate">{ev.title}</div>
+              <div className="text-sm font-medium text-[#cdd7ea] truncate">{ev.title}</div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[11px] text-[#666]">
+                <span className="text-[11px] text-[#647399]">
                   {fmtTime(ev.start)}–{fmtTime(ev.end)}
                 </span>
                 {ev.calendarName && (
@@ -277,7 +277,7 @@ export function ConflictsWidget() {
   return (
     <section aria-label="התנגשויות ביומן">
       <div className="flex items-center gap-3 mb-3">
-        <h2 className="text-base font-semibold text-[#f0ede6]">
+        <h2 className="text-base font-semibold text-[#eef3fb]">
           התנגשויות ביומן
         </h2>
         {count > 0 && (
@@ -292,7 +292,7 @@ export function ConflictsWidget() {
         <button
           type="button"
           onClick={() => setExpandedWeek((v) => !v)}
-          className="text-xs text-[#666] hover:text-[#999] transition-colors py-1 px-2 rounded"
+          className="text-xs text-[#647399] hover:text-[#8593b3] transition-colors py-1 px-2 rounded"
           aria-expanded={expandedWeek}
           aria-label={expandedWeek ? 'צמצם להיום ומחר' : 'הרחב להמשך השבוע'}
         >
@@ -300,7 +300,7 @@ export function ConflictsWidget() {
         </button>
         <Link
           href="/settings"
-          className="text-[#444] hover:text-[#888] transition-colors p-1.5 rounded-lg"
+          className="text-[#4d659c] hover:text-[#7a89ab] transition-colors p-1.5 rounded-lg"
           aria-label="הגדרות התנגשויות"
         >
           {SVG_SETTINGS}
@@ -308,8 +308,8 @@ export function ConflictsWidget() {
       </div>
 
       {count === 0 && (
-        <div className="card py-3 px-4 text-sm text-[#555] flex items-center gap-2">
-          <span className="text-[#47b86e] text-base">✓</span>
+        <div className="card py-3 px-4 text-sm text-[#5a688c] flex items-center gap-2">
+          <span className="text-[#34d399] text-base">✓</span>
           אין התנגשויות {effectiveDays === 2 ? 'היום ומחר' : `ב-${effectiveDays} הימים הקרובים`}
         </div>
       )}

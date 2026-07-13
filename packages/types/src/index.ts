@@ -1,7 +1,7 @@
 export const PRIORITY_COLORS = {
-  high: '#e8477a',
-  medium: '#e8c547',
-  low: '#47b8e8',
+  high: '#fb7185',
+  medium: '#2dd4bf',
+  low: '#38bdf8',
 } as const
 
 export const PRIORITY_LABELS = {

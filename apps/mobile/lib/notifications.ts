@@ -27,7 +27,7 @@ export async function getExpoPushToken(): Promise<string | null> {
       name: 'Helm',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#e8c547',
+      lightColor: '#2dd4bf',
     })
   }
 

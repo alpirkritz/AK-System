@@ -28,9 +28,9 @@ export default function MonthView({ events, month, year, onEventClick, onDayClic
   return (
     <div className="flex flex-col h-full overflow-auto">
       {/* Day-of-week header */}
-      <div className="grid grid-cols-7 border-b border-[#1a1a1a] shrink-0 bg-[#080808]">
+      <div className="grid grid-cols-7 border-b border-[#1d2b46] shrink-0 bg-[#0a1120]">
         {HE_DAYS.map((d) => (
-          <div key={d} className="text-center text-[11px] text-[#555] font-medium py-2.5 uppercase tracking-wide">
+          <div key={d} className="text-center text-[11px] text-[#5a688c] font-medium py-2.5 uppercase tracking-wide">
             {d}
           </div>
         ))}
@@ -52,12 +52,12 @@ export default function MonthView({ events, month, year, onEventClick, onDayClic
                   ? `${fmtFullDate(day.toISOString())} — ${dayEvents.length > 0 ? `${dayEvents.length} אירועים` : 'אין אירועים'}`
                   : undefined
               }
-              className={`min-h-[60px] md:min-h-[100px] border-b border-l border-[#141414] p-1 md:p-1.5 transition-colors
+              className={`min-h-[60px] md:min-h-[100px] border-b border-l border-[#141f36] p-1 md:p-1.5 transition-colors
                 ${!day
                   ? 'bg-[#060606]'
                   : today
-                    ? 'bg-[#e8c547]/[0.025] hover:bg-[#e8c547]/[0.045] cursor-pointer'
-                    : 'bg-[#080808] hover:bg-[#0e0e0e] cursor-pointer'
+                    ? 'bg-[#2dd4bf]/[0.025] hover:bg-[#2dd4bf]/[0.045] cursor-pointer'
+                    : 'bg-[#0a1120] hover:bg-[#0c1424] cursor-pointer'
                 }`}
             >
               {day && (
@@ -65,7 +65,7 @@ export default function MonthView({ events, month, year, onEventClick, onDayClic
                   <div
                     className={`text-[13px] w-7 h-7 flex items-center justify-center rounded-full mb-1
                       transition-colors
-                      ${today ? 'bg-[#e8c547] text-black font-bold' : 'text-[#666] font-medium'}`}
+                      ${today ? 'bg-[#2dd4bf] text-black font-bold' : 'text-[#647399] font-medium'}`}
                   >
                     {day.getDate()}
                   </div>
@@ -79,9 +79,9 @@ export default function MonthView({ events, month, year, onEventClick, onDayClic
                           e.stopPropagation()
                           onDayClick(day)
                         }}
-                        className="w-full text-[9px] text-[#444] hover:text-[#999] px-1.5 py-0.5
-                          transition-colors cursor-pointer rounded hover:bg-[#141414]
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60"
+                        className="w-full text-[9px] text-[#4d659c] hover:text-[#8593b3] px-1.5 py-0.5
+                          transition-colors cursor-pointer rounded hover:bg-[#141f36]
+                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60"
                       >
                         +{overflow} נוספים
                       </button>

@@ -32,15 +32,15 @@ export default function CalendarHeader({
   onSyncNow,
 }: CalendarHeaderProps) {
   return (
-    <div className="border-b border-[#1a1a1a] bg-[#080808] shrink-0">
+    <div className="border-b border-[#1d2b46] bg-[#0a1120] shrink-0">
       {/* Row 1: title, view switcher, nav, date */}
       <div className="flex flex-wrap items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-2.5">
-        <h1 className="text-base font-semibold tracking-tight text-[#f0ede6]">יומן</h1>
+        <h1 className="text-base font-semibold tracking-tight text-[#eef3fb]">יומן</h1>
 
-        <div className="hidden md:block w-px h-5 bg-[#1a1a1a] mx-0.5" />
+        <div className="hidden md:block w-px h-5 bg-[#1d2b46] mx-0.5" />
 
         {/* View switcher */}
-        <div className="flex rounded-lg overflow-hidden border border-[#222]" role="group" aria-label="בחירת תצוגה">
+        <div className="flex rounded-lg overflow-hidden border border-[#29395d]" role="group" aria-label="בחירת תצוגה">
           {(['day', 'week', 'month'] as View[]).map((v) => (
             <button
               key={v}
@@ -48,12 +48,12 @@ export default function CalendarHeader({
               aria-pressed={view === v}
               title={`${VIEW_LABELS[v]} (${v.charAt(0).toUpperCase()})`}
               className={`px-3 py-1.5 text-xs font-medium transition-all duration-150
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
                 focus-visible:ring-inset focus-visible:z-10
                 active:scale-[0.97]
                 ${view === v
-                  ? 'bg-[#e8c547]/10 text-[#e8c547] border-x border-[#e8c547]/25'
-                  : 'text-[#555] hover:text-[#ccc] hover:bg-[#141414]'
+                  ? 'bg-[#2dd4bf]/10 text-[#2dd4bf] border-x border-[#2dd4bf]/25'
+                  : 'text-[#5a688c] hover:text-[#b8c4dc] hover:bg-[#141f36]'
                 }`}
             >
               {VIEW_LABELS[v]}
@@ -61,16 +61,16 @@ export default function CalendarHeader({
           ))}
         </div>
 
-        <div className="hidden md:block w-px h-5 bg-[#1a1a1a] mx-0.5" />
+        <div className="hidden md:block w-px h-5 bg-[#1d2b46] mx-0.5" />
 
         {/* Today button */}
         <button
           onClick={onToday}
           title="חזור להיום (T)"
-          className="text-xs px-3 py-1.5 rounded-lg border border-[#2a2a2a] text-[#777]
-            hover:text-[#e8c547] hover:border-[#e8c547]/40 hover:bg-[#e8c547]/5
+          className="text-xs px-3 py-1.5 rounded-lg border border-[#2f4368] text-[#6f7ea0]
+            hover:text-[#2dd4bf] hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/5
             transition-all duration-150
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
             active:scale-[0.97]"
         >
           היום
@@ -83,8 +83,8 @@ export default function CalendarHeader({
             aria-label="הקודם"
             title="הקודם"
             className="w-8 h-8 flex items-center justify-center rounded-lg
-              text-[#555] hover:text-[#ddd] hover:bg-[#161616] transition-all duration-150
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
+              text-[#5a688c] hover:text-[#cdd7ea] hover:bg-[#16233b] transition-all duration-150
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
               active:scale-[0.95]"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -96,8 +96,8 @@ export default function CalendarHeader({
             aria-label="הבא"
             title="הבא"
             className="w-8 h-8 flex items-center justify-center rounded-lg
-              text-[#555] hover:text-[#ddd] hover:bg-[#161616] transition-all duration-150
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
+              text-[#5a688c] hover:text-[#cdd7ea] hover:bg-[#16233b] transition-all duration-150
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
               active:scale-[0.95]"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -107,11 +107,11 @@ export default function CalendarHeader({
         </div>
 
         {/* Date label */}
-        <span className="text-sm text-[#999] font-medium select-none">{headerLabel}</span>
+        <span className="text-sm text-[#8593b3] font-medium select-none">{headerLabel}</span>
 
         {/* Event count pill */}
         {!isLoading && isConnected && eventCount > 0 && (
-          <span className="hidden sm:inline text-[10px] text-[#555] bg-[#141414] px-2 py-0.5 rounded-full">
+          <span className="hidden sm:inline text-[10px] text-[#5a688c] bg-[#141f36] px-2 py-0.5 rounded-full">
             {eventCount} אירועים
           </span>
         )}
@@ -125,9 +125,9 @@ export default function CalendarHeader({
               <span
                 className="hidden sm:inline text-[11px] px-2.5 py-1 rounded-full"
                 style={{
-                  background: '#47b86e22',
-                  color: '#47b86e',
-                  border: '1px solid #47b86e44',
+                  background: '#34d39922',
+                  color: '#34d399',
+                  border: '1px solid #34d39944',
                 }}
               >
                 {syncResult.created === 0 && syncResult.updated === 0 && syncResult.deleted === 0
@@ -146,15 +146,15 @@ export default function CalendarHeader({
               onClick={onSyncNow}
               disabled={syncStatus === 'loading'}
               title="סנכרן פגישות מהיומן לטבלת הפגישות"
-              className="text-[11px] px-2.5 py-1.5 rounded-lg border border-[#222] text-[#666]
-                hover:text-[#e8c547] hover:border-[#e8c547]/40 hover:bg-[#e8c547]/5
+              className="text-[11px] px-2.5 py-1.5 rounded-lg border border-[#29395d] text-[#647399]
+                hover:text-[#2dd4bf] hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/5
                 transition-all duration-150
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
-                disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[#666] disabled:hover:bg-transparent disabled:hover:border-[#222]"
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
+                disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[#647399] disabled:hover:bg-transparent disabled:hover:border-[#29395d]"
             >
               {syncStatus === 'loading' ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-3 h-3 border-2 border-[#555] border-t-[#e8c547] rounded-full animate-spin" />
+                  <span className="inline-block w-3 h-3 border-2 border-[#5a688c] border-t-[#2dd4bf] rounded-full animate-spin" />
                   <span className="hidden sm:inline">מסנכרן…</span>
                 </span>
               ) : (

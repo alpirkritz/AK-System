@@ -23,8 +23,8 @@ function Toggle({
       onClick={() => onChange(!checked)}
       className="relative inline-flex h-[22px] w-10 shrink-0 rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       style={{
-        background: checked ? '#25D366' : '#2a2a2a',
-        border: `1px solid ${checked ? '#25D36666' : '#333'}`,
+        background: checked ? '#25D366' : '#2f4368',
+        border: `1px solid ${checked ? '#25D36666' : '#3a507d'}`,
       }}
     >
       <span
@@ -252,16 +252,16 @@ export default function WhatsAppSettingsPage() {
   return (
     <div className="max-w-3xl mx-auto pb-16">
       <div className="mb-6">
-        <Link href="/settings" className="text-xs text-[#555] hover:text-[#888]">
+        <Link href="/settings" className="text-xs text-[#5a688c] hover:text-[#7a89ab]">
           ← חזרה להגדרות
         </Link>
         <h1 className="text-xl font-bold mt-2">WhatsApp</h1>
-        <p className="text-xs text-[#555] mt-1">
+        <p className="text-xs text-[#5a688c] mt-1">
           ניהול קבוצות, התראות FOMO, מילות מפתח וסיכומים — כל ההתראות רק ל-Message Yourself
         </p>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-[#1a1a1a] pb-3">
+      <div className="flex gap-2 mb-6 border-b border-[#1d2b46] pb-3">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -269,7 +269,7 @@ export default function WhatsAppSettingsPage() {
             className="text-sm px-4 py-2 rounded-lg transition-all cursor-pointer"
             style={{
               background: tab === t.id ? '#25D36622' : 'transparent',
-              color: tab === t.id ? '#25D366' : '#666',
+              color: tab === t.id ? '#25D366' : '#647399',
               border: `1px solid ${tab === t.id ? '#25D36644' : 'transparent'}`,
             }}
           >
@@ -279,7 +279,7 @@ export default function WhatsAppSettingsPage() {
       </div>
 
       {message && (
-        <div className="mb-4 text-xs px-4 py-2 rounded-lg bg-[#1a1a1a] border border-[#222] text-[#aaa]">
+        <div className="mb-4 text-xs px-4 py-2 rounded-lg bg-[#1d2b46] border border-[#29395d] text-[#97a4c2]">
           {message}
         </div>
       )}
@@ -305,14 +305,14 @@ export default function WhatsAppSettingsPage() {
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
               placeholder="סינון לפי שם…"
-              className="flex-1 min-w-[140px] text-[12px] bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#aaa]"
+              className="flex-1 min-w-[140px] text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
           </div>
 
           {groupsLoading || discovering ? (
-            <div className="text-xs text-[#444]">טוען קבוצות…</div>
+            <div className="text-xs text-[#4d659c]">טוען קבוצות…</div>
           ) : filteredRows.length === 0 ? (
-            <div className="card p-6 text-center text-sm text-[#555]">
+            <div className="card p-6 text-center text-sm text-[#5a688c]">
               {mergedRows.length === 0
                 ? 'אין קבוצות. לחץ "רענון מ-WhatsApp" כדי לגלות קבוצות.'
                 : 'אין קבוצות התואמות לסינון.'}
@@ -326,11 +326,11 @@ export default function WhatsAppSettingsPage() {
                 <div key={row.jid} className="card p-0 overflow-hidden">
                   <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
                     <div className="flex-1 min-w-[140px]">
-                      <div className="text-sm text-[#ddd]">{d.name}</div>
-                      <div className="text-[10px] text-[#555]">
+                      <div className="text-sm text-[#cdd7ea]">{d.name}</div>
+                      <div className="text-[10px] text-[#5a688c]">
                         הודעה אחרונה: {fmtLastMessage(d.lastMessageAt)}
                       </div>
-                      <div className="text-[10px] text-[#444] font-mono">{d.jid}</div>
+                      <div className="text-[10px] text-[#4d659c] font-mono">{d.jid}</div>
                       {isNew && (
                         <span className="text-[10px] text-[#25D366]">חדש — לא נשמר</span>
                       )}
@@ -338,7 +338,7 @@ export default function WhatsAppSettingsPage() {
                     <select
                       value={d.labelId ?? ''}
                       onChange={(e) => patchDraft(row.jid, { labelId: e.target.value || null })}
-                      className="text-[12px] bg-[#111] border border-[#222] rounded-lg px-2 py-1.5 text-[#aaa]"
+                      className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
                     >
                       <option value="">ללא תווית</option>
                       {labels.map((l) => (
@@ -351,21 +351,21 @@ export default function WhatsAppSettingsPage() {
                         disabled={togglingJid === row.jid}
                         onChange={(v) => void handleFollowToggle(row, v)}
                       />
-                      <span className="text-[9px] text-[#555] whitespace-nowrap">מעקב+FOMO</span>
+                      <span className="text-[9px] text-[#5a688c] whitespace-nowrap">מעקב+FOMO</span>
                     </div>
                     <button
                       onClick={() => patchDraft(row.jid, { expanded: !expanded })}
-                      className="text-[11px] text-[#666] hover:text-[#aaa] px-2"
+                      className="text-[11px] text-[#647399] hover:text-[#97a4c2] px-2"
                     >
                       {expanded ? '▲' : '▼'} כללים
                     </button>
                   </div>
 
                   {expanded && (
-                    <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
+                    <div className="px-4 pb-4 space-y-3 border-t border-[#1d2b46] pt-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs text-[#888] w-24">FOMO</span>
-                        <span className="text-[11px] text-[#666]">
+                        <span className="text-xs text-[#7a89ab] w-24">FOMO</span>
+                        <span className="text-[11px] text-[#647399]">
                           {d.enabled ? 'פעיל (מקושר למעקב)' : 'כבוי — הפעל מעקב למעלה'}
                         </span>
                         <input
@@ -374,41 +374,41 @@ export default function WhatsAppSettingsPage() {
                           max={100}
                           value={d.fomoThreshold}
                           onChange={(e) => patchDraft(row.jid, { fomoThreshold: Number(e.target.value) })}
-                          className="w-14 text-[12px] bg-[#111] border border-[#222] rounded px-2 py-1 text-[#aaa]"
+                          className="w-14 text-[12px] bg-[#111b30] border border-[#29395d] rounded px-2 py-1 text-[#97a4c2]"
                           title="סף הודעות"
                         />
-                        <span className="text-[10px] text-[#555]">הודעות ב-</span>
+                        <span className="text-[10px] text-[#5a688c]">הודעות ב-</span>
                         <input
                           type="number"
                           min={1}
                           max={60}
                           value={d.fomoWindowMinutes}
                           onChange={(e) => patchDraft(row.jid, { fomoWindowMinutes: Number(e.target.value) })}
-                          className="w-14 text-[12px] bg-[#111] border border-[#222] rounded px-2 py-1 text-[#aaa]"
+                          className="w-14 text-[12px] bg-[#111b30] border border-[#29395d] rounded px-2 py-1 text-[#97a4c2]"
                           title="חלון דקות"
                         />
-                        <span className="text-[10px] text-[#555]">דקות</span>
+                        <span className="text-[10px] text-[#5a688c]">דקות</span>
                       </div>
 
                       <div>
-                        <label className="text-xs text-[#888] block mb-1">מילות מפתח (מופרדות בפסיק)</label>
+                        <label className="text-xs text-[#7a89ab] block mb-1">מילות מפתח (מופרדות בפסיק)</label>
                         <input
                           value={d.keywords}
                           onChange={(e) => patchDraft(row.jid, { keywords: e.target.value })}
                           placeholder="דחוף, deadline"
-                          className="w-full text-[12px] bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#aaa]"
+                          className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
                         />
                       </div>
 
                       <div>
-                        <label className="text-xs text-[#888] block mb-1">
+                        <label className="text-xs text-[#7a89ab] block mb-1">
                           שעות סיכום (HH:MM, מופרדות בפסיק — דורס תווית)
                         </label>
                         <input
                           value={d.summaryTimes}
                           onChange={(e) => patchDraft(row.jid, { summaryTimes: e.target.value })}
                           placeholder="08:00, 20:00"
-                          className="w-full text-[12px] bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#aaa]"
+                          className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
                         />
                       </div>
 
@@ -445,18 +445,18 @@ export default function WhatsAppSettingsPage() {
       {tab === 'labels' && (
         <div className="space-y-4">
           <div className="card p-4 space-y-3">
-            <div className="text-sm text-[#ccc]">תווית חדשה / עריכה</div>
+            <div className="text-sm text-[#b8c4dc]">תווית חדשה / עריכה</div>
             <input
               value={newLabelName}
               onChange={(e) => setNewLabelName(e.target.value)}
               placeholder="שם תווית (למשל: עבודה, משפחה)"
-              className="w-full text-[12px] bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#aaa]"
+              className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
             <input
               value={newLabelTimes}
               onChange={(e) => setNewLabelTimes(e.target.value)}
               placeholder="שעות סיכום ברירת מחדל: 20:00"
-              className="w-full text-[12px] bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#aaa]"
+              className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
             <button
               onClick={() => {
@@ -475,15 +475,15 @@ export default function WhatsAppSettingsPage() {
           </div>
 
           {labelsLoading ? (
-            <div className="text-xs text-[#444]">טוען…</div>
+            <div className="text-xs text-[#4d659c]">טוען…</div>
           ) : labels.length === 0 ? (
-            <div className="text-sm text-[#555]">אין תוויות עדיין.</div>
+            <div className="text-sm text-[#5a688c]">אין תוויות עדיין.</div>
           ) : (
             labels.map((label) => (
               <div key={label.id} className="card px-4 py-3 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm text-[#ddd]">{label.name}</div>
-                  <div className="text-[10px] text-[#555]">
+                  <div className="text-sm text-[#cdd7ea]">{label.name}</div>
+                  <div className="text-[10px] text-[#5a688c]">
                     סיכום: {(label.summaryTimes ?? []).join(', ') || '—'} · {label.groupCount} קבוצות
                   </div>
                 </div>
@@ -516,9 +516,9 @@ export default function WhatsAppSettingsPage() {
       {tab === 'connection' && (
         <div className="card p-5 space-y-4">
           {!connection?.configured ? (
-            <div className="text-sm text-[#888]">
-              ה-bridge לא מוגדר. הגדר <code className="text-[#666]">WHATSAPP_BRIDGE_URL</code> ו-
-              <code className="text-[#666]">WHATSAPP_BRIDGE_SECRET</code> ב-.env.local
+            <div className="text-sm text-[#7a89ab]">
+              ה-bridge לא מוגדר. הגדר <code className="text-[#647399]">WHATSAPP_BRIDGE_URL</code> ו-
+              <code className="text-[#647399]">WHATSAPP_BRIDGE_SECRET</code> ב-.env.local
             </div>
           ) : (
             <>
@@ -527,21 +527,21 @@ export default function WhatsAppSettingsPage() {
                   className="w-2.5 h-2.5 rounded-full"
                   style={{ background: connection.connected ? '#25D366' : '#e74c3c' }}
                 />
-                <span className="text-sm text-[#ccc]">
+                <span className="text-sm text-[#b8c4dc]">
                   {connection.connected ? 'מחובר ל-WhatsApp' : 'לא מחובר'}
                 </span>
               </div>
               {connection.selfJid && (
-                <div className="text-[11px] text-[#555] font-mono">Self JID: {connection.selfJid}</div>
+                <div className="text-[11px] text-[#5a688c] font-mono">Self JID: {connection.selfJid}</div>
               )}
               {'akWebhookConfigured' in connection && (
-                <div className="text-sm text-[#aaa]">
+                <div className="text-sm text-[#97a4c2]">
                   Webhook ל-AK:{' '}
                   {connection.akWebhookConfigured ? (
-                    <span className="text-[#47b86e]">
+                    <span className="text-[#34d399]">
                       מוגדר ({connection.akWebhookHost || '—'})
                       {!connection.replyEnabled && (
-                        <span className="text-[#e8c547]"> — REPLY_ENABLED כבוי ב-bridge</span>
+                        <span className="text-[#2dd4bf]"> — REPLY_ENABLED כבוי ב-bridge</span>
                       )}
                     </span>
                   ) : (
@@ -552,14 +552,14 @@ export default function WhatsAppSettingsPage() {
                 </div>
               )}
               {syncStatus && (
-                <div className="text-sm text-[#aaa]">
+                <div className="text-sm text-[#97a4c2]">
                   סנכרון קבוצות:{' '}
                   {syncStatus.inSync ? (
-                    <span className="text-[#47b86e]">
+                    <span className="text-[#34d399]">
                       {syncStatus.bridgeWatchedCount} מסונכרנות בברידג׳ = {syncStatus.dbEnabledCount} פעילות ב-DB
                     </span>
                   ) : (
-                    <span className="text-[#e8c547]">
+                    <span className="text-[#2dd4bf]">
                       {syncStatus.bridgeWatchedCount} בברידג׳ / {syncStatus.dbEnabledCount} פעילות ב-DB — לחץ "סנכרן כללים ל-bridge"
                     </span>
                   )}

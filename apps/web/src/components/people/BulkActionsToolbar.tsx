@@ -72,11 +72,11 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
 
   return (
     <div className="bulk-toolbar mb-4">
-      <span className="text-sm font-medium text-[#f0ede6] shrink-0 tabular-nums">
+      <span className="text-sm font-medium text-[#eef3fb] shrink-0 tabular-nums">
         {selectedIds.size} נבחרו
       </span>
 
-      <div className="w-px h-5 bg-[#333]" />
+      <div className="w-px h-5 bg-[#3a507d]" />
 
       {/* Add tag */}
       <div className="relative">
@@ -88,7 +88,7 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
           הוסף תגית
         </button>
         {showTagInput && (
-          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-2 min-w-[220px]">
+          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg p-2 min-w-[220px]">
             <div className="mb-2">
               <CreatableSelect
                 value=""
@@ -107,7 +107,7 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
                 {allTags.slice(0, 10).map(tag => (
                   <button
                     key={tag}
-                    className="text-[10px] px-2 py-0.5 rounded-full bg-[#222] text-[#aaa] hover:text-[#f0ede6] transition-colors border border-[#333]"
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-[#29395d] text-[#97a4c2] hover:text-[#eef3fb] transition-colors border border-[#3a507d]"
                     onClick={() => { bulkAddTag.mutate({ ids, tag }); setShowTagInput(false) }}
                   >
                     {tag}
@@ -129,11 +129,11 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
           שנה יעד
         </button>
         {showGoalSelect && (
-          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg py-1 min-w-[140px]">
+          <div className="absolute top-full mt-1 right-0 z-20 bg-[#1d2b46] border border-[#2f4368] rounded-lg py-1 min-w-[140px]">
             {GOAL_OPTIONS.map(goal => (
               <button
                 key={goal || 'none'}
-                className="w-full text-right px-3 py-1.5 text-xs text-[#aaa] hover:bg-[#222] transition-colors"
+                className="w-full text-right px-3 py-1.5 text-xs text-[#97a4c2] hover:bg-[#29395d] transition-colors"
                 onClick={() => bulkUpdateGoal.mutate({ ids, goal })}
               >
                 {goal || 'ללא יעד'}
@@ -182,7 +182,7 @@ export function BulkActionsToolbar({ selectedIds, onDeselectAll, allTags, onSucc
         </div>
       )}
 
-      <div className="w-px h-5 bg-[#333]" />
+      <div className="w-px h-5 bg-[#3a507d]" />
 
       {/* Deselect */}
       <button

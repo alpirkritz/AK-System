@@ -7,15 +7,15 @@ import { cn } from '@/lib/cn'
 import type { Person } from '@ak-system/database'
 
 const TAG_COLORS: Record<string, string> = {
-  business: '#47b8e8',
+  business: '#38bdf8',
   friend: '#47e8a8',
   mentor: '#b847e8',
 }
 
 const GOAL_COLORS: Record<string, string> = {
-  'Bi-Weekly': '#47b8e8',
+  'Bi-Weekly': '#38bdf8',
   Monthly: '#47e8a8',
-  'Bi-Monthly': '#e8c547',
+  'Bi-Monthly': '#2dd4bf',
   Quarterly: '#b847e8',
 }
 
@@ -35,7 +35,7 @@ interface Props {
 
 export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Props) {
   const tags = person.tags ? person.tags.split(',').map(t => t.trim()).filter(Boolean) : []
-  const color = person.color ?? '#e8c547'
+  const color = person.color ?? '#2dd4bf'
   const health = getContactHealth(person.lastContact, person.contactFrequencyDays)
 
   return (
@@ -59,17 +59,17 @@ export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Pro
           {person.name[0]}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="font-semibold text-sm text-[#f0ede6] truncate">{person.name}</div>
+          <div className="font-semibold text-sm text-[#eef3fb] truncate">{person.name}</div>
           {(person.jobTitle || person.role) && (
-            <div className="text-xs text-[#666] truncate">{person.jobTitle || person.role}</div>
+            <div className="text-xs text-[#647399] truncate">{person.jobTitle || person.role}</div>
           )}
         </div>
         {person.goal && (
           <span
             className="text-[9px] font-semibold px-2 py-0.5 rounded-full shrink-0"
             style={{
-              background: (GOAL_COLORS[person.goal] ?? '#888') + '18',
-              color: GOAL_COLORS[person.goal] ?? '#888',
+              background: (GOAL_COLORS[person.goal] ?? '#7a89ab') + '18',
+              color: GOAL_COLORS[person.goal] ?? '#7a89ab',
             }}
           >
             {person.goal}
@@ -78,7 +78,7 @@ export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Pro
       </div>
 
       {person.company && (
-        <div className="text-xs text-[#888] mb-2 truncate">{person.company}</div>
+        <div className="text-xs text-[#7a89ab] mb-2 truncate">{person.company}</div>
       )}
 
       {tags.length > 0 && (
@@ -88,20 +88,20 @@ export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Pro
               key={tag}
               className="text-[10px] font-medium px-2 py-0.5 rounded-full"
               style={{
-                background: (TAG_COLORS[tag.toLowerCase()] ?? '#e8c547') + '18',
-                color: TAG_COLORS[tag.toLowerCase()] ?? '#e8c547',
+                background: (TAG_COLORS[tag.toLowerCase()] ?? '#2dd4bf') + '18',
+                color: TAG_COLORS[tag.toLowerCase()] ?? '#2dd4bf',
               }}
             >
               {tag}
             </span>
           ))}
           {tags.length > 2 && (
-            <span className="text-[10px] text-[#555]">+{tags.length - 2}</span>
+            <span className="text-[10px] text-[#5a688c]">+{tags.length - 2}</span>
           )}
         </div>
       )}
 
-      <div className="border-t border-[#1f1f1f] pt-2.5 flex items-center gap-3 text-xs text-[#666]">
+      <div className="border-t border-[#223052] pt-2.5 flex items-center gap-3 text-xs text-[#647399]">
         {person.lastContact ? (
           <span className="contact-health">
             {health && <span className={cn('contact-health-dot', health)} />}
@@ -110,7 +110,7 @@ export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Pro
         ) : (
           <span>אין היסטוריית קשר</span>
         )}
-        {person.email && <span className="truncate mr-auto text-[#555]">{person.email}</span>}
+        {person.email && <span className="truncate mr-auto text-[#5a688c]">{person.email}</span>}
       </div>
     </div>
   )

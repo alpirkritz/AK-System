@@ -22,9 +22,9 @@ export default function AllDayStrip({ days, events, onEventClick }: AllDayStripP
   const visibleRows = expanded ? maxPerDay : Math.min(maxPerDay, ALL_DAY_MAX_ROWS)
 
   return (
-    <div className="flex border-b border-[#1a1a1a] shrink-0 bg-[#080808]">
+    <div className="flex border-b border-[#1d2b46] shrink-0 bg-[#0a1120]">
       <div className="w-14 shrink-0 flex flex-col items-end justify-between pr-2 py-1.5">
-        <span className="text-[9px] text-[#3a3a3a] leading-none select-none">
+        <span className="text-[9px] text-[#435a8c] leading-none select-none">
           כל
           <br />
           היום
@@ -33,8 +33,8 @@ export default function AllDayStrip({ days, events, onEventClick }: AllDayStripP
           <button
             onClick={() => setExpanded((e) => !e)}
             title={expanded ? 'כווץ' : `הצג ${maxPerDay - ALL_DAY_MAX_ROWS} נוספים`}
-            className="text-[9px] text-[#3a3a3a] hover:text-[#888] transition-colors leading-none
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60 rounded"
+            className="text-[9px] text-[#435a8c] hover:text-[#7a89ab] transition-colors leading-none
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60 rounded"
           >
             {expanded ? '▲' : `+${maxPerDay - ALL_DAY_MAX_ROWS}`}
           </button>
@@ -46,7 +46,7 @@ export default function AllDayStrip({ days, events, onEventClick }: AllDayStripP
         return (
           <div
             key={i}
-            className="flex-1 border-r border-[#1a1a1a] first:border-r-0 px-0.5 py-1 space-y-0.5"
+            className="flex-1 border-r border-[#1d2b46] first:border-r-0 px-0.5 py-1 space-y-0.5"
           >
             {dayEvents.slice(0, visibleRows).map((ev) => (
               <EventPill key={ev.id} ev={ev} onClick={onEventClick} />
@@ -55,9 +55,9 @@ export default function AllDayStrip({ days, events, onEventClick }: AllDayStripP
               <button
                 onClick={() => setExpanded(true)}
                 title={`הצג ${hidden} אירועים נוספים`}
-                className="w-full text-[9px] text-[#444] hover:text-[#999] px-1.5 py-0.5
-                  transition-colors cursor-pointer rounded hover:bg-[#141414]
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60"
+                className="w-full text-[9px] text-[#4d659c] hover:text-[#8593b3] px-1.5 py-0.5
+                  transition-colors cursor-pointer rounded hover:bg-[#141f36]
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60"
               >
                 +{hidden} נוספים
               </button>

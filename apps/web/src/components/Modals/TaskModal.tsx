@@ -154,7 +154,7 @@ export function TaskModal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-lg mb-6 tracking-tight">{isEdit ? 'ערוך משימה' : 'משימה חדשה'}</div>
         {isEdit && isLoadingTask ? (
-          <div className="text-[#888] py-6">טוען...</div>
+          <div className="text-[#7a89ab] py-6">טוען...</div>
         ) : (
           <>
             <div className="flex flex-col gap-4">
@@ -217,7 +217,7 @@ export function TaskModal({
               </div>
               <div>
                 <label className="label">קשור לאנשים</label>
-                <p className="text-[11px] text-[#666] mb-2">המשימה תופיע בכרטיסיה של כל אדם שנבחר</p>
+                <p className="text-[11px] text-[#647399] mb-2">המשימה תופיע בכרטיסיה של כל אדם שנבחר</p>
                 <input
                   type="text"
                   className="input mb-2"
@@ -225,9 +225,9 @@ export function TaskModal({
                   value={relatedPeopleFilter}
                   onChange={(e) => setRelatedPeopleFilter(e.target.value)}
                 />
-                <div className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-2 space-y-1">
+                <div className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2f4368] bg-[#1d2b46] p-2 space-y-1">
                   {people.length === 0 ? (
-                    <span className="text-xs text-[#555]">אין אנשי קשר</span>
+                    <span className="text-xs text-[#5a688c]">אין אנשי קשר</span>
                   ) : (() => {
                     const q = relatedPeopleFilter.trim().toLowerCase()
                     const filtered = q
@@ -240,22 +240,22 @@ export function TaskModal({
                         )
                       : people
                     return filtered.length === 0 ? (
-                      <span className="text-xs text-[#555]">אין תוצאות</span>
+                      <span className="text-xs text-[#5a688c]">אין תוצאות</span>
                     ) : (
                       filtered.map((p) => (
                         <label
                           key={p.id}
-                          className="flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-[#222] transition-colors"
+                          className="flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-[#29395d] transition-colors"
                         >
                           <input
                             type="checkbox"
-                            className="w-4 h-4 rounded border border-[#444] bg-transparent accent-[#e8c547]"
+                            className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
                             checked={form.relatedPersonIds.includes(p.id)}
                             onChange={() => toggleRelatedPerson(p.id)}
                           />
-                          <span className="text-sm text-[#ccc]">{p.name}</span>
+                          <span className="text-sm text-[#b8c4dc]">{p.name}</span>
                           {p.company && (
-                            <span className="text-[11px] text-[#555] truncate max-w-[100px]"> · {p.company}</span>
+                            <span className="text-[11px] text-[#5a688c] truncate max-w-[100px]"> · {p.company}</span>
                           )}
                         </label>
                       ))
@@ -272,9 +272,9 @@ export function TaskModal({
                       onClick={() => setForm((f) => ({ ...f, priority: p }))}
                       className="cursor-pointer py-1.5 px-3 rounded-[20px] border text-sm transition-all"
                       style={{
-                        borderColor: form.priority === p ? PRIORITY_COLORS[p] : '#2a2a2a',
+                        borderColor: form.priority === p ? PRIORITY_COLORS[p] : '#2f4368',
                         background: form.priority === p ? PRIORITY_COLORS[p] + '22' : 'transparent',
-                        color: form.priority === p ? PRIORITY_COLORS[p] : '#888',
+                        color: form.priority === p ? PRIORITY_COLORS[p] : '#7a89ab',
                       }}
                     >
                       {PRIORITY_LABELS[p]}

@@ -84,17 +84,17 @@ export default function MemoryPage() {
   return (
     <div className="max-w-3xl mx-auto pb-16">
       <div className="mb-6">
-        <Link href="/settings" className="text-xs text-[#555] hover:text-[#888]">
+        <Link href="/settings" className="text-xs text-[#5a688c] hover:text-[#7a89ab]">
           ← חזרה להגדרות
         </Link>
         <h1 className="text-xl font-bold mt-2">זיכרון והוראות להוגו 🧠</h1>
-        <p className="text-xs text-[#555] mt-1">
+        <p className="text-xs text-[#5a688c] mt-1">
           הוראות קבועות, זיכרונות וידע — נשמרים תמיד ומוזרקים אוטומטית לכל שיחה עם הסוכנים
         </p>
       </div>
 
       {message && (
-        <div className="mb-4 text-xs px-4 py-2 rounded-lg bg-[#1a1a1a] border border-[#222] text-[#aaa]">
+        <div className="mb-4 text-xs px-4 py-2 rounded-lg bg-[#1d2b46] border border-[#29395d] text-[#97a4c2]">
           {message}
         </div>
       )}
@@ -102,8 +102,8 @@ export default function MemoryPage() {
       {/* Standing instructions */}
       <div className="card p-5 mb-6 space-y-3">
         <div>
-          <div className="text-sm font-semibold text-[#ddd]">הוראות קבועות</div>
-          <div className="text-xs text-[#555] mt-0.5">
+          <div className="text-sm font-semibold text-[#cdd7ea]">הוראות קבועות</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
             איך הוגו והסוכנים צריכים לעבוד תמיד. לדוגמה: "תמיד תענה בקצרה", "אל תציע לפתוח Notion".
           </div>
         </div>
@@ -115,7 +115,7 @@ export default function MemoryPage() {
           }}
           rows={6}
           placeholder="כתוב כאן הוראות קבועות…"
-          className="w-full text-[13px] leading-relaxed bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#ddd] resize-y"
+          className="w-full text-[13px] leading-relaxed bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#cdd7ea] resize-y"
           dir="rtl"
         />
         <div className="flex items-center gap-3">
@@ -126,13 +126,13 @@ export default function MemoryPage() {
           >
             {setInstructions.isPending ? 'שומר…' : 'שמור הוראות'}
           </button>
-          {instrDirty && <span className="text-[11px] text-[#e8c547]">שינויים לא שמורים</span>}
+          {instrDirty && <span className="text-[11px] text-[#2dd4bf]">שינויים לא שמורים</span>}
         </div>
       </div>
 
       {/* Add memory */}
       <div className="card p-5 mb-6 space-y-3">
-        <div className="text-sm font-semibold text-[#ddd]">הוסף זיכרון / ידע</div>
+        <div className="text-sm font-semibold text-[#cdd7ea]">הוסף זיכרון / ידע</div>
         <div className="flex gap-1.5">
           {(['memory', 'knowledge'] as NewKind[]).map((k) => (
             <button
@@ -140,9 +140,9 @@ export default function MemoryPage() {
               onClick={() => setNewKind(k)}
               className="text-[12px] px-3 py-1.5 rounded-lg transition-all cursor-pointer"
               style={{
-                background: newKind === k ? '#e8c54722' : '#1a1a1a',
-                color: newKind === k ? '#e8c547' : '#666',
-                border: `1px solid ${newKind === k ? '#e8c54744' : '#222'}`,
+                background: newKind === k ? '#2dd4bf22' : '#1d2b46',
+                color: newKind === k ? '#2dd4bf' : '#647399',
+                border: `1px solid ${newKind === k ? '#2dd4bf44' : '#29395d'}`,
               }}
             >
               {k === 'memory' ? 'זיכרון קצר' : 'ידע (תוכן ארוך)'}
@@ -158,7 +158,7 @@ export default function MemoryPage() {
               ? 'הדבק כאן תוכן ארוך (מסמך, פרטים על אדם/פרויקט)…'
               : 'לדוגמה: אני מעדיף פגישות בבוקר; קוראים לשותף שלי דני'
           }
-          className="w-full text-[13px] leading-relaxed bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#ddd] resize-y"
+          className="w-full text-[13px] leading-relaxed bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#cdd7ea] resize-y"
           dir="rtl"
         />
         <button
@@ -174,16 +174,16 @@ export default function MemoryPage() {
       </div>
 
       {/* Memory list */}
-      <div className="flex gap-2 mb-4 border-b border-[#1a1a1a] pb-3">
+      <div className="flex gap-2 mb-4 border-b border-[#1d2b46] pb-3">
         {kindTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setKindFilter(t.id)}
             className="text-sm px-3 py-1.5 rounded-lg transition-all cursor-pointer"
             style={{
-              background: kindFilter === t.id ? '#e8c54722' : 'transparent',
-              color: kindFilter === t.id ? '#e8c547' : '#666',
-              border: `1px solid ${kindFilter === t.id ? '#e8c54744' : 'transparent'}`,
+              background: kindFilter === t.id ? '#2dd4bf22' : 'transparent',
+              color: kindFilter === t.id ? '#2dd4bf' : '#647399',
+              border: `1px solid ${kindFilter === t.id ? '#2dd4bf44' : 'transparent'}`,
             }}
           >
             {t.label}
@@ -192,9 +192,9 @@ export default function MemoryPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-xs text-[#444]">טוען…</div>
+        <div className="text-xs text-[#4d659c]">טוען…</div>
       ) : memories.length === 0 ? (
-        <div className="card p-6 text-center text-sm text-[#555]">אין פריטים עדיין.</div>
+        <div className="card p-6 text-center text-sm text-[#5a688c]">אין פריטים עדיין.</div>
       ) : (
         <div className="space-y-3">
           {memories.map((m) => (
@@ -205,7 +205,7 @@ export default function MemoryPage() {
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
                     rows={4}
-                    className="w-full text-[13px] leading-relaxed bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-[#ddd] resize-y"
+                    className="w-full text-[13px] leading-relaxed bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#cdd7ea] resize-y"
                     dir="rtl"
                   />
                   <div className="flex gap-2">
@@ -227,13 +227,13 @@ export default function MemoryPage() {
               ) : (
                 <>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="text-[13px] leading-relaxed text-[#ddd] whitespace-pre-wrap flex-1">
+                    <div className="text-[13px] leading-relaxed text-[#cdd7ea] whitespace-pre-wrap flex-1">
                       {m.pinned && <span className="mr-1">📌</span>}
                       {m.content}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[#1a1a1a]">
-                    <div className="text-[10px] text-[#555]">
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[#1d2b46]">
+                    <div className="text-[10px] text-[#5a688c]">
                       {KIND_LABEL[m.kind] ?? m.kind} · {SOURCE_LABEL[m.source] ?? m.source}
                     </div>
                     <div className="flex gap-2">

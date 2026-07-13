@@ -12,14 +12,14 @@ export default function CalendarCheckbox({ cal, checked, onToggle }: CalendarChe
       onClick={() => onToggle(cal.id)}
       title={checked ? `הסתר: ${cal.name}` : `הצג: ${cal.name}`}
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-right transition-colors rounded-md
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60
-        ${checked ? 'text-[#ccc] hover:bg-[#141414]' : 'text-[#444] hover:bg-[#0e0e0e]'}`}
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60
+        ${checked ? 'text-[#b8c4dc] hover:bg-[#141f36]' : 'text-[#4d659c] hover:bg-[#0c1424]'}`}
     >
       <span
         className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center transition-all duration-150"
         style={{
           background: checked ? cal.color : 'transparent',
-          border: `2px solid ${checked ? cal.color : '#333'}`,
+          border: `2px solid ${checked ? cal.color : '#3a507d'}`,
         }}
       >
         {checked && (

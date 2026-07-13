@@ -13,35 +13,35 @@ export default function SkeletonGrid() {
             className="absolute right-0 pr-2"
             style={{ top: (h - DAY_START) * HOUR_HEIGHT - 6 }}
           >
-            <div className="w-8 h-3 bg-[#141414] rounded" />
+            <div className="w-8 h-3 bg-[#141f36] rounded" />
           </div>
         ))}
       </div>
       {/* Columns skeleton */}
-      <div className="flex flex-1 border-r border-[#141414]">
+      <div className="flex flex-1 border-r border-[#141f36]">
         {Array.from({ length: 7 }).map((_, ci) => (
           <div
             key={ci}
-            className="flex-1 border-r border-[#141414] relative"
+            className="flex-1 border-r border-[#141f36] relative"
             style={{ height: VISIBLE_HOURS * HOUR_HEIGHT }}
           >
             {hours.map((h) => (
               <div
                 key={h}
-                className="absolute inset-x-0 border-t border-[#0e0e0e]"
+                className="absolute inset-x-0 border-t border-[#0c1424]"
                 style={{ top: (h - DAY_START) * HOUR_HEIGHT }}
               />
             ))}
             {/* Fake event blocks */}
             {ci % 2 === 0 && (
               <div
-                className="absolute right-1 left-1 rounded-md bg-[#141414]"
+                className="absolute right-1 left-1 rounded-md bg-[#141f36]"
                 style={{ top: 3 * HOUR_HEIGHT + 10, height: HOUR_HEIGHT * 0.8 }}
               />
             )}
             {ci % 3 === 1 && (
               <div
-                className="absolute right-1 left-1 rounded-md bg-[#121212]"
+                className="absolute right-1 left-1 rounded-md bg-[#121c31]"
                 style={{ top: 5 * HOUR_HEIGHT + 4, height: HOUR_HEIGHT * 1.2 }}
               />
             )}

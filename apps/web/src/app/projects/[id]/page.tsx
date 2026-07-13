@@ -30,7 +30,7 @@ export default function ProjectDetailPage() {
   const tasks = (tasksList as Array<{ id: string; title: string; done: boolean; priority: string; assigneeId?: string; meetingId?: string; dueDate?: string }>).filter((t) => (t as { projectId?: string }).projectId === id)
 
   if (isLoading || !project) {
-    return <div className="text-[#888]">טוען...</div>
+    return <div className="text-[#7a89ab]">טוען...</div>
   }
 
   return (
@@ -55,7 +55,7 @@ export default function ProjectDetailPage() {
       <div className="flex items-center gap-3 mb-7">
         <div
           className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-          style={{ background: (project.color ?? '#47b8e8') + '22', color: project.color ?? '#47b8e8' }}
+          style={{ background: (project.color ?? '#38bdf8') + '22', color: project.color ?? '#38bdf8' }}
         >
           📁
         </div>
@@ -63,18 +63,18 @@ export default function ProjectDetailPage() {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <div className="text-xs font-semibold text-[#555] mb-3 uppercase tracking-wider">
+          <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
             פגישות ({meetings.length})
           </div>
           <div className="card space-y-2">
             {meetings.length === 0 && (
-              <div className="text-[#555] text-sm">אין פגישות בפרויקט</div>
+              <div className="text-[#5a688c] text-sm">אין פגישות בפרויקט</div>
             )}
             {meetings.map((m) => (
               <Link key={m.id} href={`/meetings/${m.id}`}>
                 <div className="meeting-card py-2 px-3">
                   <div className="font-medium text-sm">{m.title}</div>
-                  <div className="text-xs text-[#666]">
+                  <div className="text-xs text-[#647399]">
                     {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
                     {m.recurring && ` · ↻ ${DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}`}
                   </div>
@@ -84,12 +84,12 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div>
-          <div className="text-xs font-semibold text-[#555] mb-3 uppercase tracking-wider">
+          <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
             משימות ({tasks.length})
           </div>
           <div className="card">
             {tasks.length === 0 && (
-              <div className="text-[#555] text-sm">אין משימות בפרויקט</div>
+              <div className="text-[#5a688c] text-sm">אין משימות בפרויקט</div>
             )}
             {tasks.map((t) => (
               <div key={t.id} className="task-row">
@@ -103,7 +103,7 @@ export default function ProjectDetailPage() {
                   className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                   style={{
                     textDecoration: t.done ? 'line-through' : 'none',
-                    color: t.done ? '#555' : '#f0ede6',
+                    color: t.done ? '#5a688c' : '#eef3fb',
                   }}
                   onClick={() => {
                     setEditingTaskId(t.id)
@@ -113,7 +113,7 @@ export default function ProjectDetailPage() {
                 >
                   {t.title}
                   {t.dueDate && (
-                    <span className="text-[11px] text-[#666] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
+                    <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
                   )}
                 </div>
                 <div className="dot" style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }} />
@@ -121,9 +121,9 @@ export default function ProjectDetailPage() {
                   <div
                     className="avatar w-[22px] h-[22px] text-[9px] border"
                     style={{
-                      background: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '22',
-                      color: getPerson(t.assigneeId)?.color ?? '#e8c547',
-                      borderColor: (getPerson(t.assigneeId)?.color ?? '#e8c547') + '33',
+                      background: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '22',
+                      color: getPerson(t.assigneeId)?.color ?? '#2dd4bf',
+                      borderColor: (getPerson(t.assigneeId)?.color ?? '#2dd4bf') + '33',
                     }}
                   >
                     {getPerson(t.assigneeId)?.name[0]}

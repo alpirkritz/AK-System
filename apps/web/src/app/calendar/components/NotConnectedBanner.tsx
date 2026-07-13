@@ -12,7 +12,7 @@ export default function NotConnectedBanner() {
           </div>
           <div>
             <p className="font-semibold text-amber-200 mb-1.5 text-sm">יומן Google לא מחובר</p>
-            <p className="text-[#999] text-[13px] mb-3 leading-relaxed">
+            <p className="text-[#8593b3] text-[13px] mb-3 leading-relaxed">
               חבר את חשבונות Google שלך (אישי ודאז) מהגדרות כדי לראות אירועים ולגשת ל-Gmail.
             </p>
             <a

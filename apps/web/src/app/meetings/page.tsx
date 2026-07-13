@@ -23,7 +23,7 @@ type MeetingRow = {
 }
 
 const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
-const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#888' }
+const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
 
 function isPastMeeting(date: string, time: string): boolean {
   const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
@@ -79,7 +79,7 @@ export default function MeetingsPage() {
         map.set(id, {
           id,
           name: ev.calendarName ?? (id.startsWith('apple:') ? 'Apple' : id),
-          color: ev.calendarColor ?? '#888',
+          color: ev.calendarColor ?? '#7a89ab',
           source: id.startsWith('apple:') ? 'apple' : 'google',
         })
       }
@@ -173,10 +173,20 @@ export default function MeetingsPage() {
   }
 
   const [pastExpanded, setPastExpanded] = useState(false)
+  const [recurringOnly, setRecurringOnly] = useState(false)
+
+  // Recurring meetings are now a filter here (replaces the old /recurring page).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setRecurringOnly(params.get('filter') === 'recurring')
+  }, [])
 
   const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
   const getPerson = (id: string) => peopleMap.get(id)
-  const meetingsWithIds = meetings as MeetingRow[]
+  const meetingsWithIds = useMemo(() => {
+    const rows = meetings as MeetingRow[]
+    return recurringOnly ? rows.filter((m) => m.recurring) : rows
+  }, [meetings, recurringOnly])
 
   const { upcomingMeetings, pastMeetings } = useMemo(() => {
     const upcoming = meetingsWithIds
@@ -205,17 +215,17 @@ export default function MeetingsPage() {
             <div className="flex justify-between items-center">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className={`font-semibold text-[15px] ${past ? 'text-[#777]' : ''}`}>{m.title}</span>
+                  <span className={`font-semibold text-[15px] ${past ? 'text-[#6f7ea0]' : ''}`}>{m.title}</span>
                   {past && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
-                      style={{ background: '#ffffff08', color: '#555', border: '1px solid #2a2a2a' }}>
+                      style={{ background: '#ffffff08', color: '#5a688c', border: '1px solid #2f4368' }}>
                       עבר
                     </span>
                   )}
                   {proj && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{ background: '#e8c54722', color: '#e8c547', border: '1px solid #e8c54733' }}
+                      style={{ background: '#2dd4bf22', color: '#2dd4bf', border: '1px solid #2dd4bf33' }}
                     >
                       📁 {proj.name}
                     </span>
@@ -224,9 +234,9 @@ export default function MeetingsPage() {
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
                       style={{
-                        background: (SOURCE_COLOR[m.calendarSource] ?? '#888') + '22',
-                        color: SOURCE_COLOR[m.calendarSource] ?? '#888',
-                        border: `1px solid ${(SOURCE_COLOR[m.calendarSource] ?? '#888')}33`,
+                        background: (SOURCE_COLOR[m.calendarSource] ?? '#7a89ab') + '22',
+                        color: SOURCE_COLOR[m.calendarSource] ?? '#7a89ab',
+                        border: `1px solid ${(SOURCE_COLOR[m.calendarSource] ?? '#7a89ab')}33`,
                       }}
                     >
                       {SOURCE_LABEL[m.calendarSource] ?? m.calendarSource}
@@ -234,13 +244,13 @@ export default function MeetingsPage() {
                   )}
                 </div>
                 <div className="flex gap-3 items-center flex-wrap">
-                  <span className="text-xs text-[#666]">
+                  <span className="text-xs text-[#647399]">
                     📅 {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
                   </span>
                   {m.recurring && (
                     <span className="pill">↻ {DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}</span>
                   )}
-                  <span className="text-xs text-[#666]">◻ {(m.taskIds ?? []).length} משימות</span>
+                  <span className="text-xs text-[#647399]">◻ {(m.taskIds ?? []).length} משימות</span>
                 </div>
               </div>
               <div className="flex gap-1 shrink-0 mr-3">
@@ -250,7 +260,7 @@ export default function MeetingsPage() {
                     <div
                       key={pid}
                       className="avatar border-[1.5px]"
-                      style={{ background: (p.color ?? '#e8c547') + '22', color: p.color ?? '#e8c547', borderColor: (p.color ?? '#e8c547') + '33' }}
+                      style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
                     >
                       {p.name[0]}
                     </div>
@@ -263,7 +273,7 @@ export default function MeetingsPage() {
         <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={(e) => { e.preventDefault(); setEditingId(m.id); setModalOpen(true) }}
-            className="text-[#666] hover:text-[#ccc] transition-colors p-1.5 rounded-lg hover:bg-[#1e1e1e]"
+            className="text-[#647399] hover:text-[#b8c4dc] transition-colors p-1.5 rounded-lg hover:bg-[#1e1e1e]"
             title="ערוך"
           >
             ✏
@@ -274,9 +284,9 @@ export default function MeetingsPage() {
               if (window.confirm('למחוק את הפגישה?')) deleteMeeting.mutate({ id: m.id })
             }}
             className="p-1.5 rounded-lg hover:bg-[#1e1e1e] transition-colors"
-            style={{ color: '#666' }}
+            style={{ color: '#647399' }}
             onMouseEnter={(e) => (e.currentTarget.style.color = '#e57373')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#666')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#647399')}
             title="מחק"
           >
             🗑
@@ -294,7 +304,7 @@ export default function MeetingsPage() {
         <div className="flex gap-2 items-center">
           {/* Sync result feedback */}
           {syncStatus === 'done' && syncResult !== null && (
-            <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#47b86e22', color: '#47b86e', border: '1px solid #47b86e44' }}>
+            <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#34d39922', color: '#34d399', border: '1px solid #34d39944' }}>
               {syncResult.created === 0 && syncResult.updated === 0 && syncResult.deleted === 0
                 ? 'הכל מעודכן ✓'
                 : [
@@ -336,11 +346,11 @@ export default function MeetingsPage() {
             {panelOpen && (
               <div
                 className="absolute left-0 top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl"
-                style={{ minWidth: 260, background: '#141414', border: '1px solid #222' }}
+                style={{ minWidth: 260, background: '#141f36', border: '1px solid #29395d' }}
               >
                 <div className="px-4 pt-3.5 pb-2">
-                  <div className="text-xs font-semibold text-[#ccc] mb-0.5">יומנים לסנכרון</div>
-                  <div className="text-[11px] text-[#444]">
+                  <div className="text-xs font-semibold text-[#b8c4dc] mb-0.5">יומנים לסנכרון</div>
+                  <div className="text-[11px] text-[#4d659c]">
                     {settingsCals
                       ? 'ברירת המחדל לפי הגדרות — ניתן להוסיף יומנים נוספים'
                       : 'כל היומנים נבחרו — ניתן לבטל'}
@@ -350,9 +360,9 @@ export default function MeetingsPage() {
                 {/* Calendar list */}
                 <div className="px-2 pb-2 max-h-56 overflow-y-auto">
                   {calsLoading ? (
-                    <div className="px-3 py-3 text-xs text-[#444]">טוען יומנים…</div>
+                    <div className="px-3 py-3 text-xs text-[#4d659c]">טוען יומנים…</div>
                   ) : allCalendars.length === 0 ? (
-                    <div className="px-3 py-3 text-xs text-[#444]">לא נמצאו יומנים</div>
+                    <div className="px-3 py-3 text-xs text-[#4d659c]">לא נמצאו יומנים</div>
                   ) : allCalendars.map((cal) => {
                     const checked = panelSelected.has(cal.id)
                     const isDefault = settingsCals ? settingsCals.includes(cal.id) : true
@@ -367,7 +377,7 @@ export default function MeetingsPage() {
                           className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center transition-all"
                           style={{
                             background: checked ? cal.color : 'transparent',
-                            border: `2px solid ${checked ? cal.color : '#333'}`,
+                            border: `2px solid ${checked ? cal.color : '#3a507d'}`,
                           }}
                         >
                           {checked && (
@@ -376,12 +386,12 @@ export default function MeetingsPage() {
                             </svg>
                           )}
                         </span>
-                        <span className={`text-xs flex-1 truncate text-right ${checked ? 'text-[#ccc]' : 'text-[#555]'}`}>
+                        <span className={`text-xs flex-1 truncate text-right ${checked ? 'text-[#b8c4dc]' : 'text-[#5a688c]'}`}>
                           {cal.name}
                         </span>
                         {/* Signifier: default-from-settings badge */}
                         {isDefault && settingsCals && (
-                          <span className="text-[9px] px-1 py-0.5 rounded shrink-0" style={{ background: '#e8c54715', color: '#e8c547' }}>
+                          <span className="text-[9px] px-1 py-0.5 rounded shrink-0" style={{ background: '#2dd4bf15', color: '#2dd4bf' }}>
                             ברירת מחדל
                           </span>
                         )}
@@ -389,7 +399,7 @@ export default function MeetingsPage() {
                           className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
                           style={{
                             background: cal.source === 'google' ? '#4285f422' : '#88888822',
-                            color: cal.source === 'google' ? '#4285f4' : '#888',
+                            color: cal.source === 'google' ? '#4285f4' : '#7a89ab',
                           }}
                         >
                           {cal.source === 'google' ? 'Google' : 'Apple'}
@@ -401,7 +411,7 @@ export default function MeetingsPage() {
 
                 {/* Divider + action row */}
                 <div className="border-t border-[#1e1e1e] px-3 py-2.5 flex items-center justify-between gap-3">
-                  <span className="text-[11px] text-[#444]">
+                  <span className="text-[11px] text-[#4d659c]">
                     {panelSelected.size} יומנים · 60 ימים קדימה
                   </span>
                   <button
@@ -422,12 +432,34 @@ export default function MeetingsPage() {
         </div>
       </div>
 
+      {/* Filter chips */}
+      <div className="flex gap-1.5 mb-5">
+        <button
+          type="button"
+          className="filter-chip"
+          aria-pressed={!recurringOnly}
+          onClick={() => setRecurringOnly(false)}
+        >
+          כל הפגישות
+        </button>
+        <button
+          type="button"
+          className="filter-chip"
+          aria-pressed={recurringOnly}
+          onClick={() => setRecurringOnly(true)}
+        >
+          ↻ חוזרות
+        </button>
+      </div>
+
       {/* Upcoming meetings */}
       {upcomingMeetings.length === 0 && pastMeetings.length === 0 && (
-        <p className="text-[#555] text-sm mt-4">אין פגישות עדיין</p>
+        <p className="text-[#5a688c] text-sm mt-4">
+          {recurringOnly ? 'אין פגישות חוזרות עדיין' : 'אין פגישות עדיין'}
+        </p>
       )}
       {upcomingMeetings.length === 0 && pastMeetings.length > 0 && (
-        <p className="text-[#555] text-sm mt-4 mb-4">אין פגישות קרובות</p>
+        <p className="text-[#5a688c] text-sm mt-4 mb-4">אין פגישות קרובות</p>
       )}
       {upcomingMeetings.map((m) => renderMeetingCard(m, false))}
 
@@ -438,12 +470,12 @@ export default function MeetingsPage() {
             onClick={() => setPastExpanded((v) => !v)}
             className="flex items-center gap-2 mb-3 group/past cursor-pointer"
           >
-            <span className="text-xs font-semibold text-[#444] uppercase tracking-wider group-hover/past:text-[#666] transition-colors">
+            <span className="text-xs font-semibold text-[#4d659c] uppercase tracking-wider group-hover/past:text-[#647399] transition-colors">
               עברו · {pastMeetings.length}
             </span>
             <svg
               width="12" height="12" viewBox="0 0 12 12" fill="none"
-              className="text-[#444] group-hover/past:text-[#666] transition-all"
+              className="text-[#4d659c] group-hover/past:text-[#647399] transition-all"
               style={{ transform: pastExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
             >
               <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>

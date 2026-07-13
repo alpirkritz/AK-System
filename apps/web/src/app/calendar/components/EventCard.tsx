@@ -39,7 +39,7 @@ export default function EventCard({ ev, col, totalCols, onClick }: EventCardProp
       className="absolute rounded-md overflow-hidden cursor-pointer text-right
         transition-all duration-150 ease-out
         hover:z-20 hover:shadow-lg hover:shadow-black/30
-        focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[#080808]
+        focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0a1120]
         group"
       style={{
         top,
@@ -60,7 +60,7 @@ export default function EventCard({ ev, col, totalCols, onClick }: EventCardProp
       />
       <div className="relative px-2 py-1 overflow-hidden h-full">
         <div
-          className={`font-medium leading-tight truncate text-[#e8e8e8]
+          className={`font-medium leading-tight truncate text-[#dde5f4]
             ${isShort ? 'text-[9px]' : 'text-[11px]'}
             ${isCancelled || isDeclined ? 'line-through' : ''}`}
         >

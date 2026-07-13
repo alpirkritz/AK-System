@@ -16,8 +16,8 @@ export function PeoplePagination({ page, pageSize, total, onPageChange }: Props)
   const to = Math.min(page * pageSize, total)
 
   return (
-    <div className="flex items-center justify-between pt-4 pb-2 border-t border-[#1f1f1f]">
-      <span className="text-xs text-[#666] tabular-nums">
+    <div className="flex items-center justify-between pt-4 pb-2 border-t border-[#223052]">
+      <span className="text-xs text-[#647399] tabular-nums">
         מציג {from}–{to} מתוך {total}
       </span>
 
@@ -31,7 +31,7 @@ export function PeoplePagination({ page, pageSize, total, onPageChange }: Props)
           <ChevronRight className="w-4 h-4" />
         </button>
 
-        <span className="text-xs text-[#aaa] px-2 tabular-nums">
+        <span className="text-xs text-[#97a4c2] px-2 tabular-nums">
           {page} / {totalPages}
         </span>
 

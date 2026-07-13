@@ -52,7 +52,7 @@ function SkeletonRows() {
   return (
     <>
       {Array.from({ length: 8 }).map((_, i) => (
-        <tr key={i} className="border-b border-[#1f1f1f]">
+        <tr key={i} className="border-b border-[#223052]">
           <td className="table-cell w-[40px]"><div className="skeleton w-4 h-4 rounded" /></td>
           <td className="table-cell">
             <div className="flex items-center gap-2.5">
@@ -125,7 +125,7 @@ export function PeopleTable({
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-lg border border-[#2a2a2a]">
+      <div className="overflow-x-auto rounded-lg border border-[#2f4368]">
         <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
           <thead className="table-header">
             <tr>

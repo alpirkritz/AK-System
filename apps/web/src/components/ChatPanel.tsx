@@ -141,7 +141,7 @@ export function ChatPanel() {
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-[#555] text-sm">טוען היסטוריה...</div>
+        <div className="text-[#5a688c] text-sm">טוען היסטוריה...</div>
       </div>
     )
   }
@@ -153,7 +153,7 @@ export function ChatPanel() {
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-3xl opacity-30">💬</div>
-            <p className="text-[#555] text-sm">שאל שאלה או בקש משהו מהמערכת</p>
+            <p className="text-[#5a688c] text-sm">שאל שאלה או בקש משהו מהמערכת</p>
           </div>
         )}
         {messages.map((msg) => (
@@ -164,10 +164,10 @@ export function ChatPanel() {
             <div
               className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
-                  ? 'bg-[#e8c547] text-[#0a0a0a] rounded-br-sm'
+                  ? 'bg-[#2dd4bf] text-[#0a1120] rounded-br-sm'
                   : msg.role === 'system'
-                    ? 'bg-[#2a1a1a] text-red-300 border border-red-900/30 rounded-bl-sm'
-                    : 'bg-[#1a1a1a] text-[#f0ede6] rounded-bl-sm'
+                    ? 'bg-[#34203a] text-red-300 border border-red-900/30 rounded-bl-sm'
+                    : 'bg-[#1d2b46] text-[#eef3fb] rounded-bl-sm'
               }`}
             >
               {sourceTag(msg.source) && (
@@ -178,7 +178,7 @@ export function ChatPanel() {
               <div>{msg.content}</div>
               <div
                 className={`text-[10px] mt-1 ${
-                  msg.role === 'user' ? 'text-[#0a0a0a]/40' : 'text-[#555]'
+                  msg.role === 'user' ? 'text-[#0a1120]/40' : 'text-[#5a688c]'
                 }`}
               >
                 {formatTime(msg.createdAt)}
@@ -188,7 +188,7 @@ export function ChatPanel() {
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-[#1a1a1a] rounded-xl px-4 py-3 text-sm text-[#555]">
+            <div className="bg-[#1d2b46] rounded-xl px-4 py-3 text-sm text-[#5a688c]">
               <span className="inline-flex gap-1">
                 <span className="animate-pulse">●</span>
                 <span className="animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
@@ -201,7 +201,7 @@ export function ChatPanel() {
       </div>
 
       {/* Input bar */}
-      <div className="border-t border-[#1a1a1a] px-4 py-3">
+      <div className="border-t border-[#1d2b46] px-4 py-3">
         <div className="flex items-center gap-2 w-full max-w-3xl mx-auto">
           <input
             ref={inputRef}
@@ -211,13 +211,13 @@ export function ChatPanel() {
             onKeyDown={handleKeyDown}
             placeholder="כתוב הודעה..."
             disabled={loading}
-            className="flex-1 bg-[#111] border border-[#222] rounded-lg px-4 py-2.5 text-sm text-[#f0ede6] placeholder:text-[#444] focus:outline-none focus:border-[#e8c547]/50 transition-colors disabled:opacity-50"
+            className="flex-1 bg-[#111b30] border border-[#29395d] rounded-lg px-4 py-2.5 text-sm text-[#eef3fb] placeholder:text-[#4d659c] focus:outline-none focus:border-[#2dd4bf]/50 transition-colors disabled:opacity-50"
             dir="auto"
           />
           <button
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            className="bg-[#e8c547] text-[#0a0a0a] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#d4b43e] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="bg-[#2dd4bf] text-[#0a1120] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#14b8a6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             שלח
           </button>

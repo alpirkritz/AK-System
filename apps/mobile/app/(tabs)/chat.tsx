@@ -13,11 +13,11 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { ChatMessage } from '../lib/api'
-import { fetchChatHistory, fetchNotifications, sendChatMessage } from '../lib/api'
-import { useAuth } from '../lib/auth'
-import { addNotificationResponseListener, syncPushToken } from '../lib/notifications'
-import { colors, layout } from '../lib/theme'
+import type { ChatMessage } from '../../lib/api'
+import { fetchChatHistory, sendChatMessage } from '../../lib/api'
+import { useAuth } from '../../lib/auth'
+import { addNotificationResponseListener, syncPushToken } from '../../lib/notifications'
+import { colors, layout } from '../../lib/theme'
 
 type Row = ChatMessage | { id: string; role: 'typing'; content: string; createdAt: string }
 
@@ -33,7 +33,6 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [unreadCount, setUnreadCount] = useState(0)
 
   const contentWidth = Math.min(width - 24, layout.maxContentWidth)
 
@@ -60,9 +59,6 @@ export default function ChatScreen() {
     syncPushToken(token).catch((err) =>
       console.warn('[helm] push token sync failed:', err),
     )
-    fetchNotifications(token, 1)
-      .then((d) => setUnreadCount(d.unreadCount))
-      .catch(() => {})
   }, [token])
 
   useEffect(() => {
@@ -114,7 +110,7 @@ export default function ChatScreen() {
       return (
         <View style={[styles.row, styles.rowAssistant]}>
           <View style={[styles.bubble, styles.bubbleAssistant, { maxWidth: contentWidth * 0.85 }]}>
-            <ActivityIndicator color={colors.gold} size="small" />
+            <ActivityIndicator color={colors.accent} size="small" />
           </View>
         </View>
       )
@@ -142,29 +138,9 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={80}
     >
-      <View style={styles.toolbar}>
-        <Pressable onPress={() => router.push('/settings')} hitSlop={8}>
-          <Text style={styles.toolbarLink}>הגדרות</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push('/notifications')}
-          hitSlop={8}
-          style={styles.bellWrap}
-        >
-          <Text style={styles.bellIcon}>🔔</Text>
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
-
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={colors.gold} />
+          <ActivityIndicator color={colors.accent} />
         </View>
       ) : (
         <FlatList
@@ -206,44 +182,6 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  toolbar: {
-    flexDirection: 'row-reverse',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  bellWrap: {
-    position: 'relative',
-    padding: 4,
-  },
-  bellIcon: {
-    fontSize: 22,
-  },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    left: -2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#dc2626',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  toolbarLink: {
-    color: colors.gold,
-    fontSize: 15,
-    writingDirection: 'rtl',
-  },
   list: {
     paddingHorizontal: 12,
     paddingTop: 12,
@@ -305,7 +243,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   sendBtn: {
-    backgroundColor: colors.gold,
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,

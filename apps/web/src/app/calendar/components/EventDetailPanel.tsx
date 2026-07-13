@@ -41,7 +41,7 @@ interface DetailRowProps {
 function DetailRow({ icon, children }: DetailRowProps) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-[#141414] flex items-center justify-center shrink-0 mt-0.5 text-[#555]">
+      <div className="w-8 h-8 rounded-lg bg-[#141f36] flex items-center justify-center shrink-0 mt-0.5 text-[#5a688c]">
         {icon}
       </div>
       <div className="flex-1 min-w-0 pt-1">{children}</div>
@@ -52,9 +52,10 @@ function DetailRow({ icon, children }: DetailRowProps) {
 interface EventDetailPanelProps {
   event: CalEvent | null
   onClose: () => void
+  meetingId?: string | null
 }
 
-export default function EventDetailPanel({ event, onClose }: EventDetailPanelProps) {
+export default function EventDetailPanel({ event, onClose, meetingId }: EventDetailPanelProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -82,9 +83,9 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
 
       {/* Panel — full-screen on phone, side panel on tablet+ */}
       <div
-        className="animate-slide-in-left absolute z-30 bg-[#0c0c0c] flex flex-col shadow-2xl
+        className="animate-slide-in-left absolute z-30 bg-[#0c1424] flex flex-col shadow-2xl
           inset-0 md:inset-y-0 md:left-0 md:right-auto md:w-[340px]"
-        style={{ borderRight: '1px solid #1a1a1a' }}
+        style={{ borderRight: '1px solid #1d2b46' }}
         role="dialog"
         aria-label={event.title}
       >
@@ -112,7 +113,7 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
             )}
             <h2
               className={`text-[15px] font-semibold leading-snug
-                ${isCancelled || event.rsvp === 'declined' ? 'line-through text-[#555]' : 'text-[#eee]'}`}
+                ${isCancelled || event.rsvp === 'declined' ? 'line-through text-[#5a688c]' : 'text-[#eee]'}`}
             >
               {event.title}
             </h2>
@@ -123,9 +124,9 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
             onClick={onClose}
             aria-label="סגור"
             title="סגור (Esc)"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#555]
-              hover:text-white hover:bg-[#1a1a1a] transition-all duration-150 shrink-0
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5a688c]
+              hover:text-white hover:bg-[#1d2b46] transition-all duration-150 shrink-0
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60"
           >
             <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
               <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -146,8 +147,8 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
               </svg>
             }
           >
-            <div className="text-sm text-[#ccc] leading-tight">{dateStr}</div>
-            <div className="text-xs text-[#666] mt-0.5 font-mono">{timeStr}</div>
+            <div className="text-sm text-[#b8c4dc] leading-tight">{dateStr}</div>
+            <div className="text-xs text-[#647399] mt-0.5 font-mono">{timeStr}</div>
           </DetailRow>
 
           {/* RSVP status */}
@@ -171,8 +172,8 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
                 <span className="w-3 h-3 rounded-full" style={{ background: s.border }} />
               }
             >
-              <span className="text-sm text-[#aaa]">{event.calendarName}</span>
-              <span className="text-[10px] text-[#444] mr-1.5">
+              <span className="text-sm text-[#97a4c2]">{event.calendarName}</span>
+              <span className="text-[10px] text-[#4d659c] mr-1.5">
                 {(event.calendarId || '').startsWith('apple:') ? '· Exchange/Mac' : '· Google'}
               </span>
             </DetailRow>
@@ -180,7 +181,7 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
 
           {/* Divider before location/description */}
           {(event.location || event.description) && (
-            <div className="border-t border-[#141414]" />
+            <div className="border-t border-[#141f36]" />
           )}
 
           {/* Location */}
@@ -200,7 +201,7 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-blue-400 hover:text-blue-300 hover:underline transition-colors break-all leading-snug
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60 rounded"
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60 rounded"
                   >
                     {meetingLinkLabel(event.location)}
                   </a>
@@ -209,11 +210,11 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
                     href={`https://maps.google.com/?q=${encodeURIComponent(event.location)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-[#aaa] hover:text-blue-400 transition-colors leading-snug
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60 rounded"
+                    className="text-sm text-[#97a4c2] hover:text-blue-400 transition-colors leading-snug
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60 rounded"
                   >
                     {event.location}
-                    <span className="text-[#555] mr-1 text-xs">↗</span>
+                    <span className="text-[#5a688c] mr-1 text-xs">↗</span>
                   </a>
                 )}
               </div>
@@ -233,7 +234,7 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
               }
             >
               <div
-                className="text-sm text-[#777] leading-relaxed break-words min-w-0 [&_a]:text-blue-400 [&_a]:hover:underline"
+                className="text-sm text-[#6f7ea0] leading-relaxed break-words min-w-0 [&_a]:text-blue-400 [&_a]:hover:underline"
                 dangerouslySetInnerHTML={{
                   __html: event.description
                     .replace(/<script[^>]*>.*?<\/script>/gi, '')
@@ -250,14 +251,28 @@ export default function EventDetailPanel({ event, onClose }: EventDetailPanelPro
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[#141414] px-5 py-3">
+        <div className="border-t border-[#141f36] px-5 py-3 space-y-1">
+          {meetingId && (
+            <a
+              href={`/meetings/${meetingId}`}
+              className="flex items-center justify-center gap-2 text-xs text-[#2dd4bf]
+                hover:text-[#5eead4] transition-colors py-2 rounded-lg hover:bg-[#0e1626]
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 11l3 3L22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+              פתח פגישה במערכת
+            </a>
+          )}
           <a
             href="https://calendar.google.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 text-xs text-[#555]
-              hover:text-[#aaa] transition-colors py-2 rounded-lg hover:bg-[#0f0f0f]
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8c547]/60"
+            className="flex items-center justify-center gap-2 text-xs text-[#5a688c]
+              hover:text-[#97a4c2] transition-colors py-2 rounded-lg hover:bg-[#0e1626]
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>

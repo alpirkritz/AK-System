@@ -17,10 +17,10 @@ export default function CalendarFetchErrorBanner({
           <p className="font-semibold text-red-200 mb-1.5 text-sm">
             לא ניתן לטעון אירועים מ-Google Calendar
           </p>
-          <ul className="text-[#999] text-[13px] mb-3 leading-relaxed space-y-1">
+          <ul className="text-[#8593b3] text-[13px] mb-3 leading-relaxed space-y-1">
             {errors.map((e) => (
               <li key={e.email}>
-                <span className="text-[#bbb]">{e.email}:</span> {e.message}
+                <span className="text-[#a7b4d0]">{e.email}:</span> {e.message}
               </li>
             ))}
           </ul>

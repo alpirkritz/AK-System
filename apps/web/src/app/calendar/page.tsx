@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { trpc } from '@/lib/trpc'
 
 import type { CalEvent, View } from './lib/types'
@@ -116,6 +116,16 @@ export default function CalendarPage() {
     undefined,
     { retry: false },
   )
+
+  // Cross-link a calendar event to its CRM meeting record (if synced).
+  const { data: crmMeetings = [] } = trpc.meetings.list.useQuery()
+  const selectedMeetingId = useMemo(() => {
+    if (!selectedEvent) return null
+    const match = (crmMeetings as Array<{ id: string; calendarEventId?: string | null }>).find(
+      (m) => m.calendarEventId && m.calendarEventId === selectedEvent.id,
+    )
+    return match?.id ?? null
+  }, [crmMeetings, selectedEvent])
 
   const { data: calData, isLoading: loadingEvents } = trpc.calendar.events.useQuery(
     fetchRange,
@@ -254,7 +264,7 @@ export default function CalendarPage() {
             />
           )}
           {selectedEvent && (
-            <EventDetailPanel event={selectedEvent} onClose={closePanel} />
+            <EventDetailPanel event={selectedEvent} onClose={closePanel} meetingId={selectedMeetingId} />
           )}
         </div>
 

@@ -12,8 +12,8 @@ const PERIODS: [Period, string][] = [
   ['all', 'הכל'],
 ]
 
-const GREEN = '#47b86e'
-const RED = '#e8477a'
+const GREEN = '#34d399'
+const RED = '#fb7185'
 
 function fmtUsd(n: number): string {
   return new Intl.NumberFormat('he-IL', {
@@ -56,7 +56,7 @@ function pnlColor(n: number): string {
 function SyncBadge({ status }: { status: string | null }) {
   if (status === 'ok') return <span className="pill text-xs" style={{ color: GREEN, borderColor: `${GREEN}44` }}>✓ הצליח</span>
   if (status === 'error') return <span className="pill text-xs" style={{ color: RED, borderColor: `${RED}44` }}>✗ נכשל</span>
-  return <span className="pill text-xs" style={{ color: '#666' }}>— טרם רץ</span>
+  return <span className="pill text-xs" style={{ color: '#647399' }}>— טרם רץ</span>
 }
 
 export default function TradingJournalTab() {
@@ -76,8 +76,8 @@ export default function TradingJournalTab() {
             key={id}
             className="btn btn-ghost text-xs"
             style={{
-              color: period === id ? '#e8c547' : '#666',
-              borderColor: period === id ? '#e8c54744' : '#2a2a2a',
+              color: period === id ? '#2dd4bf' : '#647399',
+              borderColor: period === id ? '#2dd4bf44' : '#2f4368',
             }}
             onClick={() => setPeriod(id)}
           >
@@ -91,9 +91,9 @@ export default function TradingJournalTab() {
         <div className="card flex flex-col gap-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">📈</span>
-            <span className="text-xs text-[#666] font-medium">עסקאות בתקופה</span>
+            <span className="text-xs text-[#647399] font-medium">עסקאות בתקופה</span>
           </div>
-          <div className="text-2xl font-bold tracking-tight text-[#f0ede6]">
+          <div className="text-2xl font-bold tracking-tight text-[#eef3fb]">
             {journalLoading ? '...' : journal?.tradesCount ?? 0}
           </div>
         </div>
@@ -101,7 +101,7 @@ export default function TradingJournalTab() {
         <div className="card flex flex-col gap-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">💰</span>
-            <span className="text-xs text-[#666] font-medium">P&L ממומש</span>
+            <span className="text-xs text-[#647399] font-medium">P&L ממומש</span>
           </div>
           <div className="text-2xl font-bold tracking-tight" style={{ color: pnlColor(realizedPnl) }}>
             {journalLoading ? '...' : fmtSignedUsd(realizedPnl)}
@@ -111,11 +111,11 @@ export default function TradingJournalTab() {
         <div className="card flex flex-col gap-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🔄</span>
-            <span className="text-xs text-[#666] font-medium">קניות / מכירות</span>
+            <span className="text-xs text-[#647399] font-medium">קניות / מכירות</span>
           </div>
           <div className="text-sm font-bold tracking-tight">
             <span style={{ color: RED }}>{journalLoading ? '...' : fmtUsd(journal?.buysNotional ?? 0)}</span>
-            <span className="text-[#555] mx-1">/</span>
+            <span className="text-[#5a688c] mx-1">/</span>
             <span style={{ color: GREEN }}>{journalLoading ? '...' : fmtUsd(journal?.sellsNotional ?? 0)}</span>
           </div>
         </div>
@@ -123,9 +123,9 @@ export default function TradingJournalTab() {
         <div className="card flex flex-col gap-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🕐</span>
-            <span className="text-xs text-[#666] font-medium">סנכרון אחרון</span>
+            <span className="text-xs text-[#647399] font-medium">סנכרון אחרון</span>
           </div>
-          <div className="text-sm font-bold tracking-tight text-[#f0ede6]">
+          <div className="text-sm font-bold tracking-tight text-[#eef3fb]">
             {fmtDateTime(journal?.lastSync?.at ?? null)}
           </div>
           <div className="mt-1"><SyncBadge status={journal?.lastSync?.status ?? null} /></div>
@@ -134,24 +134,24 @@ export default function TradingJournalTab() {
 
       {/* Period trades */}
       <div className="mb-8">
-        <h2 className="text-sm font-semibold text-[#888] mb-3 uppercase tracking-wider">
+        <h2 className="text-sm font-semibold text-[#7a89ab] mb-3 uppercase tracking-wider">
           עסקאות התקופה ({journal?.tradesCount ?? 0})
         </h2>
         {journalLoading ? (
-          <div className="text-[#555] text-sm">טוען...</div>
+          <div className="text-[#5a688c] text-sm">טוען...</div>
         ) : !journal || journal.trades.length === 0 ? (
           <div className="card text-center py-12">
             <div className="text-4xl mb-3">📭</div>
-            <div className="text-[#555] text-sm">אין עסקאות בתקופה זו</div>
-            <div className="text-xs text-[#444] mt-1">העסקאות יופיעו אחרי סנכרון מיילי IBKR</div>
+            <div className="text-[#5a688c] text-sm">אין עסקאות בתקופה זו</div>
+            <div className="text-xs text-[#4d659c] mt-1">העסקאות יופיעו אחרי סנכרון מיילי IBKR</div>
           </div>
         ) : (
           <div className="card p-0 overflow-hidden overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
               <thead>
-                <tr className="border-b border-[#222]">
+                <tr className="border-b border-[#29395d]">
                   {['תאריך', 'סימבול', 'פעולה', 'כמות', 'מחיר', 'P&L'].map((h) => (
-                    <th key={h} className="text-right px-4 py-3 text-[11px] font-medium text-[#555] uppercase">
+                    <th key={h} className="text-right px-4 py-3 text-[11px] font-medium text-[#5a688c] uppercase">
                       {h}
                     </th>
                   ))}
@@ -159,9 +159,9 @@ export default function TradingJournalTab() {
               </thead>
               <tbody>
                 {journal.trades.map((t) => (
-                  <tr key={t.id} className="border-b border-[#1a1a1a] hover:bg-[#1a1a1a] transition-colors">
-                    <td className="px-4 py-3 text-[#666]">{fmtDate(t.tradeDate)}</td>
-                    <td className="px-4 py-3 font-bold text-[#e8c547]">{t.symbol}</td>
+                  <tr key={t.id} className="border-b border-[#1d2b46] hover:bg-[#1d2b46] transition-colors">
+                    <td className="px-4 py-3 text-[#647399]">{fmtDate(t.tradeDate)}</td>
+                    <td className="px-4 py-3 font-bold text-[#2dd4bf]">{t.symbol}</td>
                     <td className="px-4 py-3">
                       <span
                         className="pill text-xs font-semibold"
@@ -175,7 +175,7 @@ export default function TradingJournalTab() {
                     </td>
                     <td className="px-4 py-3">{t.quantity.toLocaleString()}</td>
                     <td className="px-4 py-3">${t.price.toFixed(2)}</td>
-                    <td className="px-4 py-3 font-semibold" style={{ color: t.realizedPnl != null ? pnlColor(t.realizedPnl) : '#555' }}>
+                    <td className="px-4 py-3 font-semibold" style={{ color: t.realizedPnl != null ? pnlColor(t.realizedPnl) : '#5a688c' }}>
                       {t.realizedPnl != null ? fmtSignedUsd(t.realizedPnl) : '—'}
                     </td>
                   </tr>
@@ -188,15 +188,15 @@ export default function TradingJournalTab() {
 
       {/* Winners / losers ranking */}
       <div>
-        <h2 className="text-sm font-semibold text-[#888] mb-3 uppercase tracking-wider">
+        <h2 className="text-sm font-semibold text-[#7a89ab] mb-3 uppercase tracking-wider">
           איפה הרווחתי ואיפה הפסדתי
         </h2>
         {rankingLoading ? (
-          <div className="text-[#555] text-sm">טוען...</div>
+          <div className="text-[#5a688c] text-sm">טוען...</div>
         ) : !ranking || (ranking.winners.length === 0 && ranking.losers.length === 0) ? (
           <div className="card text-center py-12">
             <div className="text-4xl mb-3">📊</div>
-            <div className="text-[#555] text-sm">אין מספיק מכירות ממומשות לדירוג עדיין</div>
+            <div className="text-[#5a688c] text-sm">אין מספיק מכירות ממומשות לדירוג עדיין</div>
           </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
@@ -218,17 +218,17 @@ function RankingColumn({
 }) {
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#222] text-sm font-semibold" style={{ color }}>
+      <div className="px-4 py-3 border-b border-[#29395d] text-sm font-semibold" style={{ color }}>
         {title}
       </div>
       {entries.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[#555]">אין נתונים</div>
+        <div className="px-4 py-6 text-center text-xs text-[#5a688c]">אין נתונים</div>
       ) : (
         <table className="w-full text-sm">
           <tbody>
             {entries.map((e) => (
-              <tr key={e.symbol} className="border-b border-[#1a1a1a] last:border-0">
-                <td className="px-4 py-3 font-bold text-[#e8c547]">{e.symbol}</td>
+              <tr key={e.symbol} className="border-b border-[#1d2b46] last:border-0">
+                <td className="px-4 py-3 font-bold text-[#2dd4bf]">{e.symbol}</td>
                 <td className="px-4 py-3 text-left font-semibold" style={{ color }}>
                   {fmtSignedUsd(e.realizedPnl)}
                 </td>
