@@ -3,6 +3,7 @@ import {
   AK_SOURCE,
   ATTENDEES_CLEARED_VERSION,
   eventBody,
+  findDuplicateBridgeCopies,
   googleEventMatchFields,
   isBridgeCopy,
   matchKey,
@@ -209,5 +210,29 @@ describe('planSyncActions', () => {
     expect(needsAttendeeCleanup(copy)).toBe(true)
     const actions = planSyncActions([source], [copy], [copy])
     expect(actions[0].action).toBe('update')
+  })
+})
+
+describe('findDuplicateBridgeCopies', () => {
+  it('returns extras when the same akSourceUid appears twice', () => {
+    const a = makeGoogle({
+      id: 'keep',
+      extendedProperties: {
+        private: { akSource: AK_SOURCE, akSourceUid: 'uid-1', akSig: 's' },
+      },
+    })
+    const b = makeGoogle({
+      id: 'drop',
+      extendedProperties: {
+        private: { akSource: AK_SOURCE, akSourceUid: 'uid-1', akSig: 's' },
+      },
+    })
+    const c = makeGoogle({
+      id: 'other',
+      extendedProperties: {
+        private: { akSource: AK_SOURCE, akSourceUid: 'uid-2', akSig: 's' },
+      },
+    })
+    expect(findDuplicateBridgeCopies([a, b, c]).map((e) => e.id)).toEqual(['drop'])
   })
 })

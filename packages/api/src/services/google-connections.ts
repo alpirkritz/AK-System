@@ -33,6 +33,17 @@ function getClientSecret(): string {
   return s
 }
 
+async function canRefreshStoredToken(refreshToken: string): Promise<boolean> {
+  const oauth2Client = new google.auth.OAuth2(getClientId(), getClientSecret())
+  oauth2Client.setCredentials({ refresh_token: refreshToken })
+  try {
+    await oauth2Client.refreshAccessToken()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function getSupabaseUrl(): string | undefined {
   return process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
 }
@@ -200,11 +211,15 @@ export async function upsertGoogleCalendarConnection(input: {
       )) as Array<{ id: string; refresh_token: string | null }>)[0]
     : undefined
 
-  const refreshToken =
-    input.refreshToken ||
-    existingSqlite?.refreshToken ||
-    existingSupabase?.refresh_token ||
-    ''
+  const existingRefresh =
+    existingSqlite?.refreshToken || existingSupabase?.refresh_token || ''
+
+  let refreshToken = input.refreshToken ?? ''
+  if (!refreshToken && existingRefresh) {
+    if (await canRefreshStoredToken(existingRefresh)) {
+      refreshToken = existingRefresh
+    }
+  }
 
   if (!refreshToken) {
     return { ok: false, error: 'no_refresh_token' }

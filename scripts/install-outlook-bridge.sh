@@ -52,13 +52,20 @@ cp -f "$HELPER_SRC" "$LOCAL_HELPER"
 chmod +x "$LOCAL_HELPER"
 
 # Copy bridge-related env vars to a local path launchd can read.
+# Prefer deploy/production.env Google credentials (same OAuth client as tunnel/production).
+PROD_ENV="$ROOT_DIR/deploy/production.env"
+GOOGLE_ENV_SOURCE="$REPO_ENV"
+if [ -f "$PROD_ENV" ] && grep -q '^GOOGLE_CLIENT_ID=' "$PROD_ENV"; then
+  GOOGLE_ENV_SOURCE="$PROD_ENV"
+fi
 {
-  echo "# Generated $(date -u '+%Y-%m-%dT%H:%M:%SZ') from apps/web/.env.local"
+  echo "# Generated $(date -u '+%Y-%m-%dT%H:%M:%SZ') from ${GOOGLE_ENV_SOURCE##*/} + apps/web/.env.local"
   echo "# Re-run install-outlook-bridge.sh after changing Google OAuth credentials."
-  grep -E '^(GOOGLE_|DRAGONTAIL_|OUTLOOK_|TIMEZONE=)' "$REPO_ENV" || true
+  grep -E '^(GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|GOOGLE_CALENDAR_CLIENT_ID|GOOGLE_CALENDAR_CLIENT_SECRET)=' "$GOOGLE_ENV_SOURCE" 2>/dev/null || true
+  grep -E '^(DRAGONTAIL_|OUTLOOK_|TIMEZONE=)' "$REPO_ENV" || true
   echo "DATABASE_PATH=\"${ROOT_DIR}/apps/web/data/ak_system.sqlite\""
   echo "CALENDAR_HELPER_PATH=\"${LOCAL_HELPER}\""
-  echo "OUTLOOK_BRIDGE_HELPER_TIMEOUT_MS=60000"
+  echo "OUTLOOK_BRIDGE_HELPER_TIMEOUT_MS=120000"
 } > "$LOCAL_ENV"
 chmod 600 "$LOCAL_ENV"
 
@@ -87,6 +94,13 @@ export DATABASE_PATH="\${ROOT_DIR}/apps/web/data/ak_system.sqlite"
 {
   echo "──────── \$(date '+%Y-%m-%d %H:%M:%S') ────────"
   cd "\$ROOT_DIR"
+  # Prevent overlapping runs (launchd + manual) from creating duplicate Google events.
+  LOCK_DIR="\${HOME}/.ak-system/outlook-bridge.lock.d"
+  if ! mkdir "\$LOCK_DIR" 2>/dev/null; then
+    echo "[outlook-bridge] skipped — another run is in progress"
+    exit 0
+  fi
+  trap 'rmdir "\$LOCK_DIR" 2>/dev/null || true' EXIT
   pnpm exec tsx "\$BRIDGE_SCRIPT"
 } >> "\$LOG_FILE" 2>&1
 EOF

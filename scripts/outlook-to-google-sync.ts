@@ -334,6 +334,22 @@ export function needsAttendeeCleanup(
   return match.extendedProperties?.private?.akAttendeesCleared !== ATTENDEES_CLEARED_VERSION
 }
 
+/**
+ * Same akSourceUid on multiple Google events = leftovers from overlapping bridge runs.
+ * Keep one copy per uid (prefer the first listed); return the rest for deletion.
+ */
+export function findDuplicateBridgeCopies(existingCopies: GoogleEvent[]): GoogleEvent[] {
+  const seenUid = new Set<string>()
+  const extras: GoogleEvent[] = []
+  for (const ev of existingCopies) {
+    const uid = ev.extendedProperties?.private?.akSourceUid
+    if (!uid) continue
+    if (seenUid.has(uid)) extras.push(ev)
+    else seenUid.add(uid)
+  }
+  return extras
+}
+
 export function planSyncActions(
   sources: SourceEvent[],
   existingCopies: GoogleEvent[],
@@ -343,7 +359,7 @@ export function planSyncActions(
   const existingByUid = new Map<string, GoogleEvent>()
   for (const ev of existingCopies) {
     const uid = ev.extendedProperties?.private?.akSourceUid
-    if (uid) existingByUid.set(uid, ev)
+    if (uid && !existingByUid.has(uid)) existingByUid.set(uid, ev)
   }
 
   const existingByMatchKey = new Map<string, GoogleEvent>()
@@ -534,9 +550,17 @@ async function main(): Promise<void> {
     if (WRITE_DELAY_MS > 0) await sleep(WRITE_DELAY_MS)
   }
 
+  const toDelete = new Map<string, GoogleEvent>()
+  for (const ev of findDuplicateBridgeCopies(existingCopies)) {
+    toDelete.set(ev.id, ev)
+  }
   for (const ev of existingCopies) {
     const uid = ev.extendedProperties?.private?.akSourceUid
     if (uid && sourceUids.has(uid)) continue
+    toDelete.set(ev.id, ev)
+  }
+
+  for (const ev of toDelete.values()) {
     if (DRY_RUN) { deleted++; continue }
     const res = await gcalFetch(
       accessToken,
@@ -545,6 +569,7 @@ async function main(): Promise<void> {
     )
     if (res.ok || res.status === 410) deleted++
     else log('delete failed:', ev.id, res.status)
+    if (WRITE_DELAY_MS > 0) await sleep(WRITE_DELAY_MS)
   }
 
   log(
