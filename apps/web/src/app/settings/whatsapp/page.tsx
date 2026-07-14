@@ -4,7 +4,9 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 
-type Tab = 'groups' | 'labels' | 'connection'
+type Tab = 'groups' | 'insights' | 'labels' | 'connection'
+
+const PRIORITY_LABELS = ['רגיל', 'חשוב', 'קריטי']
 
 function Toggle({
   checked,
@@ -46,6 +48,7 @@ interface GroupDraft {
   fomoWindowMinutes: number
   summaryTimes: string
   keywords: string
+  priority: number
   lastMessageAt: number | null
   expanded?: boolean
 }
@@ -81,6 +84,15 @@ export default function WhatsAppSettingsPage() {
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelTimes, setNewLabelTimes] = useState('20:00')
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
+
+  const [digestWindow, setDigestWindow] = useState<'6h' | '24h' | '7d'>('24h')
+  const [digestResult, setDigestResult] = useState<{
+    text: string
+    items: { groupJid: string; name: string; priority: number; messageCount: number; topic: string | null }[]
+  } | null>(null)
+  const [insightGroupJid, setInsightGroupJid] = useState<string>('')
+  const [insightWindow, setInsightWindow] = useState<'24h' | '7d' | '30d'>('7d')
+  const [groupInsight, setGroupInsight] = useState<{ text: string; mode: string; messageCount: number } | null>(null)
 
   const utils = trpc.useUtils()
   const { data: labels = [], isLoading: labelsLoading } = trpc.whatsapp.labels.list.useQuery()
@@ -136,6 +148,20 @@ export default function WhatsAppSettingsPage() {
     onError: (e) => setMessage(`שגיאת סנכרון: ${e.message}`),
   })
 
+  const { data: messageStats = [] } = trpc.whatsapp.messages.stats.useQuery(undefined, {
+    enabled: tab === 'insights',
+  })
+
+  const digestMut = trpc.whatsapp.insights.digest.useMutation({
+    onSuccess: (res) => setDigestResult({ text: res.text, items: res.items }),
+    onError: (e) => setMessage(`שגיאה: ${e.message}`),
+  })
+
+  const forGroupMut = trpc.whatsapp.insights.forGroup.useMutation({
+    onSuccess: (res) => setGroupInsight({ text: res.text, mode: res.mode, messageCount: res.messageCount }),
+    onError: (e) => setMessage(`שגיאה: ${e.message}`),
+  })
+
   const mergedRows = useMemo(() => {
     const byJid = new Map(groups.map((g) => [g.jid, g]))
     const lastMsgByJid = new Map(discovered.map((d) => [d.jid, d.lastMessageAt ?? null]))
@@ -150,6 +176,7 @@ export default function WhatsAppSettingsPage() {
       fomoWindowMinutes: g.fomoWindowMinutes,
       summaryTimes: (g.summaryTimes ?? []).join(', '),
       keywords: (g.keywords ?? []).join(', '),
+      priority: g.priority ?? 0,
       lastMessageAt: lastMsgByJid.get(g.jid) ?? null,
     }))
     for (const d of discovered) {
@@ -164,6 +191,7 @@ export default function WhatsAppSettingsPage() {
           fomoWindowMinutes: 5,
           summaryTimes: '',
           keywords: '',
+          priority: 0,
           lastMessageAt: d.lastMessageAt ?? null,
         })
       } else {
@@ -218,6 +246,7 @@ export default function WhatsAppSettingsPage() {
       fomoWindowMinutes: d.fomoWindowMinutes,
       summaryTimes: parseTimes(d.summaryTimes),
       keywords: d.keywords.split(/[,;]+/).map((k) => k.trim()).filter(Boolean),
+      priority: d.priority,
     })
   }
 
@@ -245,6 +274,7 @@ export default function WhatsAppSettingsPage() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'groups', label: 'קבוצות' },
+    { id: 'insights', label: 'תובנות' },
     { id: 'labels', label: 'תוויות' },
     { id: 'connection', label: 'חיבור' },
   ]
@@ -390,6 +420,20 @@ export default function WhatsAppSettingsPage() {
                         <span className="text-[10px] text-[#5a688c]">דקות</span>
                       </div>
 
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-xs text-[#7a89ab] w-24">עדיפות בתובנות</span>
+                        <select
+                          value={d.priority}
+                          onChange={(e) => patchDraft(row.jid, { priority: Number(e.target.value) })}
+                          className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
+                        >
+                          {PRIORITY_LABELS.map((label, i) => (
+                            <option key={i} value={i}>{label}</option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-[#5a688c]">קובע מי מודגש ב"מה קורה עכשיו"</span>
+                      </div>
+
                       <div>
                         <label className="text-xs text-[#7a89ab] block mb-1">מילות מפתח (מופרדות בפסיק)</label>
                         <input
@@ -439,6 +483,143 @@ export default function WhatsAppSettingsPage() {
               )
             })
           )}
+        </div>
+      )}
+
+      {tab === 'insights' && (
+        <div className="space-y-6">
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-sm text-[#b8c4dc]">מה קורה עכשיו בקבוצות</div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={digestWindow}
+                  onChange={(e) => setDigestWindow(e.target.value as '6h' | '24h' | '7d')}
+                  className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
+                >
+                  <option value="6h">6 שעות</option>
+                  <option value="24h">24 שעות</option>
+                  <option value="7d">7 ימים</option>
+                </select>
+                <button
+                  onClick={() => digestMut.mutate({ window: digestWindow })}
+                  disabled={digestMut.isPending}
+                  className="btn btn-primary text-[12px] py-2 px-4 disabled:opacity-50"
+                >
+                  {digestMut.isPending ? 'מנתח…' : 'רענן תובנות'}
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-[#5a688c]">
+              תדריך מתועדף על פני כל הקבוצות במעקב — לפי חשיבות, נפח פעילות ומילות מפתח.
+            </p>
+
+            {digestMut.isPending ? (
+              <div className="text-xs text-[#4d659c]">אוסף ומנתח הודעות…</div>
+            ) : digestResult ? (
+              <div className="space-y-3">
+                {digestResult.items.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    {digestResult.items.map((item) => (
+                      <div
+                        key={item.groupJid}
+                        className="flex items-start gap-2 px-3 py-2 rounded-lg bg-[#111b30] border border-[#1d2b46]"
+                      >
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded shrink-0 mt-0.5"
+                          style={{
+                            background: item.priority >= 2 ? '#e74c3c22' : item.priority === 1 ? '#25D36622' : '#2f436833',
+                            color: item.priority >= 2 ? '#f0a6a0' : item.priority === 1 ? '#25D366' : '#7a89ab',
+                          }}
+                        >
+                          {PRIORITY_LABELS[item.priority] ?? 'רגיל'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12px] text-[#cdd7ea]">{item.name}</div>
+                          {item.topic && <div className="text-[11px] text-[#8b98ba]">{item.topic}</div>}
+                        </div>
+                        <span className="text-[10px] text-[#4d659c] shrink-0 mt-0.5">{item.messageCount} הודעות</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="text-[13px] text-[#b8c4dc] whitespace-pre-wrap leading-relaxed">
+                  {digestResult.text}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-[#5a688c]">לחץ "רענן תובנות" כדי לקבל תדריך על כל הקבוצות.</div>
+            )}
+          </div>
+
+          <div className="card p-4 space-y-3">
+            <div className="text-sm text-[#b8c4dc]">תובנות על קבוצה מסוימת</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={insightGroupJid}
+                onChange={(e) => {
+                  setInsightGroupJid(e.target.value)
+                  setGroupInsight(null)
+                }}
+                className="flex-1 min-w-[160px] text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
+              >
+                <option value="">בחר קבוצה…</option>
+                {groups
+                  .filter((g) => g.enabled)
+                  .map((g) => (
+                    <option key={g.jid} value={g.jid}>{g.name}</option>
+                  ))}
+              </select>
+              <select
+                value={insightWindow}
+                onChange={(e) => setInsightWindow(e.target.value as '24h' | '7d' | '30d')}
+                className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
+              >
+                <option value="24h">24 שעות</option>
+                <option value="7d">7 ימים</option>
+                <option value="30d">30 יום</option>
+              </select>
+            </div>
+
+            {insightGroupJid && (() => {
+              const stat = messageStats.find((s) => s.groupJid === insightGroupJid)
+              return (
+                <div className="text-[11px] text-[#5a688c]">
+                  {stat
+                    ? `${stat.count} הודעות שמורות · מ-${fmtLastMessage(stat.earliestTs)} עד ${fmtLastMessage(stat.latestTs)}`
+                    : 'אין הודעות שמורות עדיין — התובנות ימתינו לצבירת היסטוריה.'}
+                </div>
+              )
+            })()}
+
+            <div className="flex gap-2 flex-wrap">
+              {(['summary', 'topics', 'style'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (!insightGroupJid) {
+                      setMessage('בחר קבוצה קודם')
+                      return
+                    }
+                    setGroupInsight(null)
+                    forGroupMut.mutate({ groupJid: insightGroupJid, window: insightWindow, mode })
+                  }}
+                  disabled={forGroupMut.isPending || !insightGroupJid}
+                  className="btn btn-ghost text-[12px] py-2 px-4 disabled:opacity-50"
+                >
+                  {mode === 'summary' ? 'סיכום' : mode === 'topics' ? 'על מה מדברים' : 'תובנות בסגנון שלי'}
+                </button>
+              ))}
+            </div>
+
+            {forGroupMut.isPending ? (
+              <div className="text-xs text-[#4d659c]">מנתח את הקבוצה…</div>
+            ) : groupInsight ? (
+              <div className="text-[13px] text-[#b8c4dc] whitespace-pre-wrap leading-relaxed border-t border-[#1d2b46] pt-3">
+                {groupInsight.text}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 

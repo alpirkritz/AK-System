@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { whatsappLabels, whatsappGroups } from '@ak-system/database'
-import { eq, asc } from 'drizzle-orm'
+import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages } from '@ak-system/database'
+import { eq, asc, and, gte, lte, inArray } from 'drizzle-orm'
+import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
 import {
   discoverGroups,
   getBridgeStatus,
@@ -29,6 +30,57 @@ function parseJsonArray(raw: string | null | undefined): string[] {
 
 function stringifyJsonArray(arr: string[]): string {
   return JSON.stringify(arr)
+}
+
+const WINDOW_MS: Record<string, number> = {
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
+function genMsgId(): string {
+  return 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+}
+
+/** Persist a generated insight into the unified chat timeline. */
+async function saveInsightToChat(
+  db: import('../trpc').Context['db'],
+  content: string,
+): Promise<void> {
+  try {
+    await db.insert(chatMessages).values({
+      id: genMsgId(),
+      role: 'assistant',
+      content,
+      source: 'whatsapp',
+      createdAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.warn('[whatsapp.insights] failed to save to chat_messages:', err)
+  }
+}
+
+/** Compute an importance score for cross-group ranking. */
+function computeGroupScore(
+  messages: { text: string; ts: number }[],
+  keywords: string[],
+  priority: number,
+  nowMs: number,
+): number {
+  if (messages.length === 0) return 0
+  const volume = messages.length
+  const kw = keywords.map((k) => k.toLowerCase()).filter(Boolean)
+  const keywordHits = kw.length
+    ? messages.filter((m) => {
+        const t = m.text.toLowerCase()
+        return kw.some((k) => t.includes(k))
+      }).length
+    : 0
+  const latest = messages.reduce((mx, m) => Math.max(mx, m.ts), 0)
+  const ageHours = latest > 0 ? (nowMs - latest) / (60 * 60 * 1000) : 999
+  const recencyBoost = ageHours < 1 ? 5 : ageHours < 6 ? 3 : ageHours < 24 ? 1 : 0
+  return volume + keywordHits * 3 + priority * 10 + recencyBoost
 }
 
 function mapGroupRow(
@@ -153,6 +205,7 @@ export const whatsappRouter = router({
           fomoWindowMinutes: z.number().int().min(1).max(60).default(5),
           summaryTimes: summaryTimesSchema.optional(),
           keywords: z.array(z.string()).default([]),
+          priority: z.number().int().min(0).max(2).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -177,6 +230,7 @@ export const whatsappRouter = router({
           summaryTimes: input.summaryTimes ? stringifyJsonArray(input.summaryTimes) : existing[0]?.summaryTimes ?? null,
           keywords: stringifyJsonArray(input.keywords.map((k) => k.trim()).filter(Boolean)),
           lastFomoAlertAt: existing[0]?.lastFomoAlertAt ?? null,
+          priority: input.priority ?? existing[0]?.priority ?? 0,
           updatedAt: now,
         }
         if (existing.length > 0) {
@@ -204,6 +258,16 @@ export const whatsappRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        // Cascade-delete the group's stored messages (privacy: leave nothing behind).
+        const rows = await ctx.db
+          .select({ jid: whatsappGroups.jid })
+          .from(whatsappGroups)
+          .where(eq(whatsappGroups.id, input.id))
+          .limit(1)
+        const jid = rows[0]?.jid
+        if (jid) {
+          await ctx.db.delete(whatsappMessages).where(eq(whatsappMessages.groupJid, jid))
+        }
         await ctx.db.delete(whatsappGroups).where(eq(whatsappGroups.id, input.id))
         return { ok: true }
       }),
@@ -313,6 +377,169 @@ export const whatsappRouter = router({
         }))
         const okCount = results.filter((r) => r.ok).length
         return { results, okCount, failCount: results.length - okCount }
+      }),
+  }),
+
+  messages: router({
+    /** Stored messages for one group within a time window. */
+    listByGroup: protectedProcedure
+      .input(
+        z.object({
+          groupJid: z.string().min(1),
+          sinceMs: z.number().int().optional(),
+          untilMs: z.number().int().optional(),
+          limit: z.number().int().min(1).max(1000).default(500),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        const conds = [eq(whatsappMessages.groupJid, input.groupJid)]
+        if (input.sinceMs !== undefined) conds.push(gte(whatsappMessages.ts, input.sinceMs))
+        if (input.untilMs !== undefined) conds.push(lte(whatsappMessages.ts, input.untilMs))
+        const rows = await ctx.db
+          .select({
+            id: whatsappMessages.id,
+            sender: whatsappMessages.sender,
+            senderName: whatsappMessages.senderName,
+            text: whatsappMessages.text,
+            ts: whatsappMessages.ts,
+          })
+          .from(whatsappMessages)
+          .where(and(...conds))
+          .orderBy(asc(whatsappMessages.ts))
+          .limit(input.limit)
+        return rows
+      }),
+
+    /** Per-group counts and date range of stored messages. */
+    stats: protectedProcedure
+      .input(z.object({ groupJid: z.string().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const groups = await ctx.db
+          .select({ jid: whatsappGroups.jid, name: whatsappGroups.name })
+          .from(whatsappGroups)
+        const nameByJid = new Map(groups.map((g) => [g.jid, g.name]))
+        const conds = input?.groupJid ? [eq(whatsappMessages.groupJid, input.groupJid)] : []
+        const rows = await ctx.db
+          .select({ groupJid: whatsappMessages.groupJid, ts: whatsappMessages.ts })
+          .from(whatsappMessages)
+          .where(conds.length ? and(...conds) : undefined)
+        const byGroup = new Map<string, { count: number; earliestTs: number; latestTs: number }>()
+        for (const r of rows) {
+          const cur = byGroup.get(r.groupJid) ?? { count: 0, earliestTs: r.ts, latestTs: r.ts }
+          cur.count += 1
+          cur.earliestTs = Math.min(cur.earliestTs, r.ts)
+          cur.latestTs = Math.max(cur.latestTs, r.ts)
+          byGroup.set(r.groupJid, cur)
+        }
+        return Array.from(byGroup.entries()).map(([groupJid, v]) => ({
+          groupJid,
+          name: nameByJid.get(groupJid) ?? groupJid,
+          count: v.count,
+          earliestTs: v.earliestTs,
+          latestTs: v.latestTs,
+        }))
+      }),
+  }),
+
+  insights: router({
+    /** On-demand insight for one group: summary | topics | style. */
+    forGroup: protectedProcedure
+      .input(
+        z.object({
+          groupJid: z.string().min(1),
+          window: z.enum(['24h', '7d', '30d']).default('7d'),
+          mode: z.enum(['summary', 'topics', 'style']).default('summary'),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const sinceMs = Date.now() - (WINDOW_MS[input.window] ?? WINDOW_MS['7d'])
+        const groupRows = await ctx.db
+          .select({ name: whatsappGroups.name })
+          .from(whatsappGroups)
+          .where(eq(whatsappGroups.jid, input.groupJid))
+          .limit(1)
+        const displayName = groupRows[0]?.name?.trim() || input.groupJid.split('@')[0] || 'קבוצה'
+
+        const msgs = await ctx.db
+          .select({
+            senderName: whatsappMessages.senderName,
+            text: whatsappMessages.text,
+            ts: whatsappMessages.ts,
+          })
+          .from(whatsappMessages)
+          .where(and(eq(whatsappMessages.groupJid, input.groupJid), gte(whatsappMessages.ts, sinceMs)))
+          .orderBy(asc(whatsappMessages.ts))
+
+        const text = await generateGroupInsight(displayName, msgs, input.mode)
+        const header =
+          input.mode === 'style'
+            ? `🔎 תובנות — ${displayName}\n\n`
+            : input.mode === 'topics'
+              ? `💬 על מה מדברים — ${displayName}\n\n`
+              : `📋 סיכום קבוצה — ${displayName}\n\n`
+        const full = (header + text).slice(0, 65000)
+        if (msgs.length > 0) await saveInsightToChat(ctx.db, full)
+        return { text: full, messageCount: msgs.length, mode: input.mode, window: input.window }
+      }),
+
+    /** Prioritized cross-group briefing: "what's happening now in my groups". */
+    digest: protectedProcedure
+      .input(z.object({ window: z.enum(['6h', '24h', '7d']).default('24h') }).optional())
+      .mutation(async ({ ctx, input }) => {
+        const window = input?.window ?? '24h'
+        const nowMs = Date.now()
+        const sinceMs = nowMs - (WINDOW_MS[window] ?? WINDOW_MS['24h'])
+
+        const groups = await ctx.db.select().from(whatsappGroups)
+        const enabled = groups.filter((g) => g.enabled)
+        if (enabled.length === 0) {
+          return { text: 'אין קבוצות פעילות במעקב.', items: [], window }
+        }
+
+        const jids = enabled.map((g) => g.jid)
+        const msgRows = await ctx.db
+          .select({
+            groupJid: whatsappMessages.groupJid,
+            senderName: whatsappMessages.senderName,
+            text: whatsappMessages.text,
+            ts: whatsappMessages.ts,
+          })
+          .from(whatsappMessages)
+          .where(and(inArray(whatsappMessages.groupJid, jids), gte(whatsappMessages.ts, sinceMs)))
+          .orderBy(asc(whatsappMessages.ts))
+
+        const byGroup = new Map<string, { senderName: string; text: string; ts: number }[]>()
+        for (const r of msgRows) {
+          const list = byGroup.get(r.groupJid) ?? []
+          list.push({ senderName: r.senderName, text: r.text, ts: r.ts })
+          byGroup.set(r.groupJid, list)
+        }
+
+        const scored = enabled
+          .map((g) => {
+            const messages = byGroup.get(g.jid) ?? []
+            const keywords = parseJsonArray(g.keywords)
+            const score = computeGroupScore(messages, keywords, g.priority ?? 0, nowMs)
+            return {
+              groupJid: g.jid,
+              name: g.name,
+              priority: g.priority ?? 0,
+              messages,
+              score,
+            }
+          })
+          .filter((g) => g.messages.length > 0)
+          .sort((a, b) => b.score - a.score)
+
+        if (scored.length === 0) {
+          return { text: 'אין פעילות חדשה בקבוצות שאתה עוקב אחריהן בטווח הזה.', items: [], window }
+        }
+
+        const { text, items } = await generateCrossGroupDigest(scored)
+        const header = `📡 מה קורה עכשיו בקבוצות\n\n`
+        const full = (header + text).slice(0, 65000)
+        await saveInsightToChat(ctx.db, full)
+        return { text: full, items, window }
       }),
   }),
 

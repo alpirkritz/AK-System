@@ -1,7 +1,7 @@
 import { config } from './config.js'
 import { createServer } from './server.js'
 import { loadPersistedGroupConfig } from './group-config.js'
-import { startWhatsAppClient } from './whatsapp-client.js'
+import { startWhatsAppClient, startPersistFlushLoop } from './whatsapp-client.js'
 
 async function main(): Promise<void> {
   // SELF_JID is auto-detected after QR pairing — never block HTTP/QR startup.
@@ -22,6 +22,9 @@ async function main(): Promise<void> {
   loadPersistedGroupConfig()
 
   void startWhatsAppClient()
+
+  // Periodically flush watched-group messages to the AK database for insights.
+  startPersistFlushLoop()
 
   const app = createServer()
   app.listen(config.port, () => {

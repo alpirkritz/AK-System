@@ -373,13 +373,31 @@ export const whatsappGroups = sqliteTable('whatsapp_groups', {
   summaryTimes: text('summary_times'), // JSON nullable override
   keywords: text('keywords').notNull().default('[]'), // JSON string[]
   lastFomoAlertAt: text('last_fomo_alert_at'),
+  priority: integer('priority').notNull().default(0), // 0 = normal, 1 = high, 2 = top
   updatedAt: text('updated_at').notNull(),
 })
+
+// Rolling archive of watched-group messages (30-day retention) for insights.
+export const whatsappMessages = sqliteTable('whatsapp_messages', {
+  id: text('id').primaryKey(),
+  groupJid: text('group_jid').notNull(),
+  waMessageId: text('wa_message_id').notNull(),
+  sender: text('sender').notNull(),
+  senderName: text('sender_name').notNull(),
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(), // epoch ms of the message
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
+  groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
+}))
 
 export type WhatsappLabel = typeof whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof whatsappGroups.$inferInsert
+export type WhatsappMessage = typeof whatsappMessages.$inferSelect
+export type NewWhatsappMessage = typeof whatsappMessages.$inferInsert
 
 // ─── Notification preferences (per type × channel routing) ───────────────────
 

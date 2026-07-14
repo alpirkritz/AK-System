@@ -226,8 +226,25 @@ const WHATSAPP_TABLES = [
     summary_times TEXT,
     keywords TEXT NOT NULL DEFAULT '[]',
     last_fomo_alert_at TEXT,
+    priority INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS whatsapp_messages (
+    id TEXT PRIMARY KEY,
+    group_jid TEXT NOT NULL,
+    wa_message_id TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    sender_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_group_ts ON whatsapp_messages(group_jid, ts)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_messages_group_msg ON whatsapp_messages(group_jid, wa_message_id)`,
+]
+
+const WHATSAPP_GROUPS_COLUMNS = [
+  'ALTER TABLE whatsapp_groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0',
 ]
 
 const AGENT_TRIGGERS_TABLE = [
@@ -383,6 +400,9 @@ export function getDb() {
   for (const sql of WHATSAPP_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of WHATSAPP_GROUPS_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of AGENT_TRIGGERS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -427,6 +447,7 @@ export const expoPushTokens = schema.expoPushTokens
 export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
+export const whatsappMessages = schema.whatsappMessages
 export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
@@ -470,6 +491,8 @@ export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof schemaPg.whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof schemaPg.whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof schemaPg.whatsappGroups.$inferInsert
+export type WhatsappMessage = typeof schemaPg.whatsappMessages.$inferSelect
+export type NewWhatsappMessage = typeof schemaPg.whatsappMessages.$inferInsert
 export type NotificationPreference = typeof schemaPg.notificationPreferences.$inferSelect
 export type NewNotificationPreference = typeof schemaPg.notificationPreferences.$inferInsert
 export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
@@ -495,4 +518,4 @@ export async function runMutation(q: Promise<unknown> | { run(): void }): Promis
   }
 }
 
-export { desc, lt, sql, eq, and, or, like, asc, isNull } from 'drizzle-orm'
+export { desc, lt, lte, gt, gte, sql, eq, and, or, like, asc, isNull, inArray } from 'drizzle-orm'

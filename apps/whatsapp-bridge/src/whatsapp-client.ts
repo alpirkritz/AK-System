@@ -16,7 +16,16 @@ import { dirname } from 'node:path'
 import { config, getSelfChatTarget, isSelfChatJid, setSelfJid } from './config.js'
 import { isGroupWatched, getGroupRule } from './group-config.js'
 import { onGroupMessage } from './rules-engine.js'
-import { bufferGroupMessage, clearGroupBuffer, getGroupBuffer, getGroupLastActivity } from './group-buffer.js'
+import {
+  bufferGroupMessage,
+  clearGroupBuffer,
+  getGroupBuffer,
+  getGroupLastActivity,
+  enqueuePersistMessage,
+  drainPersistQueues,
+  requeuePersistMessages,
+  type BufferedGroupMessage,
+} from './group-buffer.js'
 
 export interface BridgeStatus {
   connected: boolean
@@ -164,6 +173,57 @@ function resolveGroupSummaryUrl(): string {
   return config.akWebhookUrl.replace(/\/webhook\/?$/, '/group-summary')
 }
 
+function resolveMessagesIngestUrl(): string {
+  if (config.akMessagesIngestUrl) return config.akMessagesIngestUrl
+  if (!config.akWebhookUrl) return ''
+  return config.akWebhookUrl.replace(/\/webhook\/?$/, '/messages/ingest')
+}
+
+/** Flush queued watched-group messages to the AK database (batched, per group). */
+export async function flushPersistQueues(): Promise<void> {
+  const ingestUrl = resolveMessagesIngestUrl()
+  if (!ingestUrl) return
+  const batches = drainPersistQueues()
+  if (batches.length === 0) return
+
+  for (const { groupJid, messages } of batches) {
+    try {
+      const rule = getGroupRule(groupJid)
+      const groupName = rule?.name?.trim() || groupJid.split('@')[0] || ''
+      const res = await fetch(ingestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.bridgeSecret}`,
+        },
+        body: JSON.stringify({ groupJid, groupName, messages }),
+      })
+      if (!res.ok) {
+        const body = await res.text()
+        logger.warn({ groupJid, status: res.status, body: body.slice(0, 200) }, 'Message ingest failed — requeueing')
+        requeuePersistMessages(groupJid, messages)
+      } else {
+        logger.info({ groupJid, count: messages.length }, 'Flushed group messages to AK')
+      }
+    } catch (err) {
+      logger.warn({ err, groupJid }, 'Message ingest error — requeueing')
+      requeuePersistMessages(groupJid, messages)
+    }
+  }
+}
+
+let persistFlushTimer: ReturnType<typeof setInterval> | null = null
+const PERSIST_FLUSH_INTERVAL_MS = 60_000
+
+/** Start the periodic flush loop (idempotent). */
+export function startPersistFlushLoop(): void {
+  if (persistFlushTimer) return
+  persistFlushTimer = setInterval(() => {
+    void flushPersistQueues()
+  }, PERSIST_FLUSH_INTERVAL_MS)
+  if (typeof persistFlushTimer.unref === 'function') persistFlushTimer.unref()
+}
+
 async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
   if (!msg.key.remoteJid) return
 
@@ -208,13 +268,15 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
     if (!isGroupWatched(remoteJid)) return
     const sender = msg.key.participant || msg.participant || 'unknown'
     const trimmed = text.trim()
-    bufferGroupMessage(remoteJid, {
+    const groupMessage: BufferedGroupMessage = {
       id: messageId,
       sender,
       senderName: sender.split('@')[0] ?? sender,
       text: trimmed,
       timestamp: Number(msg.messageTimestamp) || Date.now(),
-    })
+    }
+    bufferGroupMessage(remoteJid, groupMessage)
+    enqueuePersistMessage(remoteJid, groupMessage)
     onGroupMessage(remoteJid, trimmed)
     logger.info({ groupJid: remoteJid, messageId }, 'Buffered group message')
     return
@@ -449,6 +511,8 @@ export async function requestGroupSummary(groupJid: string): Promise<{ ok: boole
     return { ok: false, error: 'No summary in response' }
   }
 
+  // Persist any queued messages before clearing the FOMO buffer so history stays complete.
+  await flushPersistQueues().catch(() => {})
   clearGroupBuffer(groupJid)
   await sendWhatsAppMessage(getSelfChatTarget(), summary)
   return { ok: true }

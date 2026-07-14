@@ -273,8 +273,23 @@ export const whatsappGroups = pgTable('whatsapp_groups', {
   summaryTimes: text('summary_times'),
   keywords: text('keywords').notNull().default('[]'),
   lastFomoAlertAt: text('last_fomo_alert_at'),
+  priority: integer('priority').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 })
+
+export const whatsappMessages = pgTable('whatsapp_messages', {
+  id: text('id').primaryKey(),
+  groupJid: text('group_jid').notNull(),
+  waMessageId: text('wa_message_id').notNull(),
+  sender: text('sender').notNull(),
+  senderName: text('sender_name').notNull(),
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
+  groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
+}))
 
 export const hugoInstructions = pgTable('hugo_instructions', {
   id: text('id').primaryKey(),

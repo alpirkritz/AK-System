@@ -387,6 +387,53 @@ const baseToolDeclarations: FunctionDeclaration[] = [
       },
     },
   },
+  {
+    name: 'whatsapp_now',
+    description:
+      'Prioritized briefing across ALL watched WhatsApp groups from stored history — answers "what is happening now in my groups". Use for: מה קורה לי עכשיו בקבוצות, מה חדש בוואטסאפ, סיכום כללי של הקבוצות, catch me up on whatsapp.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        window: {
+          type: SchemaType.STRING,
+          description: "Time window: '6h', '24h' (default), or '7d'.",
+        },
+      },
+    },
+  },
+  {
+    name: 'query_whatsapp_group',
+    description:
+      'Answer what a SPECIFIC WhatsApp group is discussing, from stored history. Use for: על מה מדברים בקבוצה X, מה קורה בקבוצה, what are they talking about in <group>, סכם לי את קבוצה X.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        groupName: {
+          type: SchemaType.STRING,
+          description: 'Group name to look up (fuzzy match against watched groups). Provide this or groupJid.',
+        },
+        groupJid: { type: SchemaType.STRING, description: 'Exact group JID (optional if groupName given).' },
+        window: { type: SchemaType.STRING, description: "Time window: '24h', '7d' (default), or '30d'." },
+        mode: {
+          type: SchemaType.STRING,
+          description: "'summary' (default), or 'topics' for a breakdown of what is being discussed.",
+        },
+      },
+    },
+  },
+  {
+    name: 'whatsapp_group_insights',
+    description:
+      'Learned-style original insights about a specific WhatsApp group — recurring themes, tone, who drives conversation, plus Hugo\'s own observations. Use for: תובנות על הקבוצה, מה הסגנון בקבוצה, נתח לי את הקבוצה, insights on <group>.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        groupName: { type: SchemaType.STRING, description: 'Group name to look up (fuzzy match). Provide this or groupJid.' },
+        groupJid: { type: SchemaType.STRING, description: 'Exact group JID (optional if groupName given).' },
+        window: { type: SchemaType.STRING, description: "Time window: '24h', '7d' (default), or '30d'." },
+      },
+    },
+  },
 ]
 
 function buildRunAbcAgentTool(): FunctionDeclaration {
@@ -865,6 +912,41 @@ export async function executeTool(
         ...result,
         note: 'Summaries are delivered as separate WhatsApp messages to the user.',
       }
+    }
+
+    case 'whatsapp_now': {
+      const raw = (args.window as string | undefined)?.trim()
+      const window = raw === '6h' || raw === '7d' ? raw : '24h'
+      const result = await caller.whatsapp.insights.digest({ window })
+      return { text: result.text, items: result.items, window: result.window }
+    }
+
+    case 'query_whatsapp_group':
+    case 'whatsapp_group_insights': {
+      let groupJid = (args.groupJid as string | undefined)?.trim()
+      const groupName = (args.groupName as string | undefined)?.trim()
+      if (!groupJid && groupName) {
+        const groups = await caller.whatsapp.groups.list()
+        const q = groupName.toLowerCase()
+        const match =
+          groups.find((g) => g.name.toLowerCase() === q) ??
+          groups.find((g) => g.name.toLowerCase().includes(q)) ??
+          groups.find((g) => q.includes(g.name.toLowerCase()))
+        groupJid = match?.jid
+      }
+      if (!groupJid) {
+        return { error: 'לא מצאתי קבוצה תואמת. ציין שם קבוצה מדויק יותר.' }
+      }
+      const rawWin = (args.window as string | undefined)?.trim()
+      const window = rawWin === '24h' || rawWin === '30d' ? rawWin : '7d'
+      const mode =
+        name === 'whatsapp_group_insights'
+          ? 'style'
+          : (args.mode as string | undefined) === 'topics'
+            ? 'topics'
+            : 'summary'
+      const result = await caller.whatsapp.insights.forGroup({ groupJid, window, mode })
+      return { text: result.text, messageCount: result.messageCount, mode: result.mode, window: result.window }
     }
 
     case 'run_abc_agent': {
