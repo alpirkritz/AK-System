@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef, memo } from 'react'
+import { useState, useMemo, useCallback, useRef, memo, lazy, Suspense } from 'react'
 import { trpc } from '@/lib/trpc'
 import {
   VAT_CATEGORIES,
@@ -10,6 +10,8 @@ import {
   VAT_RATE,
 } from '@ak-system/types'
 import type { VatCategoryDef } from '@ak-system/types'
+
+const VatBulkImport = lazy(() => import('./VatBulkImport'))
 
 type VatEntryRow = {
   id: string
@@ -819,6 +821,8 @@ export default function VatTab() {
     current.period
   )
   const [showForm, setShowForm] = useState(false)
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [editEntry, setEditEntry] = useState<Parameters<typeof EntryForm>[0]['editEntry']>(null)
 
   const isAnnual = selectedPeriod === 'annual'
@@ -862,6 +866,26 @@ export default function VatTab() {
     utils.vat.list.invalidate()
     utils.vat.periodSummary.invalidate()
     utils.vat.annualSummary.invalidate()
+  }
+
+  const handleExportExcel = async () => {
+    setExporting(true)
+    try {
+      const result = await utils.vat.exportExcel.fetch(
+        isAnnual ? { year } : { year, period: periodNum },
+      )
+      const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = result.fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
   }
 
   const years = useMemo(() => {
@@ -916,9 +940,32 @@ export default function VatTab() {
           </button>
         </div>
 
-        {!isAnnual && (
-          <button className="btn btn-primary text-xs mr-auto" onClick={handleAdd}>
-            + הוסף רשומה
+        {!isAnnual ? (
+          <div className="flex gap-2 mr-auto">
+            <button
+              className="btn btn-ghost text-xs"
+              onClick={handleExportExcel}
+              disabled={exporting}
+            >
+              {exporting ? 'מייצא...' : '📥 ייצא לאקסל'}
+            </button>
+            <button
+              className="btn btn-ghost text-xs"
+              onClick={() => setShowBulkImport(true)}
+            >
+              📁 ייבוא מתיקייה
+            </button>
+            <button className="btn btn-primary text-xs" onClick={handleAdd}>
+              + הוסף רשומה
+            </button>
+          </div>
+        ) : (
+          <button
+            className="btn btn-ghost text-xs mr-auto"
+            onClick={handleExportExcel}
+            disabled={exporting}
+          >
+            {exporting ? 'מייצא...' : '📥 ייצא לאקסל'}
           </button>
         )}
       </div>
@@ -1131,6 +1178,20 @@ export default function VatTab() {
           }}
           onSaved={handleSaved}
         />
+      )}
+
+      {/* Bulk Import Modal */}
+      {showBulkImport && (
+        <Suspense fallback={null}>
+          <VatBulkImport
+            onClose={() => setShowBulkImport(false)}
+            onImported={() => {
+              utils.vat.list.invalidate()
+              utils.vat.periodSummary.invalidate()
+              utils.vat.annualSummary.invalidate()
+            }}
+          />
+        </Suspense>
       )}
     </div>
   )

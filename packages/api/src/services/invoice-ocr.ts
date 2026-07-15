@@ -45,7 +45,8 @@ export async function parseInvoiceWithVision(
   }
 
   const genAI = new GoogleGenerativeAI(key)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const modelName = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash'
+  const model = genAI.getGenerativeModel({ model: modelName })
 
   const result = await model.generateContent([
     { text: PROMPT },

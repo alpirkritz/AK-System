@@ -1,10 +1,70 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { vatEntries } from '@ak-system/database'
-import { eq, desc, and, sql } from 'drizzle-orm'
+import { eq, desc, and, sql, isNotNull } from 'drizzle-orm'
 import { VAT_CATEGORIES, computeVatBreakdown, VAT_RATE } from '@ak-system/types'
+import type { Context } from '../trpc'
+import {
+  isExpensesDirAvailable,
+  listExpenseFolders as listExpenseFoldersSvc,
+  listFolderFiles as listFolderFilesSvc,
+  folderToPeriod,
+  readInvoiceFile,
+} from '../services/expense-folders'
+import { buildVatExcelExport } from '../services/vat-excel-export'
 
 const idInput = z.object({ id: z.string().min(1) })
+
+const createEntryInput = z.object({
+  year: z.number().int(),
+  period: z.number().int().min(1).max(6),
+  taxCode: z.string(),
+  category: z.string(),
+  entryType: z.enum(['income', 'expense']),
+  date: z.string(),
+  invoiceNumber: z.string().optional(),
+  description: z.string().min(1),
+  amount: z.number().positive(),
+  isVatExempt: z.boolean().default(false),
+  deductionPercent: z.number().min(0).max(1).optional(),
+  dollarRate: z.number().positive().optional(),
+  invoiceFileUrl: z.string().optional(),
+})
+
+type CreateEntryInput = z.infer<typeof createEntryInput>
+
+function buildInsertValues(input: CreateEntryInput, id: string) {
+  return {
+    id,
+    year: input.year,
+    period: input.period,
+    taxCode: input.taxCode,
+    category: input.category,
+    entryType: input.entryType,
+    date: input.date,
+    invoiceNumber: input.invoiceNumber ?? null,
+    description: input.description,
+    amount: String(input.amount),
+    isVatExempt: input.isVatExempt ? 1 : 0,
+    deductionPercent: input.deductionPercent != null ? String(input.deductionPercent) : null,
+    dollarRate: input.dollarRate != null ? String(input.dollarRate) : null,
+    invoiceFileUrl: input.invoiceFileUrl ?? null,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+/** Set of absolute file paths already imported (via invoice_file_url), for dedup. */
+async function getImportedPaths(db: Context['db']): Promise<Set<string>> {
+  const rows = await db
+    .select({ url: vatEntries.invoiceFileUrl })
+    .from(vatEntries)
+    .where(isNotNull(vatEntries.invoiceFileUrl))
+  const set = new Set<string>()
+  for (const r of rows) {
+    if (r.url) set.add(r.url)
+  }
+  return set
+}
 
 export const vatRouter = router({
   categories: protectedProcedure.query(() => VAT_CATEGORIES),
@@ -44,43 +104,23 @@ export const vatRouter = router({
     }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        year: z.number().int(),
-        period: z.number().int().min(1).max(6),
-        taxCode: z.string(),
-        category: z.string(),
-        entryType: z.enum(['income', 'expense']),
-        date: z.string(),
-        invoiceNumber: z.string().optional(),
-        description: z.string().min(1),
-        amount: z.number().positive(),
-        isVatExempt: z.boolean().default(false),
-        deductionPercent: z.number().min(0).max(1).optional(),
-        dollarRate: z.number().positive().optional(),
-        invoiceFileUrl: z.string().optional(),
-      })
-    )
+    .input(createEntryInput)
     .mutation(async ({ ctx, input }) => {
       const id = 've' + Date.now() + Math.random().toString(36).slice(2, 7)
-      await ctx.db.insert(vatEntries).values({
-        id,
-        year: input.year,
-        period: input.period,
-        taxCode: input.taxCode,
-        category: input.category,
-        entryType: input.entryType,
-        date: input.date,
-        invoiceNumber: input.invoiceNumber ?? null,
-        description: input.description,
-        amount: String(input.amount),
-        isVatExempt: input.isVatExempt ? 1 : 0,
-        deductionPercent: input.deductionPercent != null ? String(input.deductionPercent) : null,
-        dollarRate: input.dollarRate != null ? String(input.dollarRate) : null,
-        invoiceFileUrl: input.invoiceFileUrl ?? null,
-        createdAt: new Date().toISOString(),
-      })
+      await ctx.db.insert(vatEntries).values(buildInsertValues(input, id))
       return { id }
+    }),
+
+  createBatch: protectedProcedure
+    .input(z.object({ entries: z.array(createEntryInput).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      let inserted = 0
+      for (let i = 0; i < input.entries.length; i++) {
+        const id = 've' + Date.now() + i + Math.random().toString(36).slice(2, 7)
+        await ctx.db.insert(vatEntries).values(buildInsertValues(input.entries[i], id))
+        inserted++
+      }
+      return { inserted }
     }),
 
   update: protectedProcedure
@@ -259,6 +299,30 @@ export const vatRouter = router({
       }
     }),
 
+  exportExcel: protectedProcedure
+    .input(
+      z.object({
+        year: z.number().int(),
+        period: z.number().int().min(1).max(6).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const rows =
+        input.period != null
+          ? await ctx.db
+              .select()
+              .from(vatEntries)
+              .where(and(eq(vatEntries.year, input.year), eq(vatEntries.period, input.period)))
+              .orderBy(vatEntries.date, vatEntries.createdAt)
+          : await ctx.db
+              .select()
+              .from(vatEntries)
+              .where(eq(vatEntries.year, input.year))
+              .orderBy(vatEntries.taxCode, vatEntries.date)
+
+      return buildVatExcelExport(rows, input.year, input.period)
+    }),
+
   parseInvoice: protectedProcedure
     .input(
       z.object({
@@ -269,5 +333,73 @@ export const vatRouter = router({
     .mutation(async ({ input }) => {
       const { parseInvoiceWithVision } = await import('../services/invoice-ocr')
       return parseInvoiceWithVision(input.fileBase64, input.mimeType)
+    }),
+
+  // ─── Bulk import from Google Drive "Expenses/YYYY_MM" folders ────────────────
+
+  listExpenseFolders: protectedProcedure
+    .input(z.object({ year: z.number().int().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!isExpensesDirAvailable()) {
+        return {
+          available: false as const,
+          reason: 'תיקיית ההוצאות אינה נגישה מהשרת',
+          folders: [] as Array<{
+            folder: string
+            year: number
+            month: number
+            period: number
+            fileCount: number
+            importedCount: number
+          }>,
+        }
+      }
+      const folders = listExpenseFoldersSvc(input?.year)
+      const importedSet = await getImportedPaths(ctx.db)
+      const withCounts = folders.map((f) => {
+        let importedCount = 0
+        try {
+          const files = listFolderFilesSvc(f.folder)
+          importedCount = files.filter((file) => importedSet.has(file.filePath)).length
+        } catch {
+          importedCount = 0
+        }
+        return { ...f, importedCount }
+      })
+      return { available: true as const, reason: null, folders: withCounts }
+    }),
+
+  listFolderFiles: protectedProcedure
+    .input(z.object({ folder: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const files = listFolderFilesSvc(input.folder)
+      const importedSet = await getImportedPaths(ctx.db)
+      return files.map((f) => ({
+        fileName: f.fileName,
+        sizeBytes: f.sizeBytes,
+        mimeType: f.mimeType,
+        filePath: f.filePath,
+        alreadyImported: importedSet.has(f.filePath),
+      }))
+    }),
+
+  parseFolderFile: protectedProcedure
+    .input(z.object({ folder: z.string(), fileName: z.string() }))
+    .mutation(async ({ input }) => {
+      const { base64, mimeType, filePath } = readInvoiceFile(input.folder, input.fileName)
+      const { parseInvoiceWithVision } = await import('../services/invoice-ocr')
+      const parsed = await parseInvoiceWithVision(base64, mimeType)
+
+      // Default period from the folder; refine from the OCR-parsed date if valid.
+      let { year, period } = folderToPeriod(input.folder)
+      if (parsed.date) {
+        const d = new Date(parsed.date)
+        if (!Number.isNaN(d.getTime())) {
+          year = d.getFullYear()
+          period = Math.ceil((d.getMonth() + 1) / 2)
+        }
+      }
+
+      return { ...parsed, filePath, year, period }
     }),
 })
