@@ -2,7 +2,13 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { vatEntries } from '@ak-system/database'
 import { eq, desc, and, sql, isNotNull } from 'drizzle-orm'
-import { VAT_CATEGORIES, computeVatBreakdown, VAT_RATE } from '@ak-system/types'
+import {
+  VAT_CATEGORIES,
+  computeVatBreakdown,
+  VAT_RATE,
+  periodFromDate,
+  sanitizeInvoiceDate,
+} from '@ak-system/types'
 import type { Context } from '../trpc'
 import {
   isExpensesDirAvailable,
@@ -34,14 +40,17 @@ const createEntryInput = z.object({
 type CreateEntryInput = z.infer<typeof createEntryInput>
 
 function buildInsertValues(input: CreateEntryInput, id: string) {
+  // Period always follows the invoice date — not the UI tab / folder the user was on.
+  const date = sanitizeInvoiceDate(input.date)
+  const { year, period } = periodFromDate(date)
   return {
     id,
-    year: input.year,
-    period: input.period,
+    year,
+    period,
     taxCode: input.taxCode,
     category: input.category,
     entryType: input.entryType,
-    date: input.date,
+    date,
     invoiceNumber: input.invoiceNumber ?? null,
     description: input.description,
     amount: String(input.amount),
@@ -147,7 +156,13 @@ export const vatRouter = router({
       if (fields.taxCode !== undefined) updates.taxCode = fields.taxCode
       if (fields.category !== undefined) updates.category = fields.category
       if (fields.entryType !== undefined) updates.entryType = fields.entryType
-      if (fields.date !== undefined) updates.date = fields.date
+      if (fields.date !== undefined) {
+        const date = sanitizeInvoiceDate(fields.date)
+        updates.date = date
+        const derived = periodFromDate(date)
+        updates.year = derived.year
+        updates.period = derived.period
+      }
       if (fields.invoiceNumber !== undefined) updates.invoiceNumber = fields.invoiceNumber
       if (fields.description !== undefined) updates.description = fields.description
       if (fields.amount !== undefined) updates.amount = String(fields.amount)

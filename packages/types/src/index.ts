@@ -26,6 +26,8 @@ export {
   VAT_CATEGORIES,
   BIMONTHLY_PERIODS,
   getCurrentPeriod,
+  periodFromDate,
+  sanitizeInvoiceDate,
   computeVatBreakdown,
 } from './vat'
 export type { VatCategoryDef, VatBreakdown } from './vat'

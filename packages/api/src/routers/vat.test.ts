@@ -27,6 +27,54 @@ beforeEach(async () => {
   await getDb().delete(vatEntries)
 })
 
+describe('vat.create period from date', () => {
+  it('stores March invoice under period 2 even when client sends May-June period', async () => {
+    const caller = await createTestCaller()
+    await caller.vat.create({
+      year: 2026,
+      period: 3, // client was on מאי-יוני
+      taxCode: '2',
+      category: 'קניות - עלות המכירות',
+      entryType: 'expense',
+      date: '2026-03-15',
+      description: 'חשבונית ממרץ',
+      amount: 100,
+      isVatExempt: false,
+      deductionPercent: 1,
+    })
+
+    const wrongPeriod = await caller.vat.list({ year: 2026, period: 3 })
+    expect(wrongPeriod.find((r) => r.description === 'חשבונית ממרץ')).toBeUndefined()
+
+    const marchPeriod = await caller.vat.list({ year: 2026, period: 2 })
+    const row = marchPeriod.find((r) => r.description === 'חשבונית ממרץ')
+    expect(row).toBeTruthy()
+    expect(row!.period).toBe(2)
+    expect(row!.year).toBe(2026)
+  })
+
+  it('moves period when date is updated', async () => {
+    const caller = await createTestCaller()
+    const { id } = await caller.vat.create({
+      year: 2026,
+      period: 3,
+      taxCode: '2',
+      category: 'קניות - עלות המכירות',
+      entryType: 'expense',
+      date: '2026-06-01',
+      description: 'זז לתקופה',
+      amount: 50,
+      isVatExempt: false,
+      deductionPercent: 1,
+    })
+    await caller.vat.update({ id, date: '2026-01-20' })
+    const jan = await caller.vat.list({ year: 2026, period: 1 })
+    expect(jan.find((r) => r.id === id)).toBeTruthy()
+    const jun = await caller.vat.list({ year: 2026, period: 3 })
+    expect(jun.find((r) => r.id === id)).toBeUndefined()
+  })
+})
+
 describe('vat.createBatch', () => {
   it('inserts multiple entries and list returns them', async () => {
     const caller = await createTestCaller()

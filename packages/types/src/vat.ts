@@ -40,6 +40,42 @@ export function getCurrentPeriod(): { year: number; period: number } {
   return { year: now.getFullYear(), period }
 }
 
+/**
+ * Fix common OCR century typos (e.g. 2006-05-01 → 2026-05-01) when the
+ * year is clearly misplaced relative to "now".
+ */
+export function sanitizeInvoiceDate(date: string, now = new Date()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(.*)$/.exec(date.trim())
+  if (!m) return date
+  let year = Number(m[1])
+  const rest = `-${m[2]}-${m[3]}${m[4] ?? ''}`
+  const currentYear = now.getFullYear()
+  // OCR often reads 2026 as 2006 (missing the middle digit). Remap 200Y → 202Y
+  // when we're in the 2020s and the gap is large.
+  if (year >= 2000 && year <= 2015 && currentYear >= 2020 && currentYear - year >= 10) {
+    year = 2000 + (year % 100) + 20 // 2006 → 2026
+  }
+  return `${year}${rest}`
+}
+
+/** Derive calendar year + bimonthly VAT period from an ISO date (YYYY-MM-DD). */
+export function periodFromDate(date: string): { year: number; period: number } {
+  const cleaned = sanitizeInvoiceDate(date)
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(cleaned.trim())
+  if (m) {
+    const year = Number(m[1])
+    const month = Number(m[2])
+    if (month >= 1 && month <= 12) {
+      return { year, period: Math.ceil(month / 2) }
+    }
+  }
+  const d = new Date(cleaned)
+  if (Number.isNaN(d.getTime())) {
+    return getCurrentPeriod()
+  }
+  return { year: d.getFullYear(), period: Math.ceil((d.getMonth() + 1) / 2) }
+}
+
 export type VatBreakdown = {
   incomeInclVat: number
   incomeExclVat: number

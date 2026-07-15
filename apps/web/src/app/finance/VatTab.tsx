@@ -6,6 +6,7 @@ import {
   VAT_CATEGORIES,
   BIMONTHLY_PERIODS,
   getCurrentPeriod,
+  periodFromDate,
   computeVatBreakdown,
   VAT_RATE,
 } from '@ak-system/types'
@@ -56,11 +57,6 @@ function fmtDate(iso: string): string {
 
 function fmtPct(n: number): string {
   return `${Math.round(n * 100)}%`
-}
-
-function periodFromDate(date: string): number {
-  const month = new Date(date).getMonth() + 1
-  return Math.ceil(month / 2)
 }
 
 // ─── Summary Card ─────────────────────────────────────────────────────────────
@@ -316,10 +312,11 @@ function EntryForm({
       dollarRate: form.dollarRate ? parseFloat(form.dollarRate) : undefined,
     }
 
+    const derived = periodFromDate(form.date)
     if (isEdit && editEntry) {
       updateMutation.mutate({ id: editEntry.id, ...payload })
     } else {
-      createMutation.mutate({ year, period, ...payload })
+      createMutation.mutate({ year: derived.year, period: derived.period, ...payload })
     }
   }
 
@@ -1148,9 +1145,16 @@ export default function VatTab() {
                             </button>
                             <button
                               className="btn btn-ghost text-[11px] py-1 px-2 text-[#fb7185] border-[#fb718522]"
-                              onClick={() =>
+                              onClick={() => {
+                                if (
+                                  !window.confirm(
+                                    `למחוק את הרשומה "${entry.description}"?\nפעולה זו לא ניתנת לביטול.`,
+                                  )
+                                ) {
+                                  return
+                                }
                                 deleteMutation.mutate({ id: entry.id })
-                              }
+                              }}
                             >
                               מחק
                             </button>

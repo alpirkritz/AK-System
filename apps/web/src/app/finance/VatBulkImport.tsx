@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { trpc } from '@/lib/trpc'
-import { VAT_CATEGORIES, computeVatBreakdown } from '@ak-system/types'
+import { VAT_CATEGORIES, computeVatBreakdown, periodFromDate } from '@ak-system/types'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -248,9 +248,10 @@ export default function VatBulkImport({
     try {
       const entries = toImport.map((r) => {
         const cat = VAT_CATEGORIES.find((c) => c.id === r.categoryId) ?? DEFAULT_CATEGORY
+        const derived = periodFromDate(r.date)
         return {
-          year: r.year,
-          period: r.period,
+          year: derived.year,
+          period: derived.period,
           taxCode: cat.taxCode,
           category: cat.label,
           entryType: r.entryType,
