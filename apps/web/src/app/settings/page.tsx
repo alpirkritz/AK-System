@@ -539,6 +539,136 @@ function NotificationsCard() {
   )
 }
 
+const TYPE_COLORS = ['#8b5cf6', '#2dd4bf', '#fb7185', '#38bdf8', '#e8c547', '#47e8a8']
+
+function MeetingTypesCard() {
+  const utils = trpc.useUtils()
+  const { data: types = [], isLoading } = trpc.meetingTypes.list.useQuery()
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState(TYPE_COLORS[0])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const refresh = () => {
+    void utils.meetingTypes.list.invalidate()
+    void utils.meetingTypes.list.refetch()
+  }
+  const create = trpc.meetingTypes.create.useMutation({
+    onSuccess: (row) => {
+      if (row) utils.meetingTypes.list.setData(undefined, (old) => [...(old ?? []), row])
+      refresh()
+      setNewName('')
+    },
+  })
+  const update = trpc.meetingTypes.update.useMutation({
+    onSuccess: (row) => {
+      if (row) utils.meetingTypes.list.setData(undefined, (old) => (old ?? []).map((t) => (t.id === row.id ? row : t)))
+      refresh()
+      setEditingId(null)
+    },
+  })
+  const remove = trpc.meetingTypes.delete.useMutation({
+    onSuccess: (_res, vars) => {
+      utils.meetingTypes.list.setData(undefined, (old) => (old ?? []).filter((t) => t.id !== vars.id))
+      refresh()
+    },
+  })
+
+  return (
+    <Section
+      icon={<span className="text-base">🏷️</span>}
+      title="סוגי פגישות"
+      description="הגדר סוגים לפגישות — 1:1, אסטרטגיה, אופרציה ועוד"
+    >
+      {isLoading ? (
+        <div className="px-5 py-3 text-xs text-[#5a688c]">טוען…</div>
+      ) : types.length === 0 ? (
+        <div className="px-5 py-3 text-xs text-[#5a688c]">עדיין אין סוגים — הוסף את הראשון למטה</div>
+      ) : (
+        types.map((t) => (
+          <div key={t.id} className="flex items-center justify-between gap-3 px-5 py-3">
+            {editingId === t.id ? (
+              <>
+                <input
+                  className="input text-sm flex-1"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                />
+                <div className="flex gap-1.5 shrink-0">
+                  <button
+                    className="btn btn-primary text-xs py-1 px-3"
+                    onClick={() => update.mutate({ id: t.id, name: editName, color: t.color ?? undefined })}
+                    disabled={!editName.trim() || update.isPending}
+                  >
+                    שמור
+                  </button>
+                  <button className="btn btn-ghost text-xs py-1 px-3" onClick={() => setEditingId(null)}>ביטול</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.color ?? '#8b5cf6' }} />
+                  <span className="text-sm text-[#b8c4dc] truncate">{t.name}</span>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button
+                    className="text-[11px] text-[#4d659c] hover:text-[#7a89ab] transition-colors"
+                    onClick={() => { setEditingId(t.id); setEditName(t.name) }}
+                  >
+                    ✏ שנה שם
+                  </button>
+                  <button
+                    className="text-[11px] text-[#4d659c] hover:text-[#e57373] transition-colors"
+                    onClick={() => {
+                      if (window.confirm('למחוק את הסוג? פגישות שמשויכות אליו יאבדו את הסיווג.')) {
+                        remove.mutate({ id: t.id })
+                      }
+                    }}
+                  >
+                    🗑 מחק
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ))
+      )}
+
+      {/* Add new type */}
+      <div className="px-5 py-3 flex items-center gap-2">
+        <div className="flex gap-1.5 shrink-0">
+          {TYPE_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setNewColor(c)}
+              className="w-5 h-5 rounded-full border-2 transition-all"
+              style={{ background: c, borderColor: newColor === c ? '#fff' : 'transparent' }}
+              aria-label={`צבע ${c}`}
+            />
+          ))}
+        </div>
+        <input
+          className="input text-sm flex-1"
+          placeholder="שם סוג חדש…"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim()) create.mutate({ name: newName.trim(), color: newColor }) }}
+        />
+        <button
+          className="btn btn-primary text-xs py-1.5 px-3 shrink-0"
+          onClick={() => create.mutate({ name: newName.trim(), color: newColor })}
+          disabled={!newName.trim() || create.isPending}
+        >
+          + סוג חדש
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -972,6 +1102,9 @@ export default function SettingsPage() {
           )}
         </div>
       </Section>
+
+      {/* ── Section: Meeting Types ────────────────────────────────────────────── */}
+      <MeetingTypesCard />
     </div>
   )
 }

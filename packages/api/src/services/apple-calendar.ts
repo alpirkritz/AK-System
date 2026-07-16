@@ -17,6 +17,12 @@
 
 const EXEC_TIMEOUT_MS = 15_000 // 15 s – EventKit reads from local cache, should be fast
 
+export interface AppleCalendarAttendee {
+  email?: string
+  displayName?: string
+  responseStatus?: string
+}
+
 export interface AppleCalendarEvent {
   id: string
   title: string
@@ -31,6 +37,7 @@ export interface AppleCalendarEvent {
   calendarName: string
   calendarColor: string | null
   source: 'apple'
+  attendees?: AppleCalendarAttendee[]
 }
 
 /** Returns true when running on macOS */
@@ -80,6 +87,7 @@ interface RawEvent {
   status: string
   organizer?: string
   attendeeStatus?: string
+  attendees?: Array<{ email?: string | null; name?: string | null; responseStatus?: string }>
 }
 
 async function runHelper(timeMin: Date, timeMax: Date): Promise<AppleCalendarEvent[]> {
@@ -168,6 +176,13 @@ async function runHelper(timeMin: Date, timeMax: Date): Promise<AppleCalendarEve
               calendarName:  e.calendar,
               calendarColor: null,
               source:        'apple' as const,
+              attendees:     (e.attendees ?? [])
+                .map(a => ({
+                  email: a.email ?? undefined,
+                  displayName: a.name ?? undefined,
+                  responseStatus: a.responseStatus,
+                }))
+                .filter(a => a.email || a.displayName),
             }
           })
 

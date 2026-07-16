@@ -19,9 +19,12 @@ export default function MeetingDetailPage() {
   const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
 
   type MeetingExtended = typeof meeting & {
     projectId?: string | null
+    typeId?: string | null
+    seriesId?: string | null
     location?: string | null
     endTime?: string | null
     calendarSource?: string | null
@@ -30,6 +33,14 @@ export default function MeetingDetailPage() {
   }
   const mx = meeting as MeetingExtended
   const project = mx?.projectId ? projects.find((p) => p.id === mx.projectId) : null
+  const meetingType = mx?.typeId ? meetingTypes.find((t) => t.id === mx.typeId) : null
+
+  const { data: series } = trpc.meetings.getSeries.useQuery(
+    { id: mx?.seriesId as string },
+    { enabled: !!mx?.seriesId },
+  )
+  const [editingSeriesNotes, setEditingSeriesNotes] = useState(false)
+  const [seriesNotesValue, setSeriesNotesValue] = useState('')
 
   const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
   const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
@@ -58,6 +69,13 @@ export default function MeetingDetailPage() {
 
   const deleteMeeting = trpc.meetings.delete.useMutation({
     onSuccess: () => router.push('/meetings'),
+  })
+
+  const updateSeriesNotes = trpc.meetings.updateSeriesNotes.useMutation({
+    onSuccess: () => {
+      utils.meetings.getSeries.invalidate()
+      setEditingSeriesNotes(false)
+    },
   })
 
   const createTask = trpc.tasks.create.useMutation({
@@ -232,6 +250,18 @@ export default function MeetingDetailPage() {
         <h1 className="text-[26px] font-bold tracking-tight">{meeting.title}</h1>
         {meeting.recurring && (
           <span className="pill">↻ {DAYS_HE[meeting.recurrenceDay ?? ''] ?? 'שבועי'}</span>
+        )}
+        {meetingType && (
+          <span
+            className="text-[11px] px-2 py-0.5 rounded-full"
+            style={{
+              background: (meetingType.color ?? '#8b5cf6') + '22',
+              color: meetingType.color ?? '#8b5cf6',
+              border: `1px solid ${(meetingType.color ?? '#8b5cf6')}33`,
+            }}
+          >
+            {meetingType.name}
+          </span>
         )}
         {mx.calendarSource && (
           <span
@@ -467,6 +497,76 @@ onClick={() => {
           </div>
         </div>
       </div>
+
+      {/* ── Series card — shared notes + sibling instances ─────────────────── */}
+      {series && (
+        <div className="card mt-5">
+          <div className="flex justify-between items-center mb-3">
+            <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider flex items-center gap-2">
+              סדרה
+              <span className="pill">↻ {series.cadence === 'weekly' ? 'שבועי' : 'סדרה'}</span>
+              <span className="text-[#647399] normal-case">{series.instances.length} מפגשים</span>
+            </div>
+            {!editingSeriesNotes && (
+              <button
+                className="text-[11px] text-[#4d659c] hover:text-[#7a89ab] transition-colors"
+                onClick={() => { setSeriesNotesValue(series.rollingNotes ?? ''); setEditingSeriesNotes(true) }}
+              >
+                ✏ הערות סדרה
+              </button>
+            )}
+          </div>
+
+          {editingSeriesNotes ? (
+            <div className="mb-4">
+              <textarea
+                className="input resize-y w-full text-sm"
+                rows={4}
+                value={seriesNotesValue}
+                onChange={(e) => setSeriesNotesValue(e.target.value)}
+                placeholder="הערות מתגלגלות שנשמרות לכל המפגשים בסדרה…"
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+              />
+              <div className="flex gap-2 mt-2 justify-end">
+                <button className="btn btn-ghost text-xs py-1 px-3" onClick={() => setEditingSeriesNotes(false)}>ביטול</button>
+                <button
+                  className="btn btn-primary text-xs py-1 px-3"
+                  onClick={() => updateSeriesNotes.mutate({ id: series.id, rollingNotes: seriesNotesValue })}
+                  disabled={updateSeriesNotes.isPending}
+                >
+                  שמור
+                </button>
+              </div>
+            </div>
+          ) : series.rollingNotes ? (
+            <div className="text-sm text-[#97a4c2] leading-relaxed whitespace-pre-wrap mb-4">{series.rollingNotes}</div>
+          ) : (
+            <button
+              className="text-sm text-[#435a8c] hover:text-[#647399] transition-colors w-full text-right mb-4"
+              onClick={() => { setSeriesNotesValue(''); setEditingSeriesNotes(true) }}
+            >
+              + הוסף הערות סדרה ›
+            </button>
+          )}
+
+          <div className="space-y-1.5">
+            {series.instances.map((inst) => (
+              <Link
+                key={inst.id}
+                href={`/meetings/${inst.id}`}
+                className={`flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-[#141f36] transition-colors ${inst.id === id ? 'bg-[#141f36]' : ''}`}
+              >
+                <span className="text-[11px] text-[#5a688c] tabular-nums w-[74px] shrink-0">
+                  {new Date(inst.date + 'T00:00:00').toLocaleDateString('he-IL')}
+                </span>
+                <span className="text-xs text-[#97a4c2] truncate">{inst.title}</span>
+                {inst.id === id && <span className="text-[10px] text-[#2dd4bf] mr-auto shrink-0">נוכחי</span>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
       <MeetingModal

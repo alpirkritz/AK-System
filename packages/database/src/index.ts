@@ -29,6 +29,31 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN calendar_event_id TEXT',
   'ALTER TABLE meetings ADD COLUMN calendar_source TEXT',
   'ALTER TABLE meetings ADD COLUMN category TEXT',
+  'ALTER TABLE meetings ADD COLUMN series_id TEXT',
+  'ALTER TABLE meetings ADD COLUMN type_id TEXT',
+]
+
+const MEETING_STRUCTURE_TABLES = [
+  `CREATE TABLE IF NOT EXISTS meeting_series (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    cadence TEXT,
+    recurrence_day TEXT,
+    rolling_notes TEXT,
+    google_recurring_event_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_series_google_recurring_event_id ON meeting_series(google_recurring_event_id)`,
+  `CREATE TABLE IF NOT EXISTS meeting_types (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#8b5cf6',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meetings_series_id ON meetings(series_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meetings_type_id ON meetings(type_id)`,
 ]
 
 const PEOPLE_COLUMNS = [
@@ -42,6 +67,9 @@ const PEOPLE_COLUMNS = [
   'ALTER TABLE people ADD COLUMN goal TEXT',
   'ALTER TABLE people ADD COLUMN contact_frequency_days INTEGER',
   'ALTER TABLE people ADD COLUMN notes TEXT',
+  "ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+  "ALTER TABLE people ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+  'CREATE INDEX IF NOT EXISTS idx_people_status ON people(status)',
 ]
 
 const FEED_TABLES = [
@@ -394,6 +422,9 @@ export function getDb() {
   for (const sql of TASK_PEOPLE_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of MEETING_STRUCTURE_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of VAT_ENTRIES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -427,7 +458,11 @@ const schema = usePostgres() ? schemaPg : schemaSqlite
 export const people = schema.people
 export const projects = schema.projects
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
+export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
+export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
 export const meetings = schema.meetings
+export const meetingSeries = schema.meetingSeries
+export const meetingTypes = schema.meetingTypes
 export const meetingPeople = schema.meetingPeople
 export const tasks = schema.tasks
 export const taskPeople = schema.taskPeople
@@ -475,6 +510,12 @@ export type Project = typeof schemaPg.projects.$inferSelect
 export type NewProject = typeof schemaPg.projects.$inferInsert
 export type Meeting = typeof schemaPg.meetings.$inferSelect
 export type NewMeeting = typeof schemaPg.meetings.$inferInsert
+export type MeetingSeries = typeof schemaPg.meetingSeries.$inferSelect
+export type NewMeetingSeries = typeof schemaPg.meetingSeries.$inferInsert
+export type MeetingType = typeof schemaPg.meetingTypes.$inferSelect
+export type NewMeetingType = typeof schemaPg.meetingTypes.$inferInsert
+export type PersonStatus = (typeof schemaPg.PEOPLE_STATUSES)[number]
+export type PersonSource = (typeof schemaPg.PEOPLE_SOURCES)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect
 export type NewTask = typeof schemaPg.tasks.$inferInsert
 export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect

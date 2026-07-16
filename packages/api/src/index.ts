@@ -2,6 +2,7 @@ import { router } from './trpc'
 import { peopleRouter } from './routers/people'
 import { projectsRouter } from './routers/projects'
 import { meetingsRouter } from './routers/meetings'
+import { meetingTypesRouter } from './routers/meeting-types'
 import { tasksRouter } from './routers/tasks'
 import { calendarRouter } from './routers/calendar'
 import { financeRouter } from './routers/finance'
@@ -71,6 +72,7 @@ export const appRouter = router({
   people: peopleRouter,
   projects: projectsRouter,
   meetings: meetingsRouter,
+  meetingTypes: meetingTypesRouter,
   tasks: tasksRouter,
   calendar: calendarRouter,
   finance: financeRouter,

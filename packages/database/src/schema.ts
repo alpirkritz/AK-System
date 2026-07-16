@@ -1,5 +1,13 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
+/** CRM review status — unconfirmed people (e.g. unknown calendar attendees) stay out of the main list */
+export const PEOPLE_STATUSES = ['confirmed', 'unconfirmed', 'ignored'] as const
+export type PersonStatus = (typeof PEOPLE_STATUSES)[number]
+
+/** Where a person record originated */
+export const PEOPLE_SOURCES = ['manual', 'calendar', 'notion'] as const
+export type PersonSource = (typeof PEOPLE_SOURCES)[number]
+
 export const people = sqliteTable('people', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -16,9 +24,14 @@ export const people = sqliteTable('people', {
   goal: text('goal'),
   contactFrequencyDays: integer('contact_frequency_days'),
   notes: text('notes'),
+  /** confirmed | unconfirmed | ignored — controls CRM list visibility */
+  status: text('status').notNull().default('confirmed'),
+  /** manual | calendar | notion */
+  source: text('source').notNull().default('manual'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
+  statusIdx: index('idx_people_status').on(table.status),
 }))
 
 export const projects = sqliteTable('projects', {
@@ -33,6 +46,32 @@ export const projects = sqliteTable('projects', {
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
 
+/** Recurring meetings sharing a cadence are grouped under one series */
+export const meetingSeries = sqliteTable('meeting_series', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  /** weekly | biweekly | monthly | ... */
+  cadence: text('cadence'),
+  recurrenceDay: text('recurrence_day'),
+  /** shared notes carried across all instances of the series */
+  rollingNotes: text('rolling_notes'),
+  /** Google recurring event id used to group synced instances */
+  googleRecurringEventId: text('google_recurring_event_id'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
+}))
+
+/** User-managed meeting types (1:1, strategy, operations, ...) — mirrors projects */
+export const meetingTypes = sqliteTable('meeting_types', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color').default('#8b5cf6'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const meetings = sqliteTable('meetings', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -46,6 +85,8 @@ export const meetings = sqliteTable('meetings', {
   /** work | family | general — for daily meeting summary grouping */
   category: text('category'),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  seriesId: text('series_id').references(() => meetingSeries.id, { onDelete: 'set null' }),
+  typeId: text('type_id').references(() => meetingTypes.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
   calendarSource: text('calendar_source'),
   createdAt: text('created_at').notNull(),
@@ -53,6 +94,8 @@ export const meetings = sqliteTable('meetings', {
 }, (table) => ({
   dateIdx: index('idx_meetings_date').on(table.date),
   projectIdIdx: index('idx_meetings_project_id').on(table.projectId),
+  seriesIdIdx: index('idx_meetings_series_id').on(table.seriesId),
+  typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
   calendarEventIdIdx: index('idx_meetings_calendar_event_id').on(table.calendarEventId),
 }))
 
@@ -423,6 +466,10 @@ export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type Meeting = typeof meetings.$inferSelect
 export type NewMeeting = typeof meetings.$inferInsert
+export type MeetingSeries = typeof meetingSeries.$inferSelect
+export type NewMeetingSeries = typeof meetingSeries.$inferInsert
+export type MeetingType = typeof meetingTypes.$inferSelect
+export type NewMeetingType = typeof meetingTypes.$inferInsert
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert
 export type FinanceTrade = typeof financeTrades.$inferSelect

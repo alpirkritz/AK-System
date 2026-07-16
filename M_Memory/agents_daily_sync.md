@@ -706,3 +706,34 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Meeting Prep enrichment (People/Projects/Companies/Meeting Notes) returns data only after the user adds those DB IDs to `NOTION_ACCOUNTS` on the server and shares each DB with the integration. Verify with `notion_status`. Also confirm Gmail `gmail.readonly` consent on both Google accounts for `search_gmail`.
 
 ---
+
+---
+
+## 2026-07-16 — Dev Pipeline (PM→UX→Dev→Tests→QA→Reviewer) — meeting-relationships-recurring-people
+
+**Workflow:** dev-pipeline — Stages 1–6 (full)
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Ship meeting-series grouping, user-managed meeting types (1:1/strategy/operations/ad-hoc), a people-centric relationship + associated-tasks view, and a review/confirm queue for unknown calendar attendees.
+- **Context:** Follows the Notion-vs-AK strategic review; user approved building the structured-data side in AK System.
+
+### Actions Taken
+1. Schema (additive): `meeting_series`, `meeting_types`; `seriesId`/`typeId` on meetings; `status`/`source` on people (schema.ts + schema.pg.ts + runtime migrations in index.ts).
+2. API: new `meetingTypes` router (CRUD); extended `meetings` (series grouping by `recurringEventId`, Apple attendees, type on create/update/sync) and `people` (reviewQueue/confirm/merge/ignore, cadence, tasks-by-person).
+3. UI: type filter/badges + series grouping on /meetings and detail, meeting-type selector in the meeting form, People review-queue tab, per-person cadence + full task list, meeting-type management in /settings.
+4. Tests: 10 Vitest cases (meeting-relationships.test.ts) + 2 Playwright e2e.
+5. QA/Reviewer: ran full suite; found and fixed a client cache-refresh bug on meeting-type CRUD (setData + refetch); re-verified green.
+
+### Outputs
+- docs/specs/meeting-relationships-recurring-people.md
+- reports/meeting-relationships-recurring-people.md (pre + post UI/UX + QA verdict: APPROVED)
+- Code: packages/database, packages/api, apps/web
+
+### Compliance
+- [x] C_Core/ pre-flight check passed (structured-data feature; no client-facing content generated)
+- [x] No PII exposed without redaction (test data only; unknown attendees gated behind review queue)
+
+### Performance Improvements
+- Prefer `setData` + explicit `refetch()` over `invalidate()` alone for tRPC list caches — invalidate did not refetch the active query reliably here.
+- Kill stale dev servers before Playwright runs (reuseExistingServer) and clear stale test sqlite before `drizzle-kit push` to avoid index-conflict false failures.

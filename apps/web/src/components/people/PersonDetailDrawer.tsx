@@ -336,6 +336,22 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
             )}
           </section>
 
+          {/* Cadence summary */}
+          {related?.cadence && (related.cadence.totalMeetings > 0) && (
+            <section className="mb-5">
+              <div
+                className="rounded-lg px-3 py-2 text-xs"
+                style={{ background: '#141f36', border: '1px solid #29395d', color: '#97a4c2' }}
+              >
+                {related.cadence.isRecurring ? '↻ קשר חוזר' : 'קשר'}
+                {' · '}
+                {related.cadence.recentCount > 0
+                  ? `${related.cadence.recentCount} מפגשים ב-${related.cadence.weeks} השבועות האחרונים`
+                  : `${related.cadence.totalMeetings} מפגשים בסך הכול`}
+              </div>
+            </section>
+          )}
+
           {/* Activity timeline */}
           {related && related.meetings.length > 0 && (
             <section className="mb-6">
@@ -367,7 +383,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 משימות ({related.tasks.length})
               </h3>
               <div className="space-y-2">
-                {related.tasks.slice(0, 10).map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null }) => (
+                {related.tasks.map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null }) => (
                   <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                     <div className="flex items-center gap-3">
                       <button

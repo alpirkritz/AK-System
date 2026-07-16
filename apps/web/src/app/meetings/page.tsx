@@ -16,6 +16,8 @@ type MeetingRow = {
   recurring: string | null
   recurrenceDay: string | null
   projectId?: string | null
+  typeId?: string | null
+  seriesId?: string | null
   calendarEventId?: string | null
   calendarSource?: string | null
   peopleIds?: string[]
@@ -36,6 +38,8 @@ export default function MeetingsPage() {
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
+  const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
+  const { data: seriesList = [] } = trpc.meetings.listSeries.useQuery()
   const utils = trpc.useUtils()
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -174,6 +178,8 @@ export default function MeetingsPage() {
 
   const [pastExpanded, setPastExpanded] = useState(false)
   const [recurringOnly, setRecurringOnly] = useState(false)
+  const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [expandedSeries, setExpandedSeries] = useState<Set<string>>(new Set())
 
   // Recurring meetings are now a filter here (replaces the old /recurring page).
   useEffect(() => {
@@ -183,10 +189,14 @@ export default function MeetingsPage() {
 
   const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
   const getPerson = (id: string) => peopleMap.get(id)
+  const typesMap = useMemo(() => new Map(meetingTypes.map((t) => [t.id, t])), [meetingTypes])
+  const seriesMap = useMemo(() => new Map(seriesList.map((s) => [s.id, s])), [seriesList])
   const meetingsWithIds = useMemo(() => {
-    const rows = meetings as MeetingRow[]
-    return recurringOnly ? rows.filter((m) => m.recurring) : rows
-  }, [meetings, recurringOnly])
+    let rows = meetings as MeetingRow[]
+    if (recurringOnly) rows = rows.filter((m) => m.recurring)
+    if (typeFilter !== 'all') rows = rows.filter((m) => m.typeId === typeFilter)
+    return rows
+  }, [meetings, recurringOnly, typeFilter])
 
   const { upcomingMeetings, pastMeetings } = useMemo(() => {
     const upcoming = meetingsWithIds
@@ -206,8 +216,43 @@ export default function MeetingsPage() {
     return { upcomingMeetings: upcoming, pastMeetings: past }
   }, [meetingsWithIds])
 
+  // Group upcoming meetings that belong to the same series (2+ instances) under a header.
+  const { seriesGroups, standaloneUpcoming } = useMemo(() => {
+    const groups = new Map<string, MeetingRow[]>()
+    const standalone: MeetingRow[] = []
+    for (const m of upcomingMeetings) {
+      if (m.seriesId) {
+        const arr = groups.get(m.seriesId) ?? []
+        arr.push(m)
+        groups.set(m.seriesId, arr)
+      } else {
+        standalone.push(m)
+      }
+    }
+    const sg: { id: string; meetings: MeetingRow[] }[] = []
+    for (const [id, ms] of groups) {
+      if (ms.length >= 2) sg.push({ id, meetings: ms })
+      else standalone.push(...ms)
+    }
+    standalone.sort((a, b) => {
+      const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
+      const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
+      return da - db
+    })
+    return { seriesGroups: sg, standaloneUpcoming: standalone }
+  }, [upcomingMeetings])
+
+  const toggleSeries = useCallback((id: string) => {
+    setExpandedSeries((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
+
   const renderMeetingCard = useCallback((m: MeetingRow, past = false) => {
     const proj = m.projectId ? projects.find((p) => p.id === m.projectId) : null
+    const mtype = m.typeId ? typesMap.get(m.typeId) : null
     return (
       <div key={m.id} className={`group relative ${past ? 'opacity-50' : ''}`}>
         <Link href={`/meetings/${m.id}`} className="block">
@@ -228,6 +273,18 @@ export default function MeetingsPage() {
                       style={{ background: '#2dd4bf22', color: '#2dd4bf', border: '1px solid #2dd4bf33' }}
                     >
                       📁 {proj.name}
+                    </span>
+                  )}
+                  {mtype && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                      style={{
+                        background: (mtype.color ?? '#8b5cf6') + '22',
+                        color: mtype.color ?? '#8b5cf6',
+                        border: `1px solid ${(mtype.color ?? '#8b5cf6')}33`,
+                      }}
+                    >
+                      {mtype.name}
                     </span>
                   )}
                   {m.calendarSource && (
@@ -295,7 +352,7 @@ export default function MeetingsPage() {
       </div>
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, people, deleteMeeting])
+  }, [projects, people, typesMap, deleteMeeting])
 
   return (
     <div>
@@ -452,6 +509,31 @@ export default function MeetingsPage() {
         </button>
       </div>
 
+      {/* Type filter chips */}
+      {meetingTypes.length > 0 && (
+        <div className="flex gap-1.5 mb-5 flex-wrap">
+          <button
+            type="button"
+            className="filter-chip"
+            aria-pressed={typeFilter === 'all'}
+            onClick={() => setTypeFilter('all')}
+          >
+            כל הסוגים
+          </button>
+          {meetingTypes.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="filter-chip"
+              aria-pressed={typeFilter === t.id}
+              onClick={() => setTypeFilter(t.id)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Upcoming meetings */}
       {upcomingMeetings.length === 0 && pastMeetings.length === 0 && (
         <p className="text-[#5a688c] text-sm mt-4">
@@ -461,7 +543,55 @@ export default function MeetingsPage() {
       {upcomingMeetings.length === 0 && pastMeetings.length > 0 && (
         <p className="text-[#5a688c] text-sm mt-4 mb-4">אין פגישות קרובות</p>
       )}
-      {upcomingMeetings.map((m) => renderMeetingCard(m, false))}
+
+      {/* Series groups — collapsible, shared people + cadence */}
+      {seriesGroups.map(({ id, meetings: ms }) => {
+        const series = seriesMap.get(id)
+        const expanded = expandedSeries.has(id)
+        const sharedPeopleIds = series?.peopleIds ?? [...new Set(ms.flatMap((m) => m.peopleIds ?? []))]
+        return (
+          <div key={id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid #29395d' }}>
+            <button
+              onClick={() => toggleSeries(id)}
+              className="w-full flex items-center justify-between gap-3 px-5 py-3 text-right hover:bg-[#141f36] transition-colors"
+              aria-expanded={expanded}
+            >
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="font-semibold text-[15px] truncate">{series?.title ?? ms[0].title}</span>
+                <span className="pill">↻ {series?.cadence === 'weekly' ? 'שבועי' : 'סדרה'}</span>
+                <span className="text-xs text-[#647399]">{ms.length} מפגשים</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex gap-1">
+                  {sharedPeopleIds.slice(0, 4).map((pid) => {
+                    const p = getPerson(pid)
+                    return p ? (
+                      <div
+                        key={pid}
+                        className="avatar border-[1.5px]"
+                        style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
+                      >
+                        {p.name[0]}
+                      </div>
+                    ) : null
+                  })}
+                </div>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[#4d659c]"
+                  style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                  <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </button>
+            {expanded && (
+              <div className="px-2 pb-2 pt-1">
+                {ms.map((m) => renderMeetingCard(m, false))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {standaloneUpcoming.map((m) => renderMeetingCard(m, false))}
 
       {/* Past meetings — collapsible section */}
       {pastMeetings.length > 0 && (

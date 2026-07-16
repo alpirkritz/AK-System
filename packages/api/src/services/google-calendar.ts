@@ -37,6 +37,8 @@ export interface GoogleCalendarEvent {
   transparency?: 'opaque' | 'transparent'
   /** Google account that owns this event */
   accountEmail?: string
+  /** Master event id for recurring instances (account-namespaced); groups a series */
+  recurringEventId?: string | null
 }
 
 async function listCalendars(
@@ -189,6 +191,7 @@ function mapGoogleEvent(
       .filter((a) => a.email),
     transparency: (e.transparency as 'opaque' | 'transparent') ?? 'opaque',
     accountEmail,
+    recurringEventId: e.recurringEventId ? `${accountEmail}::${e.recurringEventId}` : null,
   }
 }
 

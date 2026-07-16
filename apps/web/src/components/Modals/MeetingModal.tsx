@@ -13,6 +13,7 @@ type MeetingForm = {
   recurring: string | null
   recurrenceDay: string | null
   projectId: string
+  typeId: string
   peopleIds: string[]
   notes: string
 }
@@ -24,6 +25,7 @@ const EMPTY_FORM: MeetingForm = {
   recurring: null,
   recurrenceDay: null,
   projectId: '',
+  typeId: '',
   peopleIds: [],
   notes: '',
 }
@@ -45,6 +47,7 @@ export function MeetingModal({
 }) {
   const [form, setForm] = useState<MeetingForm>(EMPTY_FORM)
   const { data: meeting, isLoading } = trpc.meetings.getById.useQuery({ id: editingId! }, { enabled: !!editingId && open })
+  const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery(undefined, { enabled: open })
   const utils = trpc.useUtils()
   const create = trpc.meetings.create.useMutation({
     onSuccess: () => { utils.meetings.list.invalidate(); onClose() },
@@ -64,6 +67,7 @@ export function MeetingModal({
         recurring: meeting.recurring,
         recurrenceDay: meeting.recurrenceDay,
         projectId: (meeting as { projectId?: string }).projectId ?? '',
+        typeId: (meeting as { typeId?: string }).typeId ?? '',
         peopleIds: (meeting as { peopleIds?: string[] }).peopleIds ?? [],
         notes: meeting.notes ?? '',
       })
@@ -85,6 +89,7 @@ export function MeetingModal({
         recurring: form.recurring,
         recurrenceDay: form.recurrenceDay,
         projectId: form.projectId || null,
+        typeId: form.typeId || null,
         peopleIds: form.peopleIds,
         notes: form.notes,
       })
@@ -96,6 +101,7 @@ export function MeetingModal({
         recurring: form.recurring,
         recurrenceDay: form.recurrenceDay,
         projectId: form.projectId || null,
+        typeId: form.typeId || null,
         peopleIds: form.peopleIds,
         notes: form.notes,
       })
@@ -160,6 +166,19 @@ export function MeetingModal({
               <option value="">ללא פרויקט</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">סוג פגישה</label>
+            <select
+              className="select"
+              value={form.typeId}
+              onChange={(e) => setForm((f) => ({ ...f, typeId: e.target.value }))}
+            >
+              <option value="">ללא סוג</option>
+              {meetingTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
           </div>

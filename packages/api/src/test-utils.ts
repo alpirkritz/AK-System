@@ -1,5 +1,5 @@
 import { getDb } from '@ak-system/database'
-import { people, meetings, meetingPeople, tasks } from '@ak-system/database'
+import { people, meetings, meetingPeople, meetingSeries, meetingTypes, tasks } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
 
@@ -22,5 +22,7 @@ export async function resetDb() {
   await db.delete(tasks)
   await db.delete(meetingPeople)
   await db.delete(meetings)
+  await db.delete(meetingSeries)
+  await db.delete(meetingTypes)
   await db.delete(people)
 }

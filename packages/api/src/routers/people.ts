@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { people, meetings, meetingPeople, tasks, taskPeople, projects } from '@ak-system/database'
+import { people, meetings, meetingPeople, tasks, taskPeople, projects, PEOPLE_STATUSES } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
+
+const statusEnum = z.enum(PEOPLE_STATUSES)
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -37,7 +39,7 @@ const SORT_COLUMNS = {
 
 export const peopleRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(people).orderBy(people.name)
+    return ctx.db.select().from(people).where(eq(people.status, 'confirmed')).orderBy(people.name)
   }),
 
   listPaginated: protectedProcedure
@@ -53,9 +55,17 @@ export const peopleRouter = router({
       lastContactAfter: z.string().optional(),
       lastContactBefore: z.string().optional(),
       contactNow: z.boolean().optional(),
+      includeStatuses: z.array(statusEnum).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const conditions = []
+
+      // Default: only confirmed people. Review queue passes includeStatuses explicitly.
+      if (input.includeStatuses && input.includeStatuses.length > 0) {
+        conditions.push(inArray(people.status, input.includeStatuses))
+      } else {
+        conditions.push(eq(people.status, 'confirmed'))
+      }
 
       if (input.search) {
         const q = '%' + input.search.trim() + '%'
@@ -183,6 +193,23 @@ export const peopleRouter = router({
           .orderBy(desc(meetings.date))
       : []
 
+    // Cadence: how often this person recurs. Counts meetings in the last 8 weeks
+    // and whether any are part of a recurring series.
+    const WEEKS = 8
+    const windowStart = Date.now() - WEEKS * 7 * 86400000
+    const recentCount = relatedMeetings.filter((m) => {
+      const t = new Date(m.date + 'T00:00:00').getTime()
+      return t >= windowStart && t <= Date.now()
+    }).length
+    const seriesIds = new Set(relatedMeetings.map((m) => m.seriesId).filter(Boolean) as string[])
+    const cadence = {
+      isRecurring: relatedMeetings.some((m) => m.recurring) || seriesIds.size > 0,
+      recentCount,
+      weeks: WEEKS,
+      seriesCount: seriesIds.size,
+      totalMeetings: relatedMeetings.length,
+    }
+
     const linkedTaskIds = await ctx.db
       .select({ taskId: taskPeople.taskId })
       .from(taskPeople)
@@ -199,7 +226,7 @@ export const peopleRouter = router({
     const allTaskIds = [...new Set([...tasksAsAssignee.map(t => t.id), ...tasksAsLinked.map(t => t.id)])]
 
     if (allTaskIds.length === 0) {
-      return { meetings: relatedMeetings, tasks: [] }
+      return { meetings: relatedMeetings, tasks: [], cadence }
     }
 
     const tasksWithContext = await ctx.db
@@ -221,8 +248,99 @@ export const peopleRouter = router({
       .where(inArray(tasks.id, allTaskIds))
       .orderBy(desc(tasks.createdAt))
 
-    return { meetings: relatedMeetings, tasks: tasksWithContext }
+    return { meetings: relatedMeetings, tasks: tasksWithContext, cadence }
   }),
+
+  /** Unknown/unconfirmed attendees awaiting review, with occurrence count and a suggested match. */
+  reviewQueue: protectedProcedure.query(async ({ ctx }) => {
+    const pending = await ctx.db
+      .select()
+      .from(people)
+      .where(eq(people.status, 'unconfirmed'))
+      .orderBy(desc(people.createdAt))
+    if (pending.length === 0) return []
+
+    const ids = pending.map((p) => p.id)
+    const links = await ctx.db
+      .select({ personId: meetingPeople.personId })
+      .from(meetingPeople)
+      .where(inArray(meetingPeople.personId, ids))
+    const countByPerson = new Map<string, number>()
+    for (const l of links) countByPerson.set(l.personId, (countByPerson.get(l.personId) ?? 0) + 1)
+
+    // Suggest a confirmed person to merge into, by matching email domain or name.
+    const confirmed = await ctx.db
+      .select({ id: people.id, name: people.name, email: people.email })
+      .from(people)
+      .where(eq(people.status, 'confirmed'))
+
+    return pending.map((p) => {
+      const suggestion = confirmed.find(
+        (c) =>
+          (c.email && p.email && c.email.toLowerCase() === p.email.toLowerCase()) ||
+          c.name.toLowerCase() === p.name.toLowerCase(),
+      )
+      return {
+        ...p,
+        meetingCount: countByPerson.get(p.id) ?? 0,
+        suggestedMatch: suggestion ? { id: suggestion.id, name: suggestion.name } : null,
+      }
+    })
+  }),
+
+  confirm: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await ctx.db.update(people).set({ status: 'confirmed' }).where(eq(people.id, input.id))
+    return { ok: true }
+  }),
+
+  ignore: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await ctx.db.update(people).set({ status: 'ignored' }).where(eq(people.id, input.id))
+    return { ok: true }
+  }),
+
+  /** Merge `fromId` into `toId`: repoint all links, then delete the source person. */
+  merge: protectedProcedure
+    .input(z.object({ fromId: z.string().min(1), toId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.fromId === input.toId) return { ok: true }
+
+      // meeting_people: move links, skipping duplicates the target already has
+      const targetMeetingLinks = await ctx.db
+        .select({ meetingId: meetingPeople.meetingId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.personId, input.toId))
+      const targetMeetingIds = new Set(targetMeetingLinks.map((l) => l.meetingId))
+      const fromMeetingLinks = await ctx.db
+        .select({ meetingId: meetingPeople.meetingId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.personId, input.fromId))
+      for (const l of fromMeetingLinks) {
+        if (targetMeetingIds.has(l.meetingId)) continue
+        await ctx.db.insert(meetingPeople).values({ meetingId: l.meetingId, personId: input.toId })
+      }
+
+      // task_people: move links, skipping duplicates
+      const targetTaskLinks = await ctx.db
+        .select({ taskId: taskPeople.taskId })
+        .from(taskPeople)
+        .where(eq(taskPeople.personId, input.toId))
+      const targetTaskIds = new Set(targetTaskLinks.map((l) => l.taskId))
+      const fromTaskLinks = await ctx.db
+        .select({ taskId: taskPeople.taskId })
+        .from(taskPeople)
+        .where(eq(taskPeople.personId, input.fromId))
+      for (const l of fromTaskLinks) {
+        if (targetTaskIds.has(l.taskId)) continue
+        await ctx.db.insert(taskPeople).values({ taskId: l.taskId, personId: input.toId })
+      }
+
+      // tasks.assigneeId
+      await ctx.db.update(tasks).set({ assigneeId: input.toId }).where(eq(tasks.assigneeId, input.fromId))
+
+      // Remove the source person (cascades remove its now-duplicate links)
+      await ctx.db.delete(people).where(eq(people.id, input.fromId))
+      return { ok: true }
+    }),
 
   search: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))
