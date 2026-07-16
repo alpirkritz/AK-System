@@ -12,6 +12,9 @@ SHELL=/bin/bash
 # Calendar → meetings sync — every 15 min
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/calendar-sync >/dev/null 2>&1
 
+# Notion → tasks + people sync — every 30 min (last-60-days window)
+*/30 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/notion-sync >/dev/null 2>&1
+
 # Daily meeting summary — every 15 min; the route sends at the time set in Settings > Notifications (default 20:00 IST)
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
 

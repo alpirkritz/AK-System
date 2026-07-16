@@ -69,7 +69,17 @@ const PEOPLE_COLUMNS = [
   'ALTER TABLE people ADD COLUMN notes TEXT',
   "ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
   "ALTER TABLE people ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+  'ALTER TABLE people ADD COLUMN notion_page_id TEXT',
   'CREATE INDEX IF NOT EXISTS idx_people_status ON people(status)',
+  'CREATE INDEX IF NOT EXISTS idx_people_notion_page_id ON people(notion_page_id)',
+]
+
+const TASKS_COLUMNS = [
+  "ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+  'ALTER TABLE tasks ADD COLUMN notion_page_id TEXT',
+  'ALTER TABLE tasks ADD COLUMN notion_account TEXT',
+  'ALTER TABLE tasks ADD COLUMN notion_db TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_tasks_notion_page_id ON tasks(notion_page_id)',
 ]
 
 const FEED_TABLES = [
@@ -386,6 +396,9 @@ export function getDb() {
   for (const sql of PEOPLE_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+  for (const sql of TASKS_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of FEED_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -460,6 +473,7 @@ export const projects = schema.projects
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
 export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
+export const TASK_SOURCES = schemaPg.TASK_SOURCES
 export const meetings = schema.meetings
 export const meetingSeries = schema.meetingSeries
 export const meetingTypes = schema.meetingTypes
@@ -516,6 +530,7 @@ export type MeetingType = typeof schemaPg.meetingTypes.$inferSelect
 export type NewMeetingType = typeof schemaPg.meetingTypes.$inferInsert
 export type PersonStatus = (typeof schemaPg.PEOPLE_STATUSES)[number]
 export type PersonSource = (typeof schemaPg.PEOPLE_SOURCES)[number]
+export type TaskSource = (typeof schemaPg.TASK_SOURCES)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect
 export type NewTask = typeof schemaPg.tasks.$inferInsert
 export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect

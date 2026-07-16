@@ -14,9 +14,24 @@ export default function TasksPage() {
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
+  const { data: notionState } = trpc.tasks.notionConfigured.useQuery()
   const utils = trpc.useUtils()
   const toggleTask = trpc.tasks.toggleDone.useMutation({
     onSuccess: () => utils.tasks.list.invalidate(),
+  })
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const syncFromNotion = trpc.tasks.syncFromNotion.useMutation({
+    onSuccess: (res) => {
+      const imported = res.tasksCreated + res.tasksUpdated
+      setSyncMessage(
+        res.errors.length > 0
+          ? `יובאו ${imported} משימות · ${res.errors.length} שגיאות`
+          : `יובאו ${imported} משימות מ-Notion`,
+      )
+      utils.tasks.list.invalidate()
+      utils.people.list.invalidate()
+    },
+    onError: (err) => setSyncMessage(err.message || 'הסנכרון נכשל'),
   })
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
@@ -54,16 +69,37 @@ export default function TasksPage() {
     <div>
       <div className="flex justify-between items-center mb-5">
         <h1 className="text-2xl font-bold tracking-tight">משימות</h1>
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            setEditingTaskId(null)
-            setTaskModalOpen(true)
-          }}
-        >
-          + משימה חדשה
-        </button>
+        <div className="flex items-center gap-2">
+          {notionState?.configured && (
+            <button
+              className="btn btn-secondary"
+              disabled={syncFromNotion.isPending}
+              onClick={() => {
+                setSyncMessage(null)
+                syncFromNotion.mutate({ windowDays: 60, dryRun: false })
+              }}
+              title="סנכרן משימות ואנשים מ-Notion (60 הימים האחרונים)"
+            >
+              {syncFromNotion.isPending ? 'מסנכרן…' : 'סנכרן מ-Notion'}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingTaskId(null)
+              setTaskModalOpen(true)
+            }}
+          >
+            + משימה חדשה
+          </button>
+        </div>
       </div>
+
+      {syncMessage && (
+        <div className="mb-4 text-sm text-[#9fb0d4] bg-[#141b2e] border border-[#26324d] rounded-lg px-3 py-2">
+          {syncMessage}
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 mb-6">

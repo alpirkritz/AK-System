@@ -8,6 +8,10 @@ export type PersonStatus = (typeof PEOPLE_STATUSES)[number]
 export const PEOPLE_SOURCES = ['manual', 'calendar', 'notion'] as const
 export type PersonSource = (typeof PEOPLE_SOURCES)[number]
 
+/** Where a task record originated */
+export const TASK_SOURCES = ['manual', 'notion'] as const
+export type TaskSource = (typeof TASK_SOURCES)[number]
+
 export const people = pgTable('people', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -26,10 +30,12 @@ export const people = pgTable('people', {
   notes: text('notes'),
   status: text('status').notNull().default('confirmed'),
   source: text('source').notNull().default('manual'),
+  notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),
+  notionPageIdIdx: index('idx_people_notion_page_id').on(table.notionPageId),
 }))
 
 export const projects = pgTable('projects', {
@@ -110,12 +116,17 @@ export const tasks = pgTable('tasks', {
   dueDate: text('due_date'),
   done: boolean('done').notNull().default(false),
   priority: text('priority').notNull().default('medium'),
+  source: text('source').notNull().default('manual'),
+  notionPageId: text('notion_page_id'),
+  notionAccount: text('notion_account'),
+  notionDb: text('notion_db'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   meetingIdIdx: index('idx_tasks_meeting_id').on(table.meetingId),
   projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
+  notionPageIdIdx: index('idx_tasks_notion_page_id').on(table.notionPageId),
 }))
 
 export const taskPeople = pgTable('task_people', {

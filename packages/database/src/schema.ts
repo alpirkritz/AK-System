@@ -8,6 +8,10 @@ export type PersonStatus = (typeof PEOPLE_STATUSES)[number]
 export const PEOPLE_SOURCES = ['manual', 'calendar', 'notion'] as const
 export type PersonSource = (typeof PEOPLE_SOURCES)[number]
 
+/** Where a task record originated */
+export const TASK_SOURCES = ['manual', 'notion'] as const
+export type TaskSource = (typeof TASK_SOURCES)[number]
+
 export const people = sqliteTable('people', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -28,10 +32,13 @@ export const people = sqliteTable('people', {
   status: text('status').notNull().default('confirmed'),
   /** manual | calendar | notion */
   source: text('source').notNull().default('manual'),
+  /** Notion page id when this person was synced from a Notion people database */
+  notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),
+  notionPageIdIdx: index('idx_people_notion_page_id').on(table.notionPageId),
 }))
 
 export const projects = sqliteTable('projects', {
@@ -116,12 +123,21 @@ export const tasks = sqliteTable('tasks', {
   dueDate: text('due_date'),
   done: integer('done', { mode: 'boolean' }).notNull().default(false),
   priority: text('priority').notNull().default('medium'),
+  /** manual | notion — where this task originated */
+  source: text('source').notNull().default('manual'),
+  /** Notion page id when synced from a Notion tasks database */
+  notionPageId: text('notion_page_id'),
+  /** Notion account label (provenance) */
+  notionAccount: text('notion_account'),
+  /** Notion database name (provenance) */
+  notionDb: text('notion_db'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   meetingIdIdx: index('idx_tasks_meeting_id').on(table.meetingId),
   projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
+  notionPageIdIdx: index('idx_tasks_notion_page_id').on(table.notionPageId),
 }))
 
 /** Many-to-many: task can be linked to multiple people (in addition to assignee) */

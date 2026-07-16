@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
+import { syncNotionTasks, isNotionTasksConfigured } from '../services/notion-tasks-sync'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 
@@ -123,5 +124,24 @@ export const tasksRouter = router({
         await ctx.db.insert(taskPeople).values({ taskId: input.taskId, personId })
       }
       return { ok: true }
+    }),
+
+  /** האם מוגדר בסיס נתונים של משימות ב-Notion (לכפתור סנכרון) */
+  notionConfigured: protectedProcedure.query(() => {
+    return { configured: isNotionTasksConfigured() }
+  }),
+
+  /** סנכרון משימות + אנשים מ-Notion אל בסיס הנתונים (חלון 60 יום כברירת מחדל) */
+  syncFromNotion: protectedProcedure
+    .input(
+      z
+        .object({
+          windowDays: z.number().int().min(1).max(365).default(60),
+          dryRun: z.boolean().default(false),
+        })
+        .default({ windowDays: 60, dryRun: false }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return syncNotionTasks({ windowDays: input.windowDays, dryRun: input.dryRun }, ctx.db)
     }),
 })
