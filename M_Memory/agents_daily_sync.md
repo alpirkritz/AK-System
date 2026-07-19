@@ -737,3 +737,65 @@ For end-of-day rollups, Hugo may append a summary entry:
 ### Performance Improvements
 - Prefer `setData` + explicit `refetch()` over `invalidate()` alone for tRPC list caches — invalidate did not refetch the active query reliably here.
 - Kill stale dev servers before Playwright runs (reuseExistingServer) and clear stale test sqlite before `drizzle-kit push` to avoid index-conflict false failures.
+
+---
+
+## 2026-07-16 — Dev Pipeline (PM→Dev→QA→Reviewer) — aro-rebrand + mobile-chat-keyboard + push
+
+**Workflow:** dev-pipeline — Stages 1 (PM), 3 (Dev), 5 (QA), 6 (Reviewer)
+**Status:** Completed (code); manual APK rebuild + device push verification pending on user
+
+### Stand-up
+- **Goal:** (1) Rebrand user-facing product name to ARO across web + mobile incl. logo/icons; (2) fix keyboard hiding the chat composer; (3) diagnose why phone push never arrives.
+
+### Actions Taken
+1. Rebrand: replaced My Space / AK System / Helm with ARO in web titles/manifest/sidebar/login/push fallbacks/settings/assistant prompts and mobile name/login/channel/test-title; WhatsApp `DEVICE_NAME` default -> ARO. Internal IDs (`@ak-system/*`, `com.alpir.helm`, `x-ak-client`, db path) untouched.
+2. Icons: generated one ARO master (teal ring + chevron on navy), derived all web + mobile PNG sizes via sips, built multi-size favicon.ico via Node.
+3. Keyboard: `softwareKeyboardLayoutMode: 'resize'`, `tabBarHideOnKeyboard: true`, `KeyboardAvoidingView behavior="padding"` + inset-based offset + `keyboardShouldPersistTaps` in chat.tsx.
+4. Push: QA root-caused FAIL = 0 registered tokens in live DB + ephemeral tunnel URL; `channelId`/`priority` already in expo-push.ts working tree; added chat.tsx UI notice for failed push registration.
+5. Verified: mobile tsc, web build, 177 unit tests (146 api + 31 web) all green.
+
+### Outputs
+- docs/specs/aro-rebrand.md, docs/specs/mobile-chat-keyboard.md
+- reports/qa-helm-push.md (QA: FAIL — operational root cause), reports/aro-rebrand.md (Reviewer: APPROVED WITH NITS)
+- Code: apps/web, apps/mobile, apps/whatsapp-bridge; icon assets.
+
+### Compliance
+- [x] C_Core/ pre-flight: no client-facing content generated; user-facing rename only.
+
+### Blockers / Escalations
+- Push requires user action: rebuild/install ARO APK, register a token, use a stable (non-quick-tunnel) backend URL, then confirm banner. Commit of expo-push.ts + google-services.json left to user per commit policy.
+
+### Performance Improvements
+- macOS has no ImageMagick; use `sips -Z <size>` for PNG scaling and a small Node script to assemble a PNG-entry .ico.
+- Expo `next lint` prompts interactively (ESLint unconfigured) — rely on `tsc --noEmit` + `next build` for the reviewer gate.
+
+## 2026-07-19 — Hugo (PM) — calendar optimizer WhatsApp secretary brief (spec only)
+
+- **Active Agent:** `01_Hugo_orchestrator` (PM gate)
+- **Workflow:** `S_Skills/wf_calendar_optimizer.md` (presentation fix pending)
+- **Actions:** Diagnosed WhatsApp clutter (Markdown tables + meta self-talk in `A_Agents/06_calendar_optimizer.md`); drafted spec for secretary-style brief.
+- **Output:** `docs/specs/calendar-optimizer-whatsapp-brief.md`
+- **Compliance:** Clarity + human-in-loop; no code until approval
+- **Notes:** Awaiting user approval + Telegram scope decision
+
+
+## 2026-07-19 — Hugo (Dev Pipeline) — calendar optimizer secretary brief (all channels)
+
+- **Active Agent:** `01_Hugo_orchestrator` → `06_calendar_optimizer` presentation
+- **Workflow:** `S_Skills/wf_calendar_optimizer.md` Stage 4.1
+- **Actions:** Approved scope = WhatsApp + Telegram + ARO; updated agent card + workflow; hard prompt override in `gemini-agent-engine.ts`; Hugo pass-through; prompt-contract tests; QA + review reports.
+- **Output:** `docs/specs/calendar-optimizer-whatsapp-brief.md`, `reports/qa-calendar-optimizer-whatsapp-brief.md`, `reports/calendar-optimizer-whatsapp-brief.md`
+- **Compliance:** Clarity; recommendations-only unchanged
+- **Notes:** Needs deploy + live smoke on WhatsApp/ARO to confirm LLM adherence
+
+
+## 2026-07-19 — Hugo (Dev Pipeline) — meeting prep related tasks only
+
+- **Active Agent:** `04_meeting_prep_herald`
+- **Workflow:** `S_Skills/wf_meeting_prep.md` Stage 2.1 / 4.1
+- **Actions:** Spec + agent/workflow rules + hard prompt override — never dump full open backlog when no related tasks; empty → `לא נמצאו משימות קשורות לפגישה זו`.
+- **Output:** `docs/specs/meeting-prep-related-tasks-only.md`, `reports/qa-meeting-prep-related-tasks-only.md`, `reports/meeting-prep-related-tasks-only.md`
+- **Compliance:** Clarity; no invention; concise WhatsApp
+- **Notes:** Deploy + live smoke recommended
+

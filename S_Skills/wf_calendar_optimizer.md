@@ -2,7 +2,7 @@
 
 > **Workflow ID:** `wf_calendar_optimizer`
 > **Status:** Active
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-19
 > **Orchestrator:** `01_Hugo_orchestrator`
 > **Executing Agent:** `06_calendar_optimizer`
 > **Agent instructions:** [`A_Agents/06_calendar_optimizer.md`](../A_Agents/06_calendar_optimizer.md)
@@ -66,8 +66,8 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 
 ## Stage 4: Recommend & Notify
 
-### Step 4.1 — Compose Recommendation
-- **Action:** Summary first (3-5 bullets): 🚨 Conflicts (all, with keep/move), ⚠️ Overlaps (all, even non-actionable), 📊 Load, ⏰ Top task → slot. Then details (Conflicts, Load if >4h, Focus time).
+### Step 4.1 — Compose Recommendation (secretary brief)
+- **Action:** All channels (WhatsApp / Telegram / ARO): (1) **שורה תחתונה** ≤4 bullets — 📊 Load first, then 🚨 conflicts, ⚠️ overlaps, ⏰ top task; (2) **הפגישות להיום** — one bullet per timed event `HH:MM–HH:MM — Title` (+ short note); (3) **המלצות** ≤3 bullets only if conflict/overload needs action (include 2–3 alt slots per move). **Never** Markdown tables. **Never** meta/"I understood" preambles or duplicate analysis.
 
 ### Step 4.2 — Notify & Save (approval-gated)
 - **Action:** Send Notion Inbox notification after the daily run and whenever approval is needed. Save results as a page under the database. Append run to `M_Memory/`.
@@ -90,3 +90,4 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 | Date | Author | Change |
 |---|---|---|
 | 2026-06-28 | System | Imported from AI Instructions doc (Calendar Optimizer) |
+| 2026-07-19 | System | Secretary brief on all channels — no Markdown tables |

@@ -21,6 +21,35 @@ import { getAgentCalendarScopePromptBlock, localTodayIso, getAgentCalendarContex
 
 export type { ChatTurn } from './gemini-config'
 
+export const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
+export const MEETING_PREP_AGENT_ID = '04_meeting_prep_herald'
+
+/** Hard override: secretary brief on every channel (WhatsApp / Telegram / ARO). */
+export function getCalendarOptimizerBriefOverride(): string {
+  return [
+    '## Calendar Optimizer — secretary brief (MANDATORY — overrides conflicting card/workflow table instructions)',
+    'Write like a personal secretary. Bottom line first, then today\'s meetings.',
+    'NEVER use Markdown tables (| ... |). NEVER narrate standing instructions, memory updates, or "I understood / מעתה אתעלם / הוראה זו נוספה" in the reply.',
+    'NEVER repeat the same analysis twice. Keep schedule notes ≤12 words; never paste full task bodies.',
+    'Required structure:',
+    '1) Optional one-line date header',
+    '2) **שורה תחתונה** (≤4 bullets): start with 📊 עומס (hours + קל/סביר/עמוס), then 🚨 conflicts / ⚠️ overlaps / ⏰ short top task if any',
+    '3) **הפגישות להיום**: one bullet per timed event as `HH:MM–HH:MM — Title` (+ optional short note). Do not omit events (except all-day / ≥8h).',
+    '4) **המלצות** (optional, ≤3 bullets) only for real conflict/overload actions, with 2–3 alt slots when suggesting a move.',
+  ].join('\n')
+}
+
+/** Hard override: only meeting-related tasks; never dump the full backlog. */
+export function getMeetingPrepRelatedTasksOverride(): string {
+  return [
+    '## Meeting Prep — related tasks only (MANDATORY)',
+    'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link).',
+    'If none relate: write exactly "לא נמצאו משימות קשורות לפגישה זו" (or English equivalent) and move on.',
+    'NEVER dump the user\'s full open-task backlog as filler or "for context".',
+    'Keep WhatsApp / Telegram / ARO briefs short and purposeful — no Markdown tables, no unrelated task lists.',
+  ].join('\n')
+}
+
 function formatDateLabel(): string {
   const today = new Date()
   return today.toLocaleDateString('he-IL', {
@@ -44,11 +73,11 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       : channel === 'telegram'
         ? 'Telegram'
         : channel === 'web'
-          ? 'AK System — ממשק הסוכנים (Web)'
-          : 'AK System chat'
+          ? 'ARO — ממשק הסוכנים (Web)'
+          : 'ARO chat'
 
   const parts: string[] = [
-    `You are operating as ABC agent \`${agentId}\` inside AK System.`,
+    `You are operating as ABC agent \`${agentId}\` inside ARO.`,
     `Today is ${formatDateLabel()} (${todayIso()}).`,
     `ABC workspace root: ${getAbcRootPath()}`,
     '',
@@ -63,14 +92,25 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     'Respond in the same language the user writes in: Hebrew for Hebrew, English for English.',
     'Be concise and structured. Use bullet points for lists.',
     'You have tools to read calendar, tasks, meetings, contacts, Gmail, WhatsApp groups, and more — use them when needed for your analysis.',
-    'For on-demand WhatsApp group summaries (סיכום וואטסאפ / daily digest), use summarize_whatsapp_groups.',
+    'For on-demand WhatsApp group summaries (סיכום וואטסאפ / daily digest), use summarize_whatsapp_groups and include the returned summary text directly in your reply.',
     '',
+  ]
+
+  if (agentId === CALENDAR_OPTIMIZER_AGENT_ID) {
+    parts.push(getCalendarOptimizerBriefOverride(), '')
+  }
+
+  if (agentId === MEETING_PREP_AGENT_ID) {
+    parts.push(getMeetingPrepRelatedTasksOverride(), '')
+  }
+
+  parts.push(
     '---',
     '',
     instructions,
     '',
     '---',
-  ]
+  )
 
   if (agentId === HUGO_AGENT_ID) {
     parts.splice(
@@ -85,13 +125,14 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       'NEVER say you will update the user later (e.g. "אעדכן אותך", "אחזור אליך", "I\'ll get back to you", "I am activating agent X").',
       'For specialist workflows (morning brief/בוקר/הכנה ליום, calendar/יומן, meeting prep/פגישה, email/מייל, IBKR, startup COO): **call run_abc_agent immediately**, wait for the tool result, then synthesize the specialist output into your reply.',
       'Valid agentIds: `03_morning_briefing`, `04_meeting_prep_herald`, `06_calendar_optimizer`, `07_email_assistant`, `05_ibkr_daily_import`, `08_startup_coo`.',
-      'The ONLY async exception is summarize_whatsapp_groups — those summaries arrive as separate WhatsApp messages; confirm status briefly in your reply.',
+      'summarize_whatsapp_groups returns the summary text inline (from stored history) — include it directly in your reply. Do NOT tell the user it will arrive as a separate message.',
       '',
       'For calendar / יומן / schedule questions, delegate to run_abc_agent agentId 06_calendar_optimizer — call him **אופטי** (the calendar advisor) in your replies.',
+      'When folding אופטי / calendar optimizer output into your reply: pass the secretary brief through almost verbatim — do NOT add a long preamble, do NOT re-analyze, do NOT wrap it in Markdown tables.',
       'Notion access: you CAN read Notion across ALL connected accounts via tools — get_notion_meetings (meetings), get_notion_tasks (tasks), search_notion (find an item), notion_status (diagnose access). NEVER tell the user you have no access to Notion; if a database fails, call notion_status and say which database needs to be shared with the integration.',
       'For daily prep / "תכין אותי ליום" / "מה יש לי היום": call get_notion_meetings and get_notion_tasks (both accounts) and fold them into your answer, in addition to calendar/tasks tools.',
       'For tasks, use Notion (get_notion_tasks + the injected Notion context: Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',
-      'WhatsApp bridge buffers group messages since last restart — summarize_whatsapp_groups covers buffered activity, not phone "unread" badges.',
+      'summarize_whatsapp_groups summarizes stored group history (not phone "unread" badges); if there is no recent activity it will say so — never claim the system is busy.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
     )
@@ -114,7 +155,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
   if (agentNeedsCalendarContext(agentId)) {
     try {
       const calCtx = await getAgentCalendarContext({
-        forCalendarOptimizer: agentId === '06_calendar_optimizer',
+        forCalendarOptimizer: agentId === CALENDAR_OPTIMIZER_AGENT_ID,
       })
       parts.push('', formatAgentCalendarContextForPrompt(calCtx), '', '---')
     } catch (err) {
@@ -142,6 +183,14 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
   }
 
   return parts.join('\n')
+}
+
+/** Exported for prompt-contract tests. */
+export async function buildAgentSystemInstruction(
+  agentId: string,
+  channel?: AgentNotifyChannel,
+): Promise<string> {
+  return buildSystemInstruction(agentId, channel)
 }
 
 function buildHistoryContents(history: ChatTurn[]): Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> {
@@ -176,6 +225,28 @@ const DELEGATION_RETRY_PROMPT =
   'CRITICAL: You promised a later update but this platform has NO async follow-up. ' +
   'Call run_abc_agent NOW with the correct agentId, wait for the tool result, then write the COMPLETE answer in this reply. ' +
   'Do not say you will update later. Use the same language as the user.'
+
+/** Tools that provide real meeting-prep data. If none was called, the briefing is ungrounded. */
+const MEETING_PREP_GROUNDING_TOOLS = [
+  'get_notion_tasks',
+  'get_notion_meeting_notes',
+  'get_notion_people',
+  'get_notion_projects',
+  'get_notion_companies',
+  'get_notion_meetings',
+  'get_next_meeting_brief',
+  'search_notion',
+]
+
+const MEETING_PREP_GROUNDING_RETRY_PROMPT =
+  'STOP — do not invent meeting-prep content. You have not called any data tool yet. ' +
+  'Call get_notion_tasks and get_notion_meeting_notes now (and get_notion_people / ' +
+  'get_notion_projects / get_notion_companies for a focused meeting), then brief ONLY from ' +
+  'those tool results and the injected context. Never infer participants from the meeting ' +
+  'title. For any missing datum write "לא נמצא בנתונים" instead of guessing. ' +
+  'For tasks: include ONLY items related to that meeting; if none, write ' +
+  '"לא נמצאו משימות קשורות לפגישה זו" — NEVER dump the full open backlog. ' +
+  'Reply in the same language as the user.'
 
 type FunctionCall = { name: string; args: ToolArgs }
 
@@ -251,9 +322,30 @@ async function runChatLoop(
     text = extractResponseText(result)
   }
 
+  // Meeting Prep Herald must ground its briefing in real data. If it answered without
+  // calling any data tool, force a single grounding retry before returning.
+  if (
+    agentId === MEETING_PREP_AGENT_ID &&
+    !MEETING_PREP_GROUNDING_TOOLS.some((t) => toolsCalled.has(t))
+  ) {
+    console.warn('[GeminiAgent] Meeting prep answered without a data tool — forcing grounding retry')
+    result = await runToolLoop(
+      chat,
+      await chat.sendMessage(MEETING_PREP_GROUNDING_RETRY_PROMPT),
+      caller,
+      toolCtx,
+      toolsCalled,
+      5,
+    )
+    text = extractResponseText(result)
+  }
+
   if (!text && toolsCalled.size > 0) {
     result = await chat.sendMessage(
-      'Based on the tool results above, write your complete answer to the user now. Use the same language as the user. Do not call any more tools.',
+      'Based on the tool results above, write your complete answer to the user now. ' +
+        'Use ONLY facts present in the tool results or injected context; if a datum is missing, ' +
+        'say it is missing (write "לא נמצא בנתונים") rather than inventing it. ' +
+        'Use the same language as the user. Do not call any more tools.',
     )
     text = extractResponseText(result)
   }
