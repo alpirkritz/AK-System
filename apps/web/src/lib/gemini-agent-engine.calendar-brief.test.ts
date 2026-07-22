@@ -28,7 +28,7 @@ vi.mock('./notion', () => ({
 }))
 vi.mock('@ak-system/api', () => ({
   getAgentCalendarScopePromptBlock: vi.fn().mockResolvedValue(''),
-  localTodayIso: () => '2026-07-19',
+  localTodayIso: () => '2026-07-22',
   getAgentCalendarContext: vi.fn().mockResolvedValue({}),
   formatAgentCalendarContextForPrompt: () => '',
 }))
@@ -49,29 +49,36 @@ afterEach(() => {
   process.env = { ...ORIGINAL_ENV }
 })
 
-describe('calendar optimizer secretary brief', () => {
-  it('override forbids Markdown tables and requires secretary sections', () => {
+describe('calendar optimizer Notion-parity brief', () => {
+  it('override forbids Markdown tables and requires rich sections', () => {
     const override = getCalendarOptimizerBriefOverride()
     expect(override).toContain('NEVER use Markdown tables')
-    expect(override).toContain('שורה תחתונה')
+    expect(override).toContain('PRIMARY DATA SOURCE: ARO-connected calendars')
+    expect(override).toContain('Notion is OPTIONAL')
+    expect(override).toContain('Quick Summary')
+    expect(override).toContain("Today's Meetings")
+    expect(override).toContain('Conflicts & Overlaps')
+    expect(override).toContain('Load Analysis')
+    expect(override).toContain('Focus Time Opportunities')
+    expect(override).toContain('סיכום מהיר')
     expect(override).toContain('הפגישות להיום')
-    expect(override).toContain('המלצות')
     expect(override).toContain('מעתה אתעלם')
   })
 
   it('injects override into 06 system instruction on every channel', async () => {
     for (const channel of ['whatsapp', 'telegram', 'web'] as const) {
       const prompt = await buildAgentSystemInstruction('06_calendar_optimizer', channel)
-      expect(prompt).toContain('Calendar Optimizer — secretary brief')
+      expect(prompt).toContain('Calendar Optimizer — Notion-parity brief')
       expect(prompt).toContain('NEVER use Markdown tables')
-      expect(prompt).toContain('שורה תחתונה')
+      expect(prompt).toContain('Quick Summary')
+      expect(prompt).toContain('PRIMARY DATA SOURCE: ARO-connected calendars')
     }
   })
 
   it('tells Hugo to pass calendar brief through without re-wrapping', async () => {
     const prompt = await buildAgentSystemInstruction('01_Hugo_orchestrator', 'whatsapp')
-    expect(prompt).toContain('pass the secretary brief through almost verbatim')
-    expect(prompt).not.toContain('Calendar Optimizer — secretary brief (MANDATORY')
+    expect(prompt).toContain('pass the Notion-parity brief through almost verbatim')
+    expect(prompt).not.toContain('Calendar Optimizer — Notion-parity brief (MANDATORY')
   })
 })
 

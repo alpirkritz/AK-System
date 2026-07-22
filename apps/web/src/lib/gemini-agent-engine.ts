@@ -24,18 +24,24 @@ export type { ChatTurn } from './gemini-config'
 export const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
 export const MEETING_PREP_AGENT_ID = '04_meeting_prep_herald'
 
-/** Hard override: secretary brief on every channel (WhatsApp / Telegram / ARO). */
+/** Hard override: Notion-parity brief on every channel (WhatsApp / Telegram / ARO). */
 export function getCalendarOptimizerBriefOverride(): string {
   return [
-    '## Calendar Optimizer — secretary brief (MANDATORY — overrides conflicting card/workflow table instructions)',
-    'Write like a personal secretary. Bottom line first, then today\'s meetings.',
-    'NEVER use Markdown tables (| ... |). NEVER narrate standing instructions, memory updates, or "I understood / מעתה אתעלם / הוראה זו נוספה" in the reply.',
-    'NEVER repeat the same analysis twice. Keep schedule notes ≤12 words; never paste full task bodies.',
-    'Required structure:',
-    '1) Optional one-line date header',
-    '2) **שורה תחתונה** (≤4 bullets): start with 📊 עומס (hours + קל/סביר/עמוס), then 🚨 conflicts / ⚠️ overlaps / ⏰ short top task if any',
-    '3) **הפגישות להיום**: one bullet per timed event as `HH:MM–HH:MM — Title` (+ optional short note). Do not omit events (except all-day / ≥8h).',
-    '4) **המלצות** (optional, ≤3 bullets) only for real conflict/overload actions, with 2–3 alt slots when suggesting a move.',
+    '## Calendar Optimizer — Notion-parity brief (MANDATORY — overrides conflicting card/workflow table instructions)',
+    'PRIMARY DATA SOURCE: ARO-connected calendars (prefetched calendar context + calendar tools). Notion is OPTIONAL enrichment for Reminders only.',
+    'If Notion is missing or fails: still deliver the FULL calendar brief from calendar data. NEVER refuse or say you depend on Notion.',
+    'Write a rich daily calendar brief matching Notion Calendar Optimizer depth. Use headings + bullets.',
+    'NEVER use Markdown tables (| ... | or |---|). NEVER narrate standing instructions, memory updates, or "I understood / מעתה אתעלם / הוראה זו נוספה" in the reply.',
+    'NEVER repeat the same analysis twice. Meeting context ≤20 words; never paste full task bodies.',
+    'Match the user language (Hebrew ↔ English). Required sections IN ORDER:',
+    '1) Title: Daily Calendar Summary — <weekday, date> (or סיכום יומן יומי — …)',
+    '2) Quick Summary / סיכום מהיר — 3–5 bullets: conflicts yes/no, back-to-back, load (hours + light/manageable/heavy or קל/סביר/עמוס), optional day context',
+    '3) Today\'s Meetings / הפגישות להיום — one bullet per timed event: `HH:MM–HH:MM — Title` + duration + short context (attendees/team/organizer/calendar). Do not omit events (except all-day / ≥8h).',
+    '4) Conflicts & Overlaps / קונפליקטים וחפיפות — explicit None/אין when clean; else list real conflicts and awareness overlaps (incl. zero-buffer back-to-back)',
+    '5) Load Analysis / ניתוח עומס — total hours vs 4h threshold + main free windows',
+    '6) Focus Time Opportunities / חלונות פוקוס — 1–3 concrete windows with start–end + one-line suggestion',
+    '7) Reminders / תזכורות (optional) — only if grounded in calendar/tasks/Notion/memory; skip section if empty; never invent',
+    '8) Recommendations / המלצות (optional, ≤3) — only for real conflict/overload actions, with 2–3 alt slots when suggesting a move',
   ].join('\n')
 }
 
@@ -128,7 +134,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       'summarize_whatsapp_groups returns the summary text inline (from stored history) — include it directly in your reply. Do NOT tell the user it will arrive as a separate message.',
       '',
       'For calendar / יומן / schedule questions, delegate to run_abc_agent agentId 06_calendar_optimizer — call him **אופטי** (the calendar advisor) in your replies.',
-      'When folding אופטי / calendar optimizer output into your reply: pass the secretary brief through almost verbatim — do NOT add a long preamble, do NOT re-analyze, do NOT wrap it in Markdown tables.',
+      'When folding אופטי / calendar optimizer output into your reply: pass the Notion-parity brief through almost verbatim — do NOT add a long preamble, do NOT re-analyze, do NOT wrap it in Markdown tables.',
       'Notion access: you CAN read Notion across ALL connected accounts via tools — get_notion_meetings (meetings), get_notion_tasks (tasks), search_notion (find an item), notion_status (diagnose access). NEVER tell the user you have no access to Notion; if a database fails, call notion_status and say which database needs to be shared with the integration.',
       'For daily prep / "תכין אותי ליום" / "מה יש לי היום": call get_notion_meetings and get_notion_tasks (both accounts) and fold them into your answer, in addition to calendar/tasks tools.',
       'For tasks, use Notion (get_notion_tasks + the injected Notion context: Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',

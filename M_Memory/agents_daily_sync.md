@@ -799,3 +799,43 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Compliance:** Clarity; no invention; concise WhatsApp
 - **Notes:** Deploy + live smoke recommended
 
+
+## 2026-07-20 — Hugo (Dev Pipeline) — morning יועץ יומן, stop Meeting Prep spam
+
+- **Active Agent:** `01_Hugo_orchestrator` → notification routing + `06_calendar_optimizer`
+- **Workflow:** morning briefing cron / notification preferences
+- **Actions:** Option A — cleared `pre_meeting_briefing` agent routing (UI-reversible); cleared broken morning `trigger_message`; morning cron now passes today’s schedule as agent context; deployed to EC2.
+- **Output:** `docs/specs/morning-calendar-advisor-no-prep-spam.md`, `reports/morning-calendar-advisor-no-prep-spam.md`
+- **Compliance:** Owner retains UI control over agent routing; on-demand Meeting Prep unchanged
+- **Notes:** Prefs live immediately; morning context code live after deploy
+
+
+## 2026-07-20 — Hugo (Dev Pipeline) — enrich pre-meeting template
+
+- **Active Agent:** `01_Hugo_orchestrator` → pre-meeting cron template
+- **Workflow:** `/api/cron/pre-meeting-briefing` (Option A, no LLM)
+- **Actions:** Enriched brief with Google attendees, cleaned description/agenda, prior notes, related open tasks (meeting/project/title-token); deployed EC2.
+- **Output:** `docs/specs/enrich-pre-meeting-template.md`, `reports/enrich-pre-meeting-template.md`
+- **Compliance:** No invention; empty-state lines when data missing; Meeting Prep still re-routable from UI
+- **Notes:** Live on next ~15-min pre-meeting window
+
+
+## 2026-07-22 — Hugo (PM) — calendar brief Notion-parity (spec only)
+
+- **Active Agent:** `01_Hugo_orchestrator` → PM gate for `06_calendar_optimizer` presentation
+- **Workflow:** Dev pipeline — PM Agent (spec before code)
+- **Actions:** Diagnosed quality gap vs Notion Calendar Optimizer (caused by 2026-07-19 ultra-short secretary brief); drafted Notion-parity WhatsApp-safe structure (no tables, full sections).
+- **Output:** `docs/specs/calendar-brief-notion-parity.md`
+- **Compliance:** Clarity; recommendations-only unchanged; awaiting owner approval before implementation
+- **Notes:** Supersedes structure of `calendar-optimizer-whatsapp-brief`; keeps no-tables + no-meta
+
+
+## 2026-07-22 — Hugo (Dev Pipeline) — calendar brief Notion-parity
+
+- **Active Agent:** `01_Hugo_orchestrator` → `06_calendar_optimizer` presentation
+- **Workflow:** `S_Skills/wf_calendar_optimizer.md` Stage 4.1
+- **Actions:** Replaced ultra-short secretary brief with Notion-parity WhatsApp-safe sections; calendars primary / Notion optional; hard prompt override + Hugo pass-through; prompt-contract tests; QA + review.
+- **Output:** `docs/specs/calendar-brief-notion-parity.md`, `reports/qa-calendar-brief-notion-parity.md`, `reports/calendar-brief-notion-parity.md`
+- **Compliance:** Clarity; recommendations-only unchanged; no Notion dependency for core brief
+- **Notes:** Needs deploy + live smoke on WhatsApp/ARO to confirm LLM adherence
+

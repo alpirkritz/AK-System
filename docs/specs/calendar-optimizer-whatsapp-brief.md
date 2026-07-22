@@ -1,7 +1,7 @@
 # Calendar Optimizer — secretary brief (all channels)
 
 > **Slug:** `calendar-optimizer-whatsapp-brief`
-> **Status:** Approved
+> **Status:** Superseded for structure by `docs/specs/calendar-brief-notion-parity.md` (2026-07-22). No-tables + no-meta rules still in force there.
 > **Last Updated:** 2026-07-19
 > **Stack:** `next-trpc-monorepo`
 
