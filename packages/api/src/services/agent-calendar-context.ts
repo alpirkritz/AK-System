@@ -1,4 +1,4 @@
-import { isExcludedFromCalendarOptimizer } from '../lib/calendar-filters'
+import { isExcludedFromTimedMeetingAlerts } from '../lib/calendar-filters'
 import { localDateRangeToUtc, localTodayIso } from '../lib/calendar-dates'
 import {
   filterEventsByCalendarScope,
@@ -26,7 +26,7 @@ export async function getAgentCalendarContext(
   const { events, errors } = await fetchGoogleCalendarEvents(timeMin, timeMax)
   let scoped = filterEventsByCalendarScope(events, scopeIds)
   if (options?.forCalendarOptimizer) {
-    scoped = scoped.filter((e) => !isExcludedFromCalendarOptimizer(e))
+    scoped = scoped.filter((e) => !isExcludedFromTimedMeetingAlerts(e))
   }
   scoped.sort((a, b) => a.start.localeCompare(b.start))
   return { today, events: scoped, errors }

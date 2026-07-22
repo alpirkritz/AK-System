@@ -20,10 +20,13 @@ export function isFreeBusyPlaceholderTitle(title: string): boolean {
   return (FREE_BUSY_PLACEHOLDER_TITLES_EN as readonly string[]).includes(t.toLowerCase())
 }
 
-/** Calendar optimizer (06) ignores all-day blocks and timed events ≥ 8 hours. */
-export const CALENDAR_OPTIMIZER_MAX_EVENT_MS = 8 * 60 * 60 * 1000
+/** Timed-meeting alerts (pre-meeting, calendar optimizer) ignore all-day + ≥8h blocks. */
+export const TIMED_MEETING_ALERT_MAX_EVENT_MS = 8 * 60 * 60 * 1000
 
-export function isExcludedFromCalendarOptimizer(event: {
+/** @deprecated Use TIMED_MEETING_ALERT_MAX_EVENT_MS */
+export const CALENDAR_OPTIMIZER_MAX_EVENT_MS = TIMED_MEETING_ALERT_MAX_EVENT_MS
+
+export function isExcludedFromTimedMeetingAlerts(event: {
   start: string
   end: string
   isAllDay?: boolean
@@ -31,5 +34,9 @@ export function isExcludedFromCalendarOptimizer(event: {
   if (event.isAllDay) return true
   if (!event.start.includes('T')) return true
   const durationMs = new Date(event.end).getTime() - new Date(event.start).getTime()
-  return durationMs >= CALENDAR_OPTIMIZER_MAX_EVENT_MS
+  return durationMs >= TIMED_MEETING_ALERT_MAX_EVENT_MS
 }
+
+/** @deprecated Use isExcludedFromTimedMeetingAlerts */
+export const isExcludedFromCalendarOptimizer = isExcludedFromTimedMeetingAlerts
+

@@ -18,7 +18,7 @@ import {
   warmAppleCalendarCache,
   AppleCalendarEvent,
 } from '../services/apple-calendar'
-import { isFreeBusyPlaceholderTitle } from '../lib/calendar-filters'
+import { isExcludedFromTimedMeetingAlerts, isFreeBusyPlaceholderTitle } from '../lib/calendar-filters'
 
 let cacheWarmed = false
 
@@ -145,6 +145,7 @@ export const calendarRouter = router({
       const filtered = events
         .filter((e) => new Date(e.start) >= now)
         .filter((e) => !isFreeBusyPlaceholderTitle(e.title))
+        .filter((e) => !isExcludedFromTimedMeetingAlerts(e))
         .slice(0, input.limit)
       return { events: filtered, googleErrors }
     }),
@@ -196,14 +197,10 @@ export const calendarRouter = router({
         events = events.filter((e) => e.calendarId && ids.has(e.calendarId))
       }
 
-      const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
-
       events = events.filter((e) => {
-        if (e.isAllDay) return false
         if (e.status === 'cancelled') return false
         if ((e as GoogleCalendarEvent).rsvp === 'declined') return false
-        const duration = new Date(e.end).getTime() - new Date(e.start).getTime()
-        if (duration >= EIGHT_HOURS_MS) return false
+        if (isExcludedFromTimedMeetingAlerts(e)) return false
         return true
       })
 

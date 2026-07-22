@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { isExcludedFromCalendarOptimizer, isFreeBusyPlaceholderTitle } from './calendar-filters'
+import {
+  isExcludedFromCalendarOptimizer,
+  isExcludedFromTimedMeetingAlerts,
+  isFreeBusyPlaceholderTitle,
+} from './calendar-filters'
 
 describe('isFreeBusyPlaceholderTitle', () => {
   it('matches Hebrew placeholders', () => {
@@ -21,10 +25,10 @@ describe('isFreeBusyPlaceholderTitle', () => {
   })
 })
 
-describe('isExcludedFromCalendarOptimizer', () => {
+describe('isExcludedFromTimedMeetingAlerts', () => {
   it('excludes all-day events', () => {
     expect(
-      isExcludedFromCalendarOptimizer({
+      isExcludedFromTimedMeetingAlerts({
         start: '2026-07-12',
         end: '2026-07-13',
         isAllDay: true,
@@ -32,9 +36,19 @@ describe('isExcludedFromCalendarOptimizer', () => {
     ).toBe(true)
   })
 
+  it('excludes date-only starts without isAllDay flag', () => {
+    expect(
+      isExcludedFromTimedMeetingAlerts({
+        start: '2026-07-22',
+        end: '2026-07-23',
+        isAllDay: false,
+      }),
+    ).toBe(true)
+  })
+
   it('excludes timed events of 8 hours or more', () => {
     expect(
-      isExcludedFromCalendarOptimizer({
+      isExcludedFromTimedMeetingAlerts({
         start: '2026-07-12T10:00:00+03:00',
         end: '2026-07-12T18:00:00+03:00',
         isAllDay: false,
@@ -44,11 +58,22 @@ describe('isExcludedFromCalendarOptimizer', () => {
 
   it('keeps timed events under 8 hours', () => {
     expect(
-      isExcludedFromCalendarOptimizer({
+      isExcludedFromTimedMeetingAlerts({
         start: '2026-07-12T10:15:00+03:00',
         end: '2026-07-12T12:30:00+03:00',
         isAllDay: false,
       }),
     ).toBe(false)
+  })
+
+  it('keeps alias isExcludedFromCalendarOptimizer in sync', () => {
+    const event = {
+      start: '2026-07-22',
+      end: '2026-07-23',
+      isAllDay: true as const,
+    }
+    expect(isExcludedFromCalendarOptimizer(event)).toBe(
+      isExcludedFromTimedMeetingAlerts(event),
+    )
   })
 })

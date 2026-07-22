@@ -839,3 +839,13 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Compliance:** Clarity; recommendations-only unchanged; no Notion dependency for core brief
 - **Notes:** Needs deploy + live smoke on WhatsApp/ARO to confirm LLM adherence
 
+
+## 2026-07-22 — Hugo (Dev Pipeline) — filter all-day from pre-meeting
+
+- **Active Agent:** `01_Hugo_orchestrator` → pre-meeting cron / `calendar.upcoming`
+- **Workflow:** `/api/cron/pre-meeting-briefing`
+- **Actions:** Diagnosed 02:45 WhatsApp spam (Google date-only → UTC midnight → 03:00 IL); renamed shared filter to `isExcludedFromTimedMeetingAlerts`; applied to `calendar.upcoming` (+ DRY conflicts); tests + QA + review.
+- **Output:** `docs/specs/filter-allday-pre-meeting.md`, `reports/qa-filter-allday-pre-meeting.md`, `reports/filter-allday-pre-meeting.md`
+- **Compliance:** No invention; calendar UI `events` unchanged
+- **Notes:** Deploy required to stop live spam tonight
+
