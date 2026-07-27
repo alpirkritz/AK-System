@@ -101,7 +101,29 @@ export DATABASE_PATH="\${ROOT_DIR}/apps/web/data/ak_system.sqlite"
     exit 0
   fi
   trap 'rmdir "\$LOCK_DIR" 2>/dev/null || true' EXIT
-  pnpm exec tsx "\$BRIDGE_SCRIPT"
+
+  if ! bash "\$ROOT_DIR/scripts/pull-google-token-from-ec2.sh"; then
+    echo "[outlook-bridge] EC2 token import failed — using existing local token"
+  fi
+
+  SYNC_OUTPUT="\$(mktemp)"
+  set +e
+  pnpm exec tsx "\$BRIDGE_SCRIPT" > "\$SYNC_OUTPUT" 2>&1
+  SYNC_RC=\$?
+  set -e
+  cat "\$SYNC_OUTPUT"
+
+  if [ "\$SYNC_RC" -ne 0 ] && grep -q 'invalid_grant' "\$SYNC_OUTPUT"; then
+    echo "[outlook-bridge] local token rejected — refreshing once from EC2"
+    if bash "\$ROOT_DIR/scripts/pull-google-token-from-ec2.sh"; then
+      rm -f "\$SYNC_OUTPUT"
+      pnpm exec tsx "\$BRIDGE_SCRIPT"
+      exit \$?
+    fi
+  fi
+
+  rm -f "\$SYNC_OUTPUT"
+  exit "\$SYNC_RC"
 } >> "\$LOG_FILE" 2>&1
 EOF
 chmod +x "$LOCAL_RUNNER"

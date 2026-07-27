@@ -61,6 +61,15 @@ No new tRPC procedure. Single change in `packages/api`:
 - `deploy/launchd/com.ak.outlook-bridge.plist` (new) — run every 900 seconds.
 - `scripts/install-outlook-bridge.sh` (new) — install/load the plist into `~/Library/LaunchAgents`.
 
+### Production token source
+
+The Mac bridge imports the `OUTLOOK_BRIDGE_ACCOUNT` Google connection from the
+EC2 production SQLite before each launchd sync. Reconnect Google through the
+production `/settings` page; the next Mac run pulls and verifies that token.
+`pnpm dev` and the local OAuth callback are not required for normal operation.
+If EC2/SSH is temporarily unavailable, the bridge falls back to its last valid
+local token.
+
 ## Bridge logic (scripts/outlook-to-google-sync.ts)
 
 1. Run the Swift helper for window `-7d .. +60d`, filter to `calSource==='Exchange'` and calendar `OUTLOOK_SOURCE_CALENDAR` (default `Calendar`), skip holidays. Helper exports `attendees[]` (`email`, `name`, `responseStatus`) per event.
