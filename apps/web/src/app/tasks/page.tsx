@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@ak-system/types'
+import { WorkspacePill } from '@/components/WorkspacePill'
 import dynamic from 'next/dynamic'
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -14,6 +15,7 @@ export default function TasksPage() {
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: notionState } = trpc.tasks.notionConfigured.useQuery()
   const utils = trpc.useUtils()
   const toggleTask = trpc.tasks.toggleDone.useMutation({
@@ -39,11 +41,13 @@ export default function TasksPage() {
   const [status, setStatus] = useState<StatusFilter>('open')
   const [projectId, setProjectId] = useState<string>('')
   const [meetingId, setMeetingId] = useState<string>('')
+  const [workspaceId, setWorkspaceId] = useState<string>('')
   const [search, setSearch] = useState('')
 
   const getPerson = (id: string) => people.find((p) => p.id === id)
   const getMeeting = (id: string) => meetings.find((m) => m.id === id)
   const getProject = (id: string) => projects.find((p) => p.id === id)
+  const getWorkspace = (id?: string | null) => (id ? workspaces.find((w) => w.id === id) : undefined)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -52,12 +56,13 @@ export default function TasksPage() {
       if (status === 'done' && !t.done) return false
       if (projectId && (t as { projectId?: string }).projectId !== projectId) return false
       if (meetingId && t.meetingId !== meetingId) return false
+      if (workspaceId && (t as { workspaceId?: string | null }).workspaceId !== workspaceId) return false
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
-  }, [tasksList, status, projectId, meetingId, search])
+  }, [tasksList, status, projectId, meetingId, workspaceId, search])
 
-  const hasActiveFilter = status !== 'open' || !!projectId || !!meetingId || !!search
+  const hasActiveFilter = status !== 'open' || !!projectId || !!meetingId || !!workspaceId || !!search
 
   const statusTabs: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'פתוחות' },
@@ -98,6 +103,37 @@ export default function TasksPage() {
       {syncMessage && (
         <div className="mb-4 text-sm text-[#9fb0d4] bg-[#141b2e] border border-[#26324d] rounded-lg px-3 py-2">
           {syncMessage}
+        </div>
+      )}
+
+      {/* Workspace (source) filter */}
+      {workspaces.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-3" role="group" aria-label="סינון לפי מקור">
+          <span className="text-[11px] font-medium text-[#647399] uppercase tracking-wider ml-1">מקור</span>
+          <button
+            type="button"
+            className="filter-chip"
+            aria-pressed={workspaceId === ''}
+            onClick={() => setWorkspaceId('')}
+          >
+            הכל
+          </button>
+          {workspaces.map((w) => {
+            const active = workspaceId === w.id
+            const color = w.color ?? '#2dd4bf'
+            return (
+              <button
+                key={w.id}
+                type="button"
+                className="filter-chip"
+                aria-pressed={active}
+                style={active ? { background: color + '1a', borderColor: color + '40', color } : undefined}
+                onClick={() => setWorkspaceId(active ? '' : w.id)}
+              >
+                {w.name}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -206,6 +242,7 @@ export default function TasksPage() {
                           <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
                         )}
                       </div>
+                      <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
                       {t.projectId && getProject(t.projectId) && (
                         <Link href={`/projects/${t.projectId}`}>
                           <span className="pill cursor-pointer text-[11px]">📁 {getProject(t.projectId)?.name}</span>
@@ -247,6 +284,7 @@ export default function TasksPage() {
         people={people}
         meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
       />
     </div>
   )

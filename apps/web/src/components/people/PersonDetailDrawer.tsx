@@ -6,6 +6,7 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { he } from 'date-fns/locale'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/cn'
+import { WorkspacePill } from '@/components/WorkspacePill'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 
@@ -383,7 +384,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 משימות ({related.tasks.length})
               </h3>
               <div className="space-y-2">
-                {related.tasks.map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null }) => (
+                {related.tasks.map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null; workspaceId?: string | null; workspaceName?: string | null; workspaceColor?: string | null }) => (
                   <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                     <div className="flex items-center gap-3">
                       <button
@@ -405,6 +406,11 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                       )}>
                         {task.title}
                       </span>
+                      {task.workspaceName && (
+                        <WorkspacePill
+                          workspace={{ id: task.workspaceId!, name: task.workspaceName, color: task.workspaceColor }}
+                        />
+                      )}
                       {task.dueDate && (
                         <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
                           {format(new Date(task.dueDate), 'dd/MM')}

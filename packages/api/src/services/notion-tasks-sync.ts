@@ -15,7 +15,7 @@
  * filters (no named date property required, since task-DB property names vary).
  */
 
-import { getDb, people, tasks, taskPeople, eq, and, inArray } from '@ak-system/database'
+import { getDb, people, tasks, taskPeople, workspaces, eq, and, inArray } from '@ak-system/database'
 
 const NOTION_VERSION = '2022-06-28'
 
@@ -279,6 +279,36 @@ function newId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 7)
 }
 
+// ─── Workspace mapping ───────────────────────────────────────────────────────
+
+/** Lowercased `notionAccountLabel` -> workspace id. Workspaces without a label are skipped. */
+export function buildWorkspaceLabelMap(
+  rows: Array<{ id: string; notionAccountLabel: string | null }>,
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const row of rows) {
+    const label = row.notionAccountLabel?.trim().toLowerCase()
+    if (label) map.set(label, row.id)
+  }
+  return map
+}
+
+/**
+ * Workspace for a synced task. The database name is the more specific signal —
+ * a single Notion account can hold databases for several business contexts —
+ * so it wins over the account label when both match.
+ */
+export function resolveWorkspaceId(
+  labels: Map<string, string>,
+  database: { name: string; accountLabel: string },
+): string | null {
+  return (
+    labels.get(database.name.trim().toLowerCase()) ??
+    labels.get(database.accountLabel.trim().toLowerCase()) ??
+    null
+  )
+}
+
 // ─── Main sync ───────────────────────────────────────────────────────────────
 
 export async function syncNotionTasks(
@@ -405,7 +435,13 @@ export async function syncNotionTasks(
     if (t.notionPageId) taskIdByPage.set(t.notionPageId, t.id)
   }
 
+  const workspaceRows = await db
+    .select({ id: workspaces.id, notionAccountLabel: workspaces.notionAccountLabel })
+    .from(workspaces)
+  const workspaceLabels = buildWorkspaceLabelMap(workspaceRows)
+
   for (const database of taskDbs) {
+    const workspaceId = resolveWorkspaceId(workspaceLabels, database)
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
     try {
       pages = await queryDatabase(database.token, database.databaseId, filter)
@@ -471,6 +507,7 @@ export async function syncNotionTasks(
               dueDate,
               priority,
               assigneeId,
+              workspaceId,
               notionAccount: database.accountLabel,
               notionDb: database.name,
               updatedAt: now,
@@ -490,6 +527,7 @@ export async function syncNotionTasks(
             title,
             meetingId: null,
             projectId: null,
+            workspaceId,
             assigneeId,
             dueDate,
             done: false,

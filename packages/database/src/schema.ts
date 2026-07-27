@@ -49,6 +49,17 @@ export const projects = sqliteTable('projects', {
   updatedAt: text('updated_at').notNull(),
 })
 
+/** Top-level task origin (Alpir Consulting / Dragontail / DAZ / personal) — orthogonal to projects */
+export const workspaces = sqliteTable('workspaces', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color').default('#2dd4bf'),
+  /** Matched against a synced task's notionDb / notionAccount to auto-assign the workspace */
+  notionAccountLabel: text('notion_account_label'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
@@ -119,6 +130,7 @@ export const tasks = sqliteTable('tasks', {
   title: text('title').notNull(),
   meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
   assigneeId: text('assignee_id').references(() => people.id, { onDelete: 'set null' }),
   dueDate: text('due_date'),
   done: integer('done', { mode: 'boolean' }).notNull().default(false),
@@ -136,6 +148,7 @@ export const tasks = sqliteTable('tasks', {
 }, (table) => ({
   meetingIdIdx: index('idx_tasks_meeting_id').on(table.meetingId),
   projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
+  workspaceIdIdx: index('idx_tasks_workspace_id').on(table.workspaceId),
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
   notionPageIdIdx: index('idx_tasks_notion_page_id').on(table.notionPageId),
 }))

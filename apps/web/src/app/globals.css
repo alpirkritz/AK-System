@@ -587,6 +587,75 @@ body {
   color: #fb7185;
 }
 
+/* ── Floating quick-add button ───────────────────────────────── */
+
+.fab {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 80;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  background: #2dd4bf;
+  color: #0e1626;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s, background 0.15s;
+}
+.fab:hover {
+  background: #45e0ce;
+  transform: translateY(-1px);
+}
+.fab:focus-visible {
+  outline: 2px solid rgba(45, 212, 191, 0.6);
+  outline-offset: 3px;
+}
+@media (max-width: 767px) {
+  .fab {
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+    left: 16px;
+  }
+}
+
+/* ── Toast ───────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  background: #1d2b46;
+  border: 1px solid #2f4368;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 13px;
+  color: #eef3fb;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  animation: fadeIn 0.15s ease-out;
+}
+@media (max-width: 767px) {
+  .toast {
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 80px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fab,
+  .fab:hover {
+    transition: none;
+    transform: none;
+  }
+  .toast {
+    animation: none;
+  }
+}
+
 /* ── Animations ──────────────────────────────────────────────── */
 
 @keyframes fadeIn {

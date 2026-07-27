@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
+import { WorkspacePill } from '@/components/WorkspacePill'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -17,6 +18,7 @@ export default function ProjectDetailPage() {
   const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const utils = trpc.useUtils()
   const toggleTask = trpc.tasks.toggleDone.useMutation({
     onSuccess: () => utils.tasks.list.invalidate(),
@@ -26,8 +28,9 @@ export default function ProjectDetailPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
+  const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
   const meetings = (meetingsList as Array<{ id: string; title: string; date: string; time: string; projectId?: string; recurring?: string; recurrenceDay?: string; peopleIds?: string[] }>).filter((m) => m.projectId === id)
-  const tasks = (tasksList as Array<{ id: string; title: string; done: boolean; priority: string; assigneeId?: string; meetingId?: string; dueDate?: string }>).filter((t) => (t as { projectId?: string }).projectId === id)
+  const tasks = (tasksList as Array<{ id: string; title: string; done: boolean; priority: string; assigneeId?: string; meetingId?: string; dueDate?: string; workspaceId?: string | null }>).filter((t) => (t as { projectId?: string }).projectId === id)
 
   if (isLoading || !project) {
     return <div className="text-[#7a89ab]">טוען...</div>
@@ -116,6 +119,7 @@ export default function ProjectDetailPage() {
                     <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
                   )}
                 </div>
+                <WorkspacePill workspace={getWorkspace(t.workspaceId)} />
                 <div className="dot" style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }} />
                 {t.assigneeId && (
                   <div
@@ -150,6 +154,7 @@ export default function ProjectDetailPage() {
         people={people}
         meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
       />
     </div>
   )

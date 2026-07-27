@@ -79,8 +79,36 @@ const TASKS_COLUMNS = [
   'ALTER TABLE tasks ADD COLUMN notion_page_id TEXT',
   'ALTER TABLE tasks ADD COLUMN notion_account TEXT',
   'ALTER TABLE tasks ADD COLUMN notion_db TEXT',
+  'ALTER TABLE tasks ADD COLUMN workspace_id TEXT',
   'CREATE INDEX IF NOT EXISTS idx_tasks_notion_page_id ON tasks(notion_page_id)',
+  'CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id)',
 ]
+
+const WORKSPACES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#2dd4bf',
+    notion_account_label TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+]
+
+/** Seeded once with stable ids so re-running the bootstrap never duplicates them. */
+const DEFAULT_WORKSPACES = [
+  { id: 'ws_alpir_consulting', name: 'Alpir Consulting', color: '#2dd4bf' },
+  { id: 'ws_dragontail', name: 'Dragontail', color: '#fb7185' },
+  { id: 'ws_daz', name: 'DAZ', color: '#38bdf8' },
+  { id: 'ws_personal', name: 'פרטי', color: '#b847e8' },
+]
+
+const WORKSPACES_SEED = DEFAULT_WORKSPACES.map(
+  (w) =>
+    `INSERT OR IGNORE INTO workspaces (id, name, color, notion_account_label, created_at, updated_at)
+     VALUES ('${w.id}', '${w.name}', '${w.color}', NULL,
+       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+)
 
 const FEED_TABLES = [
   `CREATE TABLE IF NOT EXISTS feed_sources (
@@ -396,6 +424,12 @@ export function getDb() {
   for (const sql of PEOPLE_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+  for (const sql of WORKSPACES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of WORKSPACES_SEED) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* already seeded */ }
+  }
   for (const sql of TASKS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
@@ -470,6 +504,7 @@ const schema = usePostgres() ? schemaPg : schemaSqlite
 
 export const people = schema.people
 export const projects = schema.projects
+export const workspaces = schema.workspaces
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
 export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
@@ -522,6 +557,8 @@ export type Person = typeof schemaPg.people.$inferSelect
 export type NewPerson = typeof schemaPg.people.$inferInsert
 export type Project = typeof schemaPg.projects.$inferSelect
 export type NewProject = typeof schemaPg.projects.$inferInsert
+export type Workspace = typeof schemaPg.workspaces.$inferSelect
+export type NewWorkspace = typeof schemaPg.workspaces.$inferInsert
 export type Meeting = typeof schemaPg.meetings.$inferSelect
 export type NewMeeting = typeof schemaPg.meetings.$inferInsert
 export type MeetingSeries = typeof schemaPg.meetingSeries.$inferSelect

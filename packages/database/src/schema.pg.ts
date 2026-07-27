@@ -46,6 +46,16 @@ export const projects = pgTable('projects', {
   updatedAt: text('updated_at').notNull(),
 })
 
+/** Top-level task origin (Alpir Consulting / Dragontail / DAZ / personal) — orthogonal to projects */
+export const workspaces = pgTable('workspaces', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color').default('#2dd4bf'),
+  notionAccountLabel: text('notion_account_label'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
@@ -112,6 +122,7 @@ export const tasks = pgTable('tasks', {
   title: text('title').notNull(),
   meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
   assigneeId: text('assignee_id').references(() => people.id, { onDelete: 'set null' }),
   dueDate: text('due_date'),
   done: boolean('done').notNull().default(false),
@@ -125,6 +136,7 @@ export const tasks = pgTable('tasks', {
 }, (table) => ({
   meetingIdIdx: index('idx_tasks_meeting_id').on(table.meetingId),
   projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
+  workspaceIdIdx: index('idx_tasks_workspace_id').on(table.workspaceId),
   assigneeIdIdx: index('idx_tasks_assignee_id').on(table.assigneeId),
   notionPageIdIdx: index('idx_tasks_notion_page_id').on(table.notionPageId),
 }))

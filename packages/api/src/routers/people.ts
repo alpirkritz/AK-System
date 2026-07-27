@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { people, meetings, meetingPeople, tasks, taskPeople, projects, PEOPLE_STATUSES } from '@ak-system/database'
+import { people, meetings, meetingPeople, tasks, taskPeople, projects, workspaces, PEOPLE_STATUSES } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
@@ -238,13 +238,17 @@ export const peopleRouter = router({
         meetingId: tasks.meetingId,
         projectId: tasks.projectId,
         assigneeId: tasks.assigneeId,
+        workspaceId: tasks.workspaceId,
         meetingTitle: meetings.title,
         meetingDate: meetings.date,
         projectName: projects.name,
+        workspaceName: workspaces.name,
+        workspaceColor: workspaces.color,
       })
       .from(tasks)
       .leftJoin(meetings, eq(tasks.meetingId, meetings.id))
       .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .where(inArray(tasks.id, allTaskIds))
       .orderBy(desc(tasks.createdAt))
 

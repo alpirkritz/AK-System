@@ -850,6 +850,20 @@ export default function SettingsPage() {
       </div>
 
       <Link
+        href="/settings/workspaces"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">מקורות</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            Alpir Consulting, Dragontail, DAZ ופרטי — שיוך משימות ומיפוי אוטומטי מ-Notion
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🗂️</span>
+      </Link>
+
+      <Link
         href="/settings/whatsapp"
         className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#25D36644] transition-colors"
         style={{ border: '1px solid #29395d' }}

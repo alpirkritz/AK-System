@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
+import { WorkspacePill } from '@/components/WorkspacePill'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -19,6 +20,7 @@ export default function MeetingDetailPage() {
   const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
 
   type MeetingExtended = typeof meeting & {
@@ -112,6 +114,7 @@ export default function MeetingDetailPage() {
   }, [moreOpen])
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
+  const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
   const tasks = tasksList.filter((t) => t.meetingId === id)
 
   if (isLoading || !meeting) {
@@ -456,6 +459,7 @@ onClick={() => {
                     </span>
                   )}
                 </div>
+                <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
                 <div
                   className="dot"
                   style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }}
@@ -596,6 +600,7 @@ onClick={() => {
         people={people}
         meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
       />
     </div>
   )

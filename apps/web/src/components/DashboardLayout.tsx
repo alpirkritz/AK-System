@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -18,9 +19,15 @@ import {
   Settings,
   LogOut,
   MoreHorizontal,
+  Plus,
   type LucideIcon,
 } from 'lucide-react'
 import { NotificationBell } from './NotificationBell'
+
+const QuickAddTaskModal = dynamic(
+  () => import('./QuickAddTaskModal').then((m) => m.QuickAddTaskModal),
+  { ssr: false },
+)
 
 type NavItem = { href: string; label: string; icon: LucideIcon }
 
@@ -82,6 +89,15 @@ const MORE_ITEMS: NavItem[] = [
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [taskAdded, setTaskAdded] = useState(false)
+  const fabRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!taskAdded) return
+    const timer = setTimeout(() => setTaskAdded(false), 2500)
+    return () => clearTimeout(timer)
+  }, [taskAdded])
 
   // Auth screen: render bare, no app chrome.
   if (pathname === '/login') {
@@ -232,6 +248,34 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </>
+      )}
+
+      {/* Global quick-add — hidden while the mobile "more" drawer is open */}
+      {!moreOpen && (
+        <button
+          ref={fabRef}
+          type="button"
+          className="fab"
+          aria-label="הוסף משימה"
+          onClick={() => setQuickAddOpen(true)}
+        >
+          <Plus size={24} strokeWidth={2.5} />
+        </button>
+      )}
+
+      <QuickAddTaskModal
+        open={quickAddOpen}
+        onClose={() => {
+          setQuickAddOpen(false)
+          fabRef.current?.focus()
+        }}
+        onCreated={() => setTaskAdded(true)}
+      />
+
+      {taskAdded && (
+        <div className="toast" role="status">
+          נוספה משימה
+        </div>
       )}
     </div>
   )

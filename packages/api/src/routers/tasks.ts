@@ -10,6 +10,7 @@ const createInput = z.object({
   title: z.string().min(1),
   meetingId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   done: z.boolean().optional(),
@@ -21,6 +22,7 @@ const updateInput = z.object({
   title: z.string().min(1).optional(),
   meetingId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   done: z.boolean().optional(),
@@ -30,9 +32,14 @@ const updateInput = z.object({
 const idInput = z.object({ id: z.string().min(1) })
 
 export const tasksRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(tasks).orderBy(tasks.createdAt)
-  }),
+  list: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (input?.workspaceId) {
+        return ctx.db.select().from(tasks).where(eq(tasks.workspaceId, input.workspaceId)).orderBy(tasks.createdAt)
+      }
+      return ctx.db.select().from(tasks).orderBy(tasks.createdAt)
+    }),
 
   listByMeeting: protectedProcedure.input(z.object({ meetingId: z.string() })).query(async ({ ctx, input }) => {
     return ctx.db.select().from(tasks).where(eq(tasks.meetingId, input.meetingId))
@@ -42,13 +49,18 @@ export const tasksRouter = router({
     return ctx.db.select().from(tasks).where(eq(tasks.projectId, input.projectId))
   }),
 
+  listByWorkspace: protectedProcedure.input(z.object({ workspaceId: z.string() })).query(async ({ ctx, input }) => {
+    return ctx.db.select().from(tasks).where(eq(tasks.workspaceId, input.workspaceId))
+  }),
+
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, input.id))
     return row ?? null
   }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
-    const id = 't' + Date.now()
+    // Quick-add makes same-millisecond creates realistic, so keep ids collision-safe.
+    const id = 't' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     let projectId = input.projectId ?? null
     if (input.meetingId && projectId === null) {
@@ -60,6 +72,7 @@ export const tasksRouter = router({
       title: input.title,
       meetingId: input.meetingId ?? null,
       projectId,
+      workspaceId: input.workspaceId ?? null,
       assigneeId: input.assigneeId ?? null,
       dueDate: input.dueDate ?? null,
       done: input.done ?? false,
@@ -77,6 +90,7 @@ export const tasksRouter = router({
     if (rest.title !== undefined) updates.title = rest.title
     if (rest.meetingId !== undefined) updates.meetingId = rest.meetingId
     if (rest.projectId !== undefined) updates.projectId = rest.projectId
+    if (rest.workspaceId !== undefined) updates.workspaceId = rest.workspaceId
     if (rest.assigneeId !== undefined) updates.assigneeId = rest.assigneeId
     if (rest.dueDate !== undefined) updates.dueDate = rest.dueDate
     if (rest.done !== undefined) updates.done = rest.done

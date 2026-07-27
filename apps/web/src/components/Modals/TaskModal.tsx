@@ -7,6 +7,7 @@ import type { Person } from '@ak-system/database'
 
 type MeetingOption = { id: string; title: string }
 type ProjectOption = { id: string; name: string }
+type WorkspaceOption = { id: string; name: string }
 
 export function TaskModal({
   open,
@@ -14,23 +15,28 @@ export function TaskModal({
   editingTaskId,
   meetingId,
   projectId: projectIdProp,
+  workspaceId: workspaceIdProp,
   people,
   meetings,
   projects,
+  workspaces = [],
 }: {
   open: boolean
   onClose: () => void
   editingTaskId?: string | null
   meetingId?: string | null
   projectId?: string | null
+  workspaceId?: string | null
   people: Person[]
   meetings: MeetingOption[]
   projects: ProjectOption[]
+  workspaces?: WorkspaceOption[]
 }) {
   const [form, setForm] = useState({
     title: '',
     meetingId: meetingId ?? '',
     projectId: projectIdProp ?? '',
+    workspaceId: workspaceIdProp ?? '',
     assigneeId: '',
     dueDate: '',
     priority: 'medium' as 'high' | 'medium' | 'low',
@@ -53,6 +59,7 @@ export function TaskModal({
         title: editingTask.title,
         meetingId: editingTask.meetingId ?? '',
         projectId: (editingTask as { projectId?: string | null }).projectId ?? '',
+        workspaceId: (editingTask as { workspaceId?: string | null }).workspaceId ?? '',
         assigneeId: editingTask.assigneeId ?? '',
         dueDate: editingTask.dueDate ?? '',
         priority: (editingTask.priority as 'high' | 'medium' | 'low') || 'medium',
@@ -63,6 +70,7 @@ export function TaskModal({
         title: '',
         meetingId: meetingId ?? '',
         projectId: projectIdProp ?? (meeting as { projectId?: string } | null)?.projectId ?? f.projectId,
+        workspaceId: workspaceIdProp ?? f.workspaceId,
         assigneeId: '',
         dueDate: '',
         priority: 'medium',
@@ -70,7 +78,7 @@ export function TaskModal({
       }))
       setRelatedPeopleFilter('')
     }
-  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, meeting, taskPeopleIds])
+  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, workspaceIdProp, meeting, taskPeopleIds])
   const utils = trpc.useUtils()
   const invalidateAndClose = () => {
     utils.tasks.list.invalidate()
@@ -106,6 +114,7 @@ export function TaskModal({
           title: form.title,
           meetingId: form.meetingId || null,
           projectId: form.projectId || null,
+          workspaceId: form.workspaceId || null,
           assigneeId: form.assigneeId || null,
           dueDate: form.dueDate || null,
           priority: form.priority,
@@ -125,6 +134,7 @@ export function TaskModal({
           title: form.title,
           meetingId: form.meetingId || null,
           projectId: form.projectId || null,
+          workspaceId: form.workspaceId || null,
           assigneeId: form.assigneeId || null,
           dueDate: form.dueDate || null,
           priority: form.priority,
@@ -176,6 +186,21 @@ export function TaskModal({
                   onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
                 />
               </div>
+              {workspaces.length > 0 && (
+                <div>
+                  <label className="label">מקור</label>
+                  <select
+                    className="select"
+                    value={form.workspaceId}
+                    onChange={(e) => setForm((f) => ({ ...f, workspaceId: e.target.value }))}
+                  >
+                    <option value="">ללא מקור</option>
+                    {workspaces.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="label">פרויקט</label>
                 <select

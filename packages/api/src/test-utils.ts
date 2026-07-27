@@ -1,5 +1,5 @@
 import { getDb } from '@ak-system/database'
-import { people, meetings, meetingPeople, meetingSeries, meetingTypes, tasks } from '@ak-system/database'
+import { people, meetings, meetingPeople, meetingSeries, meetingTypes, tasks, workspaces } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
 
@@ -16,7 +16,10 @@ export async function createTestCaller() {
   return createCaller(ctx)
 }
 
-/** Clear all tables so tests don't depend on each other. Call in beforeEach. */
+/**
+ * Clear all tables so tests don't depend on each other. Call in beforeEach.
+ * Workspaces are wiped too; the next `getDb()` re-seeds the four defaults.
+ */
 export async function resetDb() {
   const db = getTestDb()
   await db.delete(tasks)
@@ -25,4 +28,5 @@ export async function resetDb() {
   await db.delete(meetingSeries)
   await db.delete(meetingTypes)
   await db.delete(people)
+  await db.delete(workspaces)
 }
