@@ -8,7 +8,7 @@ import type { Person } from '@ak-system/database'
 
 type MeetingOption = { id: string; title: string }
 type ProjectOption = { id: string; name: string }
-type WorkspaceOption = { id: string; name: string }
+type WorkspaceOption = { id: string; name: string; hasNotionLink?: boolean }
 
 export function TaskModal({
   open,
@@ -21,6 +21,7 @@ export function TaskModal({
   meetings,
   projects,
   workspaces = [],
+  onCreated,
 }: {
   open: boolean
   onClose: () => void
@@ -32,6 +33,8 @@ export function TaskModal({
   meetings: MeetingOption[]
   projects: ProjectOption[]
   workspaces?: WorkspaceOption[]
+  /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
+  onCreated?: (notionSync: { ok: boolean } | null) => void
 }) {
   const [form, setForm] = useState({
     title: '',
@@ -147,6 +150,7 @@ export function TaskModal({
         },
         {
           onSuccess: (task) => {
+            onCreated?.((task as { notionSync?: { ok: boolean } | null }).notionSync ?? null)
             if (relatedIds.length > 0) {
               setTaskPeople.mutate(
                 { taskId: task.id, personIds: relatedIds },
@@ -205,6 +209,14 @@ export function TaskModal({
                       <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
                   </select>
+                  {!isEdit && (() => {
+                    const selected = workspaces.find((w) => w.id === form.workspaceId)
+                    return selected?.hasNotionLink ? (
+                      <p className="mt-2 text-xs text-[#38bdf8]">
+                        המשימה תיווצר גם ב-Notion ({selected.name})
+                      </p>
+                    ) : null
+                  })()}
                 </div>
               )}
               <div>

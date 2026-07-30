@@ -30,6 +30,7 @@ export type MobileWorkspace = {
   id: string
   name: string
   color?: string | null
+  notionDatabases?: Array<{ id: string; notionDatabaseId: string; notionDatabaseName: string | null }>
 }
 
 /** Result of mirroring a status change to Notion; `null` for manual tasks. */
@@ -77,9 +78,12 @@ export async function fetchWorkspaces(token: string): Promise<MobileWorkspace[]>
   return (await client.workspaces.list.query()) as MobileWorkspace[]
 }
 
-export async function createTask(token: string, input: TaskInput): Promise<MobileTask> {
+export async function createTask(
+  token: string,
+  input: TaskInput,
+): Promise<MobileTask & { notionSync?: NotionSyncResult }> {
   const client = createTrpcClient(token)
-  return (await client.tasks.create.mutate(input)) as MobileTask
+  return (await client.tasks.create.mutate(input)) as MobileTask & { notionSync?: NotionSyncResult }
 }
 
 export async function updateTask(

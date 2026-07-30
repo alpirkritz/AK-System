@@ -90,14 +90,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
-  const [taskAdded, setTaskAdded] = useState(false)
+  const [taskAddedMessage, setTaskAddedMessage] = useState<string | null>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!taskAdded) return
-    const timer = setTimeout(() => setTaskAdded(false), 2500)
+    if (!taskAddedMessage) return
+    const timer = setTimeout(() => setTaskAddedMessage(null), 2500)
     return () => clearTimeout(timer)
-  }, [taskAdded])
+  }, [taskAddedMessage])
 
   // Auth screen: render bare, no app chrome.
   if (pathname === '/login') {
@@ -278,12 +278,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           setQuickAddOpen(false)
           fabRef.current?.focus()
         }}
-        onCreated={() => setTaskAdded(true)}
+        onCreated={(sync) =>
+          setTaskAddedMessage(sync && !sync.ok ? 'נוספה משימה, אבל לא נוצרה ב-Notion' : 'נוספה משימה')
+        }
       />
 
-      {taskAdded && (
+      {taskAddedMessage && (
         <div className="toast" role="status">
-          נוספה משימה
+          {taskAddedMessage}
         </div>
       )}
     </div>

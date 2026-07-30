@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getDb, tasks } from '@ak-system/database'
+import { getDb, tasks, workspaceNotionDatabases } from '@ak-system/database'
 import { createTestCaller, resetDb } from '../test-utils'
 import {
   clearStatusSchemaCache,
   pickNotionLabel,
   pushTaskStatus,
+  createNotionTask,
 } from './notion-task-writeback'
 import type { CanonicalStatus } from './notion-tasks-sync'
 
@@ -333,5 +334,204 @@ describe('tasks router write-back integration', () => {
     expect(updated!.title).toBe('New title')
     expect((updated as { notionSync?: unknown }).notionSync).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('createNotionTask', () => {
+  const TARGET = { token: 'secret-daz-token', databaseId: TASKS_DB, accountLabel: 'DAZ', name: 'DAZ Tasks' }
+
+  beforeEach(() => {
+    clearStatusSchemaCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('POSTs a page with the title and a not_started-equivalent status', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ id: 'new-page-1' }), text: async () => '' }
+        }
+        return schemaResponse(DAZ_OPTIONS)
+      }),
+    )
+
+    const res = await createNotionTask({ target: TARGET, title: 'לבדוק חשבון' })
+
+    expect(res).toEqual({ ok: true, pageId: 'new-page-1', accountLabel: 'DAZ', name: 'DAZ Tasks', label: 'Not Started' })
+    const post = calls.find((c) => c.init?.method === 'POST')!
+    expect(post.url).toBe('https://api.notion.com/v1/pages')
+    const body = JSON.parse(post.init!.body as string)
+    expect(body.parent).toEqual({ database_id: TASKS_DB })
+    expect(body.properties['Task name']).toEqual({ title: [{ text: { content: 'לבדוק חשבון' } }] })
+    expect(body.properties.Status).toEqual({ status: { name: 'Not Started' } })
+  })
+
+  it('writes the due date to the first date-type property when both exist', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ id: 'new-page-2' }), text: async () => '' }
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            properties: {
+              'Task name': { type: 'title' },
+              'Due date': { type: 'date' },
+              Status: { type: 'status', status: { options: DAZ_OPTIONS.map((name) => ({ name })) } },
+            },
+          }),
+          text: async () => '',
+        }
+      }),
+    )
+
+    const res = await createNotionTask({ target: TARGET, title: 'עם תאריך', dueDate: '2026-08-01' })
+    expect(res.ok).toBe(true)
+
+    const posts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([, init]: [string, RequestInit]) => init?.method === 'POST',
+    )
+    const body = JSON.parse(posts[0][1].body as string)
+    expect(body.properties['Due date']).toEqual({ date: { start: '2026-08-01' } })
+  })
+
+  it('still creates the page when the database has no not_started-equivalent option', async () => {
+    // Both options resolve to done/cancelled via the heuristic — neither is a not_started match.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ id: 'new-page-3' }), text: async () => '' }
+        }
+        return schemaResponse(['Finished', 'Archived'])
+      }),
+    )
+    const res = await createNotionTask({ target: TARGET, title: 'בלי סטטוס תואם' })
+    expect(res).toEqual({ ok: true, pageId: 'new-page-3', accountLabel: 'DAZ', name: 'DAZ Tasks', label: null })
+  })
+
+  it('reports api on a failed POST without throwing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          return { ok: false, status: 401, json: async () => ({}), text: async () => 'unauthorized' }
+        }
+        return schemaResponse(DAZ_OPTIONS)
+      }),
+    )
+    const res = await createNotionTask({ target: TARGET, title: 'ייכשל' })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.reason).toBe('api')
+      expect(res.message).toContain('401')
+    }
+  })
+})
+
+describe('tasks.create Notion push integration', () => {
+  const originalAccounts = process.env.NOTION_ACCOUNTS
+
+  beforeEach(async () => {
+    await resetDb()
+    clearStatusSchemaCache()
+    process.env.NOTION_ACCOUNTS = accountsEnv()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (originalAccounts === undefined) delete process.env.NOTION_ACCOUNTS
+    else process.env.NOTION_ACCOUNTS = originalAccounts
+  })
+
+  async function linkDazWorkspace() {
+    const db = getDb()
+    await db.insert(workspaceNotionDatabases).values({
+      id: 'wnd_test_daz',
+      workspaceId: 'ws_daz',
+      notionDatabaseId: TASKS_DB,
+      notionDatabaseName: 'DAZ Tasks',
+      createdAt: new Date().toISOString(),
+    })
+  }
+
+  it('creating a task with no workspace never calls Notion', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const caller = await createTestCaller()
+    const created = await caller.tasks.create({ title: 'משימה פרטית' })
+
+    expect((created as { notionSync?: unknown }).notionSync).toBeNull()
+    expect(created.source).toBe('manual')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('creating a task in a workspace with no Notion link never calls Notion', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const caller = await createTestCaller()
+    const created = await caller.tasks.create({ title: 'לא מקושר', workspaceId: 'ws_personal' })
+
+    expect((created as { notionSync?: unknown }).notionSync).toBeNull()
+    expect(created.source).toBe('manual')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('creating a task in a linked workspace pushes it to Notion and attaches the page', async () => {
+    await linkDazWorkspace()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ id: 'daz-new-page' }), text: async () => '' }
+        }
+        return schemaResponse(DAZ_OPTIONS)
+      }),
+    )
+
+    const caller = await createTestCaller()
+    const created = await caller.tasks.create({ title: 'משימה חדשה לדאז', workspaceId: 'ws_daz' })
+
+    expect((created as { notionSync?: { ok: boolean; pageId: string } }).notionSync).toEqual({
+      ok: true,
+      pageId: 'daz-new-page',
+      accountLabel: 'DAZ',
+      name: 'DAZ Tasks',
+      label: 'Not Started',
+    })
+    expect(created.source).toBe('notion')
+    expect(created.notionPageId).toBe('daz-new-page')
+    expect(created.notionAccount).toBe('DAZ')
+    expect(created.notionDb).toBe('DAZ Tasks')
+    expect(created.notionStatusRaw).toBe('Not Started')
+  })
+
+  it('a failed Notion push leaves the task as an ordinary manual task', async () => {
+    await linkDazWorkspace()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down')
+      }),
+    )
+
+    const caller = await createTestCaller()
+    const created = await caller.tasks.create({ title: 'ייכשל', workspaceId: 'ws_daz' })
+
+    const sync = (created as { notionSync?: { ok: boolean; reason?: string } }).notionSync
+    expect(sync?.ok).toBe(false)
+    expect(created.source).toBe('manual')
+    expect(created.notionPageId).toBeNull()
   })
 })

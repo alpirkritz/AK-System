@@ -307,7 +307,14 @@ export default function TasksPage() {
         people={people}
         meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
-        workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+        workspaces={workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
+        }))}
+        onCreated={(sync) => {
+          if (sync && !sync.ok) setSyncMessage('המשימה נשמרה, אבל לא נוצרה ב-Notion')
+        }}
       />
     </div>
   )

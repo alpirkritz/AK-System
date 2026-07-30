@@ -17,7 +17,8 @@ export function QuickAddTaskModal({
 }: {
   open: boolean
   onClose: () => void
-  onCreated?: () => void
+  /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
+  onCreated?: (notionSync: { ok: boolean } | null) => void
 }) {
   const { data: workspacesData } = trpc.workspaces.list.useQuery(undefined, { enabled: open })
   const workspaces = workspacesData ?? []
@@ -31,12 +32,15 @@ export function QuickAddTaskModal({
   const modalRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
 
+  const selectedWorkspace = workspaces.find((w) => w.id === workspaceId)
+  const hasNotionLink = (selectedWorkspace?.notionDatabases?.length ?? 0) > 0
+
   const utils = trpc.useUtils()
   const create = trpc.tasks.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (task) => {
       utils.tasks.list.invalidate()
       if (workspaceId) window.localStorage.setItem(STORAGE_KEY, workspaceId)
-      onCreated?.()
+      onCreated?.((task as { notionSync?: { ok: boolean } | null }).notionSync ?? null)
       onClose()
     },
     onError: () => setError('לא הצלחנו להוסיף את המשימה. נסה שוב.'),
@@ -153,6 +157,11 @@ export function QuickAddTaskModal({
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
             </select>
+            {hasNotionLink && (
+              <p className="mt-2 text-xs text-[#38bdf8]">
+                המשימה תיווצר גם ב-Notion ({selectedWorkspace?.name})
+              </p>
+            )}
           </div>
 
           <button

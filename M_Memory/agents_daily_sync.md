@@ -1047,3 +1047,57 @@ For end-of-day rollups, Hugo may append a summary entry:
 ### Performance Improvements
 - Schema cached 5 min so rapid checkbox taps do not re-fetch the database definition each time
 - QA: 216/216 unit tests, mobile tsc green, web build green
+
+## 2026-07-30 — Hugo (Dev Pipeline) — Fix stale-deploy bug (write-back never reached production)
+
+**Workflow:** Bugfix
+**Status:** Complete — verified live
+
+### Stand-up
+- **Goal:** User reported marking a task done in ARO, then running Notion sync, reverted it — investigate why two-way sync was not working.
+- **Root cause:** `deploy-ec2.sh` only exports `AK_DEPLOY_BUILD=1` in its own `SKIP_CI=1` fallback branch. The default path runs `ci.sh`, whose build step called plain `pnpm build`. `next.config.js` sends non-`AK_DEPLOY_BUILD` builds to a `/tmp` distDir (a Google-Drive-workspace workaround), so `apps/web/.next` — the directory rsync ships — was never touched. The prior deploy (commit aa2d118, containing the write-back feature) reported success and passed health checks, but the container kept running commit a4e1a5c's bundle. Verified via BUILD_ID mismatch and `grep` for write-back string literals missing from the deployed `.next`.
+
+### Actions Taken
+1. `scripts/ci.sh`: build step now always sets `AK_DEPLOY_BUILD=1`.
+2. Rebuilt locally with the correct env var; confirmed new BUILD_ID + write-back strings present in `apps/web/.next` before shipping.
+3. Redeployed (`SKIP_CI=1 SKIP_LOCAL_BUILD=1`, using the verified local build); confirmed the *same* BUILD_ID now running inside the EC2 container, with the write-back code present.
+4. Confirmed low-level Notion PATCH works against a real production page/token (schema fetch on "Personal To-do" returns `Status` options `Not started/In progress/Pending/Done/Canceled`, correctly resolves to `Done`).
+
+### Outputs
+- `scripts/ci.sh` fix, commit `3049e94`
+
+### Compliance
+- [x] No secrets committed or logged (Notion tokens read locally only, from gitignored env files, never printed in full)
+- [x] Diagnostic PATCH against a real Notion page was reverted immediately after verification
+
+### Performance Improvements
+- Verifying the *deployed artifact* (BUILD_ID + string grep inside the running container) rather than trusting "Deploy complete" health-check output would have caught this immediately — add this check as a standing habit after any deploy that changes server-side logic
+
+## 2026-07-30 — Hugo (Dev Pipeline) — Push new ARO tasks into their workspace's linked Notion database
+
+**Workflow:** Dev pipeline — PM → Dev → Tests → QA → Reviewer
+**Status:** Complete (commit/push/deploy pending — user action)
+
+### Stand-up
+- **Goal:** User asked whether a task created in ARO lands in the correct Notion database. Confirmed it did not — task creation was local-only, no `POST /v1/pages` call existed anywhere. User confirmed (via structured question) they want a push, scoped to workspaces with an existing Notion link.
+- **Context:** Builds directly on the write-back feature shipped earlier today — reuses its schema cache, status-label mapping, and `notionSync` result convention.
+
+### Actions Taken
+1. Spec: `docs/specs/notion-task-create-push.md`.
+2. `resolveWorkspaceNotionTarget` (notion-tasks-sync.ts): workspace → linked Notion database → token/account.
+3. `createNotionTask` (notion-task-writeback.ts): `POST /v1/pages` with title + best-effort not_started-status + best-effort due date; refactored the schema fetcher to also detect the title/date properties, same 5-min cache.
+4. `tasks.create`: local insert first (unchanged), then best-effort push; on success attaches `notionPageId`/`notionAccount`/`notionDb`/`notionStatusRaw` so the task is indistinguishable from one pulled from Notion; on failure the task stays an ordinary manual task.
+5. Web: "will also create in Notion" hint + failure notice in `TaskModal`, `QuickAddTaskModal`, `DashboardLayout`'s FAB toast, and `tasks/page.tsx`'s sync message.
+6. Mobile: user asked for the same on the app. The push itself needed zero backend changes — mobile's create screen already called `tasks.create` with `workspaceId`. Added `notionDatabases` to `MobileWorkspace`, `notionSync` to `createTask`'s return, and the same hint/failure-notice pattern already used for `update`'s write-back in `apps/mobile/app/task/[id].tsx`.
+
+### Outputs
+- `docs/specs/notion-task-create-push.md`, `reports/notion-task-create-push.md`
+
+### Compliance
+- [x] Engineering task — PM spec before code
+- [x] No secrets committed
+- [x] Local task is never lost or blocked by a Notion outage — push is strictly additive/best-effort
+
+### Performance Improvements
+- QA: 224/224 API unit/integration tests (22 new), 64/64 web unit tests, web build green, mobile/whatsapp-bridge tsc green
+- `apps/web`'s `next lint` cannot run non-interactively (no committed `.eslintrc`) — pre-existing gap, flagged in the review report, not fixed in this pass since it's orthogonal to the feature

@@ -159,6 +159,30 @@ export function resolveTaskDatabaseTarget(
 }
 
 /**
+ * The Notion database a new task in this workspace should be created in, resolved from
+ * `workspaceNotionDatabases`. A workspace linked to several databases uses the first one
+ * linked (by link creation order) — deliberately simple; see notion-task-create-push spec.
+ * Returns `null` when the workspace has no link, or the link points at a database whose
+ * account/token is no longer configured (env changed since linking).
+ */
+export async function resolveWorkspaceNotionTarget(
+  workspaceId: string,
+): Promise<{ token: string; databaseId: string; accountLabel: string; name: string } | null> {
+  const db = getDb()
+  const links = await db
+    .select()
+    .from(workspaceNotionDatabases)
+    .where(eq(workspaceNotionDatabases.workspaceId, workspaceId))
+    .orderBy(workspaceNotionDatabases.createdAt)
+  const link = links[0]
+  if (!link) return null
+
+  const hit = resolveDatabases('tasks').find((d) => d.databaseId === link.notionDatabaseId)
+  if (!hit) return null
+  return { token: hit.token, databaseId: hit.databaseId, accountLabel: hit.accountLabel, name: hit.name }
+}
+
+/**
  * Name and kind of the property a task's status lives in. Mirrors `getStatusRaw`'s precedence
  * so the write path targets exactly the property the read path parsed.
  */

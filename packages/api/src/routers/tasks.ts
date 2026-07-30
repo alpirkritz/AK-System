@@ -2,8 +2,13 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people, TASK_STATUSES } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
-import { syncNotionTasks, isNotionTasksConfigured, type CanonicalStatus } from '../services/notion-tasks-sync'
-import { pushTaskStatus, type WriteBackResult } from '../services/notion-task-writeback'
+import {
+  syncNotionTasks,
+  isNotionTasksConfigured,
+  resolveWorkspaceNotionTarget,
+  type CanonicalStatus,
+} from '../services/notion-tasks-sync'
+import { pushTaskStatus, createNotionTask, type WriteBackResult, type CreateResult } from '../services/notion-task-writeback'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 const statusEnum = z.enum(TASK_STATUSES)
@@ -111,8 +116,33 @@ export const tasksRouter = router({
       createdAt: now,
       updatedAt: now,
     })
-    const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
-    return row!
+    let [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
+
+    // Best-effort: push into the workspace's linked Notion database, if any. The local row
+    // above is already committed and is never rolled back — a failed push just leaves the
+    // task as an ordinary manual task, exactly as if no workspace link existed.
+    let notionSync: CreateResult | null = null
+    if (input.workspaceId) {
+      const target = await resolveWorkspaceNotionTarget(input.workspaceId)
+      if (target) {
+        notionSync = await createNotionTask({ target, title: input.title, dueDate: input.dueDate ?? null })
+        if (notionSync.ok) {
+          await ctx.db
+            .update(tasks)
+            .set({
+              source: 'notion',
+              notionPageId: notionSync.pageId,
+              notionAccount: notionSync.accountLabel,
+              notionDb: notionSync.name,
+              notionStatusRaw: notionSync.label,
+            })
+            .where(eq(tasks.id, id))
+          ;[row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
+        }
+      }
+    }
+
+    return { ...row!, notionSync }
   }),
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {

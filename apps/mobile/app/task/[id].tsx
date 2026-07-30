@@ -46,6 +46,9 @@ export default function TaskDetailScreen() {
   const [dueDate, setDueDate] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
 
+  const selectedWorkspace = workspaces.find((w) => w.id === workspaceId)
+  const willCreateInNotion = isNew && (selectedWorkspace?.notionDatabases?.length ?? 0) > 0
+
   const load = useCallback(async () => {
     if (!token) return
     try {
@@ -94,7 +97,14 @@ export default function TaskDetailScreen() {
         workspaceId,
       }
       if (isNew) {
-        await createTask(token, payload)
+        const result = await createTask(token, payload)
+        if (result.notionSync && !result.notionSync.ok) {
+          setError('המשימה נשמרה, אבל לא נוצרה ב-Notion')
+          setSaving(false)
+          // Still dismiss after a beat so the user sees the message, then leave.
+          setTimeout(() => router.back(), 1200)
+          return
+        }
       } else if (id) {
         const result = await updateTask(token, id, payload)
         if (result.notionSync && !result.notionSync.ok) {
@@ -289,6 +299,13 @@ export default function TaskDetailScreen() {
                 )
               })}
             </View>
+            {willCreateInNotion ? (
+              <View style={styles.hint}>
+                <Text style={styles.hintText}>
+                  המשימה תיווצר גם ב-Notion ({selectedWorkspace?.name})
+                </Text>
+              </View>
+            ) : null}
           </>
         ) : null}
 
