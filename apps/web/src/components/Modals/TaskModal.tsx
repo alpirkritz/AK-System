@@ -300,6 +300,13 @@ export function TaskModal({
                   value={form.status}
                   onChange={(status) => setForm((f) => ({ ...f, status }))}
                 />
+                {(editingTask as { source?: string | null; notionPageId?: string | null } | null)
+                  ?.source === 'notion' &&
+                (editingTask as { notionPageId?: string | null } | null)?.notionPageId ? (
+                  <p className="mt-2 text-xs text-[#38bdf8]">
+                    מסונכרן עם Notion — שינוי סטטוס יעודכן גם שם
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="label">עדיפות</label>

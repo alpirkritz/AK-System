@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import type { ConfigContext, ExpoConfig } from 'expo/config'
 
 /**
@@ -7,7 +8,7 @@ import type { ConfigContext, ExpoConfig } from 'expo/config'
 export default ({ config }: ConfigContext): ExpoConfig =>
   ({
     ...config,
-    name: 'Helm',
+    name: 'ARO',
     slug: 'helm',
     owner: 'alpir',
     version: '1.0.0',
@@ -27,6 +28,8 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     },
     android: {
       package: 'com.alpir.helm',
+      // Resize the window when the keyboard opens so the chat composer stays visible.
+      softwareKeyboardLayoutMode: 'resize',
       adaptiveIcon: {
         backgroundColor: '#0e1626',
         foregroundImage: './assets/android-icon-foreground.png',
@@ -34,6 +37,10 @@ export default ({ config }: ConfigContext): ExpoConfig =>
         monochromeImage: './assets/android-icon-monochrome.png',
       },
       predictiveBackGestureEnabled: false,
+      // Present when downloaded from Firebase (package com.alpir.helm).
+      ...(process.env.GOOGLE_SERVICES_JSON || fs.existsSync('./google-services.json')
+        ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON || './google-services.json' }
+        : {}),
     },
     plugins: [
       'expo-router',

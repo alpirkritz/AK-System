@@ -376,13 +376,17 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'summarize_whatsapp_groups',
     description:
-      'Generate and deliver WhatsApp group conversation summaries to the user (sent as separate WhatsApp messages). Use for: whatsapp summary, סיכום וואטסאפ, סיכום קבוצות, daily whatsapp digest, תריץ סיכום.',
+      'Summarize WhatsApp group conversations from stored history and return the summary text inline in your reply (does NOT depend on the live bridge). Use for: whatsapp summary, סיכום וואטסאפ, סיכום קבוצות, daily whatsapp digest, תריץ סיכום.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         groupJid: {
           type: SchemaType.STRING,
           description: 'Optional: summarize one group by JID. Omit to summarize all watched/enabled groups.',
+        },
+        window: {
+          type: SchemaType.STRING,
+          description: 'Optional time window: 6h, 24h (default), or 7d. For a single group, 7d (default) or 30d.',
         },
       },
     },
@@ -905,13 +909,17 @@ export async function executeTool(
 
     case 'summarize_whatsapp_groups': {
       const groupJid = (args.groupJid as string | undefined)?.trim()
-      const result = await caller.whatsapp.summaries.trigger(
-        groupJid ? { groupJid } : {},
-      )
-      return {
-        ...result,
-        note: 'Summaries are delivered as separate WhatsApp messages to the user.',
+      const rawWindow = (args.window as string | undefined)?.trim()
+      // Use the DB-backed insights path so a real summary is produced inline, independent
+      // of the live WhatsApp bridge / its in-memory buffer.
+      if (groupJid) {
+        const groupWindow = rawWindow === '7d' || rawWindow === '30d' ? rawWindow : '7d'
+        const result = await caller.whatsapp.insights.forGroup({ groupJid, window: groupWindow, mode: 'summary' })
+        return { text: result.text, messageCount: result.messageCount, window: result.window }
       }
+      const window = rawWindow === '6h' || rawWindow === '7d' ? rawWindow : '24h'
+      const result = await caller.whatsapp.insights.digest({ window })
+      return { text: result.text, items: result.items, window: result.window }
     }
 
     case 'whatsapp_now': {
@@ -992,7 +1000,7 @@ export async function resolveIntent(
   })
 
   const systemInstruction = [
-    'You are a personal assistant integrated into AK System — a personal workspace for managing meetings, tasks, projects, and contacts.',
+    'You are a personal assistant integrated into ARO — a personal workspace for managing meetings, tasks, projects, and contacts.',
     `Today is ${dateLabel} (${todayIso()}).`,
     'Respond in the same language the user writes in: Hebrew for Hebrew messages, English for English messages.',
     'Be concise. Use line breaks to separate items in lists.',
@@ -1004,7 +1012,7 @@ export async function resolveIntent(
     'When showing conflicts, describe each overlap clearly with event names and times.',
     'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
     'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
-    'The only async exception is summarize_whatsapp_groups (separate WhatsApp messages).',
+    'For WhatsApp group summaries (סיכום וואטסאפ / סיכום קבוצות), call summarize_whatsapp_groups and include the returned summary text directly in this reply.',
     'Notion (all connected accounts) IS accessible to you: use get_notion_meetings and get_notion_tasks for the user\'s meetings and tasks, and search_notion to find specific items. For daily prep ("תכין אותי ליום"/"מה יש לי היום") pull Notion meetings + tasks. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
     'Never redirect the user to Notion as the only place to see agent results.',
   ].join('\n')

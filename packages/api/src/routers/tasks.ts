@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people, TASK_STATUSES } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
-import { syncNotionTasks, isNotionTasksConfigured } from '../services/notion-tasks-sync'
+import { syncNotionTasks, isNotionTasksConfigured, type CanonicalStatus } from '../services/notion-tasks-sync'
+import { pushTaskStatus, type WriteBackResult } from '../services/notion-task-writeback'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 const statusEnum = z.enum(TASK_STATUSES)
@@ -10,6 +11,26 @@ const statusEnum = z.enum(TASK_STATUSES)
 /** `done` is derived from the canonical status so the two never drift apart. */
 function doneFromStatus(status: string): boolean {
   return status === 'done' || status === 'cancelled'
+}
+
+type TaskRow = typeof tasks.$inferSelect
+
+/**
+ * Mirror a status change onto the Notion page the task came from. Manual tasks are a no-op.
+ * The local row is already committed, so a Notion outage degrades to a reported reason rather
+ * than a failed mutation.
+ */
+async function syncStatusToNotion(
+  task: Pick<TaskRow, 'source' | 'notionPageId' | 'notionAccount' | 'notionDb'>,
+  status: string,
+): Promise<WriteBackResult | null> {
+  if (task.source !== 'notion' || !task.notionPageId) return null
+  return pushTaskStatus({
+    notionPageId: task.notionPageId,
+    notionAccount: task.notionAccount,
+    notionDb: task.notionDb,
+    status: status as CanonicalStatus,
+  })
 }
 
 const createInput = z.object({
@@ -112,7 +133,21 @@ export const tasksRouter = router({
     if (rest.priority !== undefined) updates.priority = rest.priority
     await ctx.db.update(tasks).set(updates).where(eq(tasks.id, id))
     const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
-    return row ?? null
+    if (!row) return null
+
+    // Only a real status change is worth a round-trip to Notion.
+    let notionSync: WriteBackResult | null = null
+    if (rest.status !== undefined) {
+      notionSync = await syncStatusToNotion(row, rest.status)
+      if (notionSync?.ok) {
+        await ctx.db
+          .update(tasks)
+          .set({ notionStatusRaw: notionSync.label })
+          .where(eq(tasks.id, id))
+        row.notionStatusRaw = notionSync.label
+      }
+    }
+    return { ...row, notionSync }
   }),
 
   toggleDone: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
@@ -124,7 +159,17 @@ export const tasksRouter = router({
       .update(tasks)
       .set({ done, status, updatedAt: new Date().toISOString() })
       .where(eq(tasks.id, input.id))
-    return { ...task, done, status }
+
+    const notionSync = await syncStatusToNotion(task, status)
+    let notionStatusRaw = task.notionStatusRaw
+    if (notionSync?.ok) {
+      notionStatusRaw = notionSync.label
+      await ctx.db
+        .update(tasks)
+        .set({ notionStatusRaw })
+        .where(eq(tasks.id, input.id))
+    }
+    return { ...task, done, status, notionStatusRaw, notionSync }
   }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {

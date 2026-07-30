@@ -30,6 +30,7 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
         },
+        tabBarHideOnKeyboard: true,
         tabBarLabelStyle: { fontSize: 11 },
         headerStyle: { backgroundColor: colors.bg },
         headerTintColor: colors.text,

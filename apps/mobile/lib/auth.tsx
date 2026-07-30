@@ -1,9 +1,38 @@
 import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthUser } from './api'
 
 const TOKEN_KEY = 'helm_access_token'
 const USER_KEY = 'helm_user'
+
+/** SecureStore is native-only; use localStorage for web preview. */
+const storage = {
+  async getItem(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      try {
+        return localStorage.getItem(key)
+      } catch {
+        return null
+      }
+    }
+    return SecureStore.getItemAsync(key)
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.setItem(key, value)
+      return
+    }
+    await SecureStore.setItemAsync(key, value)
+  },
+  async deleteItem(key: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(key)
+      return
+    }
+    await SecureStore.deleteItemAsync(key)
+  },
+}
 
 type AuthState = {
   token: string | null
@@ -23,8 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ;(async () => {
       try {
-        const storedToken = await SecureStore.getItemAsync(TOKEN_KEY)
-        const storedUser = await SecureStore.getItemAsync(USER_KEY)
+        const storedToken = await storage.getItem(TOKEN_KEY)
+        const storedUser = await storage.getItem(USER_KEY)
         if (storedToken && storedUser) {
           setToken(storedToken)
           setUser(JSON.parse(storedUser) as AuthUser)
@@ -36,15 +65,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signIn = useCallback(async (accessToken: string, nextUser: AuthUser) => {
-    await SecureStore.setItemAsync(TOKEN_KEY, accessToken)
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(nextUser))
+    await storage.setItem(TOKEN_KEY, accessToken)
+    await storage.setItem(USER_KEY, JSON.stringify(nextUser))
     setToken(accessToken)
     setUser(nextUser)
   }, [])
 
   const signOut = useCallback(async () => {
-    await SecureStore.deleteItemAsync(TOKEN_KEY)
-    await SecureStore.deleteItemAsync(USER_KEY)
+    await storage.deleteItem(TOKEN_KEY)
+    await storage.deleteItem(USER_KEY)
     setToken(null)
     setUser(null)
   }, [])

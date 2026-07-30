@@ -81,6 +81,6 @@ export function installForegroundPushListener(): void {
   navigator.serviceWorker.addEventListener('message', (event) => {
     const data = event.data as { type?: string; title?: string; body?: string; url?: string } | null
     if (data?.type !== 'PUSH') return
-    showForegroundNotification(data.title ?? 'AK System', data.body ?? '', data.url ?? '/chat')
+    showForegroundNotification(data.title ?? 'ARO', data.body ?? '', data.url ?? '/chat')
   })
 }

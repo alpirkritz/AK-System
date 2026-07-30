@@ -66,6 +66,23 @@ export async function signInWithGoogleIdToken(idToken: string): Promise<{
   return { accessToken: data.accessToken, user: data.user }
 }
 
+/** Local-only sign-in — backend rejects outside NODE_ENV=development. */
+export async function signInLocalDev(): Promise<{
+  accessToken: string
+  user: AuthUser
+}> {
+  const res = await apiFetch('/api/auth/mobile/dev', { method: 'POST', body: '{}' })
+  const data = (await res.json()) as {
+    accessToken?: string
+    user?: AuthUser
+    error?: string
+  }
+  if (!res.ok || !data.accessToken || !data.user) {
+    throw new ApiError(data.error ?? 'Local sign-in failed', res.status)
+  }
+  return { accessToken: data.accessToken, user: data.user }
+}
+
 export async function fetchChatHistory(
   token: string,
   limit = 50,
@@ -165,7 +182,7 @@ export async function sendTestPush(
     method: 'POST',
     token,
     body: JSON.stringify({
-      title: 'Helm',
+      title: 'ARO',
       body: 'נוטיפיקציית בדיקה ✓',
       url: '/chat',
     }),

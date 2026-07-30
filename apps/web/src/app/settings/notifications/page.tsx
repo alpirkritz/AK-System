@@ -183,7 +183,7 @@ export default function NotificationSettingsPage() {
             ok={!!channels?.push && (channels?.webPushDevices ?? 0) > 0 && permission === 'granted'}
           />
           <StatusPill
-            label="פוש Helm (טלפון)"
+            label="פוש ARO (טלפון)"
             ok={(channels?.expoPushDevices ?? 0) > 0}
           />
         </div>
@@ -203,7 +203,7 @@ export default function NotificationSettingsPage() {
         )}
         {(channels?.expoPushDevices ?? 0) === 0 && (
           <p className="text-[11px] text-[#5a688c] mt-2">
-            אין מכשיר Helm רשום — פתח את אפליקציית Helm → הגדרות → הפעל התראות Push.
+            אין מכשיר ARO רשום — פתח את אפליקציית ARO → הגדרות → הפעל התראות Push.
           </p>
         )}
       </div>

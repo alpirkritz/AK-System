@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getAgentInstructions, saveAgentInstructions } from '@/lib/abc-agents'
+import {
+  getAgentInstructions,
+  getAgentWorkflowContent,
+  getAgentWorkflowFile,
+  saveAgentInstructions,
+  saveAgentWorkflowContent,
+} from '@/lib/abc-agents'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -12,7 +18,14 @@ export async function GET(
   try {
     const { id } = await context.params
     const content = getAgentInstructions(id)
-    return NextResponse.json({ id, content })
+    const workflowFile = getAgentWorkflowFile(id)
+    const workflowContent = getAgentWorkflowContent(id)
+    return NextResponse.json({
+      id,
+      content,
+      workflowFile,
+      workflowContent,
+    })
   } catch (err) {
     console.error('[api/agents/[id] GET]', err)
     const msg = err instanceof Error ? err.message : 'Failed to load agent'
@@ -27,19 +40,27 @@ export async function PUT(
 ): Promise<NextResponse> {
   try {
     const { id } = await context.params
-    const body = (await request.json()) as { content?: unknown }
+    const body = (await request.json()) as { content?: unknown; target?: unknown }
     if (typeof body.content !== 'string') {
       return NextResponse.json({ error: 'content must be a string' }, { status: 400 })
     }
 
-    saveAgentInstructions(id, body.content)
-    return NextResponse.json({ ok: true })
+    const target = body.target === 'workflow' ? 'workflow' : 'instructions'
+    if (target === 'workflow') {
+      saveAgentWorkflowContent(id, body.content)
+    } else {
+      saveAgentInstructions(id, body.content)
+    }
+    return NextResponse.json({ ok: true, target })
   } catch (err) {
     console.error('[api/agents/[id] PUT]', err)
     const msg = err instanceof Error ? err.message : 'Failed to save agent'
     let status = 500
-    if (msg.includes('not found') || msg.includes('Invalid agent')) status = 404
-    else if (msg.includes('empty') || msg.includes('must be')) status = 400
+    if (msg.includes('not found') || msg.includes('Invalid agent') || msg.includes('No workflow')) {
+      status = 404
+    } else if (msg.includes('empty') || msg.includes('must be') || msg.includes('Invalid workflow')) {
+      status = 400
+    }
     return NextResponse.json({ error: msg }, { status })
   }
 }

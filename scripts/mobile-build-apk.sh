@@ -9,6 +9,8 @@ MOBILE_DIR="$ROOT_DIR/apps/mobile"
 
 cd "$MOBILE_DIR"
 
+bash "$ROOT_DIR/scripts/check-helm-fcm.sh"
+
 if [ ! -f .env ]; then
   echo "❌ Missing apps/mobile/.env — copy from .env.example and set EXPO_PUBLIC_API_URL"
   echo "   See docs/deploy/helm-apk-build.md"

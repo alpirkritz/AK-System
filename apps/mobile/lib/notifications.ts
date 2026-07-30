@@ -24,7 +24,7 @@ export async function ensurePushPermissions(): Promise<boolean> {
 export async function getExpoPushToken(): Promise<string | null> {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
-      name: 'Helm',
+      name: 'ARO',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#2dd4bf',

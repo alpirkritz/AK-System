@@ -138,6 +138,45 @@ export function listConfiguredTaskDatabases(): Array<{
   }))
 }
 
+/**
+ * Credentials for writing back to the database a synced task came from. Tasks record the
+ * account label and database name at sync time; the name narrows it when one account owns
+ * several task databases, but the label alone is enough to pick the token.
+ */
+export function resolveTaskDatabaseTarget(
+  accountLabel: string | null | undefined,
+  dbName?: string | null,
+): { token: string; databaseId: string } | null {
+  const dbs = resolveDatabases('tasks')
+  if (dbs.length === 0) return null
+  const label = (accountLabel ?? '').trim().toLowerCase()
+  const name = (dbName ?? '').trim().toLowerCase()
+  const inAccount = label ? dbs.filter((d) => d.accountLabel.trim().toLowerCase() === label) : dbs
+  const pool = inAccount.length > 0 ? inAccount : dbs
+  const exact = name ? pool.find((d) => d.name.trim().toLowerCase() === name) : undefined
+  const hit = exact ?? pool[0]
+  return hit ? { token: hit.token, databaseId: hit.databaseId } : null
+}
+
+/**
+ * Name and kind of the property a task's status lives in. Mirrors `getStatusRaw`'s precedence
+ * so the write path targets exactly the property the read path parsed.
+ */
+export function findStatusPropertyName(
+  properties: Record<string, { type?: string }>,
+): { name: string; type: 'status' | 'select' } | null {
+  let fallback: { name: string; type: 'select' } | null = null
+  for (const [name, prop] of Object.entries(properties)) {
+    const lname = name.toLowerCase()
+    if (lname.includes('priority') || name.includes('עדיפות')) continue
+    if (prop?.type === 'status') return { name, type: 'status' }
+    if (prop?.type === 'select' && (lname.includes('status') || name.includes('סטטוס'))) {
+      if (!fallback) fallback = { name, type: 'select' }
+    }
+  }
+  return fallback
+}
+
 // ─── Notion REST ───────────────────────────────────────────────────────────
 
 async function queryDatabase(

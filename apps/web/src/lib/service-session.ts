@@ -6,7 +6,7 @@ export function getServiceSession(): NonNullable<AuthSession> {
     user: {
       id: process.env.SERVICE_USER_ID ?? 'system',
       email: process.env.SERVICE_USER_EMAIL ?? 'system@local',
-      name: process.env.SERVICE_USER_NAME ?? 'AK System',
+      name: process.env.SERVICE_USER_NAME ?? 'ARO',
     },
   }
 }

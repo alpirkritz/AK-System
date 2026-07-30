@@ -24,7 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body = {}
   }
 
-  const title = body.title?.trim() || 'Helm'
+  const title = body.title?.trim() || 'ARO'
   const text = body.body?.trim() || 'נוטיפיקציית בדיקה ✓'
   const url = body.url?.trim() || '/chat'
 

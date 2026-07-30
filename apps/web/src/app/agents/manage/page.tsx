@@ -11,11 +11,19 @@ interface AgentSummary {
   role: string
 }
 
+type EditorTab = 'instructions' | 'workflow'
+
 export default function AgentsManagePage() {
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [tab, setTab] = useState<EditorTab>('instructions')
+
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
+  const [workflowContent, setWorkflowContent] = useState('')
+  const [savedWorkflowContent, setSavedWorkflowContent] = useState('')
+  const [workflowFile, setWorkflowFile] = useState<string | null>(null)
+
   const [loadingList, setLoadingList] = useState(true)
   const [loadingContent, setLoadingContent] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -32,10 +40,14 @@ export default function AgentsManagePage() {
     },
   })
 
-  const isDirty = content !== savedContent
+  const isInstructionsDirty = content !== savedContent
+  const isWorkflowDirty = workflowContent !== savedWorkflowContent
+  const isDirty = isInstructionsDirty || isWorkflowDirty
   const isNameDirty = displayName.trim() !== savedDisplayName.trim()
   const selected = agents.find((a) => a.id === selectedId)
   const defaultName = selected?.defaultName ?? selected?.name ?? ''
+  const activeDirty = tab === 'instructions' ? isInstructionsDirty : isWorkflowDirty
+  const hasWorkflow = !!workflowFile
 
   useEffect(() => {
     async function loadAgents() {
@@ -64,13 +76,25 @@ export default function AgentsManagePage() {
         const data = (await res.json()) as { error?: string }
         throw new Error(data.error ?? 'Failed to load agent content')
       }
-      const data = (await res.json()) as { content: string }
+      const data = (await res.json()) as {
+        content: string
+        workflowFile: string | null
+        workflowContent: string | null
+      }
       setContent(data.content)
       setSavedContent(data.content)
+      setWorkflowFile(data.workflowFile)
+      const wf = data.workflowContent ?? ''
+      setWorkflowContent(wf)
+      setSavedWorkflowContent(wf)
+      setTab('instructions')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת הוראות')
       setContent('')
       setSavedContent('')
+      setWorkflowFile(null)
+      setWorkflowContent('')
+      setSavedWorkflowContent('')
     } finally {
       setLoadingContent(false)
     }
@@ -116,22 +140,32 @@ export default function AgentsManagePage() {
   }
 
   async function handleSave() {
-    if (!selectedId || !isDirty) return
+    if (!selectedId || !activeDirty) return
+    if (tab === 'workflow' && !hasWorkflow) return
     setSaving(true)
     setError(null)
     setMessage(null)
     try {
+      const payload =
+        tab === 'workflow'
+          ? { content: workflowContent, target: 'workflow' as const }
+          : { content, target: 'instructions' as const }
       const res = await fetch(`/api/agents/${encodeURIComponent(selectedId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const data = (await res.json()) as { error?: string }
         throw new Error(data.error ?? 'Failed to save')
       }
-      setSavedContent(content)
-      setMessage('נשמר בהצלחה')
+      if (tab === 'workflow') {
+        setSavedWorkflowContent(workflowContent)
+        setMessage('ה-workflow נשמר ל-S_Skills/')
+      } else {
+        setSavedContent(content)
+        setMessage('ההוראות נשמרו ל-A_Agents/')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בשמירה')
     } finally {
@@ -146,12 +180,32 @@ export default function AgentsManagePage() {
     setSelectedId(agentId)
   }
 
+  function handleTabChange(next: EditorTab) {
+    if (next === tab) return
+    if (activeDirty && !window.confirm('יש שינויים שלא נשמרו בטאב הנוכחי. להמשיך בלי לשמור?')) {
+      return
+    }
+    setTab(next)
+    setMessage(null)
+  }
+
+  const fileLabel =
+    tab === 'workflow'
+      ? workflowFile
+        ? `S_Skills/${workflowFile}`
+        : 'אין workflow מקושר'
+      : selected
+        ? `A_Agents/${selected.id}.md`
+        : ''
+
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
       <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ניהול סוכנים</h1>
-          <p className="text-xs text-[#5a688c] mt-1">עריכת הוראות מקובצי A_Agents/*.md</p>
+          <p className="text-xs text-[#5a688c] mt-1">
+            עריכת כרטיס סוכן (A_Agents) ו-workflow מקושר (S_Skills) — נשמר לקבצים
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {isDirty && (
@@ -227,22 +281,61 @@ export default function AgentsManagePage() {
 
           <div className="flex-1 flex flex-col border border-[#1d2b46] rounded-xl overflow-hidden min-h-[400px]">
             <div className="px-4 py-3 border-b border-[#1d2b46] bg-[#111b30] space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <div className="font-medium text-sm">{selected?.name ?? 'בחר סוכן'}</div>
                   {selected && (
-                    <div className="text-[10px] text-[#5a688c] font-mono mt-0.5">{selected.id}.md</div>
+                    <div className="text-[10px] text-[#5a688c] font-mono mt-0.5">{fileLabel}</div>
                   )}
                 </div>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!selectedId || !isDirty || saving || loadingContent}
+                  disabled={
+                    !selectedId ||
+                    !activeDirty ||
+                    saving ||
+                    loadingContent ||
+                    (tab === 'workflow' && !hasWorkflow)
+                  }
                   onClick={handleSave}
                 >
-                  {saving ? 'שומר...' : 'שמור הוראות'}
+                  {saving
+                    ? 'שומר...'
+                    : tab === 'workflow'
+                      ? 'שמור workflow'
+                      : 'שמור הוראות'}
                 </button>
               </div>
+
+              {selectedId && (
+                <div className="flex gap-1 p-0.5 rounded-lg bg-[#0a1224] border border-[#1d2b46] w-fit">
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange('instructions')}
+                    className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                      tab === 'instructions'
+                        ? 'bg-[#2dd4bf]/20 text-[#eef3fb]'
+                        : 'text-[#97a4c2] hover:text-[#eef3fb]'
+                    }`}
+                  >
+                    כרטיס סוכן
+                    {isInstructionsDirty ? ' •' : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange('workflow')}
+                    className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                      tab === 'workflow'
+                        ? 'bg-[#2dd4bf]/20 text-[#eef3fb]'
+                        : 'text-[#97a4c2] hover:text-[#eef3fb]'
+                    }`}
+                  >
+                    Workflow
+                    {isWorkflowDirty ? ' •' : ''}
+                  </button>
+                </div>
+              )}
 
               {selectedId && (
                 <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
@@ -278,9 +371,29 @@ export default function AgentsManagePage() {
 
             {loadingContent ? (
               <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
-                טוען הוראות...
+                טוען...
               </div>
-            ) : selectedId ? (
+            ) : !selectedId ? (
+              <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
+                בחר סוכן לעריכה
+              </div>
+            ) : tab === 'workflow' && !hasWorkflow ? (
+              <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm px-6 text-center">
+                אין workflow מקושר לסוכן הזה ב-S_Skills/
+              </div>
+            ) : tab === 'workflow' ? (
+              <textarea
+                className="input flex-1 resize-none rounded-none border-0 font-mono text-xs leading-relaxed p-4 min-h-0"
+                dir="ltr"
+                spellCheck={false}
+                value={workflowContent}
+                onChange={(e) => {
+                  setWorkflowContent(e.target.value)
+                  setMessage(null)
+                }}
+                placeholder="תוכן markdown של ה-workflow..."
+              />
+            ) : (
               <textarea
                 className="input flex-1 resize-none rounded-none border-0 font-mono text-xs leading-relaxed p-4 min-h-0"
                 dir="ltr"
@@ -292,10 +405,6 @@ export default function AgentsManagePage() {
                 }}
                 placeholder="תוכן markdown של הסוכן..."
               />
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
-                בחר סוכן לעריכה
-              </div>
             )}
           </div>
         </div>

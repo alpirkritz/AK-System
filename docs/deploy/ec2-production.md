@@ -148,5 +148,6 @@ https://your-domain.com/api/auth/callback/google
 |---------|-----|
 | `next build` OOM-killed | Confirm swap is on: `swapon --show`. Re-run `scripts/ec2-bootstrap.sh`. |
 | `table not found` | Volume `web-data` mounted at `/data`; container `CMD` runs `db:push` on start. Check `docker compose logs web`. |
+| Agent edits lost after redeploy | Volume `abc-data` must be mounted at `/data/abc` with `ABC_ROOT=/data/abc`. Edits from `/agents/manage` persist there; new files from the image are seeded without overwriting. |
 | 502 from Caddy | App not up yet: `docker compose -f deploy/docker-compose.production.yml ps` / `logs web`. |
 | OAuth redirect mismatch | `NEXTAUTH_URL` must equal the public HTTPS URL and match the Google console redirect. |

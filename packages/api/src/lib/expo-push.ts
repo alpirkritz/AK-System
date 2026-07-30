@@ -6,6 +6,9 @@ type ExpoPushMessage = {
   body: string
   data?: Record<string, string>
   sound?: 'default' | null
+  /** Must match channel created in apps/mobile/lib/notifications.ts */
+  channelId?: string
+  priority?: 'default' | 'normal' | 'high'
 }
 
 type ExpoPushTicket = {
@@ -29,6 +32,8 @@ export async function sendExpoPush(
     body: body.slice(0, 240),
     data: { url },
     sound: 'default',
+    channelId: 'default',
+    priority: 'high',
   }))
 
   const headers: Record<string, string> = {
@@ -60,12 +65,17 @@ export async function sendExpoPush(
       const token = rows[i]?.token
       if (ticket?.status === 'ok') {
         sent++
-      } else if (
-        token &&
-        (ticket?.details?.error === 'DeviceNotRegistered' ||
-          ticket?.details?.error === 'InvalidCredentials')
-      ) {
-        await db.delete(expoPushTokens).where(eq(expoPushTokens.token, token)).run()
+      } else {
+        const err = ticket?.details?.error
+        if (err) {
+          console.warn('[expo-push] ticket error:', err, token ? `(…${token.slice(-12)})` : '')
+        }
+        if (
+          token &&
+          (err === 'DeviceNotRegistered' || err === 'InvalidCredentials')
+        ) {
+          await db.delete(expoPushTokens).where(eq(expoPushTokens.token, token)).run()
+        }
       }
     }
 

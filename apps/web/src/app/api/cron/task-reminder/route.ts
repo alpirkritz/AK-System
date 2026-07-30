@@ -1,11 +1,19 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import {
+  getSchedulablePreference,
+  localTodayIso,
+  markNotificationSent,
+  wasNotificationSentToday,
+} from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
+const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
+
 /**
- * Cron: Task reminder poller (run every 1 min per Second Brain spec).
- * Finds tasks that are due today or overdue and not done, sends a digest to Telegram/WhatsApp.
+ * Cron: Task reminder poller (run every 1 min).
+ * Finds tasks that are due today or overdue and not done, sends a digest at most once per day.
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -26,8 +34,16 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  const pref = await getSchedulablePreference('task_reminder')
+  if (!pref.enabled) {
+    return NextResponse.json({ ok: true, skipped: 'disabled' })
+  }
+  if (wasNotificationSentToday(pref.lastSentAt, TIMEZONE)) {
+    return NextResponse.json({ ok: true, skipped: 'already-sent' })
+  }
+
   try {
-    const today = new Date().toISOString().split('T')[0]
+    const today = localTodayIso(TIMEZONE)
     const caller = await createServiceCaller()
     const allTasks = await caller.tasks.list()
     const dueOrOverdue = allTasks.filter(
@@ -45,10 +61,12 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
 
     const routed = await runEventAgentIfRouted('task_reminder', { url: '/tasks', context: text })
     if (routed !== null) {
+      await markNotificationSent('task_reminder')
       return NextResponse.json({ ok: true, reminded: dueOrOverdue.length, mode: 'agent' })
     }
 
     const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'task_reminder' })
+    await markNotificationSent('task_reminder')
     return NextResponse.json({
       ok: true,
       reminded: dueOrOverdue.length,

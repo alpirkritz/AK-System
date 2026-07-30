@@ -17,6 +17,15 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages ./packages
 COPY apps/web ./apps/web
+
+# Runtime ABC workspace (editable via /agents/manage). Seed copy is used on first
+# boot / when new files appear; live edits live on the abc-data volume at /data/abc.
+COPY A_Agents ./abc-seed/A_Agents
+COPY S_Skills ./abc-seed/S_Skills
+COPY C_Core ./abc-seed/C_Core
+COPY B_Brain ./abc-seed/B_Brain
+COPY M_Memory ./abc-seed/M_Memory
+COPY O_Output ./abc-seed/O_Output
 COPY A_Agents ./A_Agents
 COPY S_Skills ./S_Skills
 COPY C_Core ./C_Core

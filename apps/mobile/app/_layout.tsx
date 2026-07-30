@@ -44,6 +44,17 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ title: 'התראות' }} />
         <Stack.Screen name="settings" options={{ title: 'הגדרות' }} />
+        <Stack.Screen
+          name="task/[id]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: 'fitToContents',
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 20,
+            headerShown: true,
+            title: 'משימה',
+          }}
+        />
       </Stack>
     </>
   )

@@ -1,8 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { resolveNotificationChannels } from '@ak-system/api'
+import { getNotificationRouting, localTodayIso, resolveNotificationChannels } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
+import {
+  buildPreMeetingAgentContext,
+  findPriorMeetingNotes,
+  formatPreMeetingBrief,
+  selectRelatedOpenTasks,
+  shouldRunPreMeetingAgent,
+} from '@/lib/pre-meeting-brief'
 
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
@@ -48,6 +55,8 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
       caller.tasks.list(),
     ])
     const upcoming = upcomingResult.events
+    const today = localTodayIso()
+    const routing = await getNotificationRouting('pre_meeting_briefing')
 
     const toBrief: typeof upcoming = []
     for (const e of upcoming) {
@@ -60,43 +69,81 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     }
 
     let sent = 0
+    let skippedGate = 0
     for (const calEvent of toBrief) {
+      const eventShape = {
+        title: calEvent.title,
+        start: calEvent.start,
+        location: calEvent.location,
+        description: 'description' in calEvent ? (calEvent.description as string | null) : null,
+        attendees: 'attendees' in calEvent ? calEvent.attendees : undefined,
+      }
+
       const linkedMeeting = allMeetings.find(
         (m) =>
           m.calendarEventId === calEvent.id ||
-          (m.title === calEvent.title && m.date === calEvent.start.split('T')[0])
+          (m.title === calEvent.title && m.date === calEvent.start.split('T')[0]),
       )
-      let attendees: typeof allPeople = []
-      let openTasks: typeof allTasks = []
+
       let projectName: string | null = null
-      if (linkedMeeting) {
-        attendees = allPeople.filter((p) => linkedMeeting.peopleIds.includes(p.id))
-        openTasks = allTasks.filter((t) => t.meetingId === linkedMeeting.id && !t.done)
-        if (linkedMeeting.projectId) {
-          const proj = await caller.projects.getById({ id: linkedMeeting.projectId })
-          projectName = proj?.name ?? null
+      if (linkedMeeting?.projectId) {
+        const proj = await caller.projects.getById({ id: linkedMeeting.projectId })
+        projectName = proj?.name ?? null
+      }
+
+      const crmPeople = linkedMeeting
+        ? allPeople.filter((p) => linkedMeeting.peopleIds.includes(p.id))
+        : []
+      const relatedTasks = selectRelatedOpenTasks(
+        allTasks,
+        linkedMeeting
+          ? { id: linkedMeeting.id, projectId: linkedMeeting.projectId }
+          : null,
+        calEvent.title,
+      )
+      const priorNotes = findPriorMeetingNotes(allMeetings, calEvent.title, today)
+
+      const briefInput = {
+        event: eventShape,
+        linkedMeeting: linkedMeeting
+          ? {
+              id: linkedMeeting.id,
+              notes: linkedMeeting.notes,
+              projectId: linkedMeeting.projectId,
+              projectName,
+            }
+          : null,
+        crmPeople,
+        relatedTasks,
+        priorNotes,
+      }
+
+      // Agent path (Notion-parity Meeting Prep) — skip gated noise silently
+      if (routing.agentId) {
+        if (!shouldRunPreMeetingAgent(eventShape)) {
+          skippedGate++
+          continue
+        }
+        const context = buildPreMeetingAgentContext(briefInput)
+        const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context })
+        if (routed !== null) {
+          sent++
+          continue
         }
       }
-      const time = calEvent.start.includes('T') ? calEvent.start.slice(11, 16) : 'כל היום'
-      const lines: string[] = [
-        '⏰ הכנה לפגישה – ' + calEvent.title,
-        `שעה: ${time}`,
-        calEvent.location ? `מיקום: ${calEvent.location}` : '',
-        projectName ? `פרויקט: ${projectName}` : '',
-        attendees.length > 0 ? `משתתפים: ${attendees.map((p) => p.name).join(', ')}` : '',
-        linkedMeeting?.notes ? `הערות: ${linkedMeeting.notes}` : '',
-        openTasks.length > 0 ? `משימות פתוחות: ${openTasks.map((t) => t.title).join(', ')}` : '',
-      ].filter(Boolean)
-      const text = lines.join('\n').slice(0, 4000)
-      const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context: text })
-      if (routed !== null) {
-        sent++
-        continue
-      }
+
+      // Template fallback when not routed to an agent
+      const text = formatPreMeetingBrief(briefInput)
       const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'pre_meeting_briefing' })
       if (pushed.telegram || pushed.whatsapp) sent++
     }
-    return NextResponse.json({ ok: true, briefed: sent, total: toBrief.length })
+    return NextResponse.json({
+      ok: true,
+      briefed: sent,
+      skippedGate,
+      total: toBrief.length,
+      mode: routing.agentId ? 'agent' : 'template',
+    })
   } catch (err) {
     console.error('[cron/pre-meeting-briefing]', err)
     const msg = err instanceof Error ? err.message : 'Pre-meeting briefing failed'

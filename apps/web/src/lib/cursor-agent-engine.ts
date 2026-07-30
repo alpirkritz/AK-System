@@ -48,7 +48,7 @@ async function buildPrompt(
     `Today is ${formatDateLabel()} (${new Date().toISOString().split('T')[0]}).`,
     `Repository root (ABC workspace): ${getAbcRootPath()}`,
     '',
-    'Your FULL response is delivered directly in AK System chat (web or mobile). Do NOT redirect the user to Notion as the only output channel.',
+    'Your FULL response is delivered directly in ARO chat (web or mobile). Do NOT redirect the user to Notion as the only output channel.',
     'Notion archiving is handled by the platform. Give a complete answer in this reply.',
     '',
     'Follow your agent instructions below. You may read files under A_Agents/, S_Skills/, B_Brain/, C_Core/, and stage outputs to O_Output/ when appropriate.',

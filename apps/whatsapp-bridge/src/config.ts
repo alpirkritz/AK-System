@@ -43,7 +43,7 @@ export const config = {
   selfLid: process.env.SELF_LID || '',
   allowedJids: optionalList('ALLOWED_JIDS'),
   watchGroupJids: new Set(optionalList('WATCH_GROUP_JIDS')),
-  deviceName: optional('DEVICE_NAME', 'AK System'),
+  deviceName: optional('DEVICE_NAME', 'ARO'),
   akGroupSummaryUrl: process.env.AK_GROUP_SUMMARY_URL || '',
   akMessagesIngestUrl: process.env.AK_MESSAGES_INGEST_URL || '',
   /** Must be explicitly enabled — default off to prevent accidental auto-replies. */

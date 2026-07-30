@@ -8,13 +8,14 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native'
-import { API_URL, signInWithGoogleIdToken } from '../lib/api'
+import { API_URL, signInLocalDev, signInWithGoogleIdToken } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { syncPushToken } from '../lib/notifications'
 import { colors, layout } from '../lib/theme'
@@ -28,6 +29,8 @@ export default function LoginScreen() {
 
   const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? ''
   const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim()
+  // Local bypass — Expo sets __DEV__ true for metro; never ship this as the only path.
+  const showLocalLogin = typeof __DEV__ !== 'undefined' && __DEV__
 
   useEffect(() => {
     if (!webClientId) return
@@ -36,6 +39,34 @@ export default function LoginScreen() {
       offlineAccess: false,
     })
   }, [webClientId])
+
+  async function completeSignIn(accessToken: string, user: { email: string; name: string }) {
+    await signIn(accessToken, user)
+    try {
+      await syncPushToken(accessToken)
+    } catch (err) {
+      console.warn('[helm] push token sync failed on login:', err)
+    }
+    router.replace('/chat')
+  }
+
+  async function handleLocalSignIn() {
+    if (!API_URL) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { accessToken, user } = await signInLocalDev()
+      await completeSignIn(accessToken, user)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'כניסה לוקאלית נכשלה — ודא שהשרת רץ על EXPO_PUBLIC_API_URL',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function handleGoogleSignIn() {
     if (!webClientId || !androidClientId) return
@@ -53,14 +84,7 @@ export default function LoginScreen() {
         return
       }
       const { accessToken, user } = await signInWithGoogleIdToken(idToken)
-      await signIn(accessToken, user)
-      try {
-        await syncPushToken(accessToken)
-      } catch (err) {
-        // Push is optional on first login — log so failures are diagnosable.
-        console.warn('[helm] push token sync failed on login:', err)
-      }
-      router.replace('/chat')
+      await completeSignIn(accessToken, user)
     } catch (err) {
       if (isErrorWithCode(err)) {
         if (err.code === statusCodes.SIGN_IN_CANCELLED) return
@@ -77,36 +101,66 @@ export default function LoginScreen() {
   }
 
   const contentWidth = Math.min(width - 32, layout.maxContentWidth)
+  const googleReady = Boolean(API_URL && webClientId && androidClientId)
 
   return (
     <View style={styles.container}>
       <View style={[styles.card, { maxWidth: contentWidth }]}>
-        <Text style={styles.title}>Helm</Text>
-        <Text style={styles.tagline}>הגה — העוזר האישי שלך</Text>
+        <Image
+          source={require('../assets/aro-logo.png')}
+          style={styles.logo}
+          accessibilityLabel="ARO"
+        />
+        <Text style={styles.tagline}>העוזר האישי שלך</Text>
 
         {!API_URL ? (
           <Text style={styles.error}>
             הגדר EXPO_PUBLIC_API_URL ב-.env (כתובת production ב-HTTPS)
           </Text>
-        ) : !webClientId ? (
-          <Text style={styles.error}>הגדר EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ב-.env</Text>
-        ) : !androidClientId ? (
-          <Text style={styles.error}>
-            חסר Android OAuth client — הוסף EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ובנה APK מחדש
-          </Text>
-        ) : (
+        ) : null}
+
+        {showLocalLogin && API_URL ? (
           <Pressable
             style={[styles.button, busy && styles.buttonDisabled]}
             disabled={busy}
-            onPress={() => void handleGoogleSignIn()}
+            onPress={() => void handleLocalSignIn()}
           >
             {busy ? (
               <ActivityIndicator color={colors.bg} />
             ) : (
-              <Text style={styles.buttonText}>התחבר עם Google</Text>
+              <Text style={styles.buttonText}>כניסה לוקאלית</Text>
             )}
           </Pressable>
-        )}
+        ) : null}
+
+        {!showLocalLogin && !googleReady && API_URL ? (
+          !webClientId ? (
+            <Text style={styles.error}>הגדר EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ב-.env</Text>
+          ) : (
+            <Text style={styles.error}>
+              חסר Android OAuth client — הוסף EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ובנה APK מחדש
+            </Text>
+          )
+        ) : null}
+
+        {googleReady ? (
+          <Pressable
+            style={[
+              showLocalLogin ? styles.buttonSecondary : styles.button,
+              busy && styles.buttonDisabled,
+            ]}
+            disabled={busy}
+            onPress={() => void handleGoogleSignIn()}
+          >
+            {busy && !showLocalLogin ? (
+              <ActivityIndicator color={showLocalLogin ? colors.gold : colors.bg} />
+            ) : (
+              <Text style={showLocalLogin ? styles.buttonSecondaryText : styles.buttonText}>
+                התחבר עם Google
+              </Text>
+            )}
+          </Pressable>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -133,11 +187,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  title: {
-    fontSize: 42,
-    fontWeight: '700',
-    color: colors.gold,
-    writingDirection: 'rtl',
+  logo: {
+    width: 128,
+    height: 128,
+    borderRadius: 28,
   },
   tagline: {
     fontSize: 18,
@@ -154,11 +207,28 @@ const styles = StyleSheet.create({
     minWidth: 220,
     alignItems: 'center',
   },
+  buttonSecondary: {
+    marginTop: 12,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.gold,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    minWidth: 220,
+    alignItems: 'center',
+  },
   buttonDisabled: {
     opacity: 0.5,
   },
   buttonText: {
     color: colors.bg,
+    fontSize: 16,
+    fontWeight: '600',
+    writingDirection: 'rtl',
+  },
+  buttonSecondaryText: {
+    color: colors.gold,
     fontSize: 16,
     fontWeight: '600',
     writingDirection: 'rtl',

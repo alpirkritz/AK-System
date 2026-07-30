@@ -21,13 +21,14 @@ export const DEFAULT_SCHEDULE_TIMES: Record<string, string[]> = {
   '03_morning_briefing': ['07:00'],
   '04_meeting_prep_herald': ['07:30'],
   '05_ibkr_daily_import': ['18:00'],
-  '06_calendar_optimizer': ['08:00'],
+  '06_calendar_optimizer': ['07:00'],
   '07_email_assistant': ['09:00'],
 }
 
 export const DEFAULT_TRIGGER_MESSAGES: Record<string, string> = {
   '03_morning_briefing': 'הרץ תדריך בוקר יומי לפי ה-workflow',
-  '04_meeting_prep_herald': 'הרץ הכנה לפגישות היום לפי ה-workflow',
+  '04_meeting_prep_herald':
+    'הכן אותי לפגישה הספציפית בהקשר למטה בלבד. פלט קצר בסגנון Notion: כותרת, על מה לדבר, עמדה מומלצת, משימות קשורות. אל תעתיק את תיאור האירוע מהיומן.',
   '05_ibkr_daily_import': 'הרץ ייבוא יומי IBKR לפי ה-workflow',
   '06_calendar_optimizer': 'הרץ אופטימיזציית יומן יומית לפי ה-workflow',
   '07_email_assistant': 'הרץ עוזר מייל יומי לפי ה-workflow',

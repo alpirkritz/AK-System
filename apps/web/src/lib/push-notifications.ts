@@ -14,7 +14,7 @@ function excerpt(text: string, max = 240): string {
 
 /** Derive a short notification title from the first line of the message. */
 function deriveTitle(text: string): string {
-  const firstLine = text.split('\n').map((l) => l.trim()).find(Boolean) ?? 'AK System'
+  const firstLine = text.split('\n').map((l) => l.trim()).find(Boolean) ?? 'ARO'
   return firstLine.length > 60 ? firstLine.slice(0, 59) + '…' : firstLine
 }
 

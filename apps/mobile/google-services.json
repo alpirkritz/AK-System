@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "708997895528",
+    "project_id": "helm-push-969711",
+    "storage_bucket": "helm-push-969711.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:708997895528:android:df5cf62d4d1b906c8e32dd",
+        "android_client_info": {
+          "package_name": "com.alpir.helm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8BBzz_4EJt-YeFxTehd0NUoGfuE7vSu4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

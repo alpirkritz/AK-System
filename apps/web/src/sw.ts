@@ -28,10 +28,10 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data.json() as typeof data
   } catch {
-    data = { title: 'My Space', body: event.data.text() }
+    data = { title: 'ARO', body: event.data.text() }
   }
 
-  const title = data.title ?? 'My Space'
+  const title = data.title ?? 'ARO'
   const body = data.body ?? ''
   const icon = data.icon ?? '/icons/icon-192.png'
   const url = data.url ?? '/'

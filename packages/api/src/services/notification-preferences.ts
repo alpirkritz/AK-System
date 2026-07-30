@@ -39,7 +39,7 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     id: 'task_reminder',
     category: 'cron',
     label: 'תזכורת משימות',
-    description: 'נשלח כשמשימה מגיעה למועד או באיחור — לא ניתן לקבוע שעה',
+    description: 'סיכום משימות שעבר מועדן או להיום — נשלח לכל היותר פעם ביום',
     availableChannels: ALL_CHANNELS,
     schedulable: false,
     routable: true,
@@ -264,6 +264,30 @@ export async function markNotificationSent(typeId: string): Promise<void> {
   }
 }
 
+function calendarDayInTz(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+/** Whether this type already fired today (calendar day) in the timezone. */
+export function wasNotificationSentToday(
+  lastSentAt: string | null | undefined,
+  timezone: string,
+): boolean {
+  if (!lastSentAt) return false
+  try {
+    const sentDay = calendarDayInTz(new Date(lastSentAt), timezone)
+    const today = calendarDayInTz(new Date(), timezone)
+    return sentDay === today
+  } catch {
+    return false
+  }
+}
+
 /** Whether this type already fired for the given day + HH:MM slot in the timezone. */
 export function wasNotificationSentInSlot(
   lastSentAt: string | null | undefined,
@@ -279,19 +303,8 @@ export function wasNotificationSentInSlot(
       minute: '2-digit',
       hour12: false,
     }).format(sentDate)
-    const sentDay = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(sentDate)
-
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date())
+    const sentDay = calendarDayInTz(sentDate, timezone)
+    const today = calendarDayInTz(new Date(), timezone)
 
     return sentDay === today && sentSlot === slot
   } catch {

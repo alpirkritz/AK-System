@@ -11,12 +11,18 @@
       },
       "env": {
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "185057895621-r25eljj8fbj6mlnemu32mte4r9vd6kmo.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "185057895621-o3efir3r31uju783d72l53anaqvalq2c.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "185057895621-o3efir3r31uju783d72l53anaqvalq2c.apps.googleusercontent.com",
+        "EXPO_PUBLIC_API_URL": "https://attach-special-bar-intend.trycloudflare.com"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://attach-special-bar-intend.trycloudflare.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "185057895621-r25eljj8fbj6mlnemu32mte4r9vd6kmo.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "185057895621-o3efir3r31uju783d72l53anaqvalq2c.apps.googleusercontent.com"
       }
     }
   },

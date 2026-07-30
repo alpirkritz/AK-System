@@ -1019,3 +1019,31 @@ For end-of-day rollups, Hugo may append a summary entry:
 - Reviewing labels before implementing caught the "ממתין" / "בהמתנה" collision while it was still a one-line change
 - Diagnosing 5 red tests as leaked `ABC_ROOT=/data/abc` from an earlier `source` in the same persistent shell — rather than as a regression — avoided chasing a phantom bug; worth unsetting sourced env before running suites
 - QA: 202/202 unit/integration tests, 5/5 tasks-screen e2e, web build green, no lint errors on changed files
+
+## 2026-07-30 — Hugo (Dev Pipeline) — Notion write-back + mobile tasks parity
+
+**Workflow:** Dev pipeline — PM → UI/UX → Dev → Tests → QA → Reviewer
+**Status:** Complete (commit/push/deploy + mobile APK rebuild still pending — user action)
+
+### Stand-up
+- **Goal:** Make status changes in the app write back to Notion, and bring the mobile tasks screen up to the same language as web (statuses, sources, detail, FAB).
+- **Context:** User confirmed two-way sync + full mobile parity (statuses, source filter, tap-for-details, floating +).
+
+### Actions Taken
+1. Spec: `docs/specs/notion-writeback-and-mobile-tasks.md`.
+2. Write-back service: resolve account/db → schema cache → map canonical→literal label (same overrides as read) → `PATCH /v1/pages/{id}`; hooked into `tasks.toggleDone` + `tasks.update`.
+3. Local write always commits first; mutations return `notionSync` so UI can report failure without rolling back.
+4. Mobile: status/workspace fields, 4 status tabs, source chips, status pills, split checkbox/detail targets, FAB, `formSheet` create/edit at `/task/[id]`.
+5. Web: Notion hint in TaskModal; checkbox failure toast on `/tasks`.
+
+### Outputs
+- `docs/specs/notion-writeback-and-mobile-tasks.md`, `reports/notion-writeback-and-mobile-tasks.md`
+
+### Compliance
+- [x] Engineering task — PM spec before code
+- [x] No secrets committed
+- [x] Notion write scoped to status property only (title/due/assignee out of scope)
+
+### Performance Improvements
+- Schema cached 5 min so rapid checkbox taps do not re-fetch the database definition each time
+- QA: 216/216 unit tests, mobile tsc green, web build green

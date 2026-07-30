@@ -13,11 +13,12 @@ services:
       - '3000:3000'
     volumes:
       - web-data:/data
+      - abc-data:/data/abc
     env_file:
       - production.env
     environment:
       DATABASE_PATH: /data/ak_system.sqlite
-      ABC_ROOT: /app
+      ABC_ROOT: /data/abc
       WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
     restart: unless-stopped
 
@@ -40,4 +41,5 @@ services:
 
 volumes:
   web-data:
+  abc-data:
   bridge-auth:

@@ -116,8 +116,8 @@ async function main(): Promise<void> {
     server.on('error', reject)
     setTimeout(() => {
       server.close()
-      reject(new Error('OAuth timed out after 5 minutes'))
-    }, 5 * 60 * 1000)
+      reject(new Error('OAuth timed out after 30 minutes'))
+    }, 30 * 60 * 1000)
   })
 }
 

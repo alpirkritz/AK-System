@@ -24,6 +24,7 @@
     "ec2:whatsapp:pair": "bash scripts/ec2-whatsapp-pair.sh",
     "ec2:tunnel": "bash scripts/ec2-setup-named-tunnel.sh",
     "deploy:ec2": "bash scripts/deploy-ec2.sh",
+    "sync:vat:ec2": "bash scripts/sync-vat-to-ec2.sh",
     "test": "pnpm run pretest && pnpm --filter @ak-system/api run test",
     "test:api": "pnpm --filter @ak-system/api run test",
     "test:watch": "pnpm --filter @ak-system/api run test:watch",

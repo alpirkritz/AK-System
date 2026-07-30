@@ -27,10 +27,16 @@ export default function TasksPage() {
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: notionState } = trpc.tasks.notionConfigured.useQuery()
   const utils = trpc.useUtils()
-  const toggleTask = trpc.tasks.toggleDone.useMutation({
-    onSuccess: () => utils.tasks.list.invalidate(),
-  })
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const toggleTask = trpc.tasks.toggleDone.useMutation({
+    onSuccess: (res) => {
+      utils.tasks.list.invalidate()
+      const sync = (res as { notionSync?: { ok: boolean } | null } | null)?.notionSync
+      if (sync && !sync.ok) {
+        setSyncMessage('עודכן מקומית, אבל העדכון ל-Notion נכשל')
+      }
+    },
+  })
   const syncFromNotion = trpc.tasks.syncFromNotion.useMutation({
     onSuccess: (res) => {
       const imported = res.tasksCreated + res.tasksUpdated

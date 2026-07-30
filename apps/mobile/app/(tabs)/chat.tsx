@@ -33,6 +33,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pushNotice, setPushNotice] = useState<string | null>(null)
 
   const contentWidth = Math.min(width - 24, layout.maxContentWidth)
 
@@ -56,9 +57,14 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!token) return
-    syncPushToken(token).catch((err) =>
-      console.warn('[helm] push token sync failed:', err),
-    )
+    syncPushToken(token)
+      .then((registered) => {
+        setPushNotice(registered ? null : 'התראות לא פעילות — הפעל אותן בהגדרות')
+      })
+      .catch((err) => {
+        console.warn('[aro] push token sync failed:', err)
+        setPushNotice('רישום התראות נכשל — נסה שוב מההגדרות')
+      })
   }, [token])
 
   useEffect(() => {
@@ -135,8 +141,8 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={80}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
     >
       {loading ? (
         <View style={styles.center}>
@@ -149,12 +155,20 @@ export default function ChatScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 8 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
         />
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {pushNotice ? (
+        <Pressable onPress={() => router.push('/settings')}>
+          <Text style={styles.pushNotice}>{pushNotice}</Text>
+        </Pressable>
+      ) : null}
 
       <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <TextInput
@@ -260,6 +274,15 @@ const styles = StyleSheet.create({
     color: colors.error,
     textAlign: 'center',
     padding: 8,
+    writingDirection: 'rtl',
+  },
+  pushNotice: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+    textDecorationLine: 'underline',
     writingDirection: 'rtl',
   },
 })

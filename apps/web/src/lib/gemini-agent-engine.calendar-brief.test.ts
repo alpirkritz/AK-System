@@ -36,6 +36,7 @@ vi.mock('@ak-system/api', () => ({
 import {
   buildAgentSystemInstruction,
   getCalendarOptimizerBriefOverride,
+  getMeetingPrepNotionParityOverride,
   getMeetingPrepRelatedTasksOverride,
 } from './gemini-agent-engine'
 
@@ -85,14 +86,34 @@ describe('calendar optimizer Notion-parity brief', () => {
 describe('meeting prep related tasks only', () => {
   it('override forbids full backlog dump', () => {
     const override = getMeetingPrepRelatedTasksOverride()
-    expect(override).toContain('לא נמצאו משימות קשורות לפגישה זו')
     expect(override).toContain('NEVER dump')
     expect(override).toContain('ONLY open tasks that clearly relate')
   })
 
-  it('injects override into 04 system instruction', async () => {
+  it('injects related-tasks override into 04 system instruction', async () => {
     const prompt = await buildAgentSystemInstruction('04_meeting_prep_herald', 'whatsapp')
     expect(prompt).toContain('Meeting Prep — related tasks only')
-    expect(prompt).toContain('לא נמצאו משימות קשורות לפגישה זו')
+  })
+})
+
+describe('meeting prep Notion-parity (WhatsApp/cron)', () => {
+  it('override bans invite paste and requires talk-about sections', () => {
+    const override = getMeetingPrepNotionParityOverride()
+    expect(override).toContain('NEVER paste')
+    expect(override).toContain('What you should talk about')
+    expect(override).toContain('recommended stance')
+    expect(override).toContain('get_notion_tasks')
+    expect(override).toContain('על מה לדבר')
+    expect(override).toContain('עמדה מומלצת')
+  })
+
+  it('injects Notion-parity override on whatsapp/cron/telegram only', async () => {
+    for (const channel of ['whatsapp', 'cron', 'telegram'] as const) {
+      const prompt = await buildAgentSystemInstruction('04_meeting_prep_herald', channel)
+      expect(prompt).toContain('Meeting Prep — Notion-parity brief')
+      expect(prompt).toContain('NEVER paste')
+    }
+    const web = await buildAgentSystemInstruction('04_meeting_prep_herald', 'web')
+    expect(web).not.toContain('Meeting Prep — Notion-parity brief')
   })
 })

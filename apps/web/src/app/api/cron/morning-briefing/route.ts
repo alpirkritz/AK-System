@@ -8,6 +8,7 @@ import {
   wasNotificationSentInSlot,
 } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
+import { formatMorningBriefingContext } from '@/lib/morning-briefing-context'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
@@ -60,12 +61,6 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const routed = await runEventAgentIfRouted('morning_briefing')
-    if (routed !== null) {
-      await markNotificationSent('morning_briefing')
-      return NextResponse.json({ ok: true, mode: 'agent' })
-    }
-
     const caller = await createServiceCaller()
     const today = localTodayIso()
     const scopeIds = await getAgentCalendarIds()
@@ -75,26 +70,18 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     ])
     const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
     const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === today)
+    const text = formatMorningBriefingContext(today, scopedEvents, dueTasks)
 
-    const lines: string[] = ['📅 סיכום הבוקר – ' + today]
-    if (scopedEvents.length === 0 && dueTasks.length === 0) {
-      lines.push('אין אירועים או משימות מועדות להיום.')
-    } else {
-      if (scopedEvents.length > 0) {
-        lines.push('', 'אירועים:')
-        for (const e of scopedEvents) {
-          const time = e.start.includes('T') ? e.start.slice(11, 16) : 'כל היום'
-          lines.push(`• ${time} – ${e.title}`)
-        }
-      }
-      if (dueTasks.length > 0) {
-        lines.push('', 'משימות להיום:')
-        for (const t of dueTasks) {
-          lines.push(`• [${t.priority}] ${t.title}`)
-        }
-      }
+    const routed = await runEventAgentIfRouted('morning_briefing', { context: text })
+    if (routed !== null) {
+      await markNotificationSent('morning_briefing')
+      return NextResponse.json({
+        ok: true,
+        mode: 'agent',
+        events: scopedEvents.length,
+        dueTasks: dueTasks.length,
+      })
     }
-    const text = lines.join('\n').slice(0, 4000)
 
     const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'morning_briefing' })
     await markNotificationSent('morning_briefing')

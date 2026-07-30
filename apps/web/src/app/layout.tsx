@@ -26,14 +26,17 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'My Space – AK System',
+  title: 'ARO',
   description: 'סביבת עבודה אישית – פגישות, אנשים, משימות',
-  icons: { icon: '/favicon.ico' },
+  icons: {
+    icon: [{ url: '/favicon.ico', sizes: 'any' }, { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+  },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'My Space',
+    title: 'ARO',
   },
 }
 

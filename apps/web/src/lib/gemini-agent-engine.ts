@@ -50,9 +50,29 @@ export function getMeetingPrepRelatedTasksOverride(): string {
   return [
     '## Meeting Prep — related tasks only (MANDATORY)',
     'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link).',
-    'If none relate: write exactly "לא נמצאו משימות קשורות לפגישה זו" (or English equivalent) and move on.',
+    'If none relate: on WhatsApp/cron/Telegram OMIT the related-actions section entirely; on web you may write "לא נמצאו משימות קשורות לפגישה זו".',
     'NEVER dump the user\'s full open-task backlog as filler or "for context".',
     'Keep WhatsApp / Telegram / ARO briefs short and purposeful — no Markdown tables, no unrelated task lists.',
+  ].join('\n')
+}
+
+/**
+ * Hard override: Notion-quality single-meeting prep on outbound channels.
+ * Bans pasting calendar invite fluff; requires grounded talk-about / stance / actions.
+ */
+export function getMeetingPrepNotionParityOverride(): string {
+  return [
+    '## Meeting Prep — Notion-parity brief (MANDATORY — overrides conflicting card paste habits)',
+    'Focus on the ONE meeting named in the user message / context block (pre-meeting cron or tagged ask).',
+    'NEVER paste, quote, or lightly paraphrase the calendar event description / Outlook invite (From/Sent/To/Cc/Subject/When) / Teams "Need help?" / dial-in / mission-statement fluff.',
+    'You MUST call tools for real context: at least get_notion_tasks and get_notion_meeting_notes; add people/projects/companies/search_notion when useful. Grounding rules still apply — no invention.',
+    'Write a skimmable brief matching Notion Meeting Prep quality. No Markdown tables. No meta narration ("I understood…").',
+    'Omit any section that has nothing grounded. Prefer Hebrew or English to match the user/trigger.',
+    'Required shape when data exists:',
+    '1) Header — title, time, location, participants (names only, ≤8 + ועוד N if needed)',
+    '2) What you should talk about / על מה לדבר — 3–6 numbered concrete topics grounded in notes/tasks (ownership, decisions, open gaps)',
+    '3) Your recommended stance / עמדה מומלצת — optional; label clearly as המלצה — לא מהנתונים; omit if no factual basis',
+    '4) Also relevant / גם רלוונטי — related open action items only; omit section if none',
   ].join('\n')
 }
 
@@ -108,6 +128,9 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
 
   if (agentId === MEETING_PREP_AGENT_ID) {
     parts.push(getMeetingPrepRelatedTasksOverride(), '')
+    if (channel === 'whatsapp' || channel === 'telegram' || channel === 'cron') {
+      parts.push(getMeetingPrepNotionParityOverride(), '')
+    }
   }
 
   parts.push(

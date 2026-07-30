@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -8,19 +8,53 @@ import {
   Text,
   View,
 } from 'react-native'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
 import { useAuth } from '../../lib/auth'
-import { fetchTasks, toggleTaskDone, type MobileTask } from '../../lib/data'
-import { colors, PRIORITY_COLOR, PRIORITY_LABEL } from '../../lib/theme'
+import {
+  fetchTasks,
+  fetchWorkspaces,
+  toggleTaskDone,
+  type MobileTask,
+  type MobileWorkspace,
+} from '../../lib/data'
+import {
+  colors,
+  PRIORITY_COLOR,
+  PRIORITY_LABEL,
+  STATUS_COLOR,
+  STATUS_LABEL,
+} from '../../lib/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-type Filter = 'open' | 'done' | 'all'
+type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
+
+function effectiveStatus(t: MobileTask): string {
+  return t.status ?? (t.done ? 'done' : 'not_started')
+}
+
+function StatusPill({ status }: { status: string }) {
+  // Match web: silent for not_started and done — the checkbox already conveys those.
+  if (!status || status === 'not_started' || status === 'done') return null
+  const color = STATUS_COLOR[status] ?? colors.textMuted
+  return (
+    <View style={[styles.pill, { borderColor: color + '66', backgroundColor: color + '22' }]}>
+      <Text style={[styles.pillText, { color }]}>{STATUS_LABEL[status] ?? status}</Text>
+    </View>
+  )
+}
 
 export default function TasksScreen() {
   const { token } = useAuth()
+  const router = useRouter()
+  const insets = useSafeAreaInsets()
   const [tasks, setTasks] = useState<MobileTask[]>([])
+  const [workspaces, setWorkspaces] = useState<MobileWorkspace[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('open')
+  const [filter, setFilter] = useState<StatusFilter>('open')
+  const [workspaceId, setWorkspaceId] = useState<string | 'all'>('all')
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -28,7 +62,10 @@ export default function TasksScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        setTasks(await fetchTasks(token))
+        const [t, w] = await Promise.all([fetchTasks(token), fetchWorkspaces(token)])
+        setTasks(t)
+        setWorkspaces(w)
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת המשימות נכשלה')
       } finally {
@@ -39,28 +76,66 @@ export default function TasksScreen() {
     [token],
   )
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
+
+  const workspaceById = useMemo(() => {
+    const map = new Map<string, MobileWorkspace>()
+    for (const w of workspaces) map.set(w.id, w)
+    return map
+  }, [workspaces])
 
   const onToggle = async (id: string) => {
     if (!token) return
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
+    const prev = tasks.find((t) => t.id === id)
+    if (!prev) return
+    const nextDone = !prev.done
+    const nextStatus = nextDone ? 'done' : 'not_started'
+    setTasks((list) =>
+      list.map((t) => (t.id === id ? { ...t, done: nextDone, status: nextStatus } : t)),
+    )
     try {
-      await toggleTaskDone(token, id)
+      const result = await toggleTaskDone(token, id)
+      setTasks((list) =>
+        list.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                done: result.done,
+                status: result.status ?? nextStatus,
+                notionStatusRaw: result.notionStatusRaw ?? t.notionStatusRaw,
+              }
+            : t,
+        ),
+      )
+      if (result.notionSync && !result.notionSync.ok) {
+        setError('עודכן מקומית, אבל העדכון ל-Notion נכשל')
+      }
     } catch {
-      // Revert on failure.
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
+      setTasks((list) => list.map((t) => (t.id === id ? prev : t)))
+      setError('לא הצלחתי לעדכן את המשימה')
     }
   }
 
-  const visible = tasks.filter((t) =>
-    filter === 'open' ? !t.done : filter === 'done' ? t.done : true,
-  )
+  const visible = useMemo(() => {
+    return tasks.filter((t) => {
+      const st = effectiveStatus(t)
+      if (filter === 'open' && (st === 'done' || st === 'cancelled')) return false
+      if (filter === 'done' && st !== 'done') return false
+      if (filter === 'cancelled' && st !== 'cancelled') return false
+      if (workspaceId !== 'all' && t.workspaceId !== workspaceId) return false
+      return true
+    })
+  }, [tasks, filter, workspaceId])
 
-  const filters: { id: Filter; label: string }[] = [
+  const filters: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'פתוחות' },
     { id: 'done', label: 'הושלמו' },
+    { id: 'cancelled', label: 'בוטלו' },
     { id: 'all', label: 'הכל' },
   ]
 
@@ -79,6 +154,8 @@ export default function TasksScreen() {
           <Pressable
             key={f.id}
             onPress={() => setFilter(f.id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === f.id }}
             style={[styles.chip, filter === f.id && styles.chipActive]}
           >
             <Text style={[styles.chipText, filter === f.id && styles.chipTextActive]}>
@@ -88,12 +165,40 @@ export default function TasksScreen() {
         ))}
       </View>
 
+      {workspaces.length > 0 ? (
+        <View style={styles.filterRow}>
+          <Pressable
+            onPress={() => setWorkspaceId('all')}
+            accessibilityRole="button"
+            accessibilityState={{ selected: workspaceId === 'all' }}
+            style={[styles.chip, workspaceId === 'all' && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, workspaceId === 'all' && styles.chipTextActive]}>
+              כל המקורות
+            </Text>
+          </Pressable>
+          {workspaces.map((w) => (
+            <Pressable
+              key={w.id}
+              onPress={() => setWorkspaceId(w.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: workspaceId === w.id }}
+              style={[styles.chip, workspaceId === w.id && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, workspaceId === w.id && styles.chipTextActive]}>
+                {w.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <FlatList
         data={visible}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: 88 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
         }
@@ -105,28 +210,77 @@ export default function TasksScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable style={styles.taskRow} onPress={() => onToggle(item.id)}>
-            <View style={[styles.checkbox, item.done && styles.checkboxChecked]}>
-              {item.done && <Text style={styles.checkMark}>✓</Text>}
-            </View>
-            <View style={styles.taskBody}>
-              <Text style={[styles.taskTitle, item.done && styles.taskTitleDone]}>
-                {item.title}
-              </Text>
-              {item.dueDate ? (
-                <Text style={styles.taskMeta}>
-                  {new Date(item.dueDate).toLocaleDateString('he-IL')}
+        renderItem={({ item }) => {
+          const st = effectiveStatus(item)
+          const isCancelled = st === 'cancelled'
+          const workspace = item.workspaceId ? workspaceById.get(item.workspaceId) : null
+          return (
+            <View style={styles.taskRow}>
+              <Pressable
+                onPress={() => {
+                  void onToggle(item.id)
+                }}
+                hitSlop={8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: item.done }}
+                accessibilityLabel={
+                  isCancelled
+                    ? 'שחזר משימה שבוטלה'
+                    : item.done
+                      ? 'סמן כלא בוצע'
+                      : 'סמן כבוצע'
+                }
+                style={[
+                  styles.checkbox,
+                  item.done && styles.checkboxChecked,
+                  isCancelled && styles.checkboxCancelled,
+                ]}
+              >
+                {item.done ? (
+                  <Text style={styles.checkMark}>{isCancelled ? '✕' : '✓'}</Text>
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={styles.taskBody}
+                onPress={() => router.push(`/task/${item.id}` as Href)}
+                accessibilityRole="button"
+                accessibilityLabel={`פרטי משימה: ${item.title}`}
+              >
+                <Text style={[styles.taskTitle, item.done && styles.taskTitleDone]}>
+                  {item.title}
                 </Text>
-              ) : null}
+                <View style={styles.metaRow}>
+                  <StatusPill status={st} />
+                  {workspace ? (
+                    <Text style={styles.taskMeta}>{workspace.name}</Text>
+                  ) : null}
+                  {item.dueDate ? (
+                    <Text style={styles.taskMeta}>
+                      {new Date(item.dueDate).toLocaleDateString('he-IL')}
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
+              <View
+                style={[
+                  styles.priorityDot,
+                  { backgroundColor: PRIORITY_COLOR[item.priority] ?? colors.textMuted },
+                ]}
+              />
+              <Text style={styles.priorityLabel}>{PRIORITY_LABEL[item.priority] ?? ''}</Text>
             </View>
-            <View
-              style={[styles.priorityDot, { backgroundColor: PRIORITY_COLOR[item.priority] ?? colors.textMuted }]}
-            />
-            <Text style={styles.priorityLabel}>{PRIORITY_LABEL[item.priority] ?? ''}</Text>
-          </Pressable>
-        )}
+          )
+        }}
       />
+
+      <Pressable
+        style={[styles.fab, { bottom: 16 + insets.bottom }]}
+        onPress={() => router.push('/task/new' as Href)}
+        accessibilityRole="button"
+        accessibilityLabel="הוסף משימה"
+      >
+        <Text style={styles.fabPlus}>+</Text>
+      </Pressable>
     </View>
   )
 }
@@ -136,16 +290,19 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
   filterRow: {
     flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    minHeight: 36,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    justifyContent: 'center',
   },
   chipActive: {
     backgroundColor: colors.accent + '22',
@@ -153,7 +310,7 @@ const styles = StyleSheet.create({
   },
   chipText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
   chipTextActive: { color: colors.accent, fontWeight: '600' },
-  list: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
+  list: { paddingHorizontal: 16, flexGrow: 1 },
   taskRow: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -163,9 +320,9 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: colors.border,
     alignItems: 'center',
@@ -175,15 +332,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     borderColor: colors.success,
   },
-  checkMark: { color: colors.bg, fontSize: 13, fontWeight: '700' },
-  taskBody: { flex: 1 },
+  checkboxCancelled: {
+    backgroundColor: STATUS_COLOR.cancelled,
+    borderColor: STATUS_COLOR.cancelled,
+  },
+  checkMark: { color: colors.bg, fontSize: 16, fontWeight: '700' },
+  taskBody: { flex: 1, gap: 4 },
   taskTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   taskTitleDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
-  taskMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 2 },
+  metaRow: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
+  pill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pillText: { fontSize: 11, fontWeight: '600', writingDirection: 'rtl' },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
   priorityLabel: { color: colors.textMuted, fontSize: 11, minWidth: 44, textAlign: 'left' },
   empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 8 },
   emptyIcon: { fontSize: 34, color: colors.success },
   emptyText: { color: colors.textMuted, fontSize: 15, writingDirection: 'rtl' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
+  fab: {
+    position: 'absolute',
+    left: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  fabPlus: { color: colors.bg, fontSize: 32, fontWeight: '400', lineHeight: 34 },
 })

@@ -22,9 +22,16 @@ function LoginForm() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center p-4 bg-[#0e1626]">
       <div className="card w-full max-w-sm p-8 text-center space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-[#2dd4bf]">My Space</h1>
-          <p className="text-sm text-[#7a89ab] mt-2">התחבר עם Google כדי להמשיך</p>
+        <div className="flex flex-col items-center gap-3">
+          <img
+            src="/icons/aro-logo.png"
+            alt="ARO"
+            width={112}
+            height={112}
+            className="h-28 w-28 rounded-2xl"
+          />
+          <h1 className="sr-only">ARO</h1>
+          <p className="text-sm text-[#7a89ab]">התחבר עם Google כדי להמשיך</p>
         </div>
 
         {error ? (

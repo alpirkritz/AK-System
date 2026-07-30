@@ -108,6 +108,10 @@ function agentsDir(): string {
   return path.join(getAbcRoot(), 'A_Agents')
 }
 
+function skillsDir(): string {
+  return path.join(getAbcRoot(), 'S_Skills')
+}
+
 export function listAgents(): AgentSummary[] {
   const dir = agentsDir()
   if (!fs.existsSync(dir)) return []
@@ -180,12 +184,48 @@ export function getRunnableAgentIds(): string[] {
   return listAgents().map((a) => a.id)
 }
 
+/** Linked workflow filename for an agent (e.g. `wf_meeting_prep.md`), or null. */
+export function getAgentWorkflowFile(agentId: string): string | null {
+  return AGENT_WORKFLOWS[agentId] ?? null
+}
+
+function resolveWorkflowFilePath(agentId: string): string {
+  const wfFile = getAgentWorkflowFile(agentId)
+  if (!wfFile) {
+    throw new Error(`No workflow mapped for agent: ${agentId}`)
+  }
+  const safeName = path.basename(wfFile)
+  if (!safeName || safeName !== wfFile || safeName.includes('..') || !safeName.endsWith('.md')) {
+    throw new Error(`Invalid workflow file: ${wfFile}`)
+  }
+  return path.join(skillsDir(), safeName)
+}
+
 export function getAgentWorkflowContent(agentId: string): string | null {
-  const wfFile = AGENT_WORKFLOWS[agentId]
+  const wfFile = getAgentWorkflowFile(agentId)
   if (!wfFile) return null
-  const filePath = path.join(getAbcRoot(), 'S_Skills', wfFile)
+  const filePath = resolveWorkflowFilePath(agentId)
   if (!fs.existsSync(filePath)) return null
   return fs.readFileSync(filePath, 'utf-8')
+}
+
+export function saveAgentWorkflowContent(agentId: string, content: string): void {
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    throw new Error('Workflow content cannot be empty')
+  }
+
+  const filePath = resolveWorkflowFilePath(agentId)
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Workflow file not found for agent: ${agentId}`)
+  }
+
+  const resolved = path.resolve(filePath)
+  const resolvedDir = path.resolve(skillsDir())
+  if (!resolved.startsWith(resolvedDir + path.sep)) {
+    throw new Error(`Invalid workflow path for agent: ${agentId}`)
+  }
+
+  fs.writeFileSync(filePath, content, 'utf-8')
 }
 
 export function getAgentEngine(): 'gemini' | 'cursor' {
@@ -233,7 +273,8 @@ export function getAgentDisplayName(agentId: string): string {
 export function getDefaultTriggerMessage(agentId: string): string {
   const messages: Record<string, string> = {
     '03_morning_briefing': 'הרץ תדריך בוקר יומי לפי ה-workflow',
-    '04_meeting_prep_herald': 'הרץ הכנה לפגישות היום לפי ה-workflow',
+    '04_meeting_prep_herald':
+      'הכן אותי לפגישה הספציפית בהקשר למטה בלבד. פלט קצר בסגנון Notion: כותרת, על מה לדבר, עמדה מומלצת, משימות קשורות. אל תעתיק את תיאור האירוע מהיומן.',
     '05_ibkr_daily_import': 'הרץ ייבוא יומי IBKR לפי ה-workflow',
     '06_calendar_optimizer': 'הרץ אופטימיזציית יומן יומית לפי ה-workflow',
     '07_email_assistant': 'הרץ עוזר מייל יומי לפי ה-workflow',

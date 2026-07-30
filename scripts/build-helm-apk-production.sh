@@ -32,6 +32,8 @@ if [ -z "$ANDROID_ID" ]; then
   exit 1
 fi
 
+bash "$ROOT/scripts/check-helm-fcm.sh"
+
 if [[ "$API_URL" == *your-domain* ]] || [[ "$API_URL" == http://localhost* ]]; then
   echo "✗  Production URL must be HTTPS (tunnel or domain), got: $API_URL"
   exit 1

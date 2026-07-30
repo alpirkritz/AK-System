@@ -58,7 +58,7 @@ export default function SettingsScreen() {
     setPushStatus(null)
     try {
       const res = await sendTestPush(token)
-      setPushStatus(`נשלח: ${res.webSent} PWA + ${res.expoSent} Helm`)
+      setPushStatus(`נשלח: ${res.webSent} PWA + ${res.expoSent} ARO`)
     } catch (err) {
       setPushStatus(err instanceof Error ? err.message : 'בדיקה נכשלה')
     } finally {
