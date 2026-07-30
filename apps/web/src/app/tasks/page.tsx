@@ -5,10 +5,19 @@ import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
+import { StatusPill } from '@/components/StatusPill'
 import dynamic from 'next/dynamic'
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
-type StatusFilter = 'open' | 'done' | 'all'
+type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
+
+/**
+ * Cancelled tasks also carry `done = true`, so the boolean alone cannot tell "finished" from
+ * "abandoned". Prefer the rich status; fall back for rows written before the column existed.
+ */
+function effectiveStatus(t: { status?: string | null; done?: boolean | null }): string {
+  return t.status ?? (t.done ? 'done' : 'not_started')
+}
 
 export default function TasksPage() {
   const { data: tasksList = [], isLoading } = trpc.tasks.list.useQuery()
@@ -52,8 +61,10 @@ export default function TasksPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return tasksList.filter((t) => {
-      if (status === 'open' && t.done) return false
-      if (status === 'done' && !t.done) return false
+      const st = effectiveStatus(t as { status?: string | null; done?: boolean | null })
+      if (status === 'open' && (st === 'done' || st === 'cancelled')) return false
+      if (status === 'done' && st !== 'done') return false
+      if (status === 'cancelled' && st !== 'cancelled') return false
       if (projectId && (t as { projectId?: string }).projectId !== projectId) return false
       if (meetingId && t.meetingId !== meetingId) return false
       if (workspaceId && (t as { workspaceId?: string | null }).workspaceId !== workspaceId) return false
@@ -67,6 +78,7 @@ export default function TasksPage() {
   const statusTabs: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'פתוחות' },
     { id: 'done', label: 'הושלמו' },
+    { id: 'cancelled', label: 'בוטלו' },
     { id: 'all', label: 'הכל' },
   ]
 
@@ -213,6 +225,8 @@ export default function TasksPage() {
               <div className="card py-1 px-4">
                 {tasks.map((t) => {
                   const meeting = getMeeting(t.meetingId ?? '')
+                  const isCancelled =
+                    effectiveStatus(t as { status?: string | null; done?: boolean | null }) === 'cancelled'
                   return (
                     <div key={t.id} className="task-row">
                       <button
@@ -220,10 +234,12 @@ export default function TasksPage() {
                         className="checkbox-btn"
                         role="checkbox"
                         aria-checked={t.done}
-                        aria-label={t.done ? 'סמן כלא בוצע' : 'סמן כבוצע'}
+                        aria-label={
+                          isCancelled ? 'שחזר משימה שבוטלה' : t.done ? 'סמן כלא בוצע' : 'סמן כבוצע'
+                        }
                         onClick={() => toggleTask.mutate({ id: t.id })}
                       >
-                        {t.done && <span className="text-[10px]">✓</span>}
+                        {t.done && <span className="text-[10px]">{isCancelled ? '✕' : '✓'}</span>}
                       </button>
                       <div
                         className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
@@ -242,6 +258,7 @@ export default function TasksPage() {
                           <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
                         )}
                       </div>
+                      <StatusPill status={(t as { status?: string | null }).status} />
                       <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
                       {t.projectId && getProject(t.projectId) && (
                         <Link href={`/projects/${t.projectId}`}>

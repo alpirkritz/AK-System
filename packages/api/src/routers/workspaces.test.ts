@@ -72,6 +72,64 @@ describe('workspaces router', () => {
   })
 })
 
+describe('workspaces router — Notion database links', () => {
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('linkNotionDatabase attaches a database and surfaces it on getById + list', async () => {
+    const caller = await createTestCaller()
+    await caller.workspaces.linkNotionDatabase({
+      workspaceId: 'ws_daz',
+      notionDatabaseId: 'db-daz-1',
+      notionDatabaseName: 'DAZ Tasks',
+    })
+
+    const daz = await caller.workspaces.getById({ id: 'ws_daz' })
+    expect(daz!.notionDatabases.map((d) => d.notionDatabaseId)).toEqual(['db-daz-1'])
+
+    const list = await caller.workspaces.list()
+    const dazRow = list.find((w) => w.id === 'ws_daz')!
+    expect(dazRow.notionDatabases).toHaveLength(1)
+  })
+
+  it('linking a database already claimed by another workspace throws', async () => {
+    const caller = await createTestCaller()
+    await caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-shared' })
+    await expect(
+      caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_dragontail', notionDatabaseId: 'db-shared' }),
+    ).rejects.toThrow()
+  })
+
+  it('re-linking the same database to the same workspace is idempotent', async () => {
+    const caller = await createTestCaller()
+    const first = await caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-x' })
+    const second = await caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-x' })
+    expect(second.id).toBe(first.id)
+    const daz = await caller.workspaces.getById({ id: 'ws_daz' })
+    expect(daz!.notionDatabases).toHaveLength(1)
+  })
+
+  it('unlinkNotionDatabase removes the link', async () => {
+    const caller = await createTestCaller()
+    const link = await caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-y' })
+    await caller.workspaces.unlinkNotionDatabase({ id: link.id })
+    const daz = await caller.workspaces.getById({ id: 'ws_daz' })
+    expect(daz!.notionDatabases).toHaveLength(0)
+  })
+
+  it('deleting a workspace removes its database links', async () => {
+    const caller = await createTestCaller()
+    const ws = await caller.workspaces.create({ name: 'Linked' })
+    await caller.workspaces.linkNotionDatabase({ workspaceId: ws.id, notionDatabaseId: 'db-del' })
+    await caller.workspaces.delete({ id: ws.id })
+    // The database id is now free to link elsewhere.
+    await expect(
+      caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-del' }),
+    ).resolves.toBeTruthy()
+  })
+})
+
 describe('tasks router — workspace dimension', () => {
   beforeEach(async () => {
     await resetDb()

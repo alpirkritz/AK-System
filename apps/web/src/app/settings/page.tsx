@@ -480,14 +480,14 @@ function NotificationsCard() {
   async function test() {
     setBusy(true)
     setStatus(null)
-    const title = 'AK System'
+    const title = 'ARO'
     const body = 'נוטיפיקציית בדיקה ✓'
     const url = '/chat'
     try {
       const res = await sendTest.mutateAsync({ title, body, url })
       // Foreground fallback — Chrome on Mac often skips the OS banner when this tab is focused.
       showForegroundNotification(title, body, url)
-      setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.expoSent ?? 0} Helm`)
+      setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.expoSent ?? 0} ARO`)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'שליחת בדיקה נכשלה')
     } finally {
@@ -861,6 +861,20 @@ export default function SettingsPage() {
           </div>
         </div>
         <span className="text-[#2dd4bf] text-lg">🗂️</span>
+      </Link>
+
+      <Link
+        href="/settings/notion-statuses"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">מיפוי סטטוסים מ-Notion</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            התאם סטטוסים של Notion לסטטוסים במערכת — לא התחיל, בהמתנה, בתהליך, חסום, הושלם, בוטל
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🎚️</span>
       </Link>
 
       <Link

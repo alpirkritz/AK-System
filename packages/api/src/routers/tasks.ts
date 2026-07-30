@@ -1,10 +1,16 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { tasks, meetings, taskPeople, people } from '@ak-system/database'
+import { tasks, meetings, taskPeople, people, TASK_STATUSES } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
 import { syncNotionTasks, isNotionTasksConfigured } from '../services/notion-tasks-sync'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
+const statusEnum = z.enum(TASK_STATUSES)
+
+/** `done` is derived from the canonical status so the two never drift apart. */
+function doneFromStatus(status: string): boolean {
+  return status === 'done' || status === 'cancelled'
+}
 
 const createInput = z.object({
   title: z.string().min(1),
@@ -14,6 +20,7 @@ const createInput = z.object({
   assigneeId: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   done: z.boolean().optional(),
+  status: statusEnum.optional(),
   priority: priorityEnum.optional(),
 })
 
@@ -26,6 +33,7 @@ const updateInput = z.object({
   assigneeId: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   done: z.boolean().optional(),
+  status: statusEnum.optional(),
   priority: priorityEnum.optional(),
 })
 
@@ -67,6 +75,7 @@ export const tasksRouter = router({
       const [meeting] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
       if (meeting?.projectId) projectId = meeting.projectId
     }
+    const status = input.status ?? (input.done ? 'done' : 'not_started')
     await ctx.db.insert(tasks).values({
       id,
       title: input.title,
@@ -75,7 +84,8 @@ export const tasksRouter = router({
       workspaceId: input.workspaceId ?? null,
       assigneeId: input.assigneeId ?? null,
       dueDate: input.dueDate ?? null,
-      done: input.done ?? false,
+      done: doneFromStatus(status),
+      status,
       priority: input.priority ?? 'medium',
       createdAt: now,
       updatedAt: now,
@@ -94,6 +104,11 @@ export const tasksRouter = router({
     if (rest.assigneeId !== undefined) updates.assigneeId = rest.assigneeId
     if (rest.dueDate !== undefined) updates.dueDate = rest.dueDate
     if (rest.done !== undefined) updates.done = rest.done
+    // Status wins when present and keeps `done` in lockstep.
+    if (rest.status !== undefined) {
+      updates.status = rest.status
+      updates.done = doneFromStatus(rest.status)
+    }
     if (rest.priority !== undefined) updates.priority = rest.priority
     await ctx.db.update(tasks).set(updates).where(eq(tasks.id, id))
     const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
@@ -104,8 +119,12 @@ export const tasksRouter = router({
     const [task] = await ctx.db.select().from(tasks).where(eq(tasks.id, input.id))
     if (!task) return null
     const done = !task.done
-    await ctx.db.update(tasks).set({ done, updatedAt: new Date().toISOString() }).where(eq(tasks.id, input.id))
-    return { ...task, done }
+    const status = done ? 'done' : 'not_started'
+    await ctx.db
+      .update(tasks)
+      .set({ done, status, updatedAt: new Date().toISOString() })
+      .where(eq(tasks.id, input.id))
+    return { ...task, done, status }
   }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {

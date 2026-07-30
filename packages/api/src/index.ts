@@ -17,6 +17,7 @@ import { whatsappRouter } from './routers/whatsapp'
 import { agentsRouter } from './routers/agents'
 import { memoryRouter } from './routers/memory'
 import { settingsRouter } from './routers/settings'
+import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -59,6 +60,7 @@ export {
   getNotificationRouting,
   markNotificationSent,
   wasNotificationSentInSlot,
+  wasNotificationSentToday,
   type NotificationChannel,
   type ResolvedChannels,
 } from './services/notification-preferences'
@@ -72,8 +74,8 @@ export {
 export const appRouter = router({
   people: peopleRouter,
   projects: projectsRouter,
-  meetings: meetingsRouter,
   workspaces: workspacesRouter,
+  meetings: meetingsRouter,
   meetingTypes: meetingTypesRouter,
   tasks: tasksRouter,
   calendar: calendarRouter,
@@ -88,6 +90,7 @@ export const appRouter = router({
   agents: agentsRouter,
   memory: memoryRouter,
   settings: settingsRouter,
+  notionStatusOverrides: notionStatusOverridesRouter,
 })
 
 export type AppRouter = typeof appRouter

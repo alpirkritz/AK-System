@@ -56,6 +56,33 @@ export const workspaces = pgTable('workspaces', {
   updatedAt: text('updated_at').notNull(),
 })
 
+/** Explicit workspace ↔ Notion database (by id) links — preferred over the free-text label match */
+export const workspaceNotionDatabases = pgTable('workspace_notion_databases', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  notionDatabaseId: text('notion_database_id').notNull(),
+  notionDatabaseName: text('notion_database_name'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  workspaceIdIdx: index('idx_workspace_notion_databases_workspace_id').on(table.workspaceId),
+  notionDatabaseIdUq: uniqueIndex('uq_workspace_notion_databases_notion_database_id').on(table.notionDatabaseId),
+}))
+
+/** Canonical task status values (Notion-faithful) — orthogonal to the derived `done` boolean */
+export const TASK_STATUSES = ['not_started', 'pending', 'in_progress', 'blocked', 'done', 'cancelled'] as const
+export type TaskStatusValue = (typeof TASK_STATUSES)[number]
+
+/** User-editable mapping from a literal Notion status/select label to a canonical status */
+export const notionStatusOverrides = pgTable('notion_status_overrides', {
+  id: text('id').primaryKey(),
+  rawLabel: text('raw_label').notNull(),
+  canonicalStatus: text('canonical_status').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  rawLabelUq: uniqueIndex('uq_notion_status_overrides_raw_label').on(table.rawLabel),
+}))
+
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
@@ -126,11 +153,13 @@ export const tasks = pgTable('tasks', {
   assigneeId: text('assignee_id').references(() => people.id, { onDelete: 'set null' }),
   dueDate: text('due_date'),
   done: boolean('done').notNull().default(false),
+  status: text('status').notNull().default('not_started'),
   priority: text('priority').notNull().default('medium'),
   source: text('source').notNull().default('manual'),
   notionPageId: text('notion_page_id'),
   notionAccount: text('notion_account'),
   notionDb: text('notion_db'),
+  notionStatusRaw: text('notion_status_raw'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

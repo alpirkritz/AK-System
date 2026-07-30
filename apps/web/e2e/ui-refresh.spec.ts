@@ -38,6 +38,8 @@ test.describe('UI refresh — task filters', () => {
     await expect(openChip).toBeVisible()
     await expect(openChip).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByRole('button', { name: 'הושלמו' })).toBeVisible()
+    // Cancelled tasks get their own tab so they are never filed under "הושלמו".
+    await expect(page.getByRole('button', { name: 'בוטלו' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'הכל' })).toBeVisible()
   })
 })

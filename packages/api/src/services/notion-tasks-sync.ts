@@ -15,13 +15,29 @@
  * filters (no named date property required, since task-DB property names vary).
  */
 
-import { getDb, people, tasks, taskPeople, workspaces, eq, and, inArray } from '@ak-system/database'
+import {
+  getDb,
+  people,
+  tasks,
+  taskPeople,
+  workspaces,
+  workspaceNotionDatabases,
+  notionStatusOverrides,
+  eq,
+  and,
+  inArray,
+} from '@ak-system/database'
 
 const NOTION_VERSION = '2022-06-28'
 
-const DONE_STATUSES = new Set([
-  'done', 'complete', 'completed', 'closed', 'cancelled', 'canceled', 'archived', 'resolved',
-])
+/** Canonical task status values (mirrors TASK_STATUSES in the database schema). */
+export type CanonicalStatus =
+  | 'not_started'
+  | 'pending'
+  | 'in_progress'
+  | 'blocked'
+  | 'done'
+  | 'cancelled'
 
 /** Historical task databases used when only legacy `NOTION_API_KEY` is set. */
 const LEGACY_TASK_DATABASES = [
@@ -109,6 +125,19 @@ export function isNotionTasksConfigured(): boolean {
   return resolveDatabases('tasks').length > 0
 }
 
+/** Notion `tasks` databases resolvable from env (for the workspace-link picker). */
+export function listConfiguredTaskDatabases(): Array<{
+  notionDatabaseId: string
+  name: string
+  accountLabel: string
+}> {
+  return resolveDatabases('tasks').map((d) => ({
+    notionDatabaseId: d.databaseId,
+    name: d.name,
+    accountLabel: d.accountLabel,
+  }))
+}
+
 // ─── Notion REST ───────────────────────────────────────────────────────────
 
 async function queryDatabase(
@@ -180,14 +209,56 @@ function getTitle(props: Record<string, NotionProp>): string {
   return ''
 }
 
-function isDone(props: Record<string, NotionProp>): boolean {
+/**
+ * Raw Notion status/select label for a task page. Prefers a real `status`-type
+ * property; falls back to a `select` named "status"/"סטטוס". Priority props are
+ * excluded so they never masquerade as a status.
+ */
+function getStatusRaw(props: Record<string, NotionProp>): string {
+  let fallback = ''
   for (const [name, v] of Object.entries(props)) {
-    if (v?.type === 'checkbox' && name.toLowerCase().includes('done') && v.checkbox) return true
-    if (v?.type === 'status' || v?.type === 'select') {
-      if (DONE_STATUSES.has(richTextValue(v).toLowerCase())) return true
+    const lname = name.toLowerCase()
+    if (lname.includes('priority') || name.includes('עדיפות')) continue
+    if (v?.type === 'status') {
+      const val = richTextValue(v).trim()
+      if (val) return val
+    }
+    if (v?.type === 'select' && (lname.includes('status') || name.includes('סטטוס'))) {
+      const val = richTextValue(v).trim()
+      if (val && !fallback) fallback = val
     }
   }
-  return false
+  return fallback
+}
+
+/** Canonical status guess from a literal Notion label, by keyword bucket. */
+export function guessCanonicalStatus(rawStatus: string): CanonicalStatus {
+  const s = rawStatus.trim().toLowerCase()
+  if (!s) return 'not_started'
+  if (/(cancel|archiv|won'?t\s*do|wont\s*do|dropped|בוטל|בוטלה)/.test(s)) return 'cancelled'
+  if (/(done|complete|closed|resolved|finished|בוצע|הושלם|הסתיים|הסתיימה)/.test(s)) return 'done'
+  // Explicit "not started" family must precede the in-progress check ("started" ⊂ "not started").
+  if (/(not\s*started|todo|to\s*do|backlog|לא\s*התחיל|לא\s*החל)/.test(s)) return 'not_started'
+  // "Waiting on something" (pending) is distinct from "blocked by something" (blocked).
+  if (/(pending|awaiting|waiting|on\s*hold|hold|paused|בהמתנה|ממתין|מושהה)/.test(s)) return 'pending'
+  if (/(block|stuck|חסום|תקוע)/.test(s)) return 'blocked'
+  if (/(in\s*progress|doing|active|started|testing|בתהליך|בעבוד|בביצוע|בבדיקה)/.test(s)) {
+    return 'in_progress'
+  }
+  return 'not_started'
+}
+
+/** Override map wins (exact, case-insensitive); otherwise fall back to the keyword guess. */
+export function resolveCanonicalStatus(
+  rawStatus: string,
+  overrides: Map<string, CanonicalStatus>,
+): CanonicalStatus {
+  const key = rawStatus.trim().toLowerCase()
+  if (key) {
+    const hit = overrides.get(key)
+    if (hit) return hit
+  }
+  return guessCanonicalStatus(rawStatus)
 }
 
 /** First date property, normalized to YYYY-MM-DD. */
@@ -294,14 +365,20 @@ export function buildWorkspaceLabelMap(
 }
 
 /**
- * Workspace for a synced task. The database name is the more specific signal —
- * a single Notion account can hold databases for several business contexts —
- * so it wins over the account label when both match.
+ * Workspace for a synced task. An explicit database-id link is the strongest
+ * signal and wins outright. Otherwise fall back to the legacy label match, where
+ * the database name beats the account label (a single account can hold databases
+ * for several business contexts).
  */
 export function resolveWorkspaceId(
   labels: Map<string, string>,
-  database: { name: string; accountLabel: string },
+  database: { name: string; accountLabel: string; databaseId?: string },
+  byDatabaseId?: Map<string, string>,
 ): string | null {
+  if (database.databaseId && byDatabaseId) {
+    const hit = byDatabaseId.get(database.databaseId)
+    if (hit) return hit
+  }
   return (
     labels.get(database.name.trim().toLowerCase()) ??
     labels.get(database.accountLabel.trim().toLowerCase()) ??
@@ -440,8 +517,30 @@ export async function syncNotionTasks(
     .from(workspaces)
   const workspaceLabels = buildWorkspaceLabelMap(workspaceRows)
 
+  // Explicit database-id → workspace links (preferred over the label match).
+  const linkRows = await db
+    .select({
+      workspaceId: workspaceNotionDatabases.workspaceId,
+      notionDatabaseId: workspaceNotionDatabases.notionDatabaseId,
+    })
+    .from(workspaceNotionDatabases)
+  const workspaceByDbId = new Map<string, string>()
+  for (const r of linkRows) workspaceByDbId.set(r.notionDatabaseId, r.workspaceId)
+
+  // User overrides for canonical status resolution (lowercased raw label → status).
+  const overrideRows = await db
+    .select({
+      rawLabel: notionStatusOverrides.rawLabel,
+      canonicalStatus: notionStatusOverrides.canonicalStatus,
+    })
+    .from(notionStatusOverrides)
+  const statusOverrides = new Map<string, CanonicalStatus>()
+  for (const r of overrideRows) {
+    statusOverrides.set(r.rawLabel.trim().toLowerCase(), r.canonicalStatus as CanonicalStatus)
+  }
+
   for (const database of taskDbs) {
-    const workspaceId = resolveWorkspaceId(workspaceLabels, database)
+    const workspaceId = resolveWorkspaceId(workspaceLabels, database, workspaceByDbId)
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
     try {
       pages = await queryDatabase(database.token, database.databaseId, filter)
@@ -453,10 +552,6 @@ export async function syncNotionTasks(
     for (const page of pages) {
       fetchedPageIds.add(page.id)
       const props = page.properties
-      if (isDone(props)) {
-        result.tasksSkipped++
-        continue
-      }
       const title = getTitle(props)
       if (!title) {
         result.tasksSkipped++
@@ -495,6 +590,9 @@ export async function syncNotionTasks(
       const assigneeId = userIsAssignee ? userPerson.id : (matchedIds[0] ?? null)
       const dueDate = getDueDate(props)
       const priority = getPriority(props)
+      const notionStatusRaw = getStatusRaw(props)
+      const status = resolveCanonicalStatus(notionStatusRaw, statusOverrides)
+      const done = status === 'done' || status === 'cancelled'
       keptPageIds.add(page.id)
 
       const existingTaskId = taskIdByPage.get(page.id)
@@ -506,6 +604,9 @@ export async function syncNotionTasks(
               title,
               dueDate,
               priority,
+              status,
+              done,
+              notionStatusRaw: notionStatusRaw || null,
               assigneeId,
               workspaceId,
               notionAccount: database.accountLabel,
@@ -530,12 +631,14 @@ export async function syncNotionTasks(
             workspaceId,
             assigneeId,
             dueDate,
-            done: false,
+            done,
+            status,
             priority,
             source: 'notion',
             notionPageId: page.id,
             notionAccount: database.accountLabel,
             notionDb: database.name,
+            notionStatusRaw: notionStatusRaw || null,
             createdAt: now,
             updatedAt: now,
           })
@@ -550,8 +653,9 @@ export async function syncNotionTasks(
   }
 
   // ── Prune: notion tasks that were fetched in-window but no longer kept ──
-  // (completed in Notion, or no longer assigned to a relevant person). Tasks
-  // outside the window are never fetched, so they are left untouched.
+  // (no longer assigned to a relevant person, or lost their title). Done/cancelled
+  // tasks are kept and shown with their status. Tasks outside the window are never
+  // fetched, so they are left untouched.
   const toPrune: string[] = []
   for (const [pageId, taskId] of taskIdByPage) {
     if (fetchedPageIds.has(pageId) && !keptPageIds.has(pageId)) toPrune.push(taskId)

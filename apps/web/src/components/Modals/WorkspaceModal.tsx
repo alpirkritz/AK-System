@@ -115,8 +115,11 @@ export function WorkspaceModal({
               ))}
             </div>
           </div>
+
+          <NotionDatabaseLinks workspaceId={editingId} />
+
           <div>
-            <label className="label" htmlFor="workspace-notion-label">תווית Notion</label>
+            <label className="label" htmlFor="workspace-notion-label">תווית Notion (גיבוי)</label>
             <input
               id="workspace-notion-label"
               className="input"
@@ -127,7 +130,7 @@ export function WorkspaceModal({
               autoComplete="off"
             />
             <p className="text-[11px] text-[#647399] mt-1.5">
-              למיפוי אוטומטי ממשימות Notion — שם מסד הנתונים או החשבון
+              משמש רק אם לא קושר בסיס נתונים ספציפי למעלה
             </p>
           </div>
           <div className="flex gap-2.5 mt-6 justify-end">
@@ -139,6 +142,97 @@ export function WorkspaceModal({
         </form>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Checklist of configured Notion task databases, linkable to this workspace. */
+function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
+  const utils = trpc.useUtils()
+  const { data: databases = [], isLoading } = trpc.workspaces.listNotionDatabases.useQuery(undefined, {
+    enabled: !!workspaceId,
+  })
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  const invalidate = () => {
+    utils.workspaces.listNotionDatabases.invalidate()
+    utils.workspaces.list.invalidate()
+    if (workspaceId) utils.workspaces.getById.invalidate({ id: workspaceId })
+  }
+  const link = trpc.workspaces.linkNotionDatabase.useMutation({
+    onSuccess: () => { setLinkError(null); invalidate() },
+    onError: () => setLinkError('לא הצלחנו לעדכן את הקישור. נסה שוב.'),
+    onSettled: () => setPendingId(null),
+  })
+  const unlink = trpc.workspaces.unlinkNotionDatabase.useMutation({
+    onSuccess: () => { setLinkError(null); invalidate() },
+    onError: () => setLinkError('לא הצלחנו לעדכן את הקישור. נסה שוב.'),
+    onSettled: () => setPendingId(null),
+  })
+
+  if (!workspaceId) {
+    return (
+      <div>
+        <label className="label">בסיסי נתונים מקושרים ב-Notion</label>
+        <p className="text-[11px] text-[#647399]">שמור את המקור כדי לקשר אליו בסיסי נתונים מ-Notion.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <label className="label">בסיסי נתונים מקושרים ב-Notion</label>
+      {isLoading ? (
+        <div className="text-[11px] text-[#647399] py-1">טוען…</div>
+      ) : databases.length === 0 ? (
+        <p className="text-[11px] text-[#647399]">לא נמצאו בסיסי נתונים ב-Notion. בדוק את הגדרות החיבור.</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {databases.map((db) => {
+            const linkedHere = db.linkedWorkspaceId === workspaceId
+            const linkedElsewhere = !!db.linkedWorkspaceId && !linkedHere
+            const busy = pendingId === db.notionDatabaseId
+            return (
+              <label
+                key={db.notionDatabaseId}
+                className={`flex items-center gap-2 py-1.5 px-2 rounded transition-colors ${
+                  linkedElsewhere ? 'opacity-50' : 'cursor-pointer hover:bg-[#29395d]'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
+                  checked={linkedHere}
+                  disabled={linkedElsewhere || busy}
+                  onChange={() => {
+                    setLinkError(null)
+                    setPendingId(db.notionDatabaseId)
+                    if (linkedHere && db.linkId) {
+                      unlink.mutate({ id: db.linkId })
+                    } else {
+                      link.mutate({
+                        workspaceId,
+                        notionDatabaseId: db.notionDatabaseId,
+                        notionDatabaseName: db.name,
+                      })
+                    }
+                  }}
+                />
+                <span className="text-sm text-[#b8c4dc]">{db.name}</span>
+                <span className="text-[11px] text-[#5a688c] truncate">· {db.accountLabel}</span>
+                {busy && <span className="text-[11px] text-[#647399]">מעדכן…</span>}
+                {linkedElsewhere && (
+                  <span className="text-[11px] text-[#647399] mr-auto">מקושר ל-{db.linkedWorkspaceName}</span>
+                )}
+              </label>
+            )
+          })}
+        </div>
+      )}
+      {linkError && (
+        <p role="alert" className="text-[11px] text-red-400 mt-1.5">{linkError}</p>
+      )}
     </div>
   )
 }

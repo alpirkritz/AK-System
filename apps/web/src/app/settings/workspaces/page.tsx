@@ -84,7 +84,11 @@ export default function WorkspacesSettingsPage() {
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-[#eef3fb]">{w.name}</div>
                 <div className="text-[11px] text-[#647399] truncate">
-                  {w.notionAccountLabel ? `Notion: ${w.notionAccountLabel}` : 'ללא תווית Notion'}
+                  {(w as { notionDatabases?: unknown[] }).notionDatabases?.length
+                    ? `🔗 ${(w as { notionDatabases: unknown[] }).notionDatabases.length} מקושרים`
+                    : w.notionAccountLabel
+                      ? `Notion: ${w.notionAccountLabel}`
+                      : 'אין קישור Notion'}
                   {' · '}
                   {taskCount(w.id)} משימות
                 </div>

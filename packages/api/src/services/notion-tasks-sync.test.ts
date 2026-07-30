@@ -110,15 +110,20 @@ describe('syncNotionTasks', () => {
 
     // Alice + Bob from directory, plus the user person (not in directory).
     expect(res.peopleCreated).toBe(3)
-    // task1 (user), task2 (Alice), task5 (Bob relation).
-    expect(res.tasksCreated).toBe(3)
-    // task3 (no match) + task4 (done).
-    expect(res.tasksSkipped).toBe(2)
+    // task1 (user), task2 (Alice), task4 (user, done — kept now), task5 (Bob relation).
+    expect(res.tasksCreated).toBe(4)
+    // Only task3 (no matching person) is skipped; done tasks are no longer skipped.
+    expect(res.tasksSkipped).toBe(1)
 
     const db = getDb()
     const allTasks = await db.select().from(tasks)
-    expect(allTasks).toHaveLength(3)
+    expect(allTasks).toHaveLength(4)
     expect(allTasks.every((t) => t.source === 'notion')).toBe(true)
+
+    // The done task is kept with its real status rather than dropped.
+    const doneTask = allTasks.find((t) => t.title === 'Done task')!
+    expect(doneTask.status).toBe('done')
+    expect(doneTask.done).toBe(true)
 
     const alice = (await db.select().from(people).where(eq(people.notionPageId, 'notion-alice')))[0]
     expect(alice.email).toBe('alice@x.com')
@@ -157,37 +162,40 @@ describe('syncNotionTasks', () => {
     const second = await syncNotionTasks({ windowDays: 60 })
 
     expect(second.tasksCreated).toBe(0)
-    expect(second.tasksUpdated).toBe(3)
+    expect(second.tasksUpdated).toBe(4)
     expect(second.peopleCreated).toBe(0)
 
     const db = getDb()
     const allTasks = await db.select().from(tasks)
-    expect(allTasks).toHaveLength(3)
+    expect(allTasks).toHaveLength(4)
   })
 
-  it('prunes a task that becomes done in Notion', async () => {
+  it('keeps (does not prune) a task that becomes done in Notion', async () => {
     seedFixtures()
     await syncNotionTasks({ windowDays: 60 })
 
-    // task1 gets completed in Notion.
+    // task1 gets completed in Notion — it should be kept and marked done, not pruned.
     taskPages = taskPages.map((p) =>
       p.id === 'task1'
         ? { id: 'task1', properties: { Name: titleProp('My task'), Assignee: peopleProp('Alpir Kritzler'), Status: statusProp('Done') } }
         : p,
     )
     const second = await syncNotionTasks({ windowDays: 60 })
-    expect(second.tasksPruned).toBe(1)
+    expect(second.tasksPruned).toBe(0)
 
     const db = getDb()
     const remaining = await db.select().from(tasks)
-    expect(remaining.map((t) => t.title)).not.toContain('My task')
-    expect(remaining).toHaveLength(2)
+    expect(remaining.map((t) => t.title)).toContain('My task')
+    const t1 = remaining.find((t) => t.title === 'My task')!
+    expect(t1.status).toBe('done')
+    expect(t1.done).toBe(true)
+    expect(remaining).toHaveLength(4)
   })
 
   it('dryRun computes counts without writing', async () => {
     seedFixtures()
     const res = await syncNotionTasks({ windowDays: 60, dryRun: true })
-    expect(res.tasksCreated).toBe(3)
+    expect(res.tasksCreated).toBe(4)
 
     const db = getDb()
     expect(await db.select().from(tasks)).toHaveLength(0)

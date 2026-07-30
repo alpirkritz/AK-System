@@ -1,5 +1,15 @@
 import { getDb } from '@ak-system/database'
-import { people, meetings, meetingPeople, meetingSeries, meetingTypes, tasks, workspaces } from '@ak-system/database'
+import {
+  people,
+  meetings,
+  meetingPeople,
+  meetingSeries,
+  meetingTypes,
+  tasks,
+  workspaces,
+  workspaceNotionDatabases,
+  notionStatusOverrides,
+} from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
 
@@ -28,5 +38,7 @@ export async function resetDb() {
   await db.delete(meetingSeries)
   await db.delete(meetingTypes)
   await db.delete(people)
+  await db.delete(notionStatusOverrides)
+  await db.delete(workspaceNotionDatabases)
   await db.delete(workspaces)
 }

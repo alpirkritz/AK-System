@@ -849,3 +849,173 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Compliance:** No invention; calendar UI `events` unchanged
 - **Notes:** Deploy required to stop live spam tonight
 
+
+## 2026-07-23 — Hugo (Dev Pipeline) — pre-meeting Notion parity on WhatsApp
+
+- **Active Agent:** `04_meeting_prep_herald` via `pre_meeting_briefing` cron
+- **Workflow:** `S_Skills/wf_meeting_prep.md` + Notion-parity channel override
+- **Actions:** Re-routed pre-meeting to Meeting Prep Herald; WhatsApp/cron prompt bans invite paste and requires talk-about/stance/actions; gate skips solo/bot-only; template fluff tightened; deployed.
+- **Output:** `docs/specs/pre-meeting-prep-notion-parity.md`, `reports/pre-meeting-prep-notion-parity.md`
+- **Compliance:** UI-reversible routing; grounding + related-tasks-only retained; silent skip for gated noise
+- **Notes:** Next ~15-min pre-meeting with real attendees should look like Notion Unleash prep, not calendar description dump
+
+
+---
+
+## 2026-07-26 — PM Agent — fix-evening-morning-confusion
+
+**Workflow:** Dev pipeline — PM spec
+**Status:** Partial (spec drafted; awaiting approval)
+
+### Stand-up
+- **Goal:** Diagnose Calendar Optimizer “evening instead of morning” + missing WhatsApp morning delivery; write fix spec
+- **Context:** User report; prod DB + chat history inspected on EC2
+
+### Actions Taken
+1. Confirmed `morning_briefing` fires at 07:00 IL via `06_calendar_optimizer`; evening 20:00 is Hugo `daily_meeting_summary` titled wrongly as עדכון בוקר
+2. Confirmed WhatsApp channel on; bridge send works (LID+JID); reshent today’s brief for smoke
+3. Wrote `docs/specs/fix-evening-morning-confusion.md`
+
+### Outputs
+- `docs/specs/fix-evening-morning-confusion.md`
+
+### Compliance
+- [x] Engineering task (apps/packages) — PM-first per pipeline
+- [x] No secrets committed
+
+### Performance Improvements
+- Prod evidence beat guessing: schedule was fine; branding + delivery observability are the real gaps
+
+
+---
+
+## 2026-07-27 — Hugo (Dev Pipeline) — task-workspaces (מקורות + quick-add)
+
+**Workflow:** Dev pipeline — PM → UI/UX → Dev → Tests → QA → Reviewer
+**Status:** Complete
+
+### Stand-up
+- **Goal:** Unify tasks from Alpir Consulting / Dragontail / DAZ / personal in one view, filterable by source, with quick task capture from anywhere
+- **Context:** User request; source dimension chosen as a new "workspace" layer orthogonal to projects, plus Notion-label-driven auto-assignment
+
+### Actions Taken
+1. DB: `workspaces` table + `tasks.workspaceId` in SQLite and Postgres schemas; runtime bootstrap migration with idempotent seed of the four sources
+2. API: new `workspaces` router (CRUD, delete nullifies task links); `tasks` create/update/list/listByWorkspace extended; Notion sync maps `notionDb` / `notionAccount` to a workspace label
+3. UI: source filter chips + pill on `/tasks`, source field in `TaskModal`, global FAB + `QuickAddTaskModal`, `/settings/workspaces` management page, pills on project/meeting/person surfaces
+4. Tests: 20 new Vitest cases + 4 Playwright cases
+5. QA + review: 180/180 unit tests green over three runs; web build passes
+
+### Outputs
+- `docs/specs/task-workspaces.md`, `reports/qa-task-workspaces.md`, `reports/task-workspaces.md`
+
+### Compliance
+- [x] Engineering task (apps/packages) — PM-first per pipeline
+- [x] All new procedures are protected; no new public surface
+- [x] No secrets committed
+
+### Performance Improvements
+- Writing tests first surfaced a latent task-id collision (`'t' + Date.now()`) that quick-add would have made user-visible
+- The e2e run caught a modal that discarded typing when its fetch resolved late — a class of bug unit tests cannot see
+
+
+---
+
+## 2026-07-27 — Hugo (Dev Pipeline) — Outlook bridge token from EC2
+
+**Workflow:** Dev pipeline — PM → Dev → Tests → QA → Reviewer
+**Status:** Complete
+
+### Stand-up
+- **Goal:** Make production Google OAuth the single source of truth for the Mac Outlook→Dragontail bridge
+- **Context:** Local bridge token had `invalid_grant`; user wanted to avoid running local Next.js solely to reconnect Google
+
+### Actions Taken
+1. Added an SSH-based single-row token export from EC2 production SQLite; no full DB copy
+2. Extended the local importer with JSON input and force-refresh verification
+3. Wired token import, local fallback, and one `invalid_grant` retry into manual and generated launchd runners
+4. Automatically maintains a current-IP `/32` SSH security-group rule when AWS CLI credentials are available
+5. Reinstalled launchd and completed a live automatic sync with exit code 0
+
+### Outputs
+- `docs/specs/outlook-bridge-token-from-ec2.md`
+- `scripts/pull-google-token-from-ec2.sh`
+- `scripts/import-google-token-from-prod.ts`
+- `scripts/outlook-bridge-run.sh`
+- `scripts/install-outlook-bridge.sh`
+- `reports/qa-outlook-bridge-token-from-ec2.md`
+- `reports/outlook-bridge-token-from-ec2.md`
+
+### Compliance
+- [x] User approved spec before implementation
+- [x] Only the selected OAuth row crosses SSH; temporary token files use `umask 077` and are removed
+- [x] No token or secret was printed or committed
+- [x] Production reconnect remains human-approved through Settings
+
+### Performance Improvements
+- A production reconnect now reaches the Mac within the next 15-minute launchd interval
+- EC2 outage falls back to the last valid local token instead of stopping preemptively
+- QA: 180/180 unit tests and build passed; 22/33 existing E2E tests passed; repository lint remains blocked by interactive Next.js ESLint setup
+
+
+---
+
+## 2026-07-30 — Hugo (Dev Pipeline) — Notion workspace mapping & rich task status
+
+**Workflow:** Dev pipeline — PM → UI → Dev → Tests → QA → Reviewer
+**Status:** Complete
+
+### Stand-up
+- **Goal:** Link Notion databases to workspaces by database id (over free-text labels) and replace boolean done with a 5-value canonical status; stop skipping done/cancelled Notion tasks so they still display.
+- **Context:** DAZ lives in a separate Notion workspace and needs its own integration/token; code change is generic and surfaces it automatically once `NOTION_ACCOUNTS` includes DAZ.
+
+### Actions Taken
+1. Schema: `workspace_notion_databases` + `notion_status_overrides` tables, `tasks.status` / `tasks.notion_status_raw` columns, SQLite bootstrap + idempotent status backfill, Postgres parity.
+2. Types: `STATUS_COLORS` / `STATUS_LABELS` / `TASK_STATUS_ORDER` / `TaskStatus` (cancelled = muted purple).
+3. API: workspaces link/unlink/list procedures, new `notion-status-overrides` router, tasks `status⇄done` coupling, sync ID-first workspace resolution + status capture, removed the done-skip.
+4. UI: WorkspaceModal link checklist (pending/error states), `/settings/notion-statuses` mapping page + settings card, workspaces link-count caption, TaskModal status chips, `StatusPill` on `/tasks`.
+5. Tests updated to the new keep-done behavior; added db-id/heuristic/override/link/coupling coverage.
+
+### Outputs
+- `docs/specs/notion-workspace-mapping.md`, `reports/qa-notion-workspace-mapping.md`, `reports/notion-workspace-mapping.md`
+
+### Compliance
+- [x] Engineering task (apps/packages) — PM-first per pipeline
+- [x] All new procedures are protected; no new public surface
+- [x] No secrets committed; DAZ token/env is a manual production step
+
+### Performance Improvements
+- Deriving `done` from `status` in one place (create/update/toggle/sync) prevents the two fields from drifting
+- Writing the "Not started" heuristic test caught `started ⊂ not started` before it mislabeled backlog items
+- QA: 200/200 API unit/integration tests pass; web build green; repository lint remains blocked by interactive Next.js ESLint setup
+
+
+---
+
+## 2026-07-30 — Hugo (Dev Pipeline) — `pending` status, DAZ Notion wiring, tasks UX pass
+
+**Workflow:** Dev pipeline — PM → UI/UX → Dev → Tests → QA → Reviewer
+**Status:** Complete (deploy to EC2 still pending — user action)
+
+### Stand-up
+- **Goal:** Add a sixth canonical status `pending`, connect the DAZ Notion workspace (tasks + people), and make the tasks screen effortless per a UI/UX review.
+- **Context:** The DAZ integration token was supplied by the user. Discovery through the Notion API found the tasks database nested inside the "Product roadmap" page — it was not visible at the top level, so a plain database search would have missed it.
+
+### Actions Taken
+1. Notion discovery (live, read-only): resolved `DAZ Tasks` and `DAZ People` database ids and full property schemas; confirmed the user's DAZ display name is "Alpir Kritzler" so the assignee filter matches.
+2. Env: `NOTION_ACCOUNTS` in `deploy/production.env` + `apps/web/.env.local` — Personal (3 task DBs, preserving legacy parity) and DAZ (tasks + people).
+3. Status: `pending` added to `TASK_STATUSES` (both dialects), types order/colors/labels; `blocked` relabelled "חסום" so it no longer collides with "בהמתנה".
+4. Heuristic: split the old catch-all into pending (`pending`/`waiting`/`on hold`/`ממתין`) vs blocked (`block`/`stuck`/`חסום`); `Testing` now reads as `in_progress`.
+5. UX: `בוטלו` tab with status-based filtering so cancelled work is never filed under "הושלמו", ✕ glyph for cancelled rows, priority chips converted to accessible buttons, chip targets to 40 px, redundant "הושלם" pill suppressed.
+
+### Outputs
+- `docs/specs/task-status-pending-and-ux.md`, `reports/task-status-pending-and-ux.md`
+
+### Compliance
+- [x] Engineering task (apps/packages) — PM spec written before any code
+- [x] PII: importing DAZ contacts into the CRM was explicitly requested by the user before wiring the people database
+- [x] No secrets committed — both env files carrying the tokens are git-ignored
+
+### Performance Improvements
+- Reviewing labels before implementing caught the "ממתין" / "בהמתנה" collision while it was still a one-line change
+- Diagnosing 5 red tests as leaked `ABC_ROOT=/data/abc` from an earlier `source` in the same persistent shell — rather than as a regression — avoided chasing a phantom bug; worth unsetting sourced env before running suites
+- QA: 202/202 unit/integration tests, 5/5 tasks-screen e2e, web build green, no lint errors on changed files

@@ -54,11 +54,38 @@ export const workspaces = sqliteTable('workspaces', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   color: text('color').default('#2dd4bf'),
-  /** Matched against a synced task's notionDb / notionAccount to auto-assign the workspace */
+  /** Legacy free-text fallback: matched against a synced task's notionDb / notionAccount to auto-assign the workspace */
   notionAccountLabel: text('notion_account_label'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
+
+/** Explicit workspace ↔ Notion database (by id) links — preferred over the free-text label match */
+export const workspaceNotionDatabases = sqliteTable('workspace_notion_databases', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  notionDatabaseId: text('notion_database_id').notNull(),
+  notionDatabaseName: text('notion_database_name'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  workspaceIdIdx: index('idx_workspace_notion_databases_workspace_id').on(table.workspaceId),
+  notionDatabaseIdUq: uniqueIndex('uq_workspace_notion_databases_notion_database_id').on(table.notionDatabaseId),
+}))
+
+/** Canonical task status values (Notion-faithful) — orthogonal to the derived `done` boolean */
+export const TASK_STATUSES = ['not_started', 'pending', 'in_progress', 'blocked', 'done', 'cancelled'] as const
+export type TaskStatusValue = (typeof TASK_STATUSES)[number]
+
+/** User-editable mapping from a literal Notion status/select label to a canonical status */
+export const notionStatusOverrides = sqliteTable('notion_status_overrides', {
+  id: text('id').primaryKey(),
+  rawLabel: text('raw_label').notNull(),
+  canonicalStatus: text('canonical_status').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  rawLabelUq: uniqueIndex('uq_notion_status_overrides_raw_label').on(table.rawLabel),
+}))
 
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
@@ -134,9 +161,13 @@ export const tasks = sqliteTable('tasks', {
   assigneeId: text('assignee_id').references(() => people.id, { onDelete: 'set null' }),
   dueDate: text('due_date'),
   done: integer('done', { mode: 'boolean' }).notNull().default(false),
+  /** not_started | in_progress | blocked | done | cancelled — `done` is derived from this */
+  status: text('status').notNull().default('not_started'),
   priority: text('priority').notNull().default('medium'),
   /** manual | notion — where this task originated */
   source: text('source').notNull().default('manual'),
+  /** literal Notion status/select text captured at sync time (for display + mapping) */
+  notionStatusRaw: text('notion_status_raw'),
   /** Notion page id when synced from a Notion tasks database */
   notionPageId: text('notion_page_id'),
   /** Notion account label (provenance) */
@@ -493,6 +524,10 @@ export type Person = typeof people.$inferSelect
 export type NewPerson = typeof people.$inferInsert
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
+export type WorkspaceNotionDatabase = typeof workspaceNotionDatabases.$inferSelect
+export type NewWorkspaceNotionDatabase = typeof workspaceNotionDatabases.$inferInsert
+export type NotionStatusOverride = typeof notionStatusOverrides.$inferSelect
+export type NewNotionStatusOverride = typeof notionStatusOverrides.$inferInsert
 export type Meeting = typeof meetings.$inferSelect
 export type NewMeeting = typeof meetings.$inferInsert
 export type MeetingSeries = typeof meetingSeries.$inferSelect

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { trpc } from '@/lib/trpc'
-import { PRIORITY_LABELS, PRIORITY_COLORS } from '@ak-system/types'
+import { PRIORITY_LABELS, PRIORITY_COLORS, type TaskStatus } from '@ak-system/types'
+import { StatusChips } from '@/components/StatusChips'
 import type { Person } from '@ak-system/database'
 
 type MeetingOption = { id: string; title: string }
@@ -40,6 +41,7 @@ export function TaskModal({
     assigneeId: '',
     dueDate: '',
     priority: 'medium' as 'high' | 'medium' | 'low',
+    status: 'not_started' as TaskStatus,
     relatedPersonIds: [] as string[],
   })
   const [relatedPeopleFilter, setRelatedPeopleFilter] = useState('')
@@ -63,6 +65,7 @@ export function TaskModal({
         assigneeId: editingTask.assigneeId ?? '',
         dueDate: editingTask.dueDate ?? '',
         priority: (editingTask.priority as 'high' | 'medium' | 'low') || 'medium',
+        status: ((editingTask as { status?: string }).status as TaskStatus) || 'not_started',
         relatedPersonIds: taskPeopleIds ?? f.relatedPersonIds,
       }))
     } else if (!editingTaskId) {
@@ -74,6 +77,7 @@ export function TaskModal({
         assigneeId: '',
         dueDate: '',
         priority: 'medium',
+        status: 'not_started',
         relatedPersonIds: [],
       }))
       setRelatedPeopleFilter('')
@@ -118,6 +122,7 @@ export function TaskModal({
           assigneeId: form.assigneeId || null,
           dueDate: form.dueDate || null,
           priority: form.priority,
+          status: form.status,
         },
         {
           onSuccess: () => {
@@ -138,6 +143,7 @@ export function TaskModal({
           assigneeId: form.assigneeId || null,
           dueDate: form.dueDate || null,
           priority: form.priority,
+          status: form.status,
         },
         {
           onSuccess: (task) => {
@@ -289,13 +295,22 @@ export function TaskModal({
                 </div>
               </div>
               <div>
+                <label className="label">סטטוס</label>
+                <StatusChips
+                  value={form.status}
+                  onChange={(status) => setForm((f) => ({ ...f, status }))}
+                />
+              </div>
+              <div>
                 <label className="label">עדיפות</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {(['high', 'medium', 'low'] as const).map((p) => (
-                    <div
+                    <button
                       key={p}
+                      type="button"
+                      aria-pressed={form.priority === p}
                       onClick={() => setForm((f) => ({ ...f, priority: p }))}
-                      className="cursor-pointer py-1.5 px-3 rounded-[20px] border text-sm transition-all"
+                      className="cursor-pointer inline-flex items-center min-h-[40px] py-1.5 px-3.5 rounded-[20px] border text-sm transition-all"
                       style={{
                         borderColor: form.priority === p ? PRIORITY_COLORS[p] : '#2f4368',
                         background: form.priority === p ? PRIORITY_COLORS[p] + '22' : 'transparent',
@@ -303,7 +318,7 @@ export function TaskModal({
                       }}
                     >
                       {PRIORITY_LABELS[p]}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

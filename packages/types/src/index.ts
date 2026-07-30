@@ -18,8 +18,38 @@ export const DAYS_HE: Record<string, string> = {
   Friday: 'שישי',
 }
 
+/** Canonical task statuses (Notion-faithful), in lifecycle order — defines UI chip order. */
+export const TASK_STATUS_ORDER = [
+  'not_started',
+  'pending',
+  'in_progress',
+  'blocked',
+  'done',
+  'cancelled',
+] as const
+
+export const STATUS_COLORS = {
+  not_started: '#7a89ab',
+  pending: '#f472b6',
+  in_progress: '#38bdf8',
+  blocked: '#f59e0b',
+  done: '#2dd4bf',
+  cancelled: '#9a7bc4',
+} as const
+
+/** One Hebrew term per concept: `blocked` is "חסום" so it never reads the same as `pending`. */
+export const STATUS_LABELS = {
+  not_started: 'לא התחיל',
+  pending: 'בהמתנה',
+  in_progress: 'בתהליך',
+  blocked: 'חסום',
+  done: 'הושלם',
+  cancelled: 'בוטל',
+} as const
+
 export type Priority = keyof typeof PRIORITY_COLORS
 export type RecurrenceDay = keyof typeof DAYS_HE
+export type TaskStatus = keyof typeof STATUS_COLORS
 
 export {
   VAT_RATE,

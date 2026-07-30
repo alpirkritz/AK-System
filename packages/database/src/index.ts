@@ -80,8 +80,36 @@ const TASKS_COLUMNS = [
   'ALTER TABLE tasks ADD COLUMN notion_account TEXT',
   'ALTER TABLE tasks ADD COLUMN notion_db TEXT',
   'ALTER TABLE tasks ADD COLUMN workspace_id TEXT',
+  "ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'not_started'",
+  'ALTER TABLE tasks ADD COLUMN notion_status_raw TEXT',
+  // Backfill status from the existing boolean for rows created before this column.
+  // Idempotent: only touches rows still at the default that are already marked done.
+  "UPDATE tasks SET status = 'done' WHERE done = 1 AND status = 'not_started'",
   'CREATE INDEX IF NOT EXISTS idx_tasks_notion_page_id ON tasks(notion_page_id)',
   'CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id)',
+]
+
+const WORKSPACE_NOTION_DATABASES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS workspace_notion_databases (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    notion_database_id TEXT NOT NULL,
+    notion_database_name TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_notion_databases_workspace_id ON workspace_notion_databases(workspace_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_notion_databases_notion_database_id ON workspace_notion_databases(notion_database_id)`,
+]
+
+const NOTION_STATUS_OVERRIDES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS notion_status_overrides (
+    id TEXT PRIMARY KEY,
+    raw_label TEXT NOT NULL,
+    canonical_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_notion_status_overrides_raw_label ON notion_status_overrides(raw_label)`,
 ]
 
 const WORKSPACES_TABLE = [
@@ -433,6 +461,12 @@ export function getDb() {
   for (const sql of TASKS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+  for (const sql of WORKSPACE_NOTION_DATABASES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of NOTION_STATUS_OVERRIDES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of FEED_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -505,6 +539,8 @@ const schema = usePostgres() ? schemaPg : schemaSqlite
 export const people = schema.people
 export const projects = schema.projects
 export const workspaces = schema.workspaces
+export const workspaceNotionDatabases = schema.workspaceNotionDatabases
+export const notionStatusOverrides = schema.notionStatusOverrides
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
 export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
@@ -559,6 +595,12 @@ export type Project = typeof schemaPg.projects.$inferSelect
 export type NewProject = typeof schemaPg.projects.$inferInsert
 export type Workspace = typeof schemaPg.workspaces.$inferSelect
 export type NewWorkspace = typeof schemaPg.workspaces.$inferInsert
+export type WorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferSelect
+export type NewWorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferInsert
+export type NotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferSelect
+export type NewNotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferInsert
+export const TASK_STATUSES = schemaPg.TASK_STATUSES
+export type TaskStatusValue = (typeof schemaPg.TASK_STATUSES)[number]
 export type Meeting = typeof schemaPg.meetings.$inferSelect
 export type NewMeeting = typeof schemaPg.meetings.$inferInsert
 export type MeetingSeries = typeof schemaPg.meetingSeries.$inferSelect
