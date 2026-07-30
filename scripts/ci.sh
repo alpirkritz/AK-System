@@ -34,7 +34,10 @@ fi
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   step "build"
-  pnpm build
+  # AK_DEPLOY_BUILD=1 makes next.config.js write to apps/web/.next instead of
+  # /tmp — required so deploy-ec2.sh's rsync (which reads apps/web/.next) picks
+  # up this build. Without it, deploy-ec2.sh silently ships a stale bundle.
+  AK_DEPLOY_BUILD=1 pnpm build
 fi
 
 if [ "${DEPLOY_CHECK:-0}" = "1" ]; then
