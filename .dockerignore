@@ -5,10 +5,17 @@ node_modules
 **/dist
 **/.pnpm-store
 
-# Env and secrets (use --env-file at run)
+# Env and secrets (use --env-file at run).
+# The nested app env files need their own patterns — `.env.*` only matches the root,
+# and a stale apps/web/.env.local baked into the image overrides production.env.
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.local
+**/.env.local.bak-*
+!**/.env.example
+!**/.env.local.example
 
 # Data and local state
 **/data/*.sqlite

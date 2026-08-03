@@ -14,6 +14,7 @@
     "serve": "bash scripts/serve.sh",
     "setup:push": "bash scripts/setup-local-push.sh",
     "tunnel": "bash scripts/tunnel.sh",
+    "tunnel:ngrok": "bash scripts/ngrok-tunnel.sh",
     "url": "bash scripts/show-local-url.sh",
     "set-tunnel-url": "bash scripts/set-tunnel-url.sh",
     "lint": "pnpm -r run lint",

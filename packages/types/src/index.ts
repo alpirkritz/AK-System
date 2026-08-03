@@ -61,3 +61,19 @@ export {
   computeVatBreakdown,
 } from './vat'
 export type { VatCategoryDef, VatBreakdown } from './vat'
+
+export {
+  CASHFLOW_CATEGORIES,
+  CASHFLOW_CATEGORY_LABELS,
+  CATEGORY_COLORS,
+  CATEGORY_FALLBACK,
+  CATEGORY_UNCATEGORIZED,
+  CATEGORY_SMALL_SLICE,
+  INTERNAL_CATEGORIES,
+  INCOME_CATEGORIES,
+  DISCRETIONARY_CATEGORIES,
+  categoryColor,
+  isInternalCategory,
+  isDiscretionaryCategory,
+} from './finance'
+export type { CashflowCategoryDef, CashflowCategoryKind } from './finance'

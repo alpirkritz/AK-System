@@ -2,6 +2,7 @@ import { GoogleGenerativeAI, FunctionCallingMode, SchemaType } from '@google/gen
 import type { FunctionDeclaration } from '@google/generative-ai'
 import { chatMessages, getDb } from '@ak-system/database'
 import { getRunnableAgentIds } from './abc-agents'
+import { appendAgentFeedback } from './agent-feedback-log'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
 import { getGeminiModelOptions } from './gemini-config'
@@ -440,18 +441,26 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   },
 ]
 
+const FALLBACK_AGENT_IDS = [
+  '01_Hugo_orchestrator',
+  '02_agent_trainer',
+  '03_morning_briefing',
+  '04_meeting_prep_herald',
+  '05_ibkr_daily_import',
+  '06_calendar_optimizer',
+  '07_email_assistant',
+  '08_startup_coo',
+]
+
+/** Registered agent ids, falling back to the known set if `A_Agents/` is unreadable. */
+function agentIdEnum(): string[] {
+  const ids = getRunnableAgentIds()
+  return ids.length > 0 ? ids : FALLBACK_AGENT_IDS
+}
+
 function buildRunAbcAgentTool(): FunctionDeclaration {
   const agentIds = getRunnableAgentIds()
-  const fallback = [
-    '01_Hugo_orchestrator',
-    '02_agent_trainer',
-    '03_morning_briefing',
-    '04_meeting_prep_herald',
-    '05_ibkr_daily_import',
-    '06_calendar_optimizer',
-    '07_email_assistant',
-    '08_startup_coo',
-  ]
+  const fallback = FALLBACK_AGENT_IDS
   return {
     name: 'run_abc_agent',
     description:
@@ -475,8 +484,32 @@ function buildRunAbcAgentTool(): FunctionDeclaration {
   }
 }
 
+function buildLogAgentFeedbackTool(): FunctionDeclaration {
+  return {
+    name: 'log_agent_feedback',
+    description:
+      "Record a correction the user describes about how one of the automated agents behaved, routing it to that agent for human review. Use when the user complains about or corrects an automated flow — e.g. 'הסיכום בוקר תמיד מפספס את...', 'אופטי טועה ב...', 'תגיד לסוכן היומן ש...', 'the email assistant should stop...'. Pick the agentId whose area matches the complaint; use 01_Hugo_orchestrator when unclear. Pass the user's wording verbatim as feedback. This queues the fix for review — it does NOT change the agent's behavior immediately.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        agentId: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          description: 'The agent the correction applies to',
+          enum: agentIdEnum(),
+        },
+        feedback: {
+          type: SchemaType.STRING,
+          description: "The correction, in the user's own words (verbatim, not summarized)",
+        },
+      },
+      required: ['agentId', 'feedback'],
+    },
+  }
+}
+
 export function getToolDeclarations(): FunctionDeclaration[] {
-  return [...baseToolDeclarations, buildRunAbcAgentTool()]
+  return [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
 }
 
 /** @deprecated prefer getToolDeclarations() */
@@ -664,6 +697,22 @@ export async function executeTool(
       const kind = (args.kind as 'memory' | 'knowledge' | undefined) ?? 'memory'
       const memory = await caller.memory.memories.create({ content, kind, source: 'chat' })
       return { memory, saved: true, note: 'Stored to persistent memory — will be recalled in future conversations.' }
+    }
+
+    case 'log_agent_feedback': {
+      const agentId = (args.agentId as string)?.trim()
+      const feedback = (args.feedback as string)?.trim()
+      if (!agentId) return { error: 'agentId is required' }
+      if (!feedback) return { error: 'feedback is required' }
+      try {
+        const result = appendAgentFeedback({ agentId, feedback, channel: ctx?.channel })
+        return {
+          ...result,
+          note: `Correction queued for ${agentId} in M_Memory for human review. Tell the user it was recorded and will be reviewed manually — do NOT claim the behavior already changed.`,
+        }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'Failed to log feedback' }
+      }
     }
 
     case 'update_instruction': {
@@ -1015,6 +1064,7 @@ export async function resolveIntent(
     'For WhatsApp group summaries (סיכום וואטסאפ / סיכום קבוצות), call summarize_whatsapp_groups and include the returned summary text directly in this reply.',
     'Notion (all connected accounts) IS accessible to you: use get_notion_meetings and get_notion_tasks for the user\'s meetings and tasks, and search_notion to find specific items. For daily prep ("תכין אותי ליום"/"מה יש לי היום") pull Notion meetings + tasks. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
     'Never redirect the user to Notion as the only place to see agent results.',
+    'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
   ].join('\n')
 
   const model = genAI.getGenerativeModel({

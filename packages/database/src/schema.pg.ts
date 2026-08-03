@@ -264,6 +264,18 @@ export const bankAccounts = pgTable('bank_accounts', {
   connectionIdIdx: index('idx_bank_accounts_connection_id').on(table.connectionId),
 }))
 
+/** Learned categorization rules: a lowercase substring of a description → a cash-flow category. */
+export const financeCategoryRules = pgTable('finance_category_rules', {
+  id: text('id').primaryKey(),
+  pattern: text('pattern').notNull(),
+  category: text('category').notNull(),
+  direction: text('direction'), // 'income' | 'expense' | null (both)
+  createdBy: text('created_by').notNull().default('user'), // 'user' | 'builtin'
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  patternIdx: index('idx_finance_category_rules_pattern').on(table.pattern),
+}))
+
 export const feedSources = pgTable('feed_sources', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

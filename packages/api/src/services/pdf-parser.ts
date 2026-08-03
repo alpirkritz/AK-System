@@ -1,5 +1,6 @@
 import type { CSVParseResult, NormalizedTransaction } from './csv-parser'
 import { parseCSV } from './csv-parser'
+import { categorizeByKeywords } from './transaction-categorizer'
 
 /** Extract raw text from a PDF buffer (e.g. Visa Cal statement). */
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
@@ -41,23 +42,6 @@ function parseAmount(s: string): number {
     cleaned = cleaned.replace(/,/g, '')
   }
   return parseFloat(cleaned) || 0
-}
-
-function categorize(description: string): string {
-  const d = description.toLowerCase()
-  if (/סופר|שופרסל|מגה|ויקטורי|רמי|אמזון|משלוח|food|grocery/.test(d)) return 'מזון'
-  if (/דלק|סונול|פז|דור|כיבוד|תדלוק|fuel|gas/.test(d)) return 'רכב'
-  if (/קפה|מסעדה|אוכל|אינדומי|שווארמה|pizza|restaurant|cafe/.test(d)) return 'אוכל בחוץ'
-  if (/ביגוד|נעליים|זארה|h&m|mango|fashion/.test(d)) return 'ביגוד'
-  if (/בריאות|רפואה|רופא|בית חולים|קופת|health|pharmacy/.test(d)) return 'בריאות'
-  if (/חשמל|מים|גז|ועד|ארנונה|utility/.test(d)) return 'חשבונות'
-  if (/נטפליקס|ספוטיפיי|netflix|spotify|amazon prime|subscription/.test(d)) return 'מנויים'
-  if (/בנק|עמלה|bank fee|interest/.test(d)) return 'עמלות בנק'
-  if (/משכורת|שכר|salary|income|הכנסה/.test(d)) return 'משכורת'
-  if (/שכירות|rent/.test(d)) return 'שכירות'
-  if (/ביטוח|insurance/.test(d)) return 'ביטוח'
-  if (/חינוך|לימודים|school|education/.test(d)) return 'חינוך'
-  return 'אחר'
 }
 
 // Match a single amount (with . or , decimal, or Israeli 1.234,56). Use new RegExp per line to avoid lastIndex issues.
@@ -111,7 +95,7 @@ function parseVisaCalLines(text: string): CSVParseResult {
         amount,
         currency: 'ILS',
         direction: 'expense',
-        category: categorize(colResult.description),
+        category: categorizeByKeywords(colResult.description, 'expense'),
         description: colResult.description,
         transactionDate: parseDate(colResult.dateStr),
         rawData: JSON.stringify({
@@ -161,7 +145,7 @@ function parseVisaCalLines(text: string): CSVParseResult {
       amount,
       currency: 'ILS',
       direction: 'expense',
-      category: categorize(description),
+      category: categorizeByKeywords(description, 'expense'),
       description,
       transactionDate: parseDate(dateStr),
       rawData: JSON.stringify({ date: dateStr, description, amount: amountStr }),

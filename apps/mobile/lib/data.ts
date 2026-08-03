@@ -111,3 +111,40 @@ export async function fetchMeetings(token: string): Promise<MobileMeeting[]> {
   const client = createTrpcClient(token)
   return (await client.meetings.list.query()) as MobileMeeting[]
 }
+
+export type MobileReadingListItem = {
+  id: string
+  url: string
+  title: string
+  note?: string | null
+  status: string
+  createdAt: string
+  readAt?: string | null
+}
+
+export async function fetchReadingList(token: string): Promise<MobileReadingListItem[]> {
+  const client = createTrpcClient(token)
+  return (await client.readingList.list.query({ status: 'all' })) as MobileReadingListItem[]
+}
+
+export async function createReadingListItem(
+  token: string,
+  input: { url: string; title: string; note?: string },
+): Promise<MobileReadingListItem> {
+  const client = createTrpcClient(token)
+  return (await client.readingList.create.mutate(input)) as MobileReadingListItem
+}
+
+export async function markReadingListItemRead(
+  token: string,
+  id: string,
+  read: boolean,
+): Promise<MobileReadingListItem> {
+  const client = createTrpcClient(token)
+  return (await client.readingList.markRead.mutate({ id, read })) as MobileReadingListItem
+}
+
+export async function deleteReadingListItem(token: string, id: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.readingList.delete.mutate({ id })
+}

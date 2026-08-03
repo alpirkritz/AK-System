@@ -1,5 +1,5 @@
-import { Tabs, useRouter } from 'expo-router'
-import { Pressable, Text, StyleSheet, type ColorValue } from 'react-native'
+import { Tabs, useRouter, type Href } from 'expo-router'
+import { Pressable, Text, StyleSheet, View, type ColorValue } from 'react-native'
 import { colors } from '../../lib/theme'
 
 function TabIcon({ icon, color }: { icon: string; color: ColorValue }) {
@@ -9,13 +9,26 @@ function TabIcon({ icon, color }: { icon: string; color: ColorValue }) {
 function HeaderButtons() {
   const router = useRouter()
   return (
-    <Pressable
-      onPress={() => router.push('/notifications')}
-      hitSlop={10}
-      style={styles.headerBtn}
-    >
-      <Text style={styles.headerIcon}>🔔</Text>
-    </Pressable>
+    <View style={styles.headerGroup}>
+      <Pressable
+        onPress={() => router.push('/reading-list' as Href)}
+        hitSlop={10}
+        style={styles.headerBtn}
+        accessibilityRole="button"
+        accessibilityLabel="רשימת קריאה"
+      >
+        <Text style={styles.headerIcon}>📚</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => router.push('/notifications')}
+        hitSlop={10}
+        style={styles.headerBtn}
+        accessibilityRole="button"
+        accessibilityLabel="התראות"
+      >
+        <Text style={styles.headerIcon}>🔔</Text>
+      </Pressable>
+    </View>
   )
 }
 
@@ -92,6 +105,7 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  headerBtn: { paddingHorizontal: 16 },
+  headerGroup: { flexDirection: 'row-reverse', alignItems: 'center' },
+  headerBtn: { paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
   headerIcon: { fontSize: 20 },
 })

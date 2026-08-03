@@ -8,6 +8,7 @@ import { tasksRouter } from './routers/tasks'
 import { calendarRouter } from './routers/calendar'
 import { financeRouter } from './routers/finance'
 import { feedRouter } from './routers/feed'
+import { readingListRouter } from './routers/readingList'
 import { factsRouter } from './routers/facts'
 import { healthRouter } from './routers/health'
 import { pushRouter } from './routers/push'
@@ -81,6 +82,7 @@ export const appRouter = router({
   calendar: calendarRouter,
   finance: financeRouter,
   feed: feedRouter,
+  readingList: readingListRouter,
   facts: factsRouter,
   health: healthRouter,
   push: pushRouter,

@@ -15,6 +15,7 @@ import {
   Sparkles,
   Wallet,
   Newspaper,
+  BookMarked,
   Bell,
   Settings,
   LogOut,
@@ -58,6 +59,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/finance', label: 'פיננסים', icon: Wallet },
       { href: '/updates', label: 'עדכונים', icon: Newspaper },
+      { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
     ],
   },
   {
@@ -82,6 +84,7 @@ const MORE_ITEMS: NavItem[] = [
   { href: '/calendar', label: 'יומן גוגל', icon: CalendarDays },
   { href: '/finance', label: 'פיננסים', icon: Wallet },
   { href: '/updates', label: 'עדכונים', icon: Newspaper },
+  { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
   { href: '/notifications', label: 'התראות', icon: Bell },
   { href: '/settings', label: 'הגדרות', icon: Settings },
 ]

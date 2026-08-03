@@ -292,6 +292,18 @@ const FINANCE_TRANSACTIONS_COLUMNS = [
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_transactions_dedupe_key ON finance_transactions(dedupe_key)',
 ]
 
+const FINANCE_CATEGORY_RULES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_category_rules (
+    id TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    category TEXT NOT NULL,
+    direction TEXT,
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_finance_category_rules_pattern ON finance_category_rules(pattern)`,
+]
+
 const BANK_TABLES = [
   `CREATE TABLE IF NOT EXISTS bank_connections (
     id TEXT PRIMARY KEY,
@@ -551,6 +563,9 @@ export function getDb() {
   for (const sql of BANK_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of FINANCE_CATEGORY_RULES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -615,6 +630,7 @@ export const financeTrades = schema.financeTrades
 export const financeTransactions = schema.financeTransactions
 export const bankConnections = schema.bankConnections
 export const bankAccounts = schema.bankAccounts
+export const financeCategoryRules = schema.financeCategoryRules
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
 export const readingListItems = schema.readingListItems
@@ -683,6 +699,8 @@ export type BankConnection = typeof schemaPg.bankConnections.$inferSelect
 export type NewBankConnection = typeof schemaPg.bankConnections.$inferInsert
 export type BankAccount = typeof schemaPg.bankAccounts.$inferSelect
 export type NewBankAccount = typeof schemaPg.bankAccounts.$inferInsert
+export type FinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferSelect
+export type NewFinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferInsert
 export const BANK_PROVIDERS = schemaPg.BANK_PROVIDERS
 export const BANK_CONNECTION_STATUSES = schemaPg.BANK_CONNECTION_STATUSES
 export type { BankProvider, BankConnectionStatus } from './schema.pg'

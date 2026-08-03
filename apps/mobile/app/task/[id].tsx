@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,6 +10,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import {
@@ -28,6 +33,32 @@ import {
 
 const PRIORITIES = ['high', 'medium', 'low'] as const
 
+/** Local-time YYYY-MM-DD — `toISOString()` would shift the day across timezones. */
+function toDateInput(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function parseDateInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  const [, year, month, day] = match
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatDateLabel(value: string): string {
+  const date = parseDateInput(value)
+  if (!date) return value
+  return date.toLocaleDateString('he-IL', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const isNew = !id || id === 'new'
@@ -44,6 +75,7 @@ export default function TaskDetailScreen() {
   const [status, setStatus] = useState<string>('not_started')
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium')
   const [dueDate, setDueDate] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
 
   const selectedWorkspace = workspaces.find((w) => w.id === workspaceId)
@@ -78,6 +110,14 @@ export default function TaskDetailScreen() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const onPickDate = (event: DateTimePickerEvent, picked?: Date) => {
+    // Android owns its own dialog and fires once; iOS keeps the inline picker
+    // mounted until the user dismisses it explicitly.
+    if (Platform.OS !== 'ios') setPickerOpen(false)
+    if (event.type === 'dismissed' || !picked) return
+    setDueDate(toDateInput(picked))
+  }
 
   const onSave = async () => {
     if (!token) return
@@ -167,158 +207,201 @@ export default function TaskDetailScreen() {
         }}
       />
 
-      <ScrollView
+      {/* iOS needs explicit padding; Android relies on softwareKeyboardLayoutMode: 'resize'
+          in app.config.ts, and stacking both causes double-adjustment inside a formSheet. */}
+      <KeyboardAvoidingView
         style={styles.flex}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {notionHint ? (
-          <View style={styles.hint}>
-            <Text style={styles.hintText}>
-              מסונכרן עם Notion — שינוי סטטוס יעודכן גם שם
-            </Text>
-          </View>
-        ) : null}
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          {notionHint ? (
+            <View style={styles.hint}>
+              <Text style={styles.hintText}>
+                מסונכרן עם Notion — שינוי סטטוס יעודכן גם שם
+              </Text>
+            </View>
+          ) : null}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Text style={styles.label}>כותרת</Text>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="מה צריך לעשות?"
-          placeholderTextColor={colors.textMuted}
-          style={[styles.input, styles.inputRtl]}
-          autoFocus={isNew}
-          textAlign="right"
-        />
+          <Text style={styles.label}>כותרת</Text>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder="מה צריך לעשות?"
+            placeholderTextColor={colors.textMuted}
+            style={[styles.input, styles.inputRtl]}
+            autoFocus={isNew}
+            textAlign="right"
+          />
 
-        <Text style={styles.label}>סטטוס</Text>
-        <View style={styles.chips}>
-          {STATUS_ORDER.map((key) => {
-            const active = status === key
-            const color = STATUS_COLOR[key]
-            return (
-              <Pressable
-                key={key}
-                onPress={() => setStatus(key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={[
-                  styles.chip,
-                  active && {
-                    borderColor: color,
-                    backgroundColor: color + '22',
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.chipText, active && { color, fontWeight: '600' }]}
-                >
-                  {STATUS_LABEL[key]}
-                </Text>
-              </Pressable>
-            )
-          })}
-        </View>
-
-        <Text style={styles.label}>עדיפות</Text>
-        <View style={styles.chips}>
-          {PRIORITIES.map((key) => {
-            const active = priority === key
-            const color = PRIORITY_COLOR[key]
-            return (
-              <Pressable
-                key={key}
-                onPress={() => setPriority(key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={[
-                  styles.chip,
-                  active && {
-                    borderColor: color,
-                    backgroundColor: color + '22',
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.chipText, active && { color, fontWeight: '600' }]}
-                >
-                  {PRIORITY_LABEL[key]}
-                </Text>
-              </Pressable>
-            )
-          })}
-        </View>
-
-        <Text style={styles.label}>תאריך יעד (YYYY-MM-DD)</Text>
-        <TextInput
-          value={dueDate}
-          onChangeText={setDueDate}
-          placeholder="2026-07-30"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          autoCapitalize="none"
-          autoCorrect={false}
-          textAlign="left"
-        />
-
-        {workspaces.length > 0 ? (
-          <>
-            <Text style={styles.label}>מקור</Text>
-            <View style={styles.chips}>
-              <Pressable
-                onPress={() => setWorkspaceId(null)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: workspaceId === null }}
-                style={[styles.chip, workspaceId === null && styles.chipActive]}
-              >
-                <Text
+          <Text style={styles.label}>סטטוס</Text>
+          <View style={styles.chips}>
+            {STATUS_ORDER.map((key) => {
+              const active = status === key
+              const color = STATUS_COLOR[key]
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => setStatus(key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
                   style={[
-                    styles.chipText,
-                    workspaceId === null && styles.chipTextActive,
+                    styles.chip,
+                    active && {
+                      borderColor: color,
+                      backgroundColor: color + '22',
+                    },
                   ]}
                 >
-                  ללא
-                </Text>
-              </Pressable>
-              {workspaces.map((w) => {
-                const active = workspaceId === w.id
-                return (
-                  <Pressable
-                    key={w.id}
-                    onPress={() => setWorkspaceId(w.id)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    style={[styles.chip, active && styles.chipActive]}
+                  <Text
+                    style={[styles.chipText, active && { color, fontWeight: '600' }]}
                   >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {w.name}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-            {willCreateInNotion ? (
-              <View style={styles.hint}>
-                <Text style={styles.hintText}>
-                  המשימה תיווצר גם ב-Notion ({selectedWorkspace?.name})
-                </Text>
-              </View>
-            ) : null}
-          </>
-        ) : null}
+                    {STATUS_LABEL[key]}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
 
-        <Pressable
-          style={[styles.saveBtn, (saving || !title.trim()) && styles.saveBtnDisabled]}
-          onPress={() => void onSave()}
-          disabled={saving || !title.trim()}
-          accessibilityRole="button"
-          accessibilityLabel="שמור משימה"
-        >
-          <Text style={styles.saveBtnText}>{saving ? 'שומר…' : 'שמור'}</Text>
-        </Pressable>
-      </ScrollView>
+          <Text style={styles.label}>עדיפות</Text>
+          <View style={styles.chips}>
+            {PRIORITIES.map((key) => {
+              const active = priority === key
+              const color = PRIORITY_COLOR[key]
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => setPriority(key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[
+                    styles.chip,
+                    active && {
+                      borderColor: color,
+                      backgroundColor: color + '22',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.chipText, active && { color, fontWeight: '600' }]}
+                  >
+                    {PRIORITY_LABEL[key]}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+
+          <Text style={styles.label}>תאריך יעד</Text>
+          <View style={styles.dateRow}>
+            <Pressable
+              onPress={() => setPickerOpen(true)}
+              style={[styles.input, styles.dateField]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                dueDate ? `תאריך יעד ${formatDateLabel(dueDate)}` : 'בחר תאריך יעד'
+              }
+            >
+              <Text style={[styles.dateText, !dueDate && styles.datePlaceholder]}>
+                {dueDate ? formatDateLabel(dueDate) : 'בחר תאריך'}
+              </Text>
+            </Pressable>
+            {dueDate ? (
+              <Pressable
+                onPress={() => setDueDate('')}
+                style={styles.clearDate}
+                accessibilityRole="button"
+                accessibilityLabel="נקה תאריך"
+              >
+                <Text style={styles.clearDateText}>נקה תאריך</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {pickerOpen ? (
+            <DateTimePicker
+              value={parseDateInput(dueDate) ?? new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              onChange={onPickDate}
+              themeVariant="dark"
+            />
+          ) : null}
+
+          {pickerOpen && Platform.OS === 'ios' ? (
+            <Pressable
+              onPress={() => setPickerOpen(false)}
+              style={styles.pickerDone}
+              accessibilityRole="button"
+              accessibilityLabel="סיים בחירת תאריך"
+            >
+              <Text style={styles.pickerDoneText}>סיום</Text>
+            </Pressable>
+          ) : null}
+
+          {workspaces.length > 0 ? (
+            <>
+              <Text style={styles.label}>מקור</Text>
+              <View style={styles.chips}>
+                <Pressable
+                  onPress={() => setWorkspaceId(null)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: workspaceId === null }}
+                  style={[styles.chip, workspaceId === null && styles.chipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      workspaceId === null && styles.chipTextActive,
+                    ]}
+                  >
+                    ללא
+                  </Text>
+                </Pressable>
+                {workspaces.map((w) => {
+                  const active = workspaceId === w.id
+                  return (
+                    <Pressable
+                      key={w.id}
+                      onPress={() => setWorkspaceId(w.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      style={[styles.chip, active && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {w.name}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
+              </View>
+              {willCreateInNotion ? (
+                <View style={styles.hint}>
+                  <Text style={styles.hintText}>
+                    המשימה תיווצר גם ב-Notion ({selectedWorkspace?.name})
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+
+          <Pressable
+            style={[styles.saveBtn, (saving || !title.trim()) && styles.saveBtnDisabled]}
+            onPress={() => void onSave()}
+            disabled={saving || !title.trim()}
+            accessibilityRole="button"
+            accessibilityLabel="שמור משימה"
+          >
+            <Text style={styles.saveBtnText}>{saving ? 'שומר…' : 'שמור'}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </>
   )
 }
@@ -348,6 +431,23 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   inputRtl: { writingDirection: 'rtl' },
+  dateRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  dateField: { flex: 1, justifyContent: 'center' },
+  dateText: { color: colors.text, fontSize: 16, textAlign: 'right', writingDirection: 'rtl' },
+  datePlaceholder: { color: colors.textMuted },
+  clearDate: {
+    minHeight: 48,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  clearDateText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
+  pickerDone: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  pickerDoneText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
   chips: {
     flexDirection: 'row-reverse',
     flexWrap: 'wrap',

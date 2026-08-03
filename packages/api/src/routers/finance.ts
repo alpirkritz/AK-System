@@ -6,11 +6,13 @@ import {
   agentTriggers,
   bankConnections,
   bankAccounts,
+  financeCategoryRules,
   queryRows,
   type BankConnection,
   type BankAccount,
+  type FinanceCategoryRule,
 } from '@ak-system/database'
-import { eq, desc, gte, and, like, sql, count, sum } from 'drizzle-orm'
+import { eq, desc, gte, and, like, sql, count, sum, isNull } from 'drizzle-orm'
 import { listIBKREmails } from '../services/ibkr-parser'
 import { importIBKREmails } from '../services/ibkr-import-service'
 import { importIBKRFromNotion, isNotionIbkrConfigured } from '../services/notion-ibkr-import'
@@ -19,6 +21,19 @@ import { parseCSV } from '../services/csv-parser'
 import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
 import { encryptCredentials, isBankCryptoConfigured } from '../lib/bank-credentials-crypto'
 import { syncConnection, syncAllConnections } from '../services/bank-sync-service'
+import {
+  buildMonthlyTrend,
+  buildCategoryBreakdown,
+  detectRecurring,
+  computeInsights,
+  type AnalyticsTxn,
+} from '../services/cashflow-analytics'
+import {
+  categorizeByKeywords,
+  categorizeTransaction,
+  suggestRulePattern,
+  type CategoryRule,
+} from '../services/transaction-categorizer'
 
 type JournalPeriod = 'today' | 'week' | 'month' | 'all'
 
@@ -58,6 +73,62 @@ function toTradeInputs(
 }
 
 const idInput = z.object({ id: z.string().min(1) })
+
+/** First day of the month `months - 1` back, as an ISO timestamp for a date lower bound. */
+function analyticsWindowStart(months: number): string {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1)).toISOString()
+}
+
+/**
+ * Load the raw rows the analytics service aggregates over.
+ *
+ * Aggregation happens in memory rather than SQL: the volume is a few hundred rows per
+ * year, the logic (trailing averages, cadence medians, insight rules) is far clearer as
+ * pure TypeScript, and it stays identical across the SQLite and Postgres drivers.
+ */
+async function loadAnalyticsTxns(
+  ctx: { db: any },
+  months: number
+): Promise<AnalyticsTxn[]> {
+  const rows = (await queryRows(
+    ctx.db
+      .select({
+        amount: financeTransactions.amount,
+        direction: financeTransactions.direction,
+        category: financeTransactions.category,
+        description: financeTransactions.description,
+        transactionDate: financeTransactions.transactionDate,
+      })
+      .from(financeTransactions)
+      .where(gte(financeTransactions.transactionDate, analyticsWindowStart(months)))
+  )) as Array<{
+    amount: string
+    direction: string
+    category: string | null
+    description: string | null
+    transactionDate: string
+  }>
+
+  return rows.map((r) => ({
+    amount: Number(r.amount) || 0,
+    direction: r.direction === 'income' ? 'income' : 'expense',
+    category: r.category,
+    description: r.description,
+    transactionDate: r.transactionDate,
+  }))
+}
+
+async function loadCategoryRules(ctx: { db: any }): Promise<CategoryRule[]> {
+  const rules = (await queryRows(
+    ctx.db.select().from(financeCategoryRules)
+  )) as FinanceCategoryRule[]
+  return rules.map((r) => ({
+    pattern: r.pattern,
+    category: r.category,
+    direction: r.direction === 'income' || r.direction === 'expense' ? r.direction : null,
+  }))
+}
 
 export const financeRouter = router({
   // ─── IBKR Trades ─────────────────────────────────────────────────────────
@@ -245,20 +316,23 @@ export const financeRouter = router({
         direction: z.enum(['income', 'expense']).optional(),
         category: z.string().optional(),
         since: z.string().optional(),
+        uncategorized: z.boolean().optional(),
         limit: z.number().min(1).max(500).default(200),
       })
     )
     .query(async ({ ctx, input }) => {
-      let rows = ctx.db.select().from(financeTransactions).$dynamic()
+      // Conditions are combined with and(): chained .where() calls replace each other in
+      // Drizzle, so filtering by more than one field silently kept only the last.
+      const conditions = [
+        input.direction ? eq(financeTransactions.direction, input.direction) : undefined,
+        input.category ? eq(financeTransactions.category, input.category) : undefined,
+        input.since ? gte(financeTransactions.transactionDate, input.since) : undefined,
+        input.uncategorized ? isNull(financeTransactions.category) : undefined,
+      ].filter(Boolean)
 
-      if (input.direction) {
-        rows = rows.where(eq(financeTransactions.direction, input.direction))
-      }
-      if (input.category) {
-        rows = rows.where(eq(financeTransactions.category, input.category))
-      }
-      if (input.since) {
-        rows = rows.where(gte(financeTransactions.transactionDate, input.since))
+      let rows = ctx.db.select().from(financeTransactions).$dynamic()
+      if (conditions.length > 0) {
+        rows = rows.where(conditions.length === 1 ? conditions[0] : and(...conditions))
       }
 
       return rows.orderBy(desc(financeTransactions.transactionDate)).limit(input.limit)
@@ -421,6 +495,246 @@ export const financeRouter = router({
       accounts,
     }
   }),
+
+  // ─── Cash-flow analytics & insights ──────────────────────────────────────
+
+  analytics: router({
+    monthlyTrend: protectedProcedure
+      .input(z.object({ months: z.union([z.literal(3), z.literal(6), z.literal(12), z.literal(24)]).default(12) }))
+      .query(async ({ ctx, input }) => {
+        const txns = await loadAnalyticsTxns(ctx, input.months)
+        return { months: buildMonthlyTrend(txns, input.months), currency: 'ILS' as const }
+      }),
+
+    categoryBreakdown: protectedProcedure
+      .input(
+        z.object({
+          month: z.string().regex(/^\d{4}-\d{2}$/),
+          direction: z.enum(['income', 'expense']).default('expense'),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const txns = await loadAnalyticsTxns(ctx, 12)
+        return buildCategoryBreakdown(txns, input.month, input.direction)
+      }),
+
+    recurring: protectedProcedure
+      .input(
+        z.object({
+          minOccurrences: z.number().min(2).max(12).default(3),
+          lookbackMonths: z.number().min(3).max(24).default(12),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const txns = await loadAnalyticsTxns(ctx, input.lookbackMonths)
+        return detectRecurring(txns, {
+          minOccurrences: input.minOccurrences,
+          lookbackMonths: input.lookbackMonths,
+        })
+      }),
+
+    insights: protectedProcedure
+      .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const txns = await loadAnalyticsTxns(ctx, 12)
+        const trend = buildMonthlyTrend(txns, 12)
+        const breakdown = buildCategoryBreakdown(txns, input.month, 'expense')
+        const recurring = detectRecurring(txns, { lookbackMonths: 12 })
+        return {
+          insights: computeInsights({ month: input.month, trend, breakdown, recurring }),
+        }
+      }),
+
+    /**
+     * Data-quality state for the tab banner. Deliberately separate from `insights`:
+     * a gap in the data is not a finding about spending, and showing it in both places
+     * would print the same warning twice on one screen.
+     */
+    coverage: protectedProcedure.query(async ({ ctx }) => {
+      const rows = (await queryRows(
+        ctx.db
+          .select({
+            amount: financeTransactions.amount,
+            direction: financeTransactions.direction,
+            category: financeTransactions.category,
+            description: financeTransactions.description,
+            transactionDate: financeTransactions.transactionDate,
+          })
+          .from(financeTransactions)
+      )) as Array<{
+        amount: string
+        direction: string
+        category: string | null
+        description: string | null
+        transactionDate: string
+      }>
+
+      const accounts = (await queryRows(
+        ctx.db.select({ accountType: bankAccounts.accountType }).from(bankAccounts)
+      )) as Array<{ accountType: string }>
+
+      let uncategorizedCount = 0
+      let uncategorizedExpenseValue = 0
+      let totalExpenseValue = 0
+      let hiddenCardValue = 0
+      let oldestUncategorizedDate: string | null = null
+
+      for (const r of rows) {
+        const amount = Number(r.amount) || 0
+        const isExpense = r.direction === 'expense'
+        if (isExpense) totalExpenseValue += amount
+
+        if (!r.category) {
+          uncategorizedCount++
+          if (isExpense) uncategorizedExpenseValue += amount
+          if (!oldestUncategorizedDate || r.transactionDate < oldestUncategorizedDate) {
+            oldestUncategorizedDate = r.transactionDate
+          }
+        }
+
+        // Works before the backfill has run: fall back to the keyword verdict so the
+        // credit-card blind spot is detectable on day one.
+        const effective = r.category ?? categorizeByKeywords(r.description ?? '', isExpense ? 'expense' : 'income')
+        if (isExpense && effective === 'כרטיס אשראי') hiddenCardValue += amount
+      }
+
+      const creditCardConnected = accounts.some((a) => a.accountType === 'credit_card')
+
+      return {
+        uncategorizedCount,
+        uncategorizedExpenseValue: Math.round(uncategorizedExpenseValue * 100) / 100,
+        uncategorizedShare:
+          totalExpenseValue > 0
+            ? Math.round((uncategorizedExpenseValue / totalExpenseValue) * 1000) / 10
+            : 0,
+        oldestUncategorizedDate,
+        creditCardConnected,
+        hiddenCardValue: Math.round(hiddenCardValue * 100) / 100,
+        hiddenCardShare:
+          totalExpenseValue > 0 ? Math.round((hiddenCardValue / totalExpenseValue) * 1000) / 10 : 0,
+        totalTransactions: rows.length,
+      }
+    }),
+
+    listCategoryRules: protectedProcedure.query(async ({ ctx }) => {
+      const rules = (await queryRows(
+        ctx.db.select().from(financeCategoryRules).orderBy(desc(financeCategoryRules.createdAt))
+      )) as FinanceCategoryRule[]
+      return { rules }
+    }),
+
+    deleteCategoryRule: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+      await ctx.db.delete(financeCategoryRules).where(eq(financeCategoryRules.id, input.id))
+      return { ok: true }
+    }),
+  }),
+
+  /** Apply user rules then built-in keywords to every transaction still missing a category. */
+  categorizeBacklog: protectedProcedure
+    .input(z.object({ dryRun: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      const rules = await loadCategoryRules(ctx)
+      const rows = (await queryRows(
+        ctx.db
+          .select({
+            id: financeTransactions.id,
+            direction: financeTransactions.direction,
+            description: financeTransactions.description,
+          })
+          .from(financeTransactions)
+          .where(isNull(financeTransactions.category))
+      )) as Array<{ id: string; direction: string; description: string | null }>
+
+      const byCategory: Record<string, number> = {}
+      let updated = 0
+
+      for (const row of rows) {
+        const direction = row.direction === 'income' ? 'income' : 'expense'
+        const category = categorizeTransaction(row.description ?? '', rules, direction)
+        byCategory[category] = (byCategory[category] ?? 0) + 1
+        if (!input.dryRun) {
+          await ctx.db
+            .update(financeTransactions)
+            .set({ category })
+            .where(eq(financeTransactions.id, row.id))
+        }
+        updated++
+      }
+
+      return { updated, remaining: input.dryRun ? rows.length : 0, byCategory }
+    }),
+
+  /**
+   * Set one transaction's category, optionally learning a rule so similar descriptions
+   * follow the same decision from now on.
+   */
+  setTransactionCategory: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        category: z.string().min(1),
+        applyToSimilar: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [target] = (await queryRows(
+        ctx.db
+          .select({
+            id: financeTransactions.id,
+            description: financeTransactions.description,
+            direction: financeTransactions.direction,
+          })
+          .from(financeTransactions)
+          .where(eq(financeTransactions.id, input.id))
+      )) as Array<{ id: string; description: string | null; direction: string }>
+
+      if (!target) throw new Error('התנועה לא נמצאה')
+
+      await ctx.db
+        .update(financeTransactions)
+        .set({ category: input.category })
+        .where(eq(financeTransactions.id, input.id))
+
+      if (!input.applyToSimilar) return { updated: 1, ruleCreated: false }
+
+      const pattern = suggestRulePattern(target.description ?? '')
+      if (!pattern) return { updated: 1, ruleCreated: false }
+
+      await ctx.db.insert(financeCategoryRules).values({
+        id: 'fcr' + Date.now() + Math.random().toString(36).slice(2, 7),
+        pattern,
+        category: input.category,
+        direction: target.direction === 'income' ? 'income' : 'expense',
+        createdBy: 'user',
+        createdAt: new Date().toISOString(),
+      })
+
+      // Matching in memory rather than SQL LIKE: the pattern is a normalized, case-folded
+      // substring, and SQLite's LIKE is not reliably case-insensitive for Hebrew.
+      const candidates = (await queryRows(
+        ctx.db
+          .select({
+            id: financeTransactions.id,
+            description: financeTransactions.description,
+            direction: financeTransactions.direction,
+          })
+          .from(financeTransactions)
+      )) as Array<{ id: string; description: string | null; direction: string }>
+
+      let updated = 1
+      for (const row of candidates) {
+        if (row.id === input.id) continue
+        if (row.direction !== target.direction) continue
+        if (!(row.description ?? '').toLowerCase().includes(pattern)) continue
+        await ctx.db
+          .update(financeTransactions)
+          .set({ category: input.category })
+          .where(eq(financeTransactions.id, row.id))
+        updated++
+      }
+
+      return { updated, ruleCreated: true }
+    }),
 
   // ─── Summary ─────────────────────────────────────────────────────────────
 

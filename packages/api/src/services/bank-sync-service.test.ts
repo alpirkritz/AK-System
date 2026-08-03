@@ -128,9 +128,11 @@ describe('bank-sync-service', () => {
       expect(expense.amount).toBe('250.5')
       expect(expense.source).toBe('bank_scrape')
       expect(expense.bankAccountId).toBe(accounts[0].id)
-      expect(expense.category).toBeNull()
+      // Categorized inline on insert so the analytics tab has no backlog after a sync.
+      expect(expense.category).toBe('מזון')
       const income = txns.find((t) => t.direction === 'income')!
       expect(income.amount).toBe('12000')
+      expect(income.category).toBe('משכורת')
 
       const updated = await queryRows(
         db.select().from(bankConnections).where(eq(bankConnections.id, connection.id)),

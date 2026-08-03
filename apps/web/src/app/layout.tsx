@@ -38,6 +38,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'ARO',
   },
+  // Next.js's `appleWebApp.capable` only emits the legacy Apple-prefixed meta
+  // tag; Chrome also wants the standard one (no `other` shorthand exists yet).
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

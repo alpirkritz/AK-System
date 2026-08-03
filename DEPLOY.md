@@ -12,6 +12,7 @@
 | שלב | מסמך |
 |-----|------|
 | 1. Backend יציב (EC2 + Docker) | [`docs/deploy/ec2-production.md`](docs/deploy/ec2-production.md) |
+| 1a. מנהרה ציבורית קבועה (ngrok על השרת) | ראה "המנהרה הציבורית" למטה |
 | 2. Google OAuth | [`docs/deploy/google-oauth-setup.md`](docs/deploy/google-oauth-setup.md) |
 | 3. Cron 24/7 (crontab על השרת) | [`docs/deploy/cron-setup.md`](docs/deploy/cron-setup.md) |
 | 4. APK לאנדרואיד (Helm) | [`docs/deploy/helm-apk-build.md`](docs/deploy/helm-apk-build.md) |
@@ -36,6 +37,30 @@ pnpm deploy:ec2
 ```
 
 > **Legacy — Railway:** הפריסה הישנה ל-Railway נשמרת לעיון ב-[`docs/deploy/railway-production.md`](docs/deploy/railway-production.md) (תבנית [`deploy/railway.env.example`](deploy/railway.env.example)). לא מומלצת יותר.
+
+---
+
+## המנהרה הציבורית — רצה על השרת בלבד
+
+הכתובת הציבורית היא דומיין ngrok סטטי, וה-agent שמגיש אותה רץ **על ה-EC2** כ-systemd unit
+בשם `ak-ngrok`. המק אינו חלק מהזרימה: אפשר לכבות אותו, והמערכת תמשיך לענות.
+
+```bash
+# התקנה / התקנה מחדש (מריצים על השרת)
+sudo NGROK_AUTHTOKEN=<token> NGROK_STATIC_DOMAIN=<name>.ngrok-free.dev \
+  bash scripts/ec2-install-ngrok-tunnel.sh
+
+# בדיקת מצב
+systemctl status ak-ngrok
+sudo tail -f /var/log/ak-ngrok.log
+```
+
+הסקריפט גם מכבה את `ak-tunnel` (Cloudflare quick tunnel), שהכתובת שלו התחלפה בכל restart
+ולכן שברה את ה-APK ואת מנויי ה-Push.
+
+**חשוב:** תוכנית ngrok החינמית מרשה agent פעיל אחד בחשבון. לכן `pnpm tunnel:ngrok` על המק
+חסום כברירת מחדל — הרצתו הייתה מסיטה את הכתובת הציבורית למק. לעקיפה מכוונת:
+`ALLOW_LOCAL_TUNNEL=1 pnpm tunnel:ngrok`, ורק אחרי `sudo systemctl stop ak-ngrok` על השרת.
 
 ---
 
@@ -121,7 +146,19 @@ Railway תומך ב-volume לאחסון SQLite ומתאים ל-monorepo.
    cloudflared tunnel route dns ak-system ak.your-domain.com
    # והגדר ב-.env.local:  CLOUDFLARE_TUNNEL_NAME=ak-system
    ```
-   בלי זה, `pnpm tunnel` ייצור כתובת אקראית `*.trycloudflare.com` (משתנה בכל הרצה).
+   בלי זה, `pnpm tunnel` ייצור כתובת אקראית `*.trycloudflare.com` (משתנה בכל הרצה) —
+   וזו הסיבה השכיחה לכך שהתראות Push (במיוחד באפליקציית ARO) מפסיקות לעבוד: כתובת
+   ה-API שנאפתה לתוך ה-APK כבר לא חיה.
+
+   **אין דומיין דרך Cloudflare? חלופה חינמית בלי דומיין בכלל — ngrok free static domain:**
+   ```bash
+   brew install ngrok/ngrok/ngrok
+   ngrok config add-authtoken <מהדשבורד: dashboard.ngrok.com/get-started/your-authtoken>
+   # תבע דומיין קבוע וחינמי ב-dashboard.ngrok.com/domains, ואז:
+   # NGROK_STATIC_DOMAIN=your-name.ngrok-free.app  ב-.env.local
+   pnpm tunnel:ngrok
+   ```
+   הכתובת הזו קבועה לתמיד (בניגוד ל-quick tunnel) — צריך להריץ את `set-tunnel-url.sh` פעם אחת בלבד.
 4. הגדר ב-`apps/web/.env.local`:
    - `NEXTAUTH_URL` ו-`NEXT_PUBLIC_APP_URL` = כתובת ה-HTTPS של ה-tunnel
    - `NEXTAUTH_SECRET` (חובה), `GOOGLE_CLIENT_ID/SECRET`, ו-`ALLOWED_EMAILS=you@example.com`

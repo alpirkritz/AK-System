@@ -1,3 +1,5 @@
+import { categorizeByKeywords } from './transaction-categorizer'
+
 export interface NormalizedTransaction {
   amount: number
   currency: string
@@ -153,23 +155,6 @@ function parseDate(s: string): string {
   return toValidISO(new Date(s))
 }
 
-function categorize(description: string): string {
-  const d = description.toLowerCase()
-  if (/סופר|שופרסל|מגה|ויקטורי|רמי|אמזון|משלוח|food|grocery/.test(d)) return 'מזון'
-  if (/דלק|סונול|פז|דור|כיבוד|תדלוק|fuel|gas/.test(d)) return 'רכב'
-  if (/קפה|מסעדה|אוכל|אינדומי|שווארמה|pizza|restaurant|cafe/.test(d)) return 'אוכל בחוץ'
-  if (/ביגוד|נעליים|זארה|h&m|mango|fashion/.test(d)) return 'ביגוד'
-  if (/בריאות|רפואה|רופא|בית חולים|קופת|health|pharmacy/.test(d)) return 'בריאות'
-  if (/חשמל|מים|גז|ועד|ארנונה|utility/.test(d)) return 'חשבונות'
-  if (/נטפליקס|ספוטיפיי|netflix|spotify|amazon prime|subscription/.test(d)) return 'מנויים'
-  if (/בנק|עמלה|bank fee|interest/.test(d)) return 'עמלות בנק'
-  if (/משכורת|שכר|salary|income|הכנסה/.test(d)) return 'משכורת'
-  if (/שכירות|rent/.test(d)) return 'שכירות'
-  if (/ביטוח|insurance/.test(d)) return 'ביטוח'
-  if (/חינוך|לימודים|school|education/.test(d)) return 'חינוך'
-  return 'אחר'
-}
-
 export function parseCSV(csvContent: string): CSVParseResult {
   const lines = csvContent
     .split('\n')
@@ -226,10 +211,11 @@ export function parseCSV(csvContent: string): CSVParseResult {
     let direction: 'income' | 'expense' = 'expense'
 
     if (amountIdx >= 0) {
-      const raw = cells[amountIdx] ?? ''
-      amount = Math.abs(parseAmount(raw))
-      direction = parseAmount(raw) < 0 ? 'expense' : 'expense'
-      // Credit cards: all are expenses unless explicitly income
+      // Credit-card exports use one signed amount column. A negative value is a refund or
+      // credit, so it must land as income — reading it as an expense inflates every total.
+      const signed = parseAmount(cells[amountIdx] ?? '')
+      amount = Math.abs(signed)
+      direction = signed < 0 ? 'income' : 'expense'
     } else if (debitIdx >= 0 || creditIdx >= 0) {
       const debit = debitIdx >= 0 ? parseAmount(cells[debitIdx] ?? '') : 0
       const credit = creditIdx >= 0 ? parseAmount(cells[creditIdx] ?? '') : 0
@@ -248,7 +234,7 @@ export function parseCSV(csvContent: string): CSVParseResult {
       amount,
       currency: currency.trim().toUpperCase().substring(0, 3) || 'ILS',
       direction,
-      category: categorize(desc),
+      category: categorizeByKeywords(desc, direction),
       description: desc,
       transactionDate: parseDate(dateStr),
       rawData: JSON.stringify(Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']))),

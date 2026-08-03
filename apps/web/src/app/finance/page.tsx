@@ -1,41 +1,47 @@
 'use client'
 
 import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { CASHFLOW_CATEGORY_LABELS } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
 import { SummaryCard } from './SummaryCard'
+import { fmt, fmtDate } from './lib/format'
 
 const VatTab = lazy(() => import('./VatTab'))
 const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
 const AccountsTab = lazy(() => import('./AccountsTab'))
+const InsightsTab = lazy(() => import('./InsightsTab'))
 
-type Tab = 'accounts' | 'portfolio' | 'journal' | 'cashflow' | 'import' | 'vat'
+const TABS = ['insights', 'accounts', 'portfolio', 'journal', 'cashflow', 'import', 'vat'] as const
+type Tab = (typeof TABS)[number]
 
-const CATEGORIES = [
-  'מזון', 'אוכל בחוץ', 'רכב', 'ביגוד', 'בריאות', 'חשבונות',
-  'מנויים', 'עמלות בנק', 'משכורת', 'שכירות', 'ביטוח', 'חינוך', 'אחר',
-]
+const CATEGORIES = CASHFLOW_CATEGORY_LABELS
 
-function fmt(n: number, currency = 'ILS'): string {
-  return new Intl.NumberFormat('he-IL', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n)
-}
-
-function fmtDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('he-IL', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    })
-  } catch {
-    return iso
-  }
-}
-
+/** useSearchParams needs a Suspense boundary above it, same as the settings page. */
 export default function FinancePage() {
-  const [tab, setTab] = useState<Tab>('accounts')
+  return (
+    <Suspense fallback={<div className="text-[#5a688c] text-sm p-6">טוען...</div>}>
+      <FinancePageContent />
+    </Suspense>
+  )
+}
+
+function FinancePageContent() {
+  // Tab lives in the URL so a view is linkable and survives a refresh, which the previous
+  // local-state version did not.
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tab: Tab = (TABS as readonly string[]).includes(tabParam ?? '')
+    ? (tabParam as Tab)
+    : 'insights'
+  const setTab = useCallback(
+    (next: Tab) => {
+      router.replace(`${pathname}?tab=${next}`, { scroll: false })
+    },
+    [router, pathname]
+  )
   const [symbolFilter, setSymbolFilter] = useState('')
   const [dirFilter, setDirFilter] = useState<'all' | 'income' | 'expense'>('all')
   const [syncing, setSyncing] = useState(false)
@@ -284,6 +290,7 @@ export default function FinancePage() {
       {/* Tab Bar */}
       <div className="flex gap-1 mb-6 border-b border-[#1d2b46]">
         {([
+          ['insights', 'תזרים ותובנות', '📈'],
           ['accounts', 'חשבונות', '🏦'],
           ['portfolio', 'פורטפוליו', '📊'],
           ['journal', 'יומן מסחר', '📓'],
@@ -304,6 +311,13 @@ export default function FinancePage() {
           </button>
         ))}
       </div>
+
+      {/* ── Insights Tab ──────────────────────────────────────────── */}
+      {tab === 'insights' && (
+        <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
+          <InsightsTab />
+        </Suspense>
+      )}
 
       {/* ── Accounts Tab ──────────────────────────────────────────── */}
       {tab === 'accounts' && (

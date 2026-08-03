@@ -21,6 +21,8 @@ export function createTrpcClient(token: string): any {
           return {
             Authorization: `Bearer ${token}`,
             'X-AK-Client': CLIENT_HEADER,
+            // See lib/api.ts — bypasses ngrok's free-plan HTML interstitial.
+            'ngrok-skip-browser-warning': 'true',
           }
         },
       }),

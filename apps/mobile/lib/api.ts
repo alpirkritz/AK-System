@@ -40,6 +40,11 @@ async function apiFetch(
   const mergedHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-AK-Client': CLIENT_HEADER,
+    // Free ngrok domains serve an HTML "browser warning" interstitial instead
+    // of proxying the request unless this header is present — breaks JSON
+    // parsing on the client with no server-side signal. Harmless no-op for
+    // Cloudflare tunnels / real deployments.
+    'ngrok-skip-browser-warning': 'true',
     ...(headers as Record<string, string>),
   }
   if (token) mergedHeaders.Authorization = `Bearer ${token}`

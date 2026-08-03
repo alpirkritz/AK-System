@@ -6,12 +6,14 @@ import {
   bankConnections,
   bankAccounts,
   financeTransactions,
+  financeCategoryRules,
   queryRows,
   type BankConnection,
   type BankAccount as BankAccountRow,
   type BankProvider,
 } from '@ak-system/database'
 import { decryptCredentials } from '../lib/bank-credentials-crypto'
+import { categorizeTransaction, type CategoryRule } from './transaction-categorizer'
 
 /**
  * Bank/credit-card account sync via israeli-bank-scrapers.
@@ -163,6 +165,17 @@ export async function syncConnection(
   const accountType = accountTypeForProvider(connection.provider as BankProvider)
   let transactionsInserted = 0
 
+  // Loaded once per sync so every inserted row arrives categorized, instead of leaving the
+  // analytics tab with a backlog to clean up after each sync.
+  const categoryRules = (await queryRows(
+    db.select().from(financeCategoryRules),
+  )) as Array<{ pattern: string; category: string; direction: string | null }>
+  const rules: CategoryRule[] = categoryRules.map((r) => ({
+    pattern: r.pattern,
+    category: r.category,
+    direction: r.direction === 'income' || r.direction === 'expense' ? r.direction : null,
+  }))
+
   for (const account of accounts) {
     // Upsert bank_accounts row by (connection_id, account_number)
     const existing = (await queryRows(
@@ -212,13 +225,15 @@ export async function syncConnection(
 
       const amount = Math.abs(txn.chargedAmount)
       if (!amount) continue
+      const direction = txn.chargedAmount >= 0 ? 'income' : 'expense'
+      const description = txn.description + (txn.memo ? ` — ${txn.memo}` : '')
       await db.insert(financeTransactions).values({
         id: 'fx' + Date.now() + Math.random().toString(36).slice(2, 7),
         amount: String(amount),
         currency: txn.originalCurrency || 'ILS',
-        direction: txn.chargedAmount >= 0 ? 'income' : 'expense',
-        category: null, // user categorizes manually, same as CSV imports
-        description: txn.description + (txn.memo ? ` — ${txn.memo}` : ''),
+        direction,
+        category: categorizeTransaction(description, rules, direction),
+        description,
         transactionDate: txn.date,
         source: 'bank_scrape',
         rawData: null,
