@@ -158,6 +158,20 @@ const FEED_TABLES = [
   )`,
 ]
 
+const READING_LIST_TABLE = [
+  `CREATE TABLE IF NOT EXISTS reading_list_items (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'unread',
+    created_at TEXT NOT NULL,
+    read_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_reading_list_items_status ON reading_list_items(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_reading_list_items_created_at ON reading_list_items(created_at)`,
+]
+
 const FACTS_TABLE = [
   `CREATE TABLE IF NOT EXISTS facts (
     id TEXT PRIMARY KEY,
@@ -267,6 +281,43 @@ const FINANCE_TRADES_COLUMNS = [
   'ALTER TABLE finance_trades ADD COLUMN source_detail TEXT',
   'ALTER TABLE finance_trades ADD COLUMN notion_page_id TEXT',
   'ALTER TABLE finance_trades ADD COLUMN imported_at TEXT',
+]
+
+const FINANCE_TRANSACTIONS_COLUMNS = [
+  'ALTER TABLE finance_transactions ADD COLUMN bank_account_id TEXT',
+  'ALTER TABLE finance_transactions ADD COLUMN dedupe_key TEXT',
+  'ALTER TABLE finance_transactions ADD COLUMN installment_info TEXT',
+  'ALTER TABLE finance_transactions ADD COLUMN txn_status TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_finance_transactions_bank_account_id ON finance_transactions(bank_account_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_transactions_dedupe_key ON finance_transactions(dedupe_key)',
+]
+
+const BANK_TABLES = [
+  `CREATE TABLE IF NOT EXISTS bank_connections (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    credentials_encrypted TEXT NOT NULL,
+    credentials_iv TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    last_sync_at TEXT,
+    last_error TEXT,
+    last_error_type TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_bank_connections_provider ON bank_connections(provider)`,
+  `CREATE TABLE IF NOT EXISTS bank_accounts (
+    id TEXT PRIMARY KEY,
+    connection_id TEXT NOT NULL REFERENCES bank_connections(id) ON DELETE CASCADE,
+    account_number TEXT NOT NULL,
+    account_type TEXT NOT NULL,
+    balance TEXT,
+    balance_currency TEXT NOT NULL DEFAULT 'ILS',
+    balance_updated_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_bank_accounts_connection_id ON bank_accounts(connection_id)`,
 ]
 
 const PUSH_SUBSCRIPTIONS_TABLE = [
@@ -470,6 +521,9 @@ export function getDb() {
   for (const sql of FEED_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of READING_LIST_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of FACTS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -490,6 +544,12 @@ export function getDb() {
   }
   for (const sql of FINANCE_TRADES_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of FINANCE_TRANSACTIONS_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of BANK_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
@@ -553,8 +613,11 @@ export const tasks = schema.tasks
 export const taskPeople = schema.taskPeople
 export const financeTrades = schema.financeTrades
 export const financeTransactions = schema.financeTransactions
+export const bankConnections = schema.bankConnections
+export const bankAccounts = schema.bankAccounts
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
+export const readingListItems = schema.readingListItems
 export const facts = schema.facts
 export const chatMessages = schema.chatMessages
 export const agentThreads = schema.agentThreads
@@ -616,10 +679,19 @@ export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect
 export type NewFinanceTrade = typeof schemaPg.financeTrades.$inferInsert
 export type FinanceTransaction = typeof schemaPg.financeTransactions.$inferSelect
 export type NewFinanceTransaction = typeof schemaPg.financeTransactions.$inferInsert
+export type BankConnection = typeof schemaPg.bankConnections.$inferSelect
+export type NewBankConnection = typeof schemaPg.bankConnections.$inferInsert
+export type BankAccount = typeof schemaPg.bankAccounts.$inferSelect
+export type NewBankAccount = typeof schemaPg.bankAccounts.$inferInsert
+export const BANK_PROVIDERS = schemaPg.BANK_PROVIDERS
+export const BANK_CONNECTION_STATUSES = schemaPg.BANK_CONNECTION_STATUSES
+export type { BankProvider, BankConnectionStatus } from './schema.pg'
 export type FeedSource = typeof schemaPg.feedSources.$inferSelect
 export type NewFeedSource = typeof schemaPg.feedSources.$inferInsert
 export type FeedItem = typeof schemaPg.feedItems.$inferSelect
 export type NewFeedItem = typeof schemaPg.feedItems.$inferInsert
+export type ReadingListItem = typeof schemaPg.readingListItems.$inferSelect
+export type NewReadingListItem = typeof schemaPg.readingListItems.$inferInsert
 export type VatEntry = typeof schemaPg.vatEntries.$inferSelect
 export type NewVatEntry = typeof schemaPg.vatEntries.$inferInsert
 export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
@@ -634,8 +706,8 @@ export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof schemaPg.hugoInstructions.$inferInsert
 export type Memory = typeof schemaPg.memories.$inferSelect
 export type NewMemory = typeof schemaPg.memories.$inferInsert
-export { MEMORY_KINDS, MEMORY_SOURCES } from './schema'
-export type { MemoryKind, MemorySource } from './schema'
+export { MEMORY_KINDS, MEMORY_SOURCES, READING_LIST_STATUSES } from './schema'
+export type { MemoryKind, MemorySource, ReadingListStatus } from './schema'
 
 /** Normalize select result to array (works with both SQLite .all() and Postgres Promise) */
 export async function queryRows<T>(q: Promise<T[]> | { all(): T[] }): Promise<T[]> {

@@ -33,5 +33,9 @@ SHELL=/bin/bash
 # WhatsApp message retention — daily at 04:15; purges group messages older than WHATSAPP_MESSAGE_RETENTION_DAYS (default 30)
 15 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-message-retention >/dev/null 2>&1
 
+# Bank & credit card sync — daily at 04:45 IST (01:45 UTC), before morning briefing.
+# Runs israeli-bank-scrapers sequentially (one Chromium at a time) — keep daily, do not increase.
+45 1 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/bank-sync >/dev/null 2>&1
+
 # ABC agent triggers — every 15 min
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/agent-triggers >/dev/null 2>&1

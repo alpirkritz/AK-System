@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useRef, useCallback, useMemo, memo, lazy, Suspense } from 'react'
+import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { trpc } from '@/lib/trpc'
+import { SummaryCard } from './SummaryCard'
 
 const VatTab = lazy(() => import('./VatTab'))
 const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
+const AccountsTab = lazy(() => import('./AccountsTab'))
 
-type Tab = 'portfolio' | 'journal' | 'cashflow' | 'import' | 'vat'
+type Tab = 'accounts' | 'portfolio' | 'journal' | 'cashflow' | 'import' | 'vat'
 
 const CATEGORIES = [
   'מזון', 'אוכל בחוץ', 'רכב', 'ביגוד', 'בריאות', 'חשבונות',
@@ -32,31 +34,8 @@ function fmtDate(iso: string): string {
   }
 }
 
-const SummaryCard = memo(function SummaryCard({
-  icon, label, value, sub, color,
-}: {
-  icon: string
-  label: string
-  value: string
-  sub?: string
-  color?: string
-}) {
-  return (
-    <div className="card flex flex-col gap-1">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-lg">{icon}</span>
-        <span className="text-xs text-[#647399] font-medium">{label}</span>
-      </div>
-      <div className="text-2xl font-bold tracking-tight" style={{ color: color ?? '#eef3fb' }}>
-        {value}
-      </div>
-      {sub && <div className="text-xs text-[#5a688c]">{sub}</div>}
-    </div>
-  )
-})
-
 export default function FinancePage() {
-  const [tab, setTab] = useState<Tab>('portfolio')
+  const [tab, setTab] = useState<Tab>('accounts')
   const [symbolFilter, setSymbolFilter] = useState('')
   const [dirFilter, setDirFilter] = useState<'all' | 'income' | 'expense'>('all')
   const [syncing, setSyncing] = useState(false)
@@ -305,6 +284,7 @@ export default function FinancePage() {
       {/* Tab Bar */}
       <div className="flex gap-1 mb-6 border-b border-[#1d2b46]">
         {([
+          ['accounts', 'חשבונות', '🏦'],
           ['portfolio', 'פורטפוליו', '📊'],
           ['journal', 'יומן מסחר', '📓'],
           ['cashflow', 'תזרים', '🔄'],
@@ -324,6 +304,13 @@ export default function FinancePage() {
           </button>
         ))}
       </div>
+
+      {/* ── Accounts Tab ──────────────────────────────────────────── */}
+      {tab === 'accounts' && (
+        <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
+          <AccountsTab />
+        </Suspense>
+      )}
 
       {/* ── Portfolio Tab ─────────────────────────────────────────── */}
       {tab === 'portfolio' && (
@@ -505,7 +492,7 @@ export default function FinancePage() {
                       <td className="px-4 py-3 text-[#5a688c] text-xs">{t.currency}</td>
                       <td className="px-4 py-3">
                         <span className="pill text-xs">
-                          {t.source === 'manual' ? '✏️ ידני' : '📄 CSV'}
+                          {t.source === 'manual' ? '✏️ ידני' : t.source === 'bank_scrape' ? '🏦 בנק' : '📄 CSV'}
                         </span>
                       </td>
                       <td className="px-4 py-3 opacity-0 group-hover:opacity-100 transition-opacity">

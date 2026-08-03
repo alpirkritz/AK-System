@@ -2,7 +2,7 @@
 # Build: docker build -t ak-system .
 # Run:   docker run -p 3000:3000 -v ./data:/data -e DATABASE_PATH=/data/ak_system.sqlite --env-file apps/web/.env.local ak-system
 
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 

@@ -15,6 +15,7 @@
     "@google/generative-ai": "^0.24.1",
     "@trpc/server": "^10.45.0",
     "googleapis": "^171.4.0",
+    "israeli-bank-scrapers": "^6.2.0",
     "node-ical": "^0.25.4",
     "pdf-parse": "^1.1.1",
     "rss-parser": "^3.13.0",

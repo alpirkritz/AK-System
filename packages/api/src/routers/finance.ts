@@ -1,6 +1,15 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { financeTrades, financeTransactions, agentTriggers } from '@ak-system/database'
+import {
+  financeTrades,
+  financeTransactions,
+  agentTriggers,
+  bankConnections,
+  bankAccounts,
+  queryRows,
+  type BankConnection,
+  type BankAccount,
+} from '@ak-system/database'
 import { eq, desc, gte, and, like, sql, count, sum } from 'drizzle-orm'
 import { listIBKREmails } from '../services/ibkr-parser'
 import { importIBKREmails } from '../services/ibkr-import-service'
@@ -8,6 +17,8 @@ import { importIBKRFromNotion, isNotionIbkrConfigured } from '../services/notion
 import { computeFifoPnl, type TradeInput } from '../services/pnl'
 import { parseCSV } from '../services/csv-parser'
 import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
+import { encryptCredentials, isBankCryptoConfigured } from '../lib/bank-credentials-crypto'
+import { syncConnection, syncAllConnections } from '../services/bank-sync-service'
 
 type JournalPeriod = 'today' | 'week' | 'month' | 'all'
 
@@ -256,6 +267,159 @@ export const financeRouter = router({
   deleteTransaction: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(financeTransactions).where(eq(financeTransactions.id, input.id))
     return { ok: true }
+  }),
+
+  // ─── Bank & credit card connections (israeli-bank-scrapers) ─────────────
+
+  bankConnections: router({
+    /** All connections + their accounts. NEVER returns credential fields. */
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const connections = (await queryRows(
+        ctx.db.select().from(bankConnections).orderBy(desc(bankConnections.createdAt)),
+      )) as BankConnection[]
+      const accounts = (await queryRows(ctx.db.select().from(bankAccounts))) as BankAccount[]
+      return connections.map((c) => ({
+        id: c.id,
+        provider: c.provider,
+        displayName: c.displayName,
+        status: c.status,
+        lastSyncAt: c.lastSyncAt,
+        lastError: c.lastError,
+        lastErrorType: c.lastErrorType,
+        createdAt: c.createdAt,
+        accounts: accounts.filter((a) => a.connectionId === c.id),
+      }))
+    }),
+
+    cryptoConfigured: protectedProcedure.query(() => ({
+      configured: isBankCryptoConfigured(),
+    })),
+
+    create: protectedProcedure
+      .input(
+        z.discriminatedUnion('provider', [
+          z.object({
+            provider: z.literal('hapoalim'),
+            displayName: z.string().min(1),
+            userCode: z.string().min(1),
+            password: z.string().min(1),
+          }),
+          z.object({
+            provider: z.literal('otsarHahayal'),
+            displayName: z.string().min(1),
+            username: z.string().min(1),
+            password: z.string().min(1),
+          }),
+          z.object({
+            provider: z.literal('visaCal'),
+            displayName: z.string().min(1),
+            username: z.string().min(1),
+            password: z.string().min(1),
+          }),
+          z.object({
+            provider: z.literal('isracard'),
+            displayName: z.string().min(1),
+            id: z.string().min(1),
+            card6Digits: z.string().length(6),
+            password: z.string().min(1),
+          }),
+        ]),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { provider, displayName, ...credentials } = input
+        const { encrypted, iv } = encryptCredentials(credentials as Record<string, string>)
+        const id = 'bc' + Date.now() + Math.random().toString(36).slice(2, 7)
+        const now = new Date().toISOString()
+        await ctx.db.insert(bankConnections).values({
+          id,
+          provider,
+          displayName,
+          credentialsEncrypted: encrypted,
+          credentialsIv: iv,
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        })
+        return { id }
+      }),
+
+    /** Deletes the connection + accounts; keeps past transactions (unlinks them). */
+    delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+      const accounts = (await queryRows(
+        ctx.db
+          .select({ id: bankAccounts.id })
+          .from(bankAccounts)
+          .where(eq(bankAccounts.connectionId, input.id)),
+      )) as Array<{ id: string }>
+      for (const account of accounts) {
+        await ctx.db
+          .update(financeTransactions)
+          .set({ bankAccountId: null })
+          .where(eq(financeTransactions.bankAccountId, account.id))
+      }
+      await ctx.db.delete(bankAccounts).where(eq(bankAccounts.connectionId, input.id))
+      await ctx.db.delete(bankConnections).where(eq(bankConnections.id, input.id))
+      return { success: true }
+    }),
+
+    sync: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+      const rows = (await queryRows(
+        ctx.db.select().from(bankConnections).where(eq(bankConnections.id, input.id)),
+      )) as BankConnection[]
+      const connection = rows[0]
+      if (!connection) {
+        return { success: false, accountsSynced: 0, transactionsInserted: 0, error: 'חיבור לא נמצא' }
+      }
+      return syncConnection(ctx.db, connection, ctx.bankScrape ?? undefined)
+    }),
+
+    syncAll: protectedProcedure.mutation(async ({ ctx }) => {
+      const results = await syncAllConnections(ctx.db, ctx.bankScrape ?? undefined)
+      return { results }
+    }),
+  }),
+
+  getAccountsSnapshot: protectedProcedure.query(async ({ ctx }) => {
+    const connections = (await queryRows(
+      ctx.db.select().from(bankConnections),
+    )) as BankConnection[]
+    const accountRows = (await queryRows(ctx.db.select().from(bankAccounts))) as BankAccount[]
+
+    const accounts = accountRows.map((a) => {
+      const connection = connections.find((c) => c.id === a.connectionId)
+      return {
+        id: a.id,
+        connectionId: a.connectionId,
+        displayName: connection?.displayName ?? a.accountNumber,
+        provider: connection?.provider ?? 'unknown',
+        accountType: a.accountType as 'bank' | 'credit_card',
+        accountNumber: a.accountNumber,
+        balance: a.balance != null ? parseFloat(a.balance) : null,
+        balanceUpdatedAt: a.balanceUpdatedAt,
+        status: connection?.status ?? 'pending',
+      }
+    })
+
+    const totalBankBalance = accounts
+      .filter((a) => a.accountType === 'bank' && a.balance != null)
+      .reduce((s, a) => s + (a.balance ?? 0), 0)
+    const totalCreditCardBalance = accounts
+      .filter((a) => a.accountType === 'credit_card' && a.balance != null)
+      .reduce((s, a) => s + (a.balance ?? 0), 0)
+    const lastSyncAt = connections
+      .map((c) => c.lastSyncAt)
+      .filter((t): t is string => Boolean(t))
+      .sort()
+      .pop() ?? null
+
+    return {
+      totalBankBalance,
+      totalCreditCardBalance,
+      currency: 'ILS' as const,
+      connectedCount: connections.filter((c) => c.status === 'connected').length,
+      lastSyncAt,
+      accounts,
+    }
   }),
 
   // ─── Summary ─────────────────────────────────────────────────────────────

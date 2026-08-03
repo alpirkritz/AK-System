@@ -44,7 +44,7 @@
     "pretest:e2e": "mkdir -p apps/web/data && (cd packages/database && DATABASE_PATH=../../apps/web/data/e2e.sqlite pnpm run push)"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=22.12.0",
     "pnpm": ">=8.0.0"
   },
   "packageManager": "pnpm@9.14.2",

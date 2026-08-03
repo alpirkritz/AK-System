@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import superjson from 'superjson'
 import type { getDb } from '@ak-system/database'
+import type { ScrapeFn } from './services/bank-sync-service'
 
 export type SessionUser = {
   id?: string | null
@@ -16,17 +17,21 @@ export type Context = {
   session: AuthSession
   /** Injected by apps/web for manual agent trigger runs. */
   runAgentTrigger?: (agentId: string) => Promise<{ ok: boolean; text?: string; error?: string }>
+  /** Test-only injection point: fake bank scraper (defaults to the real israeli-bank-scrapers). */
+  bankScrape?: ScrapeFn
 }
 
 export const createContext = async (opts: {
   db: ReturnType<typeof getDb>
   session?: AuthSession
   runAgentTrigger?: Context['runAgentTrigger']
+  bankScrape?: ScrapeFn
 }): Promise<Context> => {
   return {
     db: opts.db,
     session: opts.session ?? null,
     runAgentTrigger: opts.runAgentTrigger,
+    bankScrape: opts.bankScrape,
   }
 }
 

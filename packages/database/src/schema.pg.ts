@@ -214,10 +214,54 @@ export const financeTransactions = pgTable('finance_transactions', {
   transactionDate: text('transaction_date').notNull(),
   source: text('source').notNull(),
   rawData: text('raw_data'),
+  bankAccountId: text('bank_account_id'),
+  dedupeKey: text('dedupe_key'),
+  installmentInfo: text('installment_info'), // JSON string { number, total } for installment purchases
+  txnStatus: text('txn_status'), // 'completed' | 'pending' (from bank scraper)
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   transactionDateIdx: index('idx_finance_transactions_date').on(table.transactionDate),
   directionIdx: index('idx_finance_transactions_direction').on(table.direction),
+  bankAccountIdIdx: index('idx_finance_transactions_bank_account_id').on(table.bankAccountId),
+  dedupeKeyIdx: uniqueIndex('idx_finance_transactions_dedupe_key').on(table.dedupeKey),
+}))
+
+// ─── Bank & credit card connections (israeli-bank-scrapers) ────────────────
+
+/** Supported account-aggregation providers (values match israeli-bank-scrapers CompanyTypes) */
+export const BANK_PROVIDERS = ['hapoalim', 'otsarHahayal', 'visaCal', 'isracard'] as const
+export type BankProvider = (typeof BANK_PROVIDERS)[number]
+
+export const BANK_CONNECTION_STATUSES = ['pending', 'connected', 'error', 'disabled'] as const
+export type BankConnectionStatus = (typeof BANK_CONNECTION_STATUSES)[number]
+
+export const bankConnections = pgTable('bank_connections', {
+  id: text('id').primaryKey(),
+  provider: text('provider').notNull(), // BankProvider
+  displayName: text('display_name').notNull(),
+  credentialsEncrypted: text('credentials_encrypted').notNull(), // base64 AES-256-GCM ciphertext
+  credentialsIv: text('credentials_iv').notNull(), // base64 IV
+  status: text('status').notNull().default('pending'), // BankConnectionStatus
+  lastSyncAt: text('last_sync_at'),
+  lastError: text('last_error'),
+  lastErrorType: text('last_error_type'), // scraper errorType e.g. INVALID_PASSWORD
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  providerIdx: index('idx_bank_connections_provider').on(table.provider),
+}))
+
+export const bankAccounts = pgTable('bank_accounts', {
+  id: text('id').primaryKey(),
+  connectionId: text('connection_id').notNull().references(() => bankConnections.id, { onDelete: 'cascade' }),
+  accountNumber: text('account_number').notNull(),
+  accountType: text('account_type').notNull(), // 'bank' | 'credit_card'
+  balance: text('balance'),
+  balanceCurrency: text('balance_currency').notNull().default('ILS'),
+  balanceUpdatedAt: text('balance_updated_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  connectionIdIdx: index('idx_bank_accounts_connection_id').on(table.connectionId),
 }))
 
 export const feedSources = pgTable('feed_sources', {
@@ -241,6 +285,19 @@ export const feedItems = pgTable('feed_items', {
   sourceIdIdx: index('idx_feed_items_source_id').on(table.sourceId),
   linkIdx: uniqueIndex('idx_feed_items_link').on(table.link),
   publishedAtIdx: index('idx_feed_items_published_at').on(table.publishedAt),
+}))
+
+export const readingListItems = pgTable('reading_list_items', {
+  id: text('id').primaryKey(),
+  url: text('url').notNull(),
+  title: text('title').notNull(),
+  note: text('note'),
+  status: text('status').notNull().default('unread'),
+  createdAt: text('created_at').notNull(),
+  readAt: text('read_at'),
+}, (table) => ({
+  statusIdx: index('idx_reading_list_items_status').on(table.status),
+  createdAtIdx: index('idx_reading_list_items_created_at').on(table.createdAt),
 }))
 
 export const facts = pgTable('facts', {
@@ -420,3 +477,7 @@ export const notificationPreferences = pgTable('notification_preferences', {
   triggerMessage: text('trigger_message'),
   updatedAt: text('updated_at').notNull(),
 })
+export type BankConnection = typeof bankConnections.$inferSelect
+export type NewBankConnection = typeof bankConnections.$inferInsert
+export type BankAccount = typeof bankAccounts.$inferSelect
+export type NewBankAccount = typeof bankAccounts.$inferInsert

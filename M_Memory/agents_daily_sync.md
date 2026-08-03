@@ -1101,3 +1101,52 @@ For end-of-day rollups, Hugo may append a summary entry:
 ### Performance Improvements
 - QA: 224/224 API unit/integration tests (22 new), 64/64 web unit tests, web build green, mobile/whatsapp-bridge tsc green
 - `apps/web`'s `next lint` cannot run non-interactively (no committed `.eslintrc`) — pre-existing gap, flagged in the review report, not fixed in this pass since it's orthogonal to the feature
+
+---
+
+## 2026-08-02 — Hugo (Dev Pipeline) — Mobile task-form date picker, keyboard avoidance, reading list, agent-feedback chat tool
+
+**Workflow:** Dev pipeline — PM → UI/UX → Dev → Tests → QA → Reviewer
+**Status:** Complete (commit/push pending — user action; EAS preview build queued)
+
+### Stand-up
+- **Goal:** Four user-requested items, all reachable from the mobile app: (1) a real date picker in the task form, (2) the keyboard must not cover the form, (3) a personal reading list, (4) a way to describe a correction in chat and have it routed to the right `A_Agents` specialist.
+- **Context:** Follows this session's `ngrok-skip-browser-warning` connectivity fix. User confirmed scope via structured questions: items 1–2 for mobile **and** web, reading list = personal bookmarks (manual URL + title, read/unread), and item 4 as a new tool on the existing chat that logs to `M_Memory` for human review rather than editing agent cards.
+
+### Actions Taken
+1. Spec `docs/specs/mobile-task-form-reading-list-feedback.md`; pre-implementation UI/UX review (APPROVED WITH NITS).
+2. Mobile date picker: `@react-native-community/datetimepicker@9.1.0` (verified against the Expo **SDK 56** docs per `apps/mobile/AGENTS.md`, listed as supported/in Expo Go), registered in `app.config.ts` plugins. Replaced the free-text `YYYY-MM-DD` field with a pressable field showing a Hebrew long-form date, plus a "נקה תאריך" affordance. Formats from local date parts, not `toISOString()`, so the chosen day can't shift a day back east of UTC.
+3. Mobile keyboard: `KeyboardAvoidingView` with `behavior="padding"` on **iOS only** — Android already sets `softwareKeyboardLayoutMode: 'resize'`, and stacking both double-adjusts inside a `formSheet`. Web needed no change (both task modals already use `<input type="date">`; `.modal` already scrolls).
+4. DB: `reading_list_items` in `schema.pg.ts` + `schema.ts`, plus SQLite `CREATE TABLE IF NOT EXISTS` bootstrap in `packages/database/src/index.ts` (the repo's actual migration mechanism — there is no `drizzle/` migration dir).
+5. API: `packages/api/src/routers/readingList.ts` (`list`/`create`/`markRead`/`delete`), mounted as `readingList`.
+6. UI: `apps/mobile/app/reading-list.tsx` reached from a new header icon (5-tab bar left intact) and `apps/web/src/app/reading-list/page.tsx` linked from the "מידע" nav section.
+7. Chat tool: `log_agent_feedback` declaration + dispatch in `conversation-engine.ts`, backed by new `apps/web/src/lib/agent-feedback-log.ts` which **appends only** to this file. Confirmation phrasing pinned in the system prompt ("נרשם לטיפול ב-X, ייבדק ידנית") so the model can't imply the fix is already live.
+8. EAS preview APK queued (bundles the datetimepicker native dep together with the earlier ngrok header fix): build `8fbcf7fa-b475-4e1a-b78d-87c2fbf137ec`.
+
+### Outputs
+- `docs/specs/mobile-task-form-reading-list-feedback.md`
+- `reports/qa-mobile-task-form-reading-list-feedback.md`
+- `reports/mobile-task-form-reading-list-feedback.md` (pre- and post-implementation UI/UX + code review, both APPROVED)
+
+### Compliance
+- [x] Engineering task — PM spec written before any code
+- [x] Rule 3 honored: the new tool only ever appends to `M_Memory/agents_daily_sync.md`; a test asserts the target `A_Agents/*.md` stays byte-identical, and `agentId` is `path.basename`-guarded against traversal
+- [x] No secrets added; the new table stores only user-supplied URLs/titles
+
+### Performance Improvements
+- QA: 239/239 API tests (+9), 78/78 web unit tests (+14), 6/6 new reading-list Playwright specs, web build green with `/reading-list` emitted, mobile/whatsapp-bridge tsc green
+- Two real bugs were caught by writing the tests rather than by inspection: zod validated the URL *before* trimming (pasted URLs with whitespace were rejected), and the browser's native `type="url"` bubble preempted our Hebrew inline error on web
+- 12 pre-existing e2e failures confirmed unrelated — stale selectors from an earlier UI refresh (e.g. `/recurring` is now a redirect, the `/chat` heading no longer exists in `HEAD`). Verified against `HEAD` rather than assumed, since files I never touched were involved
+- Process note: I briefly ran `git stash` mid-QA, which silently pulled the new untracked files out of the build (the missing `/reading-list` route in the build output was the tell). Restored and verified, but the lesson is not to reach for `git stash` while a build/verification step is in flight
+- Repo gap worth a future pass: `next lint` still can't run non-interactively, and Postgres deployments need `drizzle-kit push` for `reading_list_items` since the SQLite auto-create path doesn't cover PG
+
+---
+
+## 2026-08-03 — bank-accounts-snapshot (feature pipeline, Claude/Cowork)
+
+- **Goal:** Bank & credit card snapshot view — Hapoalim, Otsar HaHayal, Visa Cal, Isracard via israeli-bank-scrapers (read-only), per spec `docs/specs/bank-accounts-snapshot.md` (Approved).
+- **Actions Taken:** PM spec → UI pre-review → dev (schema ×2 + SQLite bootstrap, AES-256-GCM credential crypto, bank-sync-service with sequential scraping + dedupe, finance.bankConnections tRPC sub-router + getAccountsSnapshot, cron/bank-sync route, Accounts tab + BankConnectionModal + source pill, Node 20→22 upgrade) → tests (3 Vitest files + 1 Playwright spec) → QA (sandbox: full tsc typecheck, crypto runtime verification, SQLite bootstrap SQL verification) → review.
+- **Outputs:** `reports/bank-accounts-snapshot.md` (APPROVED WITH NITS — pending local `pnpm install && pnpm qa && build` on Node ≥22.12; sandbox lacked npm registry + macOS-only node_modules binaries).
+- **Compliance:** Read-only bank access only (`scrape()` sole operation); credentials AES-256-GCM encrypted at rest, never returned by any procedure; no PII in logs; sync capped at once daily + manual click.
+- **Performance Improvements:** Sequential scraping enforced + tested (1 GB EC2 constraint); dedupe via unique sha256 key prevents duplicate imports.
+- **Blockers:** Local verification required before deploy (see report Verification section).
