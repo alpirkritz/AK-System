@@ -19,6 +19,9 @@ import { agentsRouter } from './routers/agents'
 import { memoryRouter } from './routers/memory'
 import { settingsRouter } from './routers/settings'
 import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
+import { companiesRouter } from './routers/companies'
+import { serviceItemsRouter } from './routers/service-items'
+import { salesDocumentsRouter } from './routers/sales-documents'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -31,6 +34,15 @@ export {
   getAgentCalendarScopePromptBlock,
 } from './services/agent-calendar-scope'
 export { localTodayIso, localDateRangeToUtc, getDefaultTimezone } from './lib/calendar-dates'
+export {
+  WHATSAPP_WINDOWS,
+  isWhatsappWindow,
+  normalizeWhatsappTs,
+  resolveWhatsappTimeWindow,
+  type WhatsappWindow,
+  type WhatsappTimeWindowInput,
+  type ResolvedWhatsappTimeWindow,
+} from './lib/whatsapp-time-window'
 export { probeGoogleCalendarHealth, type GoogleAccountHealth } from './services/google-calendar-health'
 export {
   getAgentCalendarContext,
@@ -93,6 +105,9 @@ export const appRouter = router({
   memory: memoryRouter,
   settings: settingsRouter,
   notionStatusOverrides: notionStatusOverridesRouter,
+  companies: companiesRouter,
+  serviceItems: serviceItemsRouter,
+  salesDocuments: salesDocumentsRouter,
 })
 
 export type AppRouter = typeof appRouter

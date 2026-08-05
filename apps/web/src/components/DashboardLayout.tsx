@@ -102,8 +102,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer)
   }, [taskAddedMessage])
 
-  // Auth screen: render bare, no app chrome.
-  if (pathname === '/login') {
+  // Auth screen and printable documents: render bare, no app chrome.
+  if (pathname === '/login' || pathname.endsWith('/print')) {
     return <>{children}</>
   }
 

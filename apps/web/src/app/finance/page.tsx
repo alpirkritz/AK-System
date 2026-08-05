@@ -11,8 +11,18 @@ const VatTab = lazy(() => import('./VatTab'))
 const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
 const AccountsTab = lazy(() => import('./AccountsTab'))
 const InsightsTab = lazy(() => import('./InsightsTab'))
+const DocumentsTab = lazy(() => import('./DocumentsTab'))
 
-const TABS = ['insights', 'accounts', 'portfolio', 'journal', 'cashflow', 'import', 'vat'] as const
+const TABS = [
+  'insights',
+  'accounts',
+  'portfolio',
+  'journal',
+  'cashflow',
+  'import',
+  'documents',
+  'vat',
+] as const
 type Tab = (typeof TABS)[number]
 
 const CATEGORIES = CASHFLOW_CATEGORY_LABELS
@@ -169,6 +179,14 @@ function FinancePageContent() {
     },
   })
 
+  const setTxnCategoryMutation = trpc.finance.setTransactionCategory.useMutation({
+    onSuccess: () => {
+      utils.finance.listTransactions.invalidate()
+      utils.finance.getSummary.invalidate()
+      utils.finance.analytics.invalidate()
+    },
+  })
+
   const handleSync = () => {
     setSyncing(true)
     setSyncResult(null)
@@ -274,15 +292,18 @@ function FinancePageContent() {
           icon="💸"
           label="הוצאות החודש"
           value={summaryLoading ? '...' : fmt(summary?.monthlyExpenses ?? 0)}
+          sub="ללא העברות וחיובי אשראי"
           color="#fb7185"
         />
         <SummaryCard
           icon="💰"
           label="הכנסות החודש"
           value={summaryLoading ? '...' : fmt(summary?.monthlyIncome ?? 0)}
-          sub={summary?.monthlyNet !== undefined
-            ? `נטו: ${fmt(summary.monthlyNet)}`
-            : undefined}
+          sub={
+            summary?.monthlyNet !== undefined
+              ? `נטו: ${fmt(summary.monthlyNet)} · ללא העברות פנימיות`
+              : 'ללא העברות פנימיות'
+          }
           color="#34d399"
         />
       </div>
@@ -296,6 +317,7 @@ function FinancePageContent() {
           ['journal', 'יומן מסחר', '📓'],
           ['cashflow', 'תזרים', '🔄'],
           ['import', 'ייבוא', '⬆️'],
+          ['documents', 'מסמכים', '🧾'],
           ['vat', 'דיווח מע"מ', '📋'],
         ] as [Tab, string, string][]).map(([id, label, icon]) => (
           <button
@@ -494,7 +516,25 @@ function FinancePageContent() {
                       <td className="px-4 py-3 text-[#647399] whitespace-nowrap">{fmtDate(t.transactionDate)}</td>
                       <td className="px-4 py-3 max-w-[200px] truncate">{t.description}</td>
                       <td className="px-4 py-3">
-                        <span className="pill text-xs">{t.category ?? 'אחר'}</span>
+                        <select
+                          className="input text-xs py-1 min-w-[7rem]"
+                          value={t.category ?? 'אחר'}
+                          disabled={setTxnCategoryMutation.isPending}
+                          aria-label="שנה קטגוריה"
+                          onChange={(e) =>
+                            setTxnCategoryMutation.mutate({
+                              id: t.id,
+                              category: e.target.value,
+                              applyToSimilar: false,
+                            })
+                          }
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td
                         className="px-4 py-3 font-semibold"
@@ -841,6 +881,13 @@ function FinancePageContent() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── Sales Documents Tab ───────────────────────────────────── */}
+      {tab === 'documents' && (
+        <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
+          <DocumentsTab />
+        </Suspense>
       )}
 
       {/* ── VAT Reporting Tab ─────────────────────────────────────── */}

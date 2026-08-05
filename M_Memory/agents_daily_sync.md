@@ -1150,3 +1150,130 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Compliance:** Read-only bank access only (`scrape()` sole operation); credentials AES-256-GCM encrypted at rest, never returned by any procedure; no PII in logs; sync capped at once daily + manual click.
 - **Performance Improvements:** Sequential scraping enforced + tested (1 GB EC2 constraint); dedupe via unique sha256 key prevents duplicate imports.
 - **Blockers:** Local verification required before deploy (see report Verification section).
+
+---
+
+## 2026-08-03 — agent-precision-and-push-reliability (audit + card cleanup, Claude/Cowork)
+
+- **Goal:** (1) Fix agent instruction precision (Hugo, morning briefing, meeting prep, email assistant); (2) diagnose why Helm APK never shows push notifications.
+- **Root causes found:**
+  - Push (a): **no scheduler invokes `/api/cron/*` in the local-Mac deployment** — `chat_messages` has 0 rows ever with `source='cron'`; only manual test pushes were ever sent. (b): server checks Expo *tickets* only, never *receipts* — FCM V1 credential errors (the "expoSent: 1, no banner" case, documented in `docs/deploy/helm-apk-build.md`) are invisible. 3 tokens accumulated in `expo_push_tokens` (stale reinstalls never pruned).
+  - Precision: A_Agents/S_Skills md **are** the production prompts (`abc-agents.ts` → `gemini-agent-engine.ts` systemInstruction), but cards were written for the offline Notion/filesystem framework — "create a Notion page", "stage in O_Output", "DRAFT — REQUIRES HUMAN REVIEW", "output staged for human delivery", "search Slack", Hugo card still `Status: Template` with `[TBD]` sub-agents, email card demanding Markdown tables WhatsApp can't render. Also: hugoInstructions silently truncated at 4000 chars mid-prompt; morning_briefing suggested routing → `06_calendar_optimizer` (whose MANDATORY override beats the user's 03 card); unrouted morning briefing = template with no LLM; cron runs inherit last 20 chat messages as few-shot.
+- **Actions Taken:**
+  1. Cleaned 4 agent cards + 2 workflows to match the real runtime (reply = deliverable; no staging/meta-narration; Hebrew, WhatsApp-friendly, no tables; grounding markers): `A_Agents/01_Hugo_orchestrator.md` (Template→Active, [TBD] rows removed, runtime Run Protocol), `03_morning_briefing.md` (Notion-page workflow → direct-reply; Slack removed; phone-friendly style), `04_meeting_prep_herald.md` (runtime header + protocol), `07_email_assistant.md` (table → grouped list format; Notion Inbox notify removed), `S_Skills/wf_morning_brief.md`, `S_Skills/wf_email_assistant.md`.
+  2. `scripts/local-cron.mjs` — local scheduler mirroring `deploy/crontab.example`, wired into `scripts/serve.sh` (skip with `SKIP_CRON=1`).
+  3. `scripts/push-doctor.mjs` — sends a real test push and fetches Expo **receipts**, printing exact FCM errors + Hebrew fix hints; also reports cron-health from the DB.
+  4. Spec `docs/specs/agent-precision-and-push-reliability.md` (DRAFT — awaiting approval) for the code-level fixes: receipt checking + token pruning + pushDeliveryLog table, memory budget 4000→12000 + precedence fix, universal no-table channel guard, morning-briefing routing default → 03, cron history isolation, Notion context cap, temp 0.3 on cron.
+- **Outputs:** edited cards/workflows above; `scripts/push-doctor.mjs`; `scripts/local-cron.mjs`; `docs/specs/agent-precision-and-push-reliability.md`.
+- **Compliance:** No `apps/`/`packages/` code touched without spec (scripts/ + md only). Append-only log honored. No PII exposed.
+- **Blockers:** FCM V1 credential state on EAS project unverifiable from sandbox — user must run `node scripts/push-doctor.mjs` (and `bash scripts/check-helm-fcm.sh`) on the Mac. Empty `notification_preferences` / `agent_triggers` tables mean the email assistant has never been scheduled — user must route agents in Settings → Notifications.
+
+---
+
+## 2026-08-03 — agent-precision-and-push-reliability: IMPLEMENTATION (Claude/Cowork, phase 2)
+
+- **Goal:** User approved the spec ("תעשה כל מה שאמרת") + directive: production dependency moves to EC2 24/7, not the Mac.
+- **Actions Taken:** Full spec implemented — push_delivery_log table (pg+sqlite+bootstrap); expo-push.ts receipts check (`checkPendingExpoReceipts`, piggybacked on task-reminder cron) with dead-token pruning + once-per-24h FCM credential alert; `push.deliveryLog` tRPC + read-only יומן מסירה section in Settings ▸ Notifications; agent-memory cap 4000→12000 with pure `composeMemoryPromptBlock` + line-boundary truncation marker; memory block moved to END of system instruction with explicit PRECEDENCE statement; universal no-tables channel guard for all agents on whatsapp/telegram/cron; cron temperature 0.3; cron history 20→3; Notion calendarReview capped 6000; morning_briefing suggestedAgentId 06→03; unrouted morning template labeled. Tests: +7 expo-push, +5 agent-memory (new file), +1 preferences regression.
+- **Outputs:** `reports/agent-precision-and-push-reliability.md` (IMPLEMENTED — PENDING LOCAL QA), `docs/deploy/ec2-24-7-runbook.md` (8-step migration off the Mac: FCM V1 → ngrok on EC2 → deploy → install-server-cron → phone re-register → receipt verification → agent routing → Mac shutdown).
+- **Compliance:** Spec approved before code per dev-pipeline. Sandbox cannot run vitest/build (macOS-native binaries) — QA gate explicitly deferred to the Mac with exact commands in the report; verdict intentionally NOT marked APPROVED.
+- **Blockers:** `pnpm db:push && pnpm test && pnpm --filter @ak-system/web test && pnpm -r run lint && pnpm --filter @ak-system/web build` must pass on the Mac; FCM V1 upload via `eas credentials` (helm-push-969711) is manual.
+
+---
+
+## 2026-08-04 — bank-scraper-ec2-chrome-deps (Hugo / Dev pipeline)
+
+- **Active Agent:** Dev + QA + Reviewer (dev-pipeline)
+- **Workflow:** docs/specs/bank-scraper-ec2-chrome-deps.md
+- **Goal:** Fix Hapoalim sync on EC2 failing with Puppeteer Code 127 / missing libglib-2.0.so.0.
+- **Actions Taken:** Installed Chromium shared libs in `deploy/Dockerfile.runtime` + root `Dockerfile`; passed Docker-safe Chromium args from `realScrape`; unit test for args; note in `docs/deploy/ec2-production.md`.
+- **Outputs:** `docs/specs/bank-scraper-ec2-chrome-deps.md`, `reports/qa-bank-scraper-ec2-chrome-deps.md`, `reports/bank-scraper-ec2-chrome-deps.md` (APPROVED WITH NITS).
+- **Compliance:** Spec approved before code. No schema/UI change. Tests 17/17 bank-related passed.
+- **Blockers:** Needs `pnpm deploy:ec2` then manual "סנכרן עכשיו" to confirm Chromium launches on the instance.
+
+
+---
+
+## 2026-08-04 — bank-scraper-puppeteer-externals (follow-up)
+
+- **Goal:** Fix `e.mask is not a function (UNKNOWN_ERROR)` on Hapoalim + Otsar sync after Chromium libs fix.
+- **Root cause:** Next webpack + Puppeteer `ws` optional `bufferutil.mask` during browser launch in scraper `initialize()`.
+- **Actions:** Externalize scrapers/puppeteer/ws in `next.config.js`; set `WS_NO_BUFFER_UTIL` / `WS_NO_UTF_8_VALIDATE`; redeployed EC2.
+- **Outputs:** `docs/specs/bank-scraper-puppeteer-externals.md`, `reports/bank-scraper-puppeteer-externals.md`.
+- **Blockers:** User should retry sync manually to confirm.
+
+
+---
+
+## 2026-08-04 — bank-trusted-device-otp (option 2)
+
+- **Active Agent:** Dev pipeline (PM → Dev → Tests → QA → Reviewer)
+- **Workflow:** docs/specs/bank-trusted-device-otp.md
+- **Goal:** Persist Chromium profile per bank connection + one-time OTP UI so Hapoalim trusted-device skips SMS on later syncs.
+- **Actions Taken:** Profile dir under `/data/bank-browser-profiles/<id>`; OTP bridge + page heuristics; `awaiting_otp` status; `submitOtp` mutation; AccountsTab OTP form + poll; extend redirect wait for OTP window.
+- **Outputs:** `docs/specs/bank-trusted-device-otp.md`, `reports/qa-bank-trusted-device-otp.md`, `reports/bank-trusted-device-otp.md` (APPROVED WITH NITS).
+- **Compliance:** Spec written for user-chosen option 2 before code. Tests 25/25 bank-related passed.
+- **Blockers:** Needs `pnpm deploy:ec2` then one manual Hapoalim sync with SMS code; verify later sync skips OTP.
+
+---
+
+## 2026-08-04 — bank OTP Hapoalim modal fix (hot)
+
+- **Goal:** OTP UI never appeared; Hapoalim shows device-trust modal over login form with 5 digit boxes.
+- **Actions:** Detect modal by Hebrew copy even when #userCode/#password remain; fill digit boxes and click המשך (not כניסה). Redeployed.
+- **Note:** Code 29028 could not be applied in time (wrong field then Chrome exited). User must sync again for a fresh SMS.
+
+---
+
+## 2026-08-04 — cashflow-data-reliability (PM + QA + QA-UI)
+
+- **Active Agent:** PM Agent → QA Agent → QA UI Agent
+- **Workflow:** docs/specs/cashflow-data-reliability.md
+- **Goal:** Audit why Finance insights totals feel wrong (rent-only month).
+- **Actions Taken:** Prod DB sample on EC2; mapped dual KPI paths; wrote reliability spec + QA/QA-UI FAIL reports. No code changes.
+- **Outputs:** `docs/specs/cashflow-data-reliability.md`, `reports/qa-cashflow-data-reliability.md`, `reports/qa-ui-cashflow-data-reliability.md`
+- **Key finding:** Aug countable ≈ ₪8186 (check ₪8100 as אחר + ₪86); Cal settlement ₪8884 excluded; no credit-card connection; header vs insights use different formulas.
+- **Compliance:** Spec-only from PM; QA report-only.
+- **Blockers:** Awaiting user approval of spec (and open questions: timezone normalize, force דיור on check, header label vs countable default) before Dev.
+
+---
+
+## 2026-08-04 — cashflow-data-reliability (implemented)
+
+- **Active Agent:** UI Designer → Dev
+- **Decisions:** (1) ₪8100 = שכירות + retag UX; (2) unify countable KPIs + subtext; (3) cards later.
+- **Actions:** monthKey Asia/Jerusalem; getSummary countable; monthComposition; משיכת שיק→שכירות; cashflow select + composition panel; prod reclassified check rows; deployed EC2.
+- **Outputs:** docs/specs + reports/cashflow-data-reliability.md; tests 81/81 analytics/categorizer.
+
+### 2026-08-04 — Cashflow: user answers locked + rent tag refine
+- **Agent:** Dev / UI Designer follow-up
+- **Actions:** Locked OQ: retag UX critical; KPI = countable + shared subtext; cards deferred. Softened auto-keyword (no blanket משיכת שיק→שכירות). Prod: 11×₪8100 keep שכירות; 12 other checks → אחר; removed overbroad learned rule.
+- **Compliance:** N/A (apps/packages engineering)
+
+---
+
+## 2026-08-05 — outlook-bridge-title-blocklist (incident + fix)
+
+- **Active Agent:** PM → Dev → Dev Tests → QA → Reviewer
+- **Workflow:** `docs/specs/outlook-bridge-title-blocklist.md`
+- **Goal:** `Global D&T Town Hall [HOLD]` appeared hundreds of times in Dragontail and could not be deleted by hand.
+- **Root cause:** Not the current bridge. The retired standalone agent `com.alpir.exchange-to-gcal` (`DEV/exchange-to-gcal-agent`, tag `source=exchangeSync`) was still loaded in launchd and re-inserted copies every 15 min between 2026-06-14 and 2026-06-28 without deleting prior ones. Its dedup keyed on a description that shifts between runs because the ~2,000-attendee list is truncated at Google's 8 KB limit. 4,680 of the 4,755 events in a ±365d window were its copies; 4,376 were duplicates of just 8 titles (1,461 "Tech Hour", 1,240 + 458 "* D&T Townhall", 710 Town Hall [HOLD], 493 "Round Table w Itzik").
+- **Actions Taken:** (1) `launchctl bootout` the old agent + renamed its plist to `.disabled` so it cannot reload at login. (2) One-off cleanup script deleting only `source=exchangeSync`-tagged events — keep 1 per title+start, or 0 where the current bridge already owns the slot; untagged events never touched. (3) Added `OUTLOOK_BRIDGE_TITLE_BLOCKLIST` to the live bridge so global broadcast invites are never mirrored again.
+- **Outputs:** `docs/specs/outlook-bridge-title-blocklist.md`, `reports/qa-outlook-bridge-title-blocklist.md`, `reports/outlook-bridge-title-blocklist.md`, `scripts/outlook-to-google-sync.ts`, `scripts/outlook-to-google-sync.test.ts`
+- **Verification:** 21/21 bridge tests, 397/397 full suite, tsc clean. Live dry run: 3 blocked (2,066 / 448 / 418 attendees), 3 stale copies reclaimed, 0 false positives among the 55 kept events.
+- **Gotcha worth remembering:** the blocklist value contains spaces and `scripts/outlook-bridge-run.sh` does `set -a; source apps/web/.env.local` under `set -euo pipefail` — it **must** stay quoted in `.env.local` or the whole launchd run aborts.
+- **Compliance:** N/A (apps/packages/scripts engineering, not ABC workspace).
+- **Follow-up:** `apps/web` has no ESLint config, so `pnpm -r run lint` fails on `next lint` interactively — pre-existing, worth a separate fix.
+
+---
+
+## 2026-08-05 — sales-documents (new module)
+
+- **Active Agent:** PM → UI Designer → Dev → Dev Tests → QA → Reviewer
+- **Workflow:** `docs/specs/sales-documents.md`
+- **Goal:** Stop paying an external invoicing SaaS for 1–5 documents a month. In-house quotes, proformas, tax invoices, tax-invoice-receipts, credit invoices and receipts, wired into the existing VAT ledger.
+- **Actions Taken:** New `packages/types/src/sales.ts` (document rules, bilingual `DOCUMENT_STRINGS`, totals with `vatMode`, allocation-number thresholds). Seven new tables — `companies`, `service_items`, `company_item_prices`, `sales_documents`, `sales_document_lines`, `sales_document_payments`, `sales_document_counters` — in `schema.pg.ts` + `schema.ts` + SQLite bootstrap, plus `people.companyId`, `vat_entries.salesDocumentId`, `user_settings.businessProfile`. Three new routers (`companies`, `serviceItems`, `salesDocuments`) + `settings.businessProfile`. Pricing memory as a pure function (`services/pricing-memory.ts`): pinned → last charged to this client → catalog default, with the source always shown in the UI. UI: `documents` tab in `/finance`, form/lines/payment/preview components, a layout-free print page, and three settings pages (business, companies, pricing). Print palette derived from the logo (`--doc-accent: #01AAC1`).
+- **Outputs:** `docs/specs/sales-documents.md`, `reports/qa-sales-documents.md`, `reports/sales-documents.md`
+- **Verification:** 463/463 Vitest (60 new), 10/10 new Playwright specs, web build green. Reviewer verdict APPROVED WITH NITS.
+- **Gotcha worth remembering:** adding tables to the Drizzle schema made `drizzle-kit push` treat the bootstrap-only `google_connections` table as an orphan and prompt "is X a rename of google_connections?" — interactive, so `pnpm test` hung. Fixed with `tablesFilter: ['!google_connections']` in `packages/database/drizzle.config.ts`. Any future table added by raw bootstrap SQL rather than the schema will do the same thing.
+- **Known limit:** credit invoices don't auto-post to VAT (`vat.create` rejects negative amounts) — the UI says so and the entry has to be added by hand.
+- **Compliance:** N/A (apps/packages engineering, not ABC workspace).

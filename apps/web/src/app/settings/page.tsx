@@ -864,6 +864,48 @@ export default function SettingsPage() {
       </Link>
 
       <Link
+        href="/settings/business"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">פרטי העסק למסמכים</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            שם, ח.פ./ע.מ., כתובת, לוגו, פרטי בנק ומספור התחלתי — מופיעים בכל חשבונית והצעת מחיר
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🧾</span>
+      </Link>
+
+      <Link
+        href="/settings/companies"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">חברות לקוח</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            פרטי חיוב של הלקוחות — ח.פ., כתובת, איש קשר ושפת מסמכים מועדפת
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🏢</span>
+      </Link>
+
+      <Link
+        href="/settings/pricing"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">קטלוג פריטים ותמחור</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            מחירי ברירת מחדל לשירותים; המערכת זוכרת מה חויב אצל כל לקוח
+          </div>
+        </div>
+        <span className="text-[#2dd4bf] text-lg">🏷️</span>
+      </Link>
+
+      <Link
         href="/settings/notion-statuses"
         className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
         style={{ border: '1px solid #29395d' }}

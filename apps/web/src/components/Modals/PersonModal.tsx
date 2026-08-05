@@ -16,6 +16,7 @@ interface PersonForm {
   color: string
   phone: string
   company: string
+  companyId: string
   jobTitle: string
   linkedin: string
   tags: string
@@ -33,6 +34,7 @@ const EMPTY_FORM: PersonForm = {
   color: '#2dd4bf',
   phone: '',
   company: '',
+  companyId: '',
   jobTitle: '',
   linkedin: '',
   tags: '',
@@ -55,6 +57,7 @@ export function PersonModal({
   const [form, setForm] = useState<PersonForm>({ ...EMPTY_FORM })
   const { data: person } = trpc.people.getById.useQuery({ id: editingId! }, { enabled: !!editingId && open })
   const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: open })
+  const { data: billingCompanies = [] } = trpc.companies.list.useQuery(undefined, { enabled: open })
   const utils = trpc.useUtils()
   const create = trpc.people.create.useMutation({
     onSuccess: () => { utils.people.list.invalidate(); utils.people.listPaginated.invalidate(); utils.people.filterOptions.invalidate(); onClose() },
@@ -73,6 +76,7 @@ export function PersonModal({
         color: person.color ?? '#2dd4bf',
         phone: person.phone ?? '',
         company: person.company ?? '',
+        companyId: person.companyId ?? '',
         jobTitle: person.jobTitle ?? '',
         linkedin: person.linkedin ?? '',
         tags: person.tags ?? '',
@@ -95,6 +99,7 @@ export function PersonModal({
       color: form.color || undefined,
       phone: form.phone || undefined,
       company: form.company || undefined,
+      companyId: form.companyId || null,
       jobTitle: form.jobTitle || undefined,
       linkedin: form.linkedin || undefined,
       tags: form.tags || undefined,
@@ -154,6 +159,43 @@ export function PersonModal({
                   onChange={(v) => setForm((f) => ({ ...f, company: v }))}
                   placeholder="שם חברה"
                 />
+              </div>
+              <div>
+                <label className="label" htmlFor="person-billing-company">
+                  חברה לחיוב
+                </label>
+                <select
+                  id="person-billing-company"
+                  className="select"
+                  value={form.companyId}
+                  onChange={(e) => {
+                    const companyId = e.target.value
+                    const picked = billingCompanies.find((c) => c.id === companyId)
+                    setForm((f) => ({
+                      ...f,
+                      companyId,
+                      company: picked && !f.company ? picked.name : f.company,
+                    }))
+                  }}
+                >
+                  <option value="">ללא</option>
+                  {billingCompanies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-[#5a688c] mt-1">
+                  משמש כפרטי הלקוח בחשבוניות ובהצעות מחיר.{' '}
+                  <a
+                    className="text-[#2dd4bf] hover:underline"
+                    href="/settings/companies"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    ניהול חברות
+                  </a>
+                </p>
               </div>
               <div>
                 <label className="label">צבע</label>

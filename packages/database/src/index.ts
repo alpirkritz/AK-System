@@ -70,8 +70,10 @@ const PEOPLE_COLUMNS = [
   "ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
   "ALTER TABLE people ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
   'ALTER TABLE people ADD COLUMN notion_page_id TEXT',
+  'ALTER TABLE people ADD COLUMN company_id TEXT',
   'CREATE INDEX IF NOT EXISTS idx_people_status ON people(status)',
   'CREATE INDEX IF NOT EXISTS idx_people_notion_page_id ON people(notion_page_id)',
+  'CREATE INDEX IF NOT EXISTS idx_people_company_id ON people(company_id)',
 ]
 
 const TASKS_COLUMNS = [
@@ -351,6 +353,20 @@ const EXPO_PUSH_TOKENS_TABLE = [
   )`,
 ]
 
+const PUSH_DELIVERY_LOG_TABLE = [
+  `CREATE TABLE IF NOT EXISTS push_delivery_log (
+    id TEXT PRIMARY KEY,
+    ticket_id TEXT,
+    token TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT,
+    message TEXT,
+    sent_at TEXT NOT NULL,
+    checked_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_push_delivery_log_status ON push_delivery_log(status, sent_at)`,
+]
+
 const NOTIFICATIONS_TABLE = [
   `CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
@@ -359,9 +375,15 @@ const NOTIFICATIONS_TABLE = [
     url TEXT NOT NULL,
     type TEXT NOT NULL,
     read_at TEXT,
+    archived_at TEXT,
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_inbox ON notifications(archived_at, created_at)`,
+]
+
+const NOTIFICATIONS_COLUMNS = [
+  'ALTER TABLE notifications ADD COLUMN archived_at TEXT',
 ]
 
 const WHATSAPP_TABLES = [
@@ -434,6 +456,7 @@ const NOTIFICATION_PREFERENCES_TABLE = [
 
 const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN agent_display_names TEXT',
+  'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [
@@ -478,6 +501,139 @@ const VAT_ENTRIES_TABLE = [
   `CREATE INDEX IF NOT EXISTS idx_vat_entries_year_period ON vat_entries(year, period)`,
   `CREATE INDEX IF NOT EXISTS idx_vat_entries_date ON vat_entries(date)`,
   `CREATE INDEX IF NOT EXISTS idx_vat_entries_tax_code ON vat_entries(tax_code)`,
+]
+
+const VAT_ENTRIES_COLUMNS = [
+  'ALTER TABLE vat_entries ADD COLUMN sales_document_id TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_vat_entries_sales_document_id ON vat_entries(sales_document_id)',
+]
+
+const SALES_DOCUMENTS_TABLES = [
+  `CREATE TABLE IF NOT EXISTS companies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_en TEXT,
+    tax_id TEXT,
+    tax_id_type TEXT NOT NULL DEFAULT 'company',
+    address TEXT,
+    city TEXT,
+    zip_code TEXT,
+    country TEXT NOT NULL DEFAULT 'IL',
+    preferred_language TEXT NOT NULL DEFAULT 'he',
+    phone TEXT,
+    email TEXT,
+    website TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)`,
+  `CREATE INDEX IF NOT EXISTS idx_companies_tax_id ON companies(tax_id)`,
+  `CREATE TABLE IF NOT EXISTS service_items (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_en TEXT,
+    description TEXT,
+    unit TEXT NOT NULL DEFAULT 'item',
+    default_unit_price TEXT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'ILS',
+    vat_applicable INTEGER NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_service_items_name ON service_items(name)`,
+  `CREATE INDEX IF NOT EXISTS idx_service_items_is_active ON service_items(is_active)`,
+  `CREATE TABLE IF NOT EXISTS company_item_prices (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    service_item_id TEXT NOT NULL REFERENCES service_items(id) ON DELETE CASCADE,
+    unit_price TEXT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'ILS',
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_company_item_prices_pair ON company_item_prices(company_id, service_item_id)`,
+  `CREATE TABLE IF NOT EXISTS sales_documents (
+    id TEXT PRIMARY KEY,
+    doc_type TEXT NOT NULL,
+    doc_number INTEGER,
+    number_prefix TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    language TEXT NOT NULL DEFAULT 'he',
+    issue_date TEXT NOT NULL,
+    due_date TEXT,
+    valid_until TEXT,
+    company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
+    person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    client_name TEXT,
+    client_tax_id TEXT,
+    client_address TEXT,
+    client_country TEXT,
+    client_email TEXT,
+    client_phone TEXT,
+    issuer_json TEXT,
+    currency TEXT NOT NULL DEFAULT 'ILS',
+    exchange_rate TEXT,
+    total_ils TEXT NOT NULL DEFAULT '0',
+    vat_mode TEXT NOT NULL DEFAULT 'standard',
+    vat_rate TEXT NOT NULL DEFAULT '0.18',
+    subtotal TEXT NOT NULL DEFAULT '0',
+    vat_amount TEXT NOT NULL DEFAULT '0',
+    total TEXT NOT NULL DEFAULT '0',
+    notes TEXT,
+    internal_notes TEXT,
+    allocation_number TEXT,
+    related_document_id TEXT,
+    credited_by_document_id TEXT,
+    vat_entry_id TEXT,
+    issued_at TEXT,
+    cancelled_at TEXT,
+    cancel_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_documents_doc_type ON sales_documents(doc_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_documents_status ON sales_documents(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_documents_issue_date ON sales_documents(issue_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_documents_company_id ON sales_documents(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_documents_related_document_id ON sales_documents(related_document_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_documents_type_number ON sales_documents(doc_type, doc_number)`,
+  `CREATE TABLE IF NOT EXISTS sales_document_lines (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES sales_documents(id) ON DELETE CASCADE,
+    service_item_id TEXT REFERENCES service_items(id) ON DELETE SET NULL,
+    price_source TEXT NOT NULL DEFAULT 'manual',
+    position INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL,
+    quantity TEXT NOT NULL DEFAULT '1',
+    unit_price TEXT NOT NULL DEFAULT '0',
+    discount_percent TEXT,
+    vat_applicable INTEGER NOT NULL DEFAULT 1,
+    line_total TEXT NOT NULL DEFAULT '0',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_document_lines_document_id ON sales_document_lines(document_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_document_lines_service_item_id ON sales_document_lines(service_item_id)`,
+  `CREATE TABLE IF NOT EXISTS sales_document_payments (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES sales_documents(id) ON DELETE CASCADE,
+    method TEXT NOT NULL DEFAULT 'bank_transfer',
+    amount TEXT NOT NULL,
+    paid_date TEXT NOT NULL,
+    reference TEXT,
+    bank_details TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_document_payments_document_id ON sales_document_payments(document_id)`,
+  `CREATE TABLE IF NOT EXISTS sales_document_counters (
+    id TEXT PRIMARY KEY,
+    doc_type TEXT NOT NULL,
+    last_number INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  )`,
 ]
 
 const TASK_PEOPLE_TABLE = [
@@ -572,8 +728,14 @@ export function getDb() {
   for (const sql of EXPO_PUSH_TOKENS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of PUSH_DELIVERY_LOG_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of NOTIFICATIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of NOTIFICATIONS_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   for (const sql of TASK_PEOPLE_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
@@ -582,6 +744,12 @@ export function getDb() {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of VAT_ENTRIES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of VAT_ENTRIES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of SALES_DOCUMENTS_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of WHATSAPP_TABLES) {
@@ -643,6 +811,7 @@ export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
 export const expoPushTokens = schema.expoPushTokens
+export const pushDeliveryLog = schema.pushDeliveryLog
 export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
@@ -651,6 +820,13 @@ export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
 export const userSettings = schema.userSettings
+export const companies = schema.companies
+export const serviceItems = schema.serviceItems
+export const companyItemPrices = schema.companyItemPrices
+export const salesDocuments = schema.salesDocuments
+export const salesDocumentLines = schema.salesDocumentLines
+export const salesDocumentPayments = schema.salesDocumentPayments
+export const salesDocumentCounters = schema.salesDocumentCounters
 
 // Re-export MEETING_CATEGORIES from pg (same value) and types from schema (sqlite has the type exports)
 export type MeetingCategory = typeof schemaPg.MEETING_CATEGORIES[number]
@@ -712,6 +888,20 @@ export type ReadingListItem = typeof schemaPg.readingListItems.$inferSelect
 export type NewReadingListItem = typeof schemaPg.readingListItems.$inferInsert
 export type VatEntry = typeof schemaPg.vatEntries.$inferSelect
 export type NewVatEntry = typeof schemaPg.vatEntries.$inferInsert
+export type Company = typeof schemaPg.companies.$inferSelect
+export type NewCompany = typeof schemaPg.companies.$inferInsert
+export type ServiceItem = typeof schemaPg.serviceItems.$inferSelect
+export type NewServiceItem = typeof schemaPg.serviceItems.$inferInsert
+export type CompanyItemPrice = typeof schemaPg.companyItemPrices.$inferSelect
+export type NewCompanyItemPrice = typeof schemaPg.companyItemPrices.$inferInsert
+export type SalesDocument = typeof schemaPg.salesDocuments.$inferSelect
+export type NewSalesDocument = typeof schemaPg.salesDocuments.$inferInsert
+export type SalesDocumentLine = typeof schemaPg.salesDocumentLines.$inferSelect
+export type NewSalesDocumentLine = typeof schemaPg.salesDocumentLines.$inferInsert
+export type SalesDocumentPayment = typeof schemaPg.salesDocumentPayments.$inferSelect
+export type NewSalesDocumentPayment = typeof schemaPg.salesDocumentPayments.$inferInsert
+export type SalesDocumentCounter = typeof schemaPg.salesDocumentCounters.$inferSelect
+export type NewSalesDocumentCounter = typeof schemaPg.salesDocumentCounters.$inferInsert
 export type WhatsappLabel = typeof schemaPg.whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof schemaPg.whatsappLabels.$inferInsert
 export type WhatsappGroup = typeof schemaPg.whatsappGroups.$inferSelect

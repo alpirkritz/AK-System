@@ -14,8 +14,34 @@ import {
   listAgentsWithDisplayNames,
   setAgentDisplayName,
 } from '../services/agent-display-names'
+import { getBusinessProfile, setBusinessProfile } from '../services/business-profile'
+import { SALES_DOCUMENT_TYPES } from '@ak-system/types'
 
 const timeSchema = z.string().regex(/^\d{2}:\d{2}$/)
+
+const businessProfileSchema = z.object({
+  businessName: z.string().default(''),
+  businessNameEn: z.string().optional(),
+  ownerName: z.string().optional(),
+  taxId: z.string().optional(),
+  taxIdType: z.enum(['osek_morshe', 'osek_patur', 'company']).optional(),
+  address: z.string().optional(),
+  addressEn: z.string().optional(),
+  city: z.string().optional(),
+  zipCode: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  website: z.string().optional(),
+  logoDataUrl: z.string().optional(),
+  bankDetails: z.string().optional(),
+  bankDetailsEn: z.string().optional(),
+  footerText: z.string().optional(),
+  footerTextEn: z.string().optional(),
+  defaultPaymentTerms: z.string().optional(),
+  defaultLanguage: z.enum(['he', 'en']).optional(),
+  numberPrefix: z.string().optional(),
+  startNumbers: z.record(z.enum(SALES_DOCUMENT_TYPES), z.number().int().min(1)).optional(),
+})
 
 export const settingsRouter = router({
   agentCalendars: router({
@@ -59,6 +85,18 @@ export const settingsRouter = router({
             message: err instanceof Error ? err.message : 'שמירת השם נכשלה',
           })
         }
+      }),
+  }),
+
+  businessProfile: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      return getBusinessProfile(ctx.db)
+    }),
+
+    set: protectedProcedure
+      .input(businessProfileSchema)
+      .mutation(async ({ ctx, input }) => {
+        return setBusinessProfile(input, ctx.db)
       }),
   }),
 
