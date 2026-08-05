@@ -113,59 +113,34 @@ export function DocumentPreview({
 
   const exchangeRate = document.exchangeRate ? parseFloat(document.exchangeRate) : null
   const showIlsEquivalent = currency !== 'ILS' && exchangeRate != null
+  const showDiscount = lines.some(
+    (line) => line.discountPercent && parseFloat(line.discountPercent) > 0
+  )
+  const isReceipt =
+    document.docType === 'receipt' || document.docType === 'tax_invoice_receipt'
+  const issuerContactItems = [
+    issuer?.taxId ? `${strings.taxId}: ${issuer.taxId}` : null,
+    issuerAddress
+      ? [issuerAddress, issuer?.city, issuer?.zipCode].filter(Boolean).join(', ')
+      : null,
+    issuer?.phone ? `${strings.phone}: ${issuer.phone}` : null,
+    issuer?.email,
+    issuer?.website,
+  ].filter(Boolean) as string[]
 
   return (
     <div className="doc-sheet" dir={dir} lang={language}>
       <header className="doc-header">
-        <div className="flex flex-col gap-2">
+        <div className="doc-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="doc-logo" src={logo} alt={issuerName} />
-          <div className="doc-issuer">
-            {issuer?.ownerName && <div>{issuer.ownerName}</div>}
-            {issuer?.taxId && (
-              <div>
-                {strings.taxId}: {issuer.taxId}
-              </div>
-            )}
-            {issuerAddress && <div>{[issuerAddress, issuer?.city, issuer?.zipCode].filter(Boolean).join(', ')}</div>}
-            {issuer?.phone && (
-              <div>
-                {strings.phone}: {issuer.phone}
-              </div>
-            )}
-            {issuer?.email && (
-              <div>
-                {strings.email}: {issuer.email}
-              </div>
-            )}
-            {issuer?.website && <div>{issuer.website}</div>}
-          </div>
+          {issuer?.ownerName && <div className="doc-owner-name">{issuer.ownerName}</div>}
         </div>
 
-        <div style={{ textAlign: dir === 'rtl' ? 'left' : 'right' }}>
+        <div className="doc-heading">
           <div className="doc-title">{docTypeLabel}</div>
           <div className="doc-number">
             {strings.documentNumber} {displayNumber}
-          </div>
-          <div className="doc-issuer" style={{ marginTop: 8 }}>
-            <div>
-              {strings.issueDate}: {formatDocumentDate(document.issueDate, language)}
-            </div>
-            {document.dueDate && (
-              <div>
-                {strings.dueDate}: {formatDocumentDate(document.dueDate, language)}
-              </div>
-            )}
-            {document.validUntil && (
-              <div>
-                {strings.validUntil}: {formatDocumentDate(document.validUntil, language)}
-              </div>
-            )}
-            {document.allocationNumber && (
-              <div>
-                {strings.allocationNumber}: {document.allocationNumber}
-              </div>
-            )}
           </div>
           {document.status === 'cancelled' && (
             <div className="doc-watermark" style={{ marginTop: 8 }}>
@@ -175,8 +150,16 @@ export function DocumentPreview({
         </div>
       </header>
 
-      <section className="doc-parties">
-        <div>
+      {issuerContactItems.length > 0 && (
+        <div className="doc-contact-strip" aria-label={issuerName}>
+          {issuerContactItems.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+      )}
+
+      <section className="doc-meta-card">
+        <div className="doc-client-block">
           <div className="doc-label">{strings.billTo}</div>
           <div className="doc-party-name">{document.clientName || '—'}</div>
           <div className="doc-issuer">
@@ -193,15 +176,40 @@ export function DocumentPreview({
             {document.clientPhone && <div>{document.clientPhone}</div>}
           </div>
         </div>
+        <div className="doc-details-block">
+          <div className="doc-label">{strings.documentDetails}</div>
+          <div className="doc-meta-row">
+            <span>{strings.issueDate}</span>
+            <strong>{formatDocumentDate(document.issueDate, language)}</strong>
+          </div>
+          {document.dueDate && (
+            <div className="doc-meta-row">
+              <span>{strings.dueDate}</span>
+              <strong>{formatDocumentDate(document.dueDate, language)}</strong>
+            </div>
+          )}
+          {document.validUntil && (
+            <div className="doc-meta-row">
+              <span>{strings.validUntil}</span>
+              <strong>{formatDocumentDate(document.validUntil, language)}</strong>
+            </div>
+          )}
+          {document.allocationNumber && (
+            <div className="doc-meta-row">
+              <span>{strings.allocationNumber}</span>
+              <strong>{document.allocationNumber}</strong>
+            </div>
+          )}
+        </div>
       </section>
 
       <table className="doc-table">
         <thead>
           <tr>
-            <th>{strings.colDescription}</th>
+            <th className="doc-description-cell">{strings.colDescription}</th>
             <th className="doc-num-cell">{strings.colQuantity}</th>
             <th className="doc-num-cell">{strings.colUnitPrice}</th>
-            <th className="doc-num-cell">{strings.colDiscount}</th>
+            {showDiscount && <th className="doc-num-cell">{strings.colDiscount}</th>}
             <th className="doc-num-cell">{strings.colLineTotal}</th>
           </tr>
         </thead>
@@ -211,11 +219,13 @@ export function DocumentPreview({
               <td>{line.description}</td>
               <td className="doc-num-cell">{parseFloat(line.quantity) || 0}</td>
               <td className="doc-num-cell">{money(line.unitPrice)}</td>
-              <td className="doc-num-cell">
-                {line.discountPercent && parseFloat(line.discountPercent) > 0
-                  ? `${parseFloat(line.discountPercent)}%`
-                  : '—'}
-              </td>
+              {showDiscount && (
+                <td className="doc-num-cell">
+                  {line.discountPercent && parseFloat(line.discountPercent) > 0
+                    ? `${parseFloat(line.discountPercent)}%`
+                    : '—'}
+                </td>
+              )}
               <td className="doc-num-cell">{money(line.lineTotal)}</td>
             </tr>
           ))}
@@ -223,27 +233,29 @@ export function DocumentPreview({
       </table>
 
       <div className="doc-totals">
-        <table>
-          <tbody>
-            <tr>
-              <td className="doc-label">{strings.subtotal}</td>
-              <td>{money(document.subtotal)}</td>
-            </tr>
-            <tr>
-              <td className="doc-label">
-                {strings.vat}
-                {document.vatMode === 'standard'
-                  ? ` ${Math.round((parseFloat(document.vatRate) || 0) * 100)}%`
-                  : ' 0%'}
-              </td>
-              <td>{money(document.vatAmount)}</td>
-            </tr>
-            <tr className="doc-total-row">
-              <td>{strings.total}</td>
-              <td>{money(document.total)}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="doc-totals-card">
+          <table>
+            <tbody>
+              <tr>
+                <td className="doc-label">{strings.subtotal}</td>
+                <td>{money(document.subtotal)}</td>
+              </tr>
+              <tr>
+                <td className="doc-label">
+                  {strings.vat}
+                  {document.vatMode === 'standard'
+                    ? ` ${Math.round((parseFloat(document.vatRate) || 0) * 100)}%`
+                    : ' 0%'}
+                </td>
+                <td>{money(document.vatAmount)}</td>
+              </tr>
+              <tr className="doc-total-row">
+                <td>{isReceipt ? strings.amountReceived : strings.total}</td>
+                <td>{money(document.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showIlsEquivalent && (
@@ -299,17 +311,17 @@ export function DocumentPreview({
       )}
 
       {bankDetails && (
-        <>
+        <div className="doc-info-box">
           <div className="doc-section-title">{strings.bankDetails}</div>
           <div className="doc-note" style={{ whiteSpace: 'pre-wrap' }}>
             {bankDetails}
           </div>
-        </>
+        </div>
       )}
 
       <footer className="doc-footer">
-        <span>{footerText || issuerName}</span>
-        <span>{strings.page} 1</span>
+        <span>{issuerName}</span>
+        <span>{footerText || strings.thankYou}</span>
       </footer>
     </div>
   )

@@ -323,7 +323,7 @@ export default function BusinessSettingsPage() {
             </div>
             <div className="flex flex-col gap-2">
               <button type="button" className="btn btn-ghost text-sm" onClick={() => fileRef.current?.click()}>
-                העלה לוגו
+                החלף לוגו
               </button>
               {form.logoDataUrl && (
                 <button

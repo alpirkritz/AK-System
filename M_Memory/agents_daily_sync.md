@@ -1277,3 +1277,14 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Gotcha worth remembering:** adding tables to the Drizzle schema made `drizzle-kit push` treat the bootstrap-only `google_connections` table as an orphan and prompt "is X a rename of google_connections?" — interactive, so `pnpm test` hung. Fixed with `tablesFilter: ['!google_connections']` in `packages/database/drizzle.config.ts`. Any future table added by raw bootstrap SQL rather than the schema will do the same thing.
 - **Known limit:** credit invoices don't auto-post to VAT (`vat.create` rejects negative amounts) — the UI says so and the entry has to be added by hand.
 - **Compliance:** N/A (apps/packages engineering, not ABC workspace).
+
+---
+
+## 2026-08-05 — sales-documents print polish
+
+- **Active Agent:** UI Designer → Dev → QA
+- **Workflow:** `docs/specs/sales-documents.md` — post-implementation visual refinement
+- **Actions Taken:** Refined the printable document into a quieter Alpir-branded hierarchy: larger logo, compact issuer contact strip, grouped client/document metadata card, softly tinted table header, conditional discount column, prominent total card, receipt-specific “amount received” wording, structured bank-details block, and bilingual thank-you footer.
+- **Outputs:** `apps/web/src/app/finance/components/DocumentPreview.tsx`, `apps/web/src/app/globals.css`, `packages/types/src/sales.ts`, UI/UX review appended to `reports/sales-documents.md`.
+- **Verification:** 18/18 sales-type tests; 6/6 sales-document Playwright tests; web production build passed; no changed-file diagnostics.
+- **Compliance:** N/A (apps/packages engineering, not ABC workspace).

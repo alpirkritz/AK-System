@@ -194,6 +194,9 @@ export type DocumentStrings = {
   subtotal: string
   vat: string
   total: string
+  amountReceived: string
+  documentDetails: string
+  thankYou: string
   paymentsTitle: string
   paymentMethodLabel: string
   paymentDate: string
@@ -255,6 +258,9 @@ export const DOCUMENT_STRINGS: Record<DocumentLanguage, DocumentStrings> = {
     subtotal: 'סה"כ לפני מע"מ',
     vat: 'מע"מ',
     total: 'סה"כ לתשלום',
+    amountReceived: 'סה"כ התקבל',
+    documentDetails: 'פרטי המסמך',
+    thankYou: 'תודה שבחרתם לעבוד איתנו',
     paymentsTitle: 'פרטי תשלום',
     paymentMethodLabel: 'אמצעי תשלום',
     paymentDate: 'תאריך תשלום',
@@ -312,6 +318,9 @@ export const DOCUMENT_STRINGS: Record<DocumentLanguage, DocumentStrings> = {
     subtotal: 'Subtotal',
     vat: 'VAT',
     total: 'Total due',
+    amountReceived: 'Amount received',
+    documentDetails: 'Document details',
+    thankYou: 'Thank you for working with us',
     paymentsTitle: 'Payment details',
     paymentMethodLabel: 'Method',
     paymentDate: 'Payment date',

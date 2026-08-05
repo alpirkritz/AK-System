@@ -55,3 +55,32 @@ Two intentional supersets of the spec's API table, both justified by acceptance 
 - Money is computed server-side in `computeAndPersistTotals`; the client's totals are display-only, so a tampered client cannot change what is stored or reported to VAT.
 - `uq_sales_documents_type_number` enforces per-type number uniqueness at the database level, not only in application code.
 - The print route is a normal authenticated app route; it only bypasses `DashboardLayout`, not auth.
+
+## UI/UX Review — print redesign
+
+**Verdict:** APPROVED  
+**Detected stack:** next-trpc-monorepo
+
+### Design System Checklist
+
+- [x] Alpir turquoise remains a restrained accent; the printable surface stays white and isolated from app chrome.
+- [x] RTL and LTR layouts use logical CSS properties and preserve reading order.
+- [x] Narrow-screen preview collapses document metadata to one column.
+- [x] No new UI framework or dependency.
+- [x] Existing `DocumentPreview` remains the single preview/print component.
+
+### UX Quality Checklist
+
+- [x] Header hierarchy separates branding from document identity.
+- [x] Issuer contacts are condensed into one scannable strip.
+- [x] Client and document metadata are grouped in a low-contrast card.
+- [x] Discount column disappears when no line is discounted.
+- [x] Financial summary has a clear visual endpoint; receipts say "סה״כ התקבל".
+- [x] Bank details are grouped, and the footer uses warm bilingual microcopy instead of a hard-coded "Page 1".
+
+### Verification
+
+- `sales-types.test.ts`: 18/18 passed.
+- `sales-documents.spec.ts`: 6/6 passed, including branded print rendering.
+- `pnpm --filter @ak-system/web build`: passed.
+- IDE diagnostics: no errors in the changed files.
