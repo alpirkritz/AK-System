@@ -435,14 +435,25 @@ export const expoPushTokens = pgTable('expo_push_tokens', {
   createdAt: text('created_at').notNull(),
 })
 
+/** Direct FCM device tokens for the ARO Android app. */
+export const fcmPushTokens = pgTable('fcm_push_tokens', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  platform: text('platform').notNull(), // android
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 /**
- * Expo push delivery log. Expo reports FCM/APNs failures (e.g. InvalidCredentials,
- * DeviceNotRegistered) only in *receipts*, fetched ≥15 min after send — without this
- * log those errors are invisible and pushes die silently.
+ * Push delivery log. Historical Expo rows use provider='expo' + ticket_id;
+ * new direct-FCM rows use provider='fcm' + provider_message_id and are logged
+ * immediately (no delayed receipt polling).
  */
 export const pushDeliveryLog = pgTable('push_delivery_log', {
   id: text('id').primaryKey(),
   ticketId: text('ticket_id'),
+  provider: text('provider').notNull().default('expo'), // expo | fcm
+  providerMessageId: text('provider_message_id'),
   token: text('token').notNull(),
   status: text('status').notNull(), // pending | ok | error | expired
   errorCode: text('error_code'),

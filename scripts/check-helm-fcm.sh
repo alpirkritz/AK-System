@@ -56,3 +56,10 @@ if [[ "$STATUS" == MISSING ]]; then
 fi
 
 echo "✓  FCM V1 present ($STATUS)"
+echo ""
+echo "⚠  Presence ≠ delivery. If banners still missing, run:"
+echo "   node scripts/push-doctor.mjs --token \"ExponentPushToken[…]\""
+echo "   A common failure is FCM IAM: service account lacks cloudmessaging.messages.create"
+echo "   Fix: Google Cloud → project helm-push-969711 → IAM → grant the firebase-adminsdk"
+echo "        service account role \"Firebase Cloud Messaging API Admin\"."
+echo "   Also enable: APIs & Services → Firebase Cloud Messaging API."

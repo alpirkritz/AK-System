@@ -5,10 +5,10 @@ import { saveChatMessage } from './conversation-engine'
 import { getGeminiModelOptions } from './gemini-config'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 import { sendBrowserPush } from './web-push'
-import { sendExpoPush } from './expo-push'
+import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
 import { chatMessages, getDb, desc, eq, whatsappGroups } from '@ak-system/database'
-import { resolveNotificationChannels } from '@ak-system/api'
+import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs } from '@ak-system/api'
 
 function normalizeEchoText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
@@ -178,7 +178,7 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
         const pushBody = pushExcerpt(result.text)
         await createNotification({ title: pushTitle, body: pushBody, url: '/chat', type: 'hugo' })
         await sendBrowserPush(pushTitle, pushBody, '/chat')
-        await sendExpoPush(pushTitle, pushBody, '/chat')
+        await sendMobilePush(pushTitle, pushBody, '/chat')
       }
     } catch (err) {
       console.warn('[WhatsAppBot] Push failed:', err)
@@ -216,7 +216,8 @@ export async function summarizeFomoMessages(
   const model = genAI.getGenerativeModel(getGeminiModelOptions())
 
   const lines = messages.slice(-25).map((m) => {
-    const time = new Date(m.timestamp < 1e12 ? m.timestamp * 1000 : m.timestamp).toLocaleTimeString('he-IL', {
+    const time = new Date(normalizeWhatsappTs(m.timestamp)).toLocaleTimeString('he-IL', {
+      timeZone: getDefaultTimezone(),
       hour: '2-digit',
       minute: '2-digit',
     })
@@ -261,7 +262,14 @@ export async function summarizeGroupMessages(
   const model = genAI.getGenerativeModel(getGeminiModelOptions())
 
   const lines = messages.map((m) => {
-    const time = new Date(m.timestamp).toLocaleString('he-IL')
+    const time = new Date(normalizeWhatsappTs(m.timestamp)).toLocaleString('he-IL', {
+      timeZone: getDefaultTimezone(),
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
     return `[${time}] ${m.senderName}: ${m.text}`
   })
 

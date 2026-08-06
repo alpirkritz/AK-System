@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./lib/expo-push": "./src/lib/expo-push.ts",
+    "./lib/mobile-push": "./src/lib/mobile-push.ts",
     "./lib/notification-store": "./src/lib/notification-store.ts"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "@ak-system/types": "workspace:*",
     "@google/generative-ai": "^0.24.1",
     "@trpc/server": "^10.45.0",
+    "firebase-admin": "^14.2.0",
     "googleapis": "^171.4.0",
     "israeli-bank-scrapers": "^6.2.0",
     "node-ical": "^0.25.4",

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { sendBrowserPush } from '@/lib/web-push'
-import { sendExpoPush } from '@/lib/expo-push'
+import { sendMobilePush } from '@/lib/mobile-push'
 import { createNotification } from '@/lib/notification-store'
 import { sessionFromBearer } from '@/lib/mobile-auth'
 
@@ -10,7 +10,7 @@ async function requireMobileSession(request: NextRequest) {
   return sessionFromBearer(auth)
 }
 
-/** POST /api/push/test — send test push to all Web Push + Expo devices */
+/** POST /api/push/test — send test push to all Web Push + FCM devices */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await requireMobileSession(request)
   if (!session?.user) {
@@ -31,8 +31,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     await createNotification({ title, body: text, url, type: 'system' })
     const webSent = await sendBrowserPush(title, text, url)
-    const expoSent = await sendExpoPush(title, text, url)
-    return NextResponse.json({ webSent, expoSent })
+    const fcmSent = await sendMobilePush(title, text, url)
+    return NextResponse.json({ webSent, fcmSent })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Test push failed'
     return NextResponse.json({ error: msg }, { status: 500 })

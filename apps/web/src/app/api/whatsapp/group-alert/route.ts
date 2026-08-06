@@ -7,7 +7,7 @@ import {
 } from '@/lib/whatsapp-bot'
 import { saveChatMessage } from '@/lib/conversation-engine'
 import { sendBrowserPush } from '@/lib/web-push'
-import { sendExpoPush } from '@/lib/expo-push'
+import { sendMobilePush } from '@/lib/mobile-push'
 import { createNotification } from '@/lib/notification-store'
 import { getDb, whatsappGroups } from '@ak-system/database'
 import { resolveNotificationChannels } from '@ak-system/api'
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           type: 'fomo',
         })
         await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
-        await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+        await sendMobilePush(pushTitle, pushBody, '/settings/whatsapp')
       }
     } catch (pushErr) {
       console.warn('[WhatsApp group-alert] Web push failed:', pushErr)

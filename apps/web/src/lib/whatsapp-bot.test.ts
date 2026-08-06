@@ -21,7 +21,7 @@ vi.mock('./gemini-config', () => ({
 }))
 
 vi.mock('./web-push', () => ({ sendBrowserPush: vi.fn() }))
-vi.mock('./expo-push', () => ({ sendExpoPush: vi.fn() }))
+vi.mock('./mobile-push', () => ({ sendMobilePush: vi.fn() }))
 vi.mock('./notification-store', () => ({ createNotification: vi.fn() }))
 vi.mock('./abc-agents', () => ({
   formatAgentList: vi.fn(),
@@ -89,6 +89,17 @@ describe('summarizeGroupMessages', () => {
     expect(prompt).toContain('over coffee')
     expect(prompt).not.toContain('נושא השיחה:')
     expect(prompt).not.toContain('jid@g.us')
+  })
+
+  it('renders second-precision bridge timestamps as Israel local time', async () => {
+    // 2026-07-09T11:30:00Z = 14:30 in Israel (UTC+3), delivered in seconds.
+    await summarizeGroupMessages('צוות', 'jid@g.us', [
+      { senderName: 'דני', text: 'היי', timestamp: Date.parse('2026-07-09T11:30:00.000Z') / 1000 },
+    ])
+
+    const prompt = mockGenerateContent.mock.calls[0]?.[0] as string
+    expect(prompt).toContain('[09.07, 14:30] דני: היי')
+    expect(prompt).not.toContain('1970')
   })
 })
 

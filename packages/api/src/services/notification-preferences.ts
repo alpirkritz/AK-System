@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { getDb, queryRows, notificationPreferences, pushSubscriptions, expoPushTokens } from '@ak-system/database'
+import { getDb, queryRows, notificationPreferences, pushSubscriptions, fcmPushTokens } from '@ak-system/database'
 import { isBridgeConfigured } from './whatsapp-bridge-client'
 
 export type NotificationChannel = 'whatsapp' | 'push' | 'telegram'
@@ -33,7 +33,9 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     schedulable: true,
     defaultTime: '07:00',
     routable: true,
-    suggestedAgentId: '06_calendar_optimizer',
+    // 03 reads the user's customized morning-brief card; 06's hardcoded
+    // calendar-parity override used to silently win over the user's edits.
+    suggestedAgentId: '03_morning_briefing',
   },
   {
     id: 'task_reminder',
@@ -139,8 +141,8 @@ export interface ChannelStatus {
   push: boolean
   /** At least one Web Push subscription registered */
   webPushDevices: number
-  /** At least one Expo push token registered (Helm APK) */
-  expoPushDevices: number
+  /** At least one FCM push token registered (ARO APK) */
+  fcmPushDevices: number
 }
 
 function parseTimes(raw: string | null | undefined): string[] {
@@ -428,15 +430,15 @@ export async function resetNotificationPreferences(): Promise<number> {
 /** Server-side connectivity of each delivery channel. */
 export async function getChannelStatus(): Promise<ChannelStatus> {
   const db = getDb()
-  const [webSubs, expoRows] = await Promise.all([
+  const [webSubs, fcmRows] = await Promise.all([
     db.select().from(pushSubscriptions).all(),
-    db.select().from(expoPushTokens).all(),
+    db.select().from(fcmPushTokens).all(),
   ])
   return {
     whatsapp: isBridgeConfigured(),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ALLOWED_CHAT_ID),
     push: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
     webPushDevices: webSubs.length,
-    expoPushDevices: expoRows.length,
+    fcmPushDevices: fcmRows.length,
   }
 }

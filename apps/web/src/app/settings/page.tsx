@@ -487,7 +487,7 @@ function NotificationsCard() {
       const res = await sendTest.mutateAsync({ title, body, url })
       // Foreground fallback — Chrome on Mac often skips the OS banner when this tab is focused.
       showForegroundNotification(title, body, url)
-      setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.expoSent ?? 0} ARO`)
+      setStatus(`נשלח ל-${res.webSent ?? res.sent} PWA + ${res.fcmSent ?? 0} ARO (FCM)`)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'שליחת בדיקה נכשלה')
     } finally {

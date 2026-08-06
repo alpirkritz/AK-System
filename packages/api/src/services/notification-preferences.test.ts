@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   wasNotificationSentToday,
   wasNotificationSentInSlot,
+  NOTIFICATION_TYPES,
 } from './notification-preferences'
 
 const TZ = 'Asia/Jerusalem'
@@ -46,5 +47,15 @@ describe('wasNotificationSentInSlot (regression)', () => {
     if (currentSlot !== wrongSlot) {
       expect(wasNotificationSentInSlot(iso, wrongSlot, TZ)).toBe(false)
     }
+  })
+})
+
+describe('NOTIFICATION_TYPES catalog (regression)', () => {
+  it('suggests 03_morning_briefing for the morning briefing (not the calendar optimizer)', () => {
+    const morning = NOTIFICATION_TYPES.find((t) => t.id === 'morning_briefing')
+    expect(morning?.routable).toBe(true)
+    // 06_calendar_optimizer's hardcoded MANDATORY override silently beat the
+    // user's customized 03 card — the suggestion must point at 03.
+    expect(morning?.suggestedAgentId).toBe('03_morning_briefing')
   })
 })

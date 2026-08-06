@@ -50,6 +50,24 @@ async function apiFetch(
   if (token) mergedHeaders.Authorization = `Bearer ${token}`
 
   return fetch(`${API_URL}${path}`, { ...rest, headers: mergedHeaders })
+    .then(async (res) => {
+      // Free ngrok interstitial sometimes returns HTML 200 — rare after header above.
+      return res
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (
+        /UnknownHostException|Unable to resolve host|Network request failed|Failed to connect|ENOTFOUND/i.test(
+          msg,
+        )
+      ) {
+        throw new ApiError(
+          `לא ניתן להתחבר לשרת (${API_URL}). בדוק Wi‑Fi/סלולר ושה-tunnel חי.`,
+          0,
+        )
+      }
+      throw err instanceof Error ? err : new ApiError(msg, 0)
+    })
 }
 
 export async function signInWithGoogleIdToken(idToken: string): Promise<{
@@ -118,11 +136,11 @@ export async function sendChatMessage(
   return { userMessage: data.userMessage ?? message, assistantMessage: data.assistantMessage }
 }
 
-export async function registerExpoPushToken(token: string, expoToken: string): Promise<void> {
-  const res = await apiFetch('/api/push/expo/register', {
+export async function registerFcmPushToken(token: string, fcmToken: string): Promise<void> {
+  const res = await apiFetch('/api/push/fcm/register', {
     method: 'POST',
     token,
-    body: JSON.stringify({ token: expoToken }),
+    body: JSON.stringify({ token: fcmToken, platform: 'android' }),
   })
   if (!res.ok) {
     const data = (await res.json()) as { error?: string }
@@ -130,11 +148,11 @@ export async function registerExpoPushToken(token: string, expoToken: string): P
   }
 }
 
-export async function unregisterExpoPushToken(token: string, expoToken: string): Promise<void> {
-  await apiFetch('/api/push/expo/register', {
+export async function unregisterFcmPushToken(token: string, fcmToken: string): Promise<void> {
+  await apiFetch('/api/push/fcm/register', {
     method: 'DELETE',
     token,
-    body: JSON.stringify({ token: expoToken }),
+    body: JSON.stringify({ token: fcmToken }),
   })
 }
 
@@ -145,7 +163,17 @@ export type AppNotification = {
   url: string
   type: string
   readAt: string | null
+  archivedAt?: string | null
   createdAt: string
+}
+
+/** Real deep-link target — not empty and not the notifications inbox itself. */
+export function isNavigableNotificationUrl(url: string): boolean {
+  const raw = url.trim()
+  if (!raw) return false
+  const path = raw.split('?')[0]?.replace(/\/+$/, '') || ''
+  if (!path || path === '/notifications') return false
+  return path.startsWith('/')
 }
 
 export async function fetchNotifications(
@@ -172,7 +200,7 @@ export async function markNotificationRead(
   const res = await apiFetch('/api/notifications', {
     method: 'PATCH',
     token,
-    body: JSON.stringify(options),
+    body: JSON.stringify({ ...options, action: 'read' }),
   })
   if (!res.ok) {
     const data = (await res.json()) as { error?: string }
@@ -180,9 +208,25 @@ export async function markNotificationRead(
   }
 }
 
+export async function archiveNotification(
+  token: string,
+  id: string,
+  undo = false,
+): Promise<void> {
+  const res = await apiFetch('/api/notifications', {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ id, action: undo ? 'unarchive' : 'archive' }),
+  })
+  if (!res.ok) {
+    const data = (await res.json()) as { error?: string }
+    throw new ApiError(data.error ?? 'Archive failed', res.status)
+  }
+}
+
 export async function sendTestPush(
   token: string,
-): Promise<{ webSent: number; expoSent: number }> {
+): Promise<{ webSent: number; fcmSent: number }> {
   const res = await apiFetch('/api/push/test', {
     method: 'POST',
     token,
@@ -194,9 +238,9 @@ export async function sendTestPush(
   })
   const data = (await res.json()) as {
     webSent?: number
-    expoSent?: number
+    fcmSent?: number
     error?: string
   }
   if (!res.ok) throw new ApiError(data.error ?? 'Test push failed', res.status)
-  return { webSent: data.webSent ?? 0, expoSent: data.expoSent ?? 0 }
+  return { webSent: data.webSent ?? 0, fcmSent: data.fcmSent ?? 0 }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getDb, pushSubscriptions, expoPushTokens } from '@ak-system/database'
+import { getDb, pushSubscriptions, expoPushTokens, fcmPushTokens } from '@ak-system/database'
 import { appRouter } from '../index'
 import { createContext, createCallerFactory } from '../trpc'
 import { createTestCaller } from '../test-utils'
@@ -14,6 +14,7 @@ describe('push router', () => {
   beforeEach(async () => {
     await getDb().delete(pushSubscriptions)
     await getDb().delete(expoPushTokens)
+    await getDb().delete(fcmPushTokens)
   })
 
   it('getVapidPublicKey returns a string', async () => {
@@ -83,44 +84,63 @@ describe('push router', () => {
   })
 
   it('sendToAll throws when VAPID keys are not configured', async () => {
-    // Only meaningful when the test env has no VAPID keys (the default).
     if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) return
     const caller = await createTestCaller()
     await expect(caller.push.sendToAll({ title: 't', body: 'b' })).rejects.toThrow()
   })
 
-  it('registerExpoToken inserts a token', async () => {
+  it('registerFcmToken inserts a token', async () => {
     const caller = await createTestCaller()
-    const res = await caller.push.registerExpoToken({ token: 'ExponentPushToken[abc]' })
+    const res = await caller.push.registerFcmToken({
+      token: 'fcm-device-token-abc',
+      platform: 'android',
+    })
     expect(res.id).toBeDefined()
 
-    const rows = await getDb().select().from(expoPushTokens).all()
+    const rows = await getDb().select().from(fcmPushTokens).all()
     expect(rows).toHaveLength(1)
-    expect(rows[0].token).toBe('ExponentPushToken[abc]')
+    expect(rows[0].token).toBe('fcm-device-token-abc')
+    expect(rows[0].platform).toBe('android')
   })
 
-  it('registerExpoToken is idempotent', async () => {
+  it('registerFcmToken refreshes updatedAt for the same token', async () => {
     const caller = await createTestCaller()
-    const first = await caller.push.registerExpoToken({ token: 'ExponentPushToken[dup]' })
-    const second = await caller.push.registerExpoToken({ token: 'ExponentPushToken[dup]' })
+    const first = await caller.push.registerFcmToken({
+      token: 'fcm-dup',
+      platform: 'android',
+    })
+    const second = await caller.push.registerFcmToken({
+      token: 'fcm-dup',
+      platform: 'android',
+    })
     expect(second.id).toBe(first.id)
 
-    const rows = await getDb().select().from(expoPushTokens).all()
+    const rows = await getDb().select().from(fcmPushTokens).all()
     expect(rows).toHaveLength(1)
   })
 
-  it('unregisterExpoToken removes the token', async () => {
+  it('unregisterFcmToken removes the token', async () => {
     const caller = await createTestCaller()
-    await caller.push.registerExpoToken({ token: 'ExponentPushToken[del]' })
-    const res = await caller.push.unregisterExpoToken({ token: 'ExponentPushToken[del]' })
+    await caller.push.registerFcmToken({ token: 'fcm-del', platform: 'android' })
+    const res = await caller.push.unregisterFcmToken({ token: 'fcm-del' })
     expect(res.ok).toBe(true)
 
-    const rows = await getDb().select().from(expoPushTokens).all()
+    const rows = await getDb().select().from(fcmPushTokens).all()
     expect(rows).toHaveLength(0)
   })
 
-  it('registerExpoToken requires auth', async () => {
+  it('registerFcmToken requires auth', async () => {
     const caller = await createUnauthCaller()
-    await expect(caller.push.registerExpoToken({ token: 'ExponentPushToken[x]' })).rejects.toThrow()
+    await expect(
+      caller.push.registerFcmToken({ token: 'fcm-x', platform: 'android' }),
+    ).rejects.toThrow()
+  })
+
+  it('registerExpoToken still works as deprecated stub', async () => {
+    const caller = await createTestCaller()
+    const res = await caller.push.registerExpoToken({ token: 'ExponentPushToken[abc]' })
+    expect(res.id).toBeDefined()
+    const rows = await getDb().select().from(expoPushTokens).all()
+    expect(rows).toHaveLength(1)
   })
 })

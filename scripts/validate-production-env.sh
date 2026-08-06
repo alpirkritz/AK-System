@@ -27,6 +27,10 @@ require CRON_SECRET
 require VAPID_PUBLIC_KEY
 require VAPID_PRIVATE_KEY
 require VAPID_EMAIL
+require BANK_CREDENTIALS_ENCRYPTION_KEY
+require FIREBASE_PROJECT_ID
+require FIREBASE_CLIENT_EMAIL
+require FIREBASE_PRIVATE_KEY
 
 if [ "$missing" -ne 0 ]; then
   echo ""

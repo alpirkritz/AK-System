@@ -353,10 +353,22 @@ const EXPO_PUSH_TOKENS_TABLE = [
   )`,
 ]
 
+const FCM_PUSH_TOKENS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS fcm_push_tokens (
+    id TEXT PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+]
+
 const PUSH_DELIVERY_LOG_TABLE = [
   `CREATE TABLE IF NOT EXISTS push_delivery_log (
     id TEXT PRIMARY KEY,
     ticket_id TEXT,
+    provider TEXT NOT NULL DEFAULT 'expo',
+    provider_message_id TEXT,
     token TEXT NOT NULL,
     status TEXT NOT NULL,
     error_code TEXT,
@@ -365,6 +377,11 @@ const PUSH_DELIVERY_LOG_TABLE = [
     checked_at TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_push_delivery_log_status ON push_delivery_log(status, sent_at)`,
+]
+
+const PUSH_DELIVERY_LOG_COLUMNS = [
+  `ALTER TABLE push_delivery_log ADD COLUMN provider TEXT NOT NULL DEFAULT 'expo'`,
+  `ALTER TABLE push_delivery_log ADD COLUMN provider_message_id TEXT`,
 ]
 
 const NOTIFICATIONS_TABLE = [
@@ -728,8 +745,14 @@ export function getDb() {
   for (const sql of EXPO_PUSH_TOKENS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of FCM_PUSH_TOKENS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of PUSH_DELIVERY_LOG_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of PUSH_DELIVERY_LOG_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   for (const sql of NOTIFICATIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
@@ -811,6 +834,7 @@ export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
 export const expoPushTokens = schema.expoPushTokens
+export const fcmPushTokens = schema.fcmPushTokens
 export const pushDeliveryLog = schema.pushDeliveryLog
 export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels

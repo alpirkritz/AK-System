@@ -96,6 +96,15 @@ comfortably allows), deploy with the profile on the server:
 ssh ... 'cd /opt/ak-system && docker compose -f deploy/docker-compose.production.yml --profile whatsapp up -d --build'
 ```
 
+Bank account sync (`israeli-bank-scrapers` / Puppeteer) needs Chromium system libraries.
+Those are installed in `deploy/Dockerfile.runtime` (and the root `Dockerfile`). After changing
+that layer, redeploy so the image rebuilds; otherwise sync fails with missing `libglib-2.0.so.0`.
+
+Chromium profiles for trusted devices are stored under `/data/bank-browser-profiles/<connectionId>`
+(on the `web-data` volume). Override with `BANK_BROWSER_PROFILE_ROOT` if needed. The first
+Hapoalim sync may show **ממתין לקוד אימות** in Finance → Accounts; enter the SMS code once so
+the profile becomes trusted for later runs.
+
 ## 6. HTTPS
 
 Pick one:

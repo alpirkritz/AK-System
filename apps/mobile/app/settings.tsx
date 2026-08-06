@@ -4,12 +4,12 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import {
   API_URL,
-  registerExpoPushToken,
+  registerFcmPushToken,
   sendTestPush,
-  unregisterExpoPushToken,
+  unregisterFcmPushToken,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { ensurePushPermissions, getExpoPushToken } from '../lib/notifications'
+import { ensurePushPermissions, getFcmPushToken } from '../lib/notifications'
 import { colors } from '../lib/theme'
 
 export default function SettingsScreen() {
@@ -17,7 +17,7 @@ export default function SettingsScreen() {
   const router = useRouter()
   const [pushStatus, setPushStatus] = useState<string | null>(null)
   const [permission, setPermission] = useState<string>('unknown')
-  const [expoToken, setExpoToken] = useState<string | null>(null)
+  const [fcmToken, setFcmToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -37,13 +37,13 @@ export default function SettingsScreen() {
       return
     }
     try {
-      const pushToken = await getExpoPushToken()
+      const pushToken = await getFcmPushToken()
       if (!pushToken) {
         setPushStatus('לא התקבל token מהמכשיר')
         return
       }
-      await registerExpoPushToken(token, pushToken)
-      setExpoToken(pushToken)
+      await registerFcmPushToken(token, pushToken)
+      setFcmToken(pushToken)
       setPushStatus('התראות הופעלו ורשומות בשרת ✓')
     } catch (err) {
       setPushStatus(err instanceof Error ? err.message : 'הפעלה נכשלה')
@@ -58,7 +58,7 @@ export default function SettingsScreen() {
     setPushStatus(null)
     try {
       const res = await sendTestPush(token)
-      setPushStatus(`נשלח: ${res.webSent} PWA + ${res.expoSent} ARO`)
+      setPushStatus(`נשלח: ${res.webSent} PWA + ${res.fcmSent} ARO (FCM)`)
     } catch (err) {
       setPushStatus(err instanceof Error ? err.message : 'בדיקה נכשלה')
     } finally {
@@ -68,10 +68,10 @@ export default function SettingsScreen() {
 
   const onSignOut = async () => {
     if (token) {
-      const expoToken = await getExpoPushToken()
-      if (expoToken) {
+      const deviceToken = await getFcmPushToken()
+      if (deviceToken) {
         try {
-          await unregisterExpoPushToken(token, expoToken)
+          await unregisterFcmPushToken(token, deviceToken)
         } catch {
           // ignore
         }
@@ -104,11 +104,11 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>התראות Push</Text>
+        <Text style={styles.label}>התראות Push (FCM)</Text>
         <Text style={styles.muted}>סטטוס: {permLabel}</Text>
-        {expoToken ? (
+        {fcmToken ? (
           <Text style={styles.muted} numberOfLines={1}>
-            token: {expoToken.replace('ExponentPushToken[', '…').slice(0, 24)}
+            token: …{fcmToken.slice(-24)}
           </Text>
         ) : null}
       </View>

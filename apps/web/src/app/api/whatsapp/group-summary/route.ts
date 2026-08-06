@@ -6,7 +6,7 @@ import {
   type BufferedGroupMessage,
 } from '@/lib/whatsapp-bot'
 import { sendBrowserPush } from '@/lib/web-push'
-import { sendExpoPush } from '@/lib/expo-push'
+import { sendMobilePush } from '@/lib/mobile-push'
 import { createNotification } from '@/lib/notification-store'
 import { resolveNotificationChannels } from '@ak-system/api'
 
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           type: 'fomo',
         })
         await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
-        await sendExpoPush(pushTitle, pushBody, '/settings/whatsapp')
+        await sendMobilePush(pushTitle, pushBody, '/settings/whatsapp')
       }
     } catch (pushErr) {
       console.warn('[WhatsApp group-summary] Web push failed:', pushErr)

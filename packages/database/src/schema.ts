@@ -538,7 +538,7 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert
 
-// ─── Expo push tokens (Helm mobile app) ──────────────────────────────────────
+// ─── Expo push tokens (legacy — kept for historical rows; no new writes) ─────
 
 export const expoPushTokens = sqliteTable('expo_push_tokens', {
   id: text('id').primaryKey(),
@@ -549,11 +549,26 @@ export const expoPushTokens = sqliteTable('expo_push_tokens', {
 export type ExpoPushToken = typeof expoPushTokens.$inferSelect
 export type NewExpoPushToken = typeof expoPushTokens.$inferInsert
 
-// ─── Expo push delivery log (receipts) ───────────────────────────────────────
+// ─── FCM push tokens (ARO mobile app — direct Firebase) ──────────────────────
+
+export const fcmPushTokens = sqliteTable('fcm_push_tokens', {
+  id: text('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  platform: text('platform').notNull(), // android
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type FcmPushToken = typeof fcmPushTokens.$inferSelect
+export type NewFcmPushToken = typeof fcmPushTokens.$inferInsert
+
+// ─── Push delivery log ───────────────────────────────────────────────────────
 
 export const pushDeliveryLog = sqliteTable('push_delivery_log', {
   id: text('id').primaryKey(),
-  ticketId: text('ticket_id'),
+  ticketId: text('ticket_id'), // legacy Expo ticket id
+  provider: text('provider').notNull().default('expo'), // expo | fcm
+  providerMessageId: text('provider_message_id'),
   token: text('token').notNull(),
   status: text('status').notNull(), // pending | ok | error | expired
   errorCode: text('error_code'),

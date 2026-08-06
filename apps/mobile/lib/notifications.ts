@@ -1,7 +1,7 @@
 import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
-import { registerExpoPushToken } from './api'
+import { registerFcmPushToken } from './api'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -21,7 +21,8 @@ export async function ensurePushPermissions(): Promise<boolean> {
   return status === 'granted'
 }
 
-export async function getExpoPushToken(): Promise<string | null> {
+/** Native FCM (Android) / APNs device token — not an Expo push token. */
+export async function getFcmPushToken(): Promise<string | null> {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'ARO',
@@ -34,21 +35,25 @@ export async function getExpoPushToken(): Promise<string | null> {
   const granted = await ensurePushPermissions()
   if (!granted) return null
 
-  // Standalone APK push requires the EAS projectId to attribute the token.
+  // google-services.json / EAS project still needed for native FCM on standalone builds.
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId
-  if (!projectId) {
-    throw new Error('חסר EAS projectId — בנה APK מחדש עם app.config.ts מעודכן')
+  if (!projectId && Platform.OS === 'android') {
+    // Soft check — getDevicePushTokenAsync still needs the Firebase config baked in.
+    console.warn('[push] missing EAS projectId; ensure google-services.json is in the build')
   }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId })
+  const tokenData = await Notifications.getDevicePushTokenAsync()
+  if (typeof tokenData.data !== 'string' || !tokenData.data.trim()) {
+    throw new Error('לא התקבל FCM token מהמכשיר')
+  }
   return tokenData.data
 }
 
 export async function syncPushToken(accessToken: string): Promise<boolean> {
-  const expoToken = await getExpoPushToken()
-  if (!expoToken) return false
-  await registerExpoPushToken(accessToken, expoToken)
+  const fcmToken = await getFcmPushToken()
+  if (!fcmToken) return false
+  await registerFcmPushToken(accessToken, fcmToken)
   return true
 }
 

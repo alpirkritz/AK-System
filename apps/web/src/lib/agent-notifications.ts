@@ -1,7 +1,7 @@
 import { agentNotifiesNotion, HUGO_AGENT_ID } from './abc-agents'
 import { notifyNotionInbox } from './notion'
 import { sendBrowserPush } from './web-push'
-import { sendExpoPush } from './expo-push'
+import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
 import { resolveAgentDisplayName, resolveNotificationChannels } from '@ak-system/api'
 
@@ -24,14 +24,14 @@ export async function notifyAgentRunComplete(options: {
   agentId: string
   summary: string
   channel: AgentNotifyChannel
-}): Promise<{ notion: boolean; webPush: number; expoPush: number }> {
+}): Promise<{ notion: boolean; webPush: number; fcmPush: number }> {
   const agentName = await resolveAgentDisplayName(options.agentId)
   const short = excerpt(options.summary)
   const title = `${agentName} — סיים`
 
   let notion = false
   let webPushCount = 0
-  let expoPushCount = 0
+  let fcmPushCount = 0
 
   if (agentNotifiesNotion(options.agentId) && process.env.NOTION_API_KEY) {
     try {
@@ -51,7 +51,7 @@ export async function notifyAgentRunComplete(options: {
 
   const channels = await resolveNotificationChannels(isHugo ? 'hugo_reply' : 'agent_run')
   if (!channels.push) {
-    return { notion, webPush: 0, expoPush: 0 }
+    return { notion, webPush: 0, fcmPush: 0 }
   }
 
   try {
@@ -67,10 +67,10 @@ export async function notifyAgentRunComplete(options: {
   }
 
   try {
-    expoPushCount = await sendExpoPush(title, short, url)
+    fcmPushCount = await sendMobilePush(title, short, url)
   } catch (err) {
-    console.warn('[agent-notifications] Expo push failed:', err)
+    console.warn('[agent-notifications] FCM push failed:', err)
   }
 
-  return { notion, webPush: webPushCount, expoPush: expoPushCount }
+  return { notion, webPush: webPushCount, fcmPush: fcmPushCount }
 }

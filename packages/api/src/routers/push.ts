@@ -1,7 +1,15 @@
 import { z } from 'zod'
 import { protectedProcedure, router } from '../trpc'
-import { pushSubscriptions, expoPushTokens, eq } from '@ak-system/database'
-import { sendExpoPush } from '../lib/expo-push'
+import {
+  pushSubscriptions,
+  expoPushTokens,
+  fcmPushTokens,
+  pushDeliveryLog,
+  eq,
+  desc,
+  queryRows,
+} from '@ak-system/database'
+import { sendMobilePush } from '../lib/mobile-push'
 import { createNotification } from '../lib/notification-store'
 import webPush from 'web-push'
 
@@ -118,21 +126,67 @@ export const pushRouter = router({
           .run()
       }
 
-      let expoSent = 0
+      let fcmSent = 0
       try {
-        expoSent = await sendExpoPush(input.title, input.body, input.url ?? '/chat')
+        fcmSent = await sendMobilePush(input.title, input.body, input.url ?? '/chat')
       } catch (err) {
-        console.warn('[push.sendToAll] Expo push failed:', err)
+        console.warn('[push.sendToAll] FCM push failed:', err)
       }
 
       return {
         sent: subs.length - failed.length,
         removed: failed.length,
         webSent: subs.length - failed.length,
-        expoSent,
+        fcmSent,
       }
     }),
 
+  registerFcmToken: protectedProcedure
+    .input(
+      z.object({
+        token: z.string().min(1),
+        platform: z.literal('android'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date().toISOString()
+      const existing = await ctx.db
+        .select()
+        .from(fcmPushTokens)
+        .where(eq(fcmPushTokens.token, input.token))
+        .get()
+
+      if (existing) {
+        await ctx.db
+          .update(fcmPushTokens)
+          .set({ updatedAt: now, platform: input.platform })
+          .where(eq(fcmPushTokens.id, existing.id))
+          .run()
+        return { id: existing.id }
+      }
+
+      const id = crypto.randomUUID()
+      await ctx.db
+        .insert(fcmPushTokens)
+        .values({
+          id,
+          token: input.token,
+          platform: input.platform,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+      return { id }
+    }),
+
+  unregisterFcmToken: protectedProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.delete(fcmPushTokens).where(eq(fcmPushTokens.token, input.token)).run()
+      return { ok: true as const }
+    }),
+
+  /** @deprecated Prefer registerFcmToken — kept for one release. */
   registerExpoToken: protectedProcedure
     .input(z.object({ token: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
@@ -156,10 +210,32 @@ export const pushRouter = router({
       return { id }
     }),
 
+  /** @deprecated Prefer unregisterFcmToken — kept for one release. */
   unregisterExpoToken: protectedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.delete(expoPushTokens).where(eq(expoPushTokens.token, input.token)).run()
       return { ok: true as const }
     }),
+
+  /** Last push delivery results — for debugging "sent but never arrived". */
+  deliveryLog: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await queryRows<{
+      id: string
+      ticketId: string | null
+      provider: string | null
+      providerMessageId: string | null
+      token: string
+      status: string
+      errorCode: string | null
+      message: string | null
+      sentAt: string
+      checkedAt: string | null
+    }>(ctx.db.select().from(pushDeliveryLog).orderBy(desc(pushDeliveryLog.sentAt)).limit(50))
+    return rows.map((r) => ({
+      ...r,
+      provider: r.provider ?? 'expo',
+      token: `…${r.token.slice(-12)}`,
+    }))
+  }),
 })

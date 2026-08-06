@@ -2,7 +2,7 @@ import { saveChatMessage } from './conversation-engine'
 import { isWhatsAppConfigured, sendWhatsAppMessage } from './whatsapp-bot'
 import { sendTelegramMessage } from './telegram-bot'
 import { sendBrowserPush } from './web-push'
-import { sendExpoPush } from './expo-push'
+import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
 import { resolveNotificationChannels } from '@ak-system/api'
 
@@ -29,13 +29,13 @@ export async function pushAssistantMessage(
   text: string,
   source: 'cron' | 'whatsapp' = 'cron',
   options?: { title?: string; url?: string; typeId?: string },
-): Promise<{ telegram: boolean; whatsapp: boolean; webPush: number; expoPush: number; skipped?: boolean }> {
+): Promise<{ telegram: boolean; whatsapp: boolean; webPush: number; fcmPush: number; skipped?: boolean }> {
   const channels = options?.typeId
     ? await resolveNotificationChannels(options.typeId)
     : { enabled: true, whatsapp: true, push: true, telegram: true }
 
   if (!channels.enabled) {
-    return { telegram: false, whatsapp: false, webPush: 0, expoPush: 0, skipped: true }
+    return { telegram: false, whatsapp: false, webPush: 0, fcmPush: 0, skipped: true }
   }
 
   await saveChatMessage('assistant', text, source)
@@ -43,7 +43,7 @@ export async function pushAssistantMessage(
   let telegram = false
   let whatsapp = false
   let webPush = 0
-  let expoPush = 0
+  let fcmPush = 0
 
   const title = options?.title ?? deriveTitle(text)
   const body = excerpt(text)
@@ -63,9 +63,9 @@ export async function pushAssistantMessage(
     }
 
     try {
-      expoPush = await sendExpoPush(title, body, url)
+      fcmPush = await sendMobilePush(title, body, url)
     } catch (err) {
-      console.warn('[push-notifications] Expo push failed:', err)
+      console.warn('[push-notifications] FCM push failed:', err)
     }
   }
 
@@ -79,5 +79,5 @@ export async function pushAssistantMessage(
     whatsapp = await sendWhatsAppMessage(text)
   }
 
-  return { telegram, whatsapp, webPush, expoPush }
+  return { telegram, whatsapp, webPush, fcmPush }
 }

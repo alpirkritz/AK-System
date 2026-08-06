@@ -184,7 +184,7 @@ export default function NotificationSettingsPage() {
           />
           <StatusPill
             label="פוש ARO (טלפון)"
-            ok={(channels?.expoPushDevices ?? 0) > 0}
+            ok={(channels?.fcmPushDevices ?? 0) > 0}
           />
         </div>
         {permission !== 'granted' && (
@@ -201,7 +201,7 @@ export default function NotificationSettingsPage() {
             VAPID מוגדר בשרת אבל המכשיר הזה עדיין לא רשום — לחץ &quot;הפעל נוטיפיקציות&quot; בהגדרות.
           </p>
         )}
-        {(channels?.expoPushDevices ?? 0) === 0 && (
+        {(channels?.fcmPushDevices ?? 0) === 0 && (
           <p className="text-[11px] text-[#5a688c] mt-2">
             אין מכשיר ARO רשום — פתח את אפליקציית ARO → הגדרות → הפעל התראות Push.
           </p>
@@ -380,6 +380,8 @@ export default function NotificationSettingsPage() {
             </div>
           ))}
 
+          <DeliveryLogSection />
+
           <div>
             <button
               onClick={() => {
@@ -393,6 +395,50 @@ export default function NotificationSettingsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** FCM push delivery log — debugs "נשלח אבל לא הגיע לטלפון". */
+function DeliveryLogSection() {
+  const { data: log } = trpc.push.deliveryLog.useQuery(undefined, {
+    refetchInterval: 60_000,
+  })
+  if (!log || log.length === 0) return null
+
+  const statusLabel: Record<string, string> = {
+    pending: '⏳ ממתין',
+    ok: '✅ נמסר',
+    error: '❌ נכשל',
+    expired: '⌛ פג תוקף',
+  }
+
+  return (
+    <div className="card p-4">
+      <div className="text-[13px] font-medium mb-1">יומן מסירת פוש (FCM)</div>
+      <div className="text-[11px] text-[#5a688c] mb-2">
+        תוצאות מסירה ישירות מ-Firebase — כולל שגיאות credentials וטוקנים מתים
+      </div>
+      <div className="flex flex-col gap-1">
+        {log.slice(0, 12).map((entry) => (
+          <div key={entry.id} className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="text-[#8593b3] truncate">
+              {entry.provider ? `[${entry.provider}] ` : ''}
+              {statusLabel[entry.status] ?? entry.status}
+              {entry.errorCode ? ` — ${entry.errorCode}` : ''}
+              {entry.message ? ` · ${entry.message}` : ''}
+            </span>
+            <span className="text-[#5a688c] shrink-0" dir="ltr">
+              {new Date(entry.sentAt).toLocaleString('he-IL', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

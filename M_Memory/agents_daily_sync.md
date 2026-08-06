@@ -1288,3 +1288,41 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Outputs:** `apps/web/src/app/finance/components/DocumentPreview.tsx`, `apps/web/src/app/globals.css`, `packages/types/src/sales.ts`, UI/UX review appended to `reports/sales-documents.md`.
 - **Verification:** 18/18 sales-type tests; 6/6 sales-document Playwright tests; web production build passed; no changed-file diagnostics.
 - **Compliance:** N/A (apps/packages engineering, not ABC workspace).
+
+---
+
+## 2026-08-06 — Direct Firebase Push migration
+
+- **Active Agent:** PM → UI → Dev → Dev Tests → QA → Reviewer
+- **Workflow:** `docs/specs/direct-firebase-push.md`
+- **Status:** Completed (manual APK re-register still required for live banners)
+- **Actions Taken:** Replaced Expo Push gateway with Firebase Admin `sendMobilePush`; added `fcm_push_tokens` + delivery-log provider columns; mobile uses `getDevicePushTokenAsync` + `/api/push/fcm/register`; updated all fan-out call sites; removed Expo receipt polling from task-reminder cron.
+- **Outputs:** `docs/specs/direct-firebase-push.md`, `reports/direct-firebase-push.md`, `reports/qa-direct-firebase-push.md`
+- **Verification:** `pnpm test` 465/465; mobile `tsc` pass; web build pass.
+- **Compliance:** N/A (apps/packages engineering).
+
+---
+
+## 2026-08-06 — Firebase Admin credentials + firebase-admin v14 API fix
+
+- **Active Agent:** Dev → QA → Reviewer
+- **Workflow:** `docs/specs/direct-firebase-push.md` (post-deploy hardening)
+- **Status:** Server-side push functional; device registration pending user action
+- **Actions Taken:** Installed `helm-push-969711` service-account credentials into `deploy/production.env` + `apps/web/.env.local` and deployed to EC2; a live in-container credential probe revealed `mobile-push.ts` used the legacy `admin.credential`/`admin.apps` namespace, which firebase-admin v14 no longer exports — every send failed as `MissingCredentials`. Rewrote init to the modular `firebase-admin/app` + `firebase-admin/messaging` entry points under a named app, and rewrote the unit-test mock to mirror the real v14 module layout instead of the legacy shape.
+- **Outputs:** `packages/api/src/lib/mobile-push.ts`, `packages/api/src/lib/mobile-push.test.ts`, `reports/direct-firebase-push.md`, `reports/qa-direct-firebase-push.md`
+- **Verification:** `pnpm test` 465/465; web build pass; service-account OAuth mint OK; FCM API reachable (invalid-token probe → `messaging/invalid-argument`). `fcm_push_tokens` still 0 — awaiting app launch.
+- **Performance Notes:** Mocks written against the implementation rather than the real dependency hid a fatal defect through a full green pipeline. Probe real credentials in the deployed environment before calling an integration done. Also noted: `pnpm -r run lint` is a no-op — no ESLint config exists, so `next lint` prompts interactively and fails.
+- **Compliance:** N/A (apps/packages engineering).
+
+---
+
+## 2026-08-06 — Stale-bundle deploy bug ("5 PWA / 0 FCM")
+
+- **Active Agent:** Dev → QA
+- **Workflow:** `docs/specs/direct-firebase-push.md` (live debugging)
+- **Status:** Resolved — live FCM delivery confirmed
+- **Actions Taken:** First live test showed `5 PWA + 0 FCM` despite a registered device token and valid credentials. Container logs still showed the pre-fix `admin.apps[0]` TypeError *after* the redeploy. Traced to build output layout: `Dockerfile.runtime` never builds Next (it copies a Mac-built `.next` and only checks the dir exists), and `next.config.js` routes output to `os.tmpdir()` unless `AK_DEPLOY_BUILD=1`. The verification build was a bare `pnpm --filter @ak-system/web build`, so `apps/web/.next` kept the pre-fix 18:08 bundle while rsynced source looked current. Redeployed via `SKIP_CI=1 pnpm deploy:ec2` so the script's own `AK_DEPLOY_BUILD=1` build ran.
+- **Outputs:** `reports/direct-firebase-push.md`, `reports/qa-direct-firebase-push.md`
+- **Verification:** `ak-mobile-push` marker present in local + in-container bundles; live multicast from the production container → `successCount: 1`, message id `0:1786033759160207%d236722bd236722b`.
+- **Performance Notes:** Two traps worth remembering. (1) Verify the *deployed artifact*, not the deployed source — I checked source-in-container and wrongly concluded the fix was live. (2) `SKIP_LOCAL_BUILD=1` plus the conditional `distDir` can silently ship a stale bundle; the image only asserts `.next` exists, never that it is newer than source. A BUILD_ID-vs-source freshness guard is a worthwhile follow-up. Also corrected an earlier wrong claim: `typescript.ignoreBuildErrors: true` means the build does **not** type-check, so with lint broken there is currently no static gate at all.
+- **Compliance:** N/A (apps/packages engineering).
