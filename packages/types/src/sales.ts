@@ -412,20 +412,20 @@ function fileNameDatePrefix(iso: string | null | undefined): string {
   return `${date.getFullYear()}_${pad(date.getMonth() + 1)}_${pad(date.getDate())}`
 }
 
-/** Chrome uses document.title as the suggested PDF file name. */
-export function buildDocumentFileName(
-  doc: {
-    docType: SalesDocumentType
-    docNumber?: number | null
-    issueDate?: string | null
-    language?: DocumentLanguage
-  },
-  language: DocumentLanguage = doc.language ?? 'he',
-): string {
+/**
+ * Chrome uses document.title as the suggested PDF file name.
+ * Always English (LTR) for type + draft so Drive/OS never mix RTL labels with dates.
+ */
+export function buildDocumentFileName(doc: {
+  docType: SalesDocumentType
+  docNumber?: number | null
+  issueDate?: string | null
+  language?: DocumentLanguage
+}): string {
   const parts = [
     fileNameDatePrefix(doc.issueDate),
-    DOCUMENT_STRINGS[language].documentTypes[doc.docType],
-    doc.docNumber != null ? String(doc.docNumber) : language === 'he' ? 'טיוטה' : 'draft',
+    DOCUMENT_STRINGS.en.documentTypes[doc.docType],
+    doc.docNumber != null ? String(doc.docNumber) : 'draft',
   ]
   return parts
     .filter(Boolean)

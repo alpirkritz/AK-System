@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { buildDocumentFileName } from '@ak-system/types'
-import type { DocumentLanguage, SalesDocumentType } from '@ak-system/types'
+import type { SalesDocumentType } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
 import { DocumentPreview } from '../../../components/DocumentPreview'
 
@@ -20,16 +20,11 @@ export default function DocumentPrintPage() {
 
   useEffect(() => {
     if (!doc) return
-    const language: DocumentLanguage = doc.language === 'en' ? 'en' : 'he'
-    document.title = buildDocumentFileName(
-      {
-        docType: doc.docType as SalesDocumentType,
-        docNumber: doc.docNumber,
-        issueDate: doc.issueDate,
-        language,
-      },
-      language
-    )
+    document.title = buildDocumentFileName({
+      docType: doc.docType as SalesDocumentType,
+      docNumber: doc.docNumber,
+      issueDate: doc.issueDate,
+    })
   }, [doc])
 
   if (!id || isLoading) {

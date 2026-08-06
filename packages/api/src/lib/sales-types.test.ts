@@ -150,16 +150,16 @@ describe('buildDocumentFileName', () => {
         docNumber: 10029,
         issueDate: '2026-08-06',
       })
-    ).toBe('2026_08_06_חשבונית_מס_10029')
+    ).toBe('2026_08_06_Tax_Invoice_10029')
   })
 
-  it('uses the document language for the type label', () => {
+  it('always uses English type labels to keep filenames LTR', () => {
     expect(
       buildDocumentFileName({
         docType: 'quote',
         docNumber: 1100009,
         issueDate: '2026-08-06T09:15:00.000Z',
-        language: 'en',
+        language: 'he',
       })
     ).toBe('2026_08_06_Quotation_1100009')
   })
@@ -167,12 +167,12 @@ describe('buildDocumentFileName', () => {
   it('marks an unissued document as a draft', () => {
     expect(
       buildDocumentFileName({ docType: 'quote', docNumber: null, issueDate: '2026-01-02' })
-    ).toBe('2026_01_02_הצעת_מחיר_טיוטה')
+    ).toBe('2026_01_02_Quotation_draft')
   })
 
   it('drops the prefix when the issue date is unusable', () => {
     expect(buildDocumentFileName({ docType: 'receipt', docNumber: 30021, issueDate: '' })).toBe(
-      'קבלה_30021'
+      'Receipt_30021'
     )
   })
 })
