@@ -143,15 +143,36 @@ describe('bilingual strings', () => {
 })
 
 describe('buildDocumentFileName', () => {
-  it('names an issued invoice by type, number and client', () => {
+  it('prefixes the issue date so saved PDFs sort chronologically', () => {
     expect(
-      buildDocumentFileName({ docType: 'tax_invoice', docNumber: 12, clientName: 'ACME בע"מ' })
-    ).toBe('חשבונית-מס-12-ACME-בעמ')
+      buildDocumentFileName({
+        docType: 'tax_invoice',
+        docNumber: 10029,
+        issueDate: '2026-08-06',
+      })
+    ).toBe('2026_08_06_חשבונית_מס_10029')
   })
 
-  it('marks an unissued document as a draft and strips path characters', () => {
+  it('uses the document language for the type label', () => {
     expect(
-      buildDocumentFileName({ docType: 'quote', docNumber: null, clientName: 'A/B: Ltd' }, 'en')
-    ).toBe('Quotation-draft-AB-Ltd')
+      buildDocumentFileName({
+        docType: 'quote',
+        docNumber: 1100009,
+        issueDate: '2026-08-06T09:15:00.000Z',
+        language: 'en',
+      })
+    ).toBe('2026_08_06_Quotation_1100009')
+  })
+
+  it('marks an unissued document as a draft', () => {
+    expect(
+      buildDocumentFileName({ docType: 'quote', docNumber: null, issueDate: '2026-01-02' })
+    ).toBe('2026_01_02_הצעת_מחיר_טיוטה')
+  })
+
+  it('drops the prefix when the issue date is unusable', () => {
+    expect(buildDocumentFileName({ docType: 'receipt', docNumber: 30021, issueDate: '' })).toBe(
+      'קבלה_30021'
+    )
   })
 })

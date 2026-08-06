@@ -25,7 +25,7 @@ export default function DocumentPrintPage() {
       {
         docType: doc.docType as SalesDocumentType,
         docNumber: doc.docNumber,
-        clientName: doc.clientName,
+        issueDate: doc.issueDate,
         language,
       },
       language

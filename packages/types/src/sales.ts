@@ -401,26 +401,37 @@ export function formatDocumentDate(iso: string, language: DocumentLanguage = 'he
   }).format(date)
 }
 
+/** `YYYY_MM_DD`, so saved PDFs sort chronologically inside a Drive folder. */
+function fileNameDatePrefix(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const parsed = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+  if (parsed) return `${parsed[1]}_${parsed[2]}_${parsed[3]}`
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}_${pad(date.getMonth() + 1)}_${pad(date.getDate())}`
+}
+
 /** Chrome uses document.title as the suggested PDF file name. */
 export function buildDocumentFileName(
   doc: {
     docType: SalesDocumentType
     docNumber?: number | null
-    clientName?: string | null
+    issueDate?: string | null
     language?: DocumentLanguage
   },
   language: DocumentLanguage = doc.language ?? 'he',
 ): string {
   const parts = [
+    fileNameDatePrefix(doc.issueDate),
     DOCUMENT_STRINGS[language].documentTypes[doc.docType],
     doc.docNumber != null ? String(doc.docNumber) : language === 'he' ? 'טיוטה' : 'draft',
-    doc.clientName ?? '',
   ]
   return parts
     .filter(Boolean)
-    .join('-')
+    .join('_')
     .replace(/[\\/:*?"<>|]/g, '')
-    .replace(/\s+/g, '-')
+    .replace(/\s+/g, '_')
 }
 
 export function interpolate(template: string, values: Record<string, string>): string {
