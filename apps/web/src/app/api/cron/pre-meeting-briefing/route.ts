@@ -125,8 +125,10 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
           continue
         }
         const context = buildPreMeetingAgentContext(briefInput)
+        // No dedupeSlot: prep runs once per meeting, so several runs in one slot
+        // are expected when meetings are back to back.
         const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context })
-        if (routed !== null) {
+        if (routed.status !== 'not_routed') {
           sent++
           continue
         }

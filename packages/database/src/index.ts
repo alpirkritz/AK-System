@@ -444,7 +444,18 @@ const WHATSAPP_GROUPS_COLUMNS = [
 ]
 
 const AGENT_TRIGGERS_TABLE = [
+  // Deprecated in favour of agent_schedules — kept so a rollback has its data.
   `CREATE TABLE IF NOT EXISTS agent_triggers (
+    agent_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    schedule_times TEXT NOT NULL DEFAULT '[]',
+    trigger_message TEXT,
+    last_run_at TEXT,
+    last_run_status TEXT,
+    last_run_error TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS agent_schedules (
     agent_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
     schedule_times TEXT NOT NULL DEFAULT '[]',
@@ -474,6 +485,7 @@ const NOTIFICATION_PREFERENCES_TABLE = [
 const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN agent_display_names TEXT',
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
+  'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [
@@ -830,6 +842,7 @@ export const chatMessages = schema.chatMessages
 export const agentThreads = schema.agentThreads
 export const agentMessages = schema.agentMessages
 export const agentTriggers = schema.agentTriggers
+export const agentSchedules = schema.agentSchedules
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
@@ -864,6 +877,8 @@ export type AgentMessage = typeof schemaPg.agentMessages.$inferSelect
 export type NewAgentMessage = typeof schemaPg.agentMessages.$inferInsert
 export type AgentTrigger = typeof schemaPg.agentTriggers.$inferSelect
 export type NewAgentTrigger = typeof schemaPg.agentTriggers.$inferInsert
+export type AgentSchedule = typeof schemaPg.agentSchedules.$inferSelect
+export type NewAgentSchedule = typeof schemaPg.agentSchedules.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect

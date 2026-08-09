@@ -77,7 +77,20 @@ export {
   type NotificationChannel,
   type ResolvedChannels,
 } from './services/notification-preferences'
-export { getDefaultTriggerMessage } from './agents-meta'
+export { getDefaultTriggerMessage, parseJsonTimes } from './agents-meta'
+export {
+  hasAgentRunInSlot,
+  listAgentConfigs,
+  listAgentsDueAtTime,
+  markAgentRan,
+  migrateAgentSchedulesOnce,
+  setAgentSchedule,
+  setEventSubscription,
+  isRoutableEvent,
+  wasAgentRunInSlot,
+  type AgentScheduleConfig,
+  type RoutableEventSummary,
+} from './services/agent-schedules'
 export {
   importIBKREmails,
   formatImportReport,

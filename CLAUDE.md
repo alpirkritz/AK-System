@@ -44,7 +44,7 @@ Next.js 14 App Router, TypeScript, Tailwind, tRPC + React Query, NextAuth. Pages
 
 tRPC wiring: client in `src/lib/trpc.ts` (`httpBatchLink` + superjson), server in `src/app/api/trpc/[trpc]/route.ts` — resolves session via NextAuth or a bearer token (mobile app), with a dev-session fallback when `NODE_ENV=development` or `SKIP_AUTH_IN_PRODUCTION=1`.
 
-Cron endpoints (`src/app/api/cron/*`, optional `CRON_SECRET` bearer auth), run via OS cron on the EC2 box (not GitHub Actions — that workflow is disabled/legacy): `morning-briefing`, `pre-meeting-briefing`, `daily-meeting-summary`, `task-reminder`, `feed-sync`, `calendar-sync`, `notion-sync`, `agent-triggers`, `whatsapp-group-summary`, `whatsapp-message-retention`.
+Cron endpoints (`src/app/api/cron/*`, optional `CRON_SECRET` bearer auth), run via OS cron on the EC2 box (not GitHub Actions — that workflow is disabled/legacy): `morning-briefing`, `pre-meeting-briefing`, `daily-meeting-summary`, `task-reminder`, `feed-sync`, `calendar-sync`, `notion-sync`, `scheduled-agents` (was `agent-triggers`, which now only forwards), `whatsapp-group-summary`, `whatsapp-message-retention`.
 
 Integrations: Google Calendar (OAuth, multi-account), Notion (multi-account, per-workspace DBs for tasks/meetings/assistant/people/projects/companies), Telegram bot, WhatsApp (via the bridge service), Gemini (primary agent/LLM engine, `AGENT_ENGINE=gemini|cursor`), IBKR trade import (Gmail scan + parser), Web Push (VAPID) + Expo push (mobile) — **no Firebase**.
 
@@ -96,6 +96,17 @@ This is a separate, markdown-defined agent framework (not code) governed by `.cu
 - **M_Memory/agents_daily_sync.md** — append-only run log/changelog (also used broadly as a general dev journal, not just for the 8 agents).
 
 **Important nuance:** `scripts/run_daily_agents.py` (Python, direct Notion API calls, no LLM, generates the O_Output examples) is a standalone offline demo generator — **not** wired into production. The real, live agent logic runs through the Next.js cron routes in `apps/web/src/app/api/cron/*` calling an LLM-backed engine (Gemini by default). Don't confuse the two when tracing "what actually runs in prod."
+
+### How agents get triggered
+
+Every agent card in `A_Agents/` is discovered at request time (`listAgentSummaries`) and configured entirely from `/agents/manage` ▸ **הגדרות והרצה** — dropping in a new `.md` needs no code change. There is no schedulable-agent allowlist; that hardcoded set was removed.
+
+Two trigger paths, one per concern:
+
+- **Clock schedules** live in the `agent_schedules` table (`enabled`, `scheduleTimes` JSON, `triggerMessage`, last-run stamps) and are polled by `/api/cron/scheduled-agents` every 15 min. `/api/cron/agent-triggers` is a deprecated forwarding shim; the `agent_triggers` table is retained for rollback and no longer read or written.
+- **System events** stay in `notification_preferences.agent_id` — an event routes to at most one agent, an agent may serve many events. `pre_meeting_briefing` is what fires meeting prep 15 min before each meeting; the event crons (`morning-briefing`, `pre-meeting-briefing`, `daily-meeting-summary`, `task-reminder`) call `runEventAgentIfRouted` and fall back to their built-in template when nothing is routed.
+
+Both paths stamp `agent_schedules.last_run_at` through `markAgentRan`, and once-per-slot digests pass `dedupeSlot`, so an agent wired to a schedule *and* an event runs once per slot instead of twice. Schedule and event config are in `packages/api/src/services/agent-schedules.ts`; a one-shot migration there carries legacy `agent_triggers` rows over and seeds the meeting-prep routing, guarded by `user_settings.agent_schedules_migrated_at`.
 
 ## docs/specs & reports conventions
 

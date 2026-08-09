@@ -39,6 +39,6 @@ echo "→ Install crontab on ${REMOTE}"
 ssh "${SSH_OPTS[@]}" "$REMOTE" "cd '$DEPLOY_PATH' && APP_URL=http://127.0.0.1:3000 bash scripts/install-server-cron.sh"
 
 echo "→ Verify"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "crontab -l | grep -E 'calendar-sync|whatsapp-group-summary|agent-triggers'"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "crontab -l | grep -E 'calendar-sync|whatsapp-group-summary|scheduled-agents'"
 
 echo "✓  Server cron installed on ${DEPLOY_HOST}"

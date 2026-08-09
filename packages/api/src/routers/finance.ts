@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
   financeTrades,
   financeTransactions,
-  agentTriggers,
+  agentSchedules,
   bankConnections,
   bankAccounts,
   financeCategoryRules,
@@ -12,7 +13,7 @@ import {
   type BankAccount,
   type FinanceCategoryRule,
 } from '@ak-system/database'
-import { eq, desc, gte, and, like, sql, count, sum, isNull } from 'drizzle-orm'
+import { eq, desc, gte, and, like, sql, count, sum, isNull, or } from 'drizzle-orm'
 import { listIBKREmails } from '../services/ibkr-parser'
 import { importIBKREmails } from '../services/ibkr-import-service'
 import { importIBKRFromNotion, isNotionIbkrConfigured } from '../services/notion-ibkr-import'
@@ -21,11 +22,14 @@ import { parseCSV } from '../services/csv-parser'
 import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parser'
 import { encryptCredentials, isBankCryptoConfigured } from '../lib/bank-credentials-crypto'
 import { syncConnection, syncAllConnections } from '../services/bank-sync-service'
+import { hasPendingOtp, submitOtpCode } from '../services/bank-otp-bridge'
 import {
   buildMonthlyTrend,
   buildCategoryBreakdown,
   detectRecurring,
   computeInsights,
+  monthKey,
+  jerusalemParts,
   type AnalyticsTxn,
 } from '../services/cashflow-analytics'
 import {
@@ -34,6 +38,7 @@ import {
   suggestRulePattern,
   type CategoryRule,
 } from '../services/transaction-categorizer'
+import { CATEGORY_FALLBACK, isInternalCategory } from '@ak-system/types'
 
 type JournalPeriod = 'today' | 'week' | 'month' | 'all'
 
@@ -447,6 +452,41 @@ export const financeRouter = router({
       return syncConnection(ctx.db, connection, ctx.bankScrape ?? undefined)
     }),
 
+    /**
+     * Deliver SMS/OTP while a sync is blocked on awaiting_otp.
+     * Only works when the scrape is running in this same Node process.
+     */
+    submitOtp: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          code: z.string().min(4).max(12),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await queryRows(
+          ctx.db.select().from(bankConnections).where(eq(bankConnections.id, input.id)),
+        )) as BankConnection[]
+        const connection = rows[0]
+        if (!connection) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'חיבור לא נמצא' })
+        }
+        if (connection.status !== 'awaiting_otp' && !hasPendingOtp(input.id)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'אין סנכרון שממתין לקוד אימות עבור חיבור זה',
+          })
+        }
+        const ok = submitOtpCode(input.id, input.code)
+        if (!ok) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'אין סנכרון פעיל שממתין לקוד — נסה לסנכרן שוב',
+          })
+        }
+        return { ok: true as const }
+      }),
+
     syncAll: protectedProcedure.mutation(async ({ ctx }) => {
       const results = await syncAllConnections(ctx.db, ctx.bankScrape ?? undefined)
       return { results }
@@ -545,6 +585,69 @@ export const financeRouter = router({
         }
       }),
 
+    /** Included vs excluded rows for one month — drill-down + retag entry point. */
+    monthComposition: protectedProcedure
+      .input(
+        z.object({
+          month: z.string().regex(/^\d{4}-\d{2}$/),
+          direction: z.enum(['income', 'expense']).default('expense'),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        const rows = (await queryRows(
+          ctx.db
+            .select({
+              id: financeTransactions.id,
+              amount: financeTransactions.amount,
+              direction: financeTransactions.direction,
+              category: financeTransactions.category,
+              description: financeTransactions.description,
+              transactionDate: financeTransactions.transactionDate,
+            })
+            .from(financeTransactions),
+        )) as Array<{
+          id: string
+          amount: string
+          direction: string
+          category: string | null
+          description: string | null
+          transactionDate: string
+        }>
+
+        type Row = {
+          id: string
+          date: string
+          description: string | null
+          category: string | null
+          amount: number
+        }
+        const included: Row[] = []
+        const excluded: Row[] = []
+        for (const r of rows) {
+          if (monthKey(r.transactionDate) !== input.month) continue
+          if (r.direction !== input.direction) continue
+          const item: Row = {
+            id: r.id,
+            date: r.transactionDate,
+            description: r.description,
+            category: r.category,
+            amount: Number(r.amount) || 0,
+          }
+          if (isInternalCategory(r.category)) excluded.push(item)
+          else included.push(item)
+        }
+        const sum = (list: Row[]) =>
+          Math.round(list.reduce((s, x) => s + x.amount, 0) * 100) / 100
+        included.sort((a, b) => b.amount - a.amount)
+        excluded.sort((a, b) => b.amount - a.amount)
+        return {
+          included,
+          excluded,
+          includedTotal: sum(included),
+          excludedTotal: sum(excluded),
+        }
+      }),
+
     /**
      * Data-quality state for the tab banner. Deliberately separate from `insights`:
      * a gap in the data is not a finding about spending, and showing it in both places
@@ -631,7 +734,13 @@ export const financeRouter = router({
 
   /** Apply user rules then built-in keywords to every transaction still missing a category. */
   categorizeBacklog: protectedProcedure
-    .input(z.object({ dryRun: z.boolean().default(false) }))
+    .input(
+      z.object({
+        dryRun: z.boolean().default(false),
+        /** Also re-tag fallback `אחר` when keywords/rules now give a better category. */
+        reclassifyFallback: z.boolean().default(true),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const rules = await loadCategoryRules(ctx)
       const rows = (await queryRows(
@@ -640,10 +749,23 @@ export const financeRouter = router({
             id: financeTransactions.id,
             direction: financeTransactions.direction,
             description: financeTransactions.description,
+            category: financeTransactions.category,
           })
           .from(financeTransactions)
-          .where(isNull(financeTransactions.category))
-      )) as Array<{ id: string; direction: string; description: string | null }>
+          .where(
+            input.reclassifyFallback
+              ? or(
+                  isNull(financeTransactions.category),
+                  eq(financeTransactions.category, CATEGORY_FALLBACK),
+                )
+              : isNull(financeTransactions.category),
+          ),
+      )) as Array<{
+        id: string
+        direction: string
+        description: string | null
+        category: string | null
+      }>
 
       const byCategory: Record<string, number> = {}
       let updated = 0
@@ -651,6 +773,7 @@ export const financeRouter = router({
       for (const row of rows) {
         const direction = row.direction === 'income' ? 'income' : 'expense'
         const category = categorizeTransaction(row.description ?? '', rules, direction)
+        if (row.category === category) continue
         byCategory[category] = (byCategory[category] ?? 0) + 1
         if (!input.dryRun) {
           await ctx.db
@@ -739,27 +862,42 @@ export const financeRouter = router({
   // ─── Summary ─────────────────────────────────────────────────────────────
 
   getSummary: protectedProcedure.query(async ({ ctx }) => {
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    const { y, m } = jerusalemParts()
+    const thisMonth = `${y}-${String(m).padStart(2, '0')}`
+    // Lower bound ~2 months back so we do not scan the whole ledger for the KPI.
+    const scanFrom = new Date(Date.UTC(y, m - 2, 1)).toISOString()
 
     const [
       [tradeCountAll],
       [tradeCountMonth],
       [txnCountAll],
-      monthlyAgg,
+      recentTxns,
       trades,
     ] = await Promise.all([
       ctx.db.select({ value: count() }).from(financeTrades),
-      ctx.db.select({ value: count() }).from(financeTrades).where(gte(financeTrades.tradeDate, monthStart)),
-      ctx.db.select({ value: count() }).from(financeTransactions),
       ctx.db
-        .select({
-          direction: financeTransactions.direction,
-          total: sql<string>`COALESCE(SUM(CAST(${financeTransactions.amount} AS REAL)), 0)`,
-        })
-        .from(financeTransactions)
-        .where(gte(financeTransactions.transactionDate, monthStart))
-        .groupBy(financeTransactions.direction),
+        .select({ value: count() })
+        .from(financeTrades)
+        .where(gte(financeTrades.tradeDate, new Date(Date.UTC(y, m - 1, 1)).toISOString())),
+      ctx.db.select({ value: count() }).from(financeTransactions),
+      queryRows(
+        ctx.db
+          .select({
+            direction: financeTransactions.direction,
+            amount: financeTransactions.amount,
+            category: financeTransactions.category,
+            transactionDate: financeTransactions.transactionDate,
+          })
+          .from(financeTransactions)
+          .where(gte(financeTransactions.transactionDate, scanFrom)),
+      ) as Promise<
+        Array<{
+          direction: string
+          amount: string
+          category: string | null
+          transactionDate: string
+        }>
+      >,
       ctx.db
         .select({
           symbol: financeTrades.symbol,
@@ -773,11 +911,24 @@ export const financeRouter = router({
 
     let monthlyExpenses = 0
     let monthlyIncome = 0
-    for (const row of monthlyAgg) {
-      const val = parseFloat(String(row.total))
-      if (row.direction === 'expense') monthlyExpenses = val
-      else if (row.direction === 'income') monthlyIncome = val
+    let monthlyExpensesExcluded = 0
+    let monthlyIncomeExcluded = 0
+    for (const row of recentTxns) {
+      if (monthKey(row.transactionDate) !== thisMonth) continue
+      const val = parseFloat(String(row.amount)) || 0
+      const internal = isInternalCategory(row.category)
+      if (row.direction === 'expense') {
+        if (internal) monthlyExpensesExcluded += val
+        else monthlyExpenses += val
+      } else if (row.direction === 'income') {
+        if (internal) monthlyIncomeExcluded += val
+        else monthlyIncome += val
+      }
     }
+    monthlyExpenses = Math.round(monthlyExpenses * 100) / 100
+    monthlyIncome = Math.round(monthlyIncome * 100) / 100
+    monthlyExpensesExcluded = Math.round(monthlyExpensesExcluded * 100) / 100
+    monthlyIncomeExcluded = Math.round(monthlyIncomeExcluded * 100) / 100
 
     const positions: Record<
       string,
@@ -818,6 +969,8 @@ export const financeRouter = router({
       monthlyExpenses,
       monthlyIncome,
       monthlyNet: monthlyIncome - monthlyExpenses,
+      monthlyExpensesExcluded,
+      monthlyIncomeExcluded,
       openPositions,
       realizedPnl,
       totalTransactions: txnCountAll?.value ?? 0,
@@ -870,8 +1023,8 @@ export const financeRouter = router({
 
       const [trigger] = await ctx.db
         .select()
-        .from(agentTriggers)
-        .where(eq(agentTriggers.agentId, '05_ibkr_daily_import'))
+        .from(agentSchedules)
+        .where(eq(agentSchedules.agentId, '05_ibkr_daily_import'))
         .limit(1)
 
       return {

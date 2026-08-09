@@ -60,7 +60,7 @@ async function runTaskReminder(request: NextRequest): Promise<NextResponse> {
     const text = lines.join('\n').slice(0, 4000)
 
     const routed = await runEventAgentIfRouted('task_reminder', { url: '/tasks', context: text })
-    if (routed !== null) {
+    if (routed.status !== 'not_routed') {
       await markNotificationSent('task_reminder')
       return NextResponse.json({ ok: true, reminded: dueOrOverdue.length, mode: 'agent' })
     }

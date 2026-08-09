@@ -65,10 +65,16 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const routed = await runEventAgentIfRouted('daily_meeting_summary')
-    if (routed !== null) {
+    const routed = await runEventAgentIfRouted('daily_meeting_summary', {
+      dedupeSlot: currentSlot(),
+      timezone: TIMEZONE,
+    })
+    if (routed.status !== 'not_routed') {
       await markNotificationSent('daily_meeting_summary')
-      return NextResponse.json({ ok: true, mode: 'agent' })
+      return NextResponse.json({
+        ok: true,
+        mode: routed.status === 'ran' ? 'agent' : 'agent-deduped',
+      })
     }
 
     const today = localTodayIso()

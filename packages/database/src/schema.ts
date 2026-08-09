@@ -421,6 +421,7 @@ export const userSettings = sqliteTable('user_settings', {
   agentCalendarIds: text('agent_calendar_ids'), // JSON string[] or null = all calendars
   agentDisplayNames: text('agent_display_names'), // JSON Record<agentId, displayName>
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
+  agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -463,8 +464,10 @@ export type NewAgentThread = typeof agentThreads.$inferInsert
 export type AgentMessage = typeof agentMessages.$inferSelect
 export type NewAgentMessage = typeof agentMessages.$inferInsert
 
-// ─── ABC agent triggers (scheduled / manual runs) ─────────────────────────────
-
+/**
+ * @deprecated Superseded by `agentSchedules`. Retained (data intact) as a rollback
+ * target for the dynamic-agent-management migration; nothing reads or writes it.
+ */
 export const agentTriggers = sqliteTable('agent_triggers', {
   agentId: text('agent_id').primaryKey(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
@@ -478,6 +481,24 @@ export const agentTriggers = sqliteTable('agent_triggers', {
 
 export type AgentTrigger = typeof agentTriggers.$inferSelect
 export type NewAgentTrigger = typeof agentTriggers.$inferInsert
+
+// ─── ABC agent schedules (clock-based runs) ───────────────────────────────────
+// Event-based runs are routed through notificationPreferences.agentId instead.
+// Both paths stamp lastRunAt so an agent wired to both runs once per slot.
+
+export const agentSchedules = sqliteTable('agent_schedules', {
+  agentId: text('agent_id').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  scheduleTimes: text('schedule_times').notNull().default('[]'), // JSON ["07:00"]
+  triggerMessage: text('trigger_message'),
+  lastRunAt: text('last_run_at'),
+  lastRunStatus: text('last_run_status'), // 'ok' | 'error'
+  lastRunError: text('last_run_error'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type AgentSchedule = typeof agentSchedules.$inferSelect
+export type NewAgentSchedule = typeof agentSchedules.$inferInsert
 
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 

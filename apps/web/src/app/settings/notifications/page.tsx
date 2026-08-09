@@ -72,7 +72,7 @@ function StatusPill({ label, ok }: { label: string; ok: boolean }) {
 export default function NotificationSettingsPage() {
   const utils = trpc.useUtils()
   const { data, isLoading } = trpc.settings.notifications.list.useQuery()
-  const { data: triggers } = trpc.agents.triggers.list.useQuery()
+  const { data: triggers } = trpc.agents.list.useQuery()
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -221,8 +221,11 @@ export default function NotificationSettingsPage() {
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-semibold text-[#cdd7ea]">{group.title}</div>
                 {group.cat === 'agent' && (
-                  <Link href="/agents" className="text-[12px] text-[#2dd4bf] hover:underline">
-                    ערוך שעות סוכנים ←
+                  <Link
+                    href="/agents/manage"
+                    className="text-[12px] text-[#2dd4bf] hover:underline"
+                  >
+                    ערוך טריגרים של סוכנים ←
                   </Link>
                 )}
                 {group.cat === 'whatsapp' && (
@@ -353,7 +356,7 @@ export default function NotificationSettingsPage() {
                           </div>
                           <div className="flex flex-col gap-1">
                             {(triggers?.agents ?? [])
-                              .filter((a) => a.schedulable)
+                              .filter((a) => a.enabled || a.scheduleTimes.length > 0)
                               .map((a) => {
                                 const cfg = scheduleByAgent.get(a.agentId)
                                 return (

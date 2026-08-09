@@ -7,19 +7,14 @@ export interface AgentSummary {
   role: string
 }
 
-/** Agents with daily workflow triggers — schedule UI enabled. */
-export const SCHEDULABLE_AGENT_IDS = new Set([
-  '03_morning_briefing',
-  '04_meeting_prep_herald',
-  '05_ibkr_daily_import',
-  '06_calendar_optimizer',
-  '07_email_assistant',
-])
-
-/** Suggested default schedule times (not auto-enabled). */
+/**
+ * Suggested schedule times offered in the UI when an agent has none yet.
+ * Suggestions only — never auto-enabled, and absence from this map does not
+ * stop an agent from being scheduled. Meeting prep is deliberately absent: it
+ * is event-driven (15 min before each meeting), not clock-driven.
+ */
 export const DEFAULT_SCHEDULE_TIMES: Record<string, string[]> = {
   '03_morning_briefing': ['07:00'],
-  '04_meeting_prep_herald': ['07:30'],
   '05_ibkr_daily_import': ['18:00'],
   '06_calendar_optimizer': ['07:00'],
   '07_email_assistant': ['09:00'],
@@ -68,10 +63,6 @@ export function listAgentSummaries(): AgentSummary[] {
       const role = roleMatch?.[1]?.trim().slice(0, 120) ?? ''
       return { id, name, role }
     })
-}
-
-export function isAgentSchedulable(agentId: string): boolean {
-  return SCHEDULABLE_AGENT_IDS.has(agentId)
 }
 
 export function getDefaultTriggerMessage(agentId: string): string {

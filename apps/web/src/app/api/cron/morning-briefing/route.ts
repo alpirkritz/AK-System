@@ -72,18 +72,25 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === today)
     const text = formatMorningBriefingContext(today, scopedEvents, dueTasks)
 
-    const routed = await runEventAgentIfRouted('morning_briefing', { context: text })
-    if (routed !== null) {
+    const routed = await runEventAgentIfRouted('morning_briefing', {
+      context: text,
+      dedupeSlot: currentSlot(),
+      timezone: TIMEZONE,
+    })
+    if (routed.status !== 'not_routed') {
       await markNotificationSent('morning_briefing')
       return NextResponse.json({
         ok: true,
-        mode: 'agent',
+        mode: routed.status === 'ran' ? 'agent' : 'agent-deduped',
         events: scopedEvents.length,
         dueTasks: dueTasks.length,
       })
     }
 
-    const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'morning_briefing' })
+    // Unrouted = raw template with no LLM. Label it so it's obvious this is not
+    // the agent brief (route an agent in Settings ▸ Notifications to get one).
+    const labeled = `${text}\n\n(תבנית אוטומטית ללא סוכן — לניתוב סוכן: הגדרות ▸ נוטיפיקציות)`
+    const pushed = await pushAssistantMessage(labeled, 'cron', { typeId: 'morning_briefing' })
     await markNotificationSent('morning_briefing')
     return NextResponse.json({
       ok: true,

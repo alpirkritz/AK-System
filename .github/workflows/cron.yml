@@ -20,7 +20,7 @@ on:
           - /api/cron/task-reminder
           - /api/cron/feed-sync
           - /api/cron/whatsapp-group-summary
-          - /api/cron/agent-triggers
+          - /api/cron/scheduled-agents
         default: '/api/cron/morning-briefing'
 
 jobs:

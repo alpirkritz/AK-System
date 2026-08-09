@@ -374,7 +374,27 @@ export const agentMessages = pgTable('agent_messages', {
   agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
 }))
 
+/**
+ * @deprecated Superseded by `agentSchedules`. Retained (data intact) as a rollback
+ * target for the dynamic-agent-management migration; nothing reads or writes it.
+ */
 export const agentTriggers = pgTable('agent_triggers', {
+  agentId: text('agent_id').primaryKey(),
+  enabled: integer('enabled').notNull().default(0),
+  scheduleTimes: text('schedule_times').notNull().default('[]'),
+  triggerMessage: text('trigger_message'),
+  lastRunAt: text('last_run_at'),
+  lastRunStatus: text('last_run_status'),
+  lastRunError: text('last_run_error'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/**
+ * Clock-based agent runs. Event-based runs are routed through
+ * notificationPreferences.agentId; both paths stamp lastRunAt so an agent wired
+ * to both runs once per slot.
+ */
+export const agentSchedules = pgTable('agent_schedules', {
   agentId: text('agent_id').primaryKey(),
   enabled: integer('enabled').notNull().default(0),
   scheduleTimes: text('schedule_times').notNull().default('[]'),
@@ -541,6 +561,8 @@ export const userSettings = pgTable('user_settings', {
   agentDisplayNames: text('agent_display_names'),
   /** JSON BusinessProfile — issuer details, logo and document numbering */
   businessProfile: text('business_profile'),
+  /** One-shot guard for the agent_triggers → agent_schedules migration */
+  agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
   updatedAt: text('updated_at').notNull(),
 })
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 
 function Toggle({
@@ -68,7 +69,7 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
   const [dirty, setDirty] = useState(false)
 
   const utils = trpc.useUtils()
-  const { data, isLoading } = trpc.agents.triggers.list.useQuery()
+  const { data, isLoading } = trpc.agents.list.useQuery()
 
   const config = data?.agents.find((a) => a.agentId === agentId)
 
@@ -80,18 +81,18 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
     setDirty(false)
   }, [config])
 
-  const upsert = trpc.agents.triggers.upsert.useMutation({
+  const upsert = trpc.agents.setSchedule.useMutation({
     onSuccess: () => {
-      utils.agents.triggers.list.invalidate()
+      utils.agents.list.invalidate()
       setMessage('נשמר')
       setDirty(false)
     },
     onError: (e) => setMessage(`שגיאה: ${e.message}`),
   })
 
-  const run = trpc.agents.triggers.run.useMutation({
+  const run = trpc.agents.run.useMutation({
     onSuccess: (res) => {
-      utils.agents.triggers.list.invalidate()
+      utils.agents.list.invalidate()
       if (res.ok) {
         setMessage('הסוכן סיים — התוצאה נשלחה להתראות')
       } else {
@@ -103,14 +104,14 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
 
   function handleSave() {
     const scheduleTimes = parseTimes(timesRaw)
-    if (config?.schedulable && scheduleTimes.length === 0 && enabled) {
+    if (scheduleTimes.length === 0 && enabled) {
       setMessage('יש להגדיר לפחות שעה אחת (למשל 07:00)')
       return
     }
     upsert.mutate({
       agentId,
-      enabled: config?.schedulable ? enabled : false,
-      scheduleTimes: config?.schedulable ? scheduleTimes : undefined,
+      enabled,
+      scheduleTimes,
       triggerMessage: triggerMessage.trim() || null,
     })
   }
@@ -142,42 +143,38 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
       {expanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-[#1d2b46] pt-3">
           <p className="text-[11px] text-[#5a688c] leading-relaxed">
-            הרצה אוטומטית של {agentName} לפי שעות (במקביל לדיג&apos;סטים הקלים של המערכת).
-            דורש מנוע Gemini.
+            הרצה אוטומטית של {agentName} לפי שעות. דורש מנוע Gemini.{' '}
+            <Link href="/agents/manage" className="text-[#2dd4bf] hover:underline">
+              לטריגרים לפי אירוע ←
+            </Link>
           </p>
 
-          {config.schedulable ? (
-            <div className="flex items-center justify-between gap-3">
-              <label className="text-sm text-[#97a4c2]">טריגר יומי פעיל</label>
-              <Toggle
-                checked={enabled}
-                disabled={upsert.isPending}
-                onChange={(v) => {
-                  setEnabled(v)
-                  setDirty(true)
-                }}
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-[#647399]">סוכן זה מיועד להרצה ידנית בלבד (ללא לוח זמנים).</p>
-          )}
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-sm text-[#97a4c2]">טריגר יומי פעיל</label>
+            <Toggle
+              checked={enabled}
+              disabled={upsert.isPending}
+              onChange={(v) => {
+                setEnabled(v)
+                setDirty(true)
+              }}
+            />
+          </div>
 
-          {config.schedulable && (
-            <div>
-              <label className="text-xs text-[#5a688c] block mb-1">שעות (HH:MM, מופרד בפסיק)</label>
-              <input
-                type="text"
-                className="input w-full text-sm"
-                value={timesRaw}
-                disabled={upsert.isPending}
-                onChange={(e) => {
-                  setTimesRaw(e.target.value)
-                  setDirty(true)
-                }}
-                placeholder="07:00, 20:00"
-              />
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-[#5a688c] block mb-1">שעות (HH:MM, מופרד בפסיק)</label>
+            <input
+              type="text"
+              className="input w-full text-sm"
+              value={timesRaw}
+              disabled={upsert.isPending}
+              onChange={(e) => {
+                setTimesRaw(e.target.value)
+                setDirty(true)
+              }}
+              placeholder="07:00, 20:00"
+            />
+          </div>
 
           <div>
             <label className="text-xs text-[#5a688c] block mb-1">הודעת טריגר (אופציונלי)</label>

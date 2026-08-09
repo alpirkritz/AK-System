@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
+import { AgentConfigPanel } from '@/components/AgentConfigPanel'
 
 interface AgentSummary {
   id: string
@@ -11,12 +12,12 @@ interface AgentSummary {
   role: string
 }
 
-type EditorTab = 'instructions' | 'workflow'
+type EditorTab = 'config' | 'instructions' | 'workflow'
 
 export default function AgentsManagePage() {
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [tab, setTab] = useState<EditorTab>('instructions')
+  const [tab, setTab] = useState<EditorTab>('config')
 
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
@@ -46,7 +47,9 @@ export default function AgentsManagePage() {
   const isNameDirty = displayName.trim() !== savedDisplayName.trim()
   const selected = agents.find((a) => a.id === selectedId)
   const defaultName = selected?.defaultName ?? selected?.name ?? ''
-  const activeDirty = tab === 'instructions' ? isInstructionsDirty : isWorkflowDirty
+  // The config tab saves through its own panel, so it never drives the file Save button.
+  const activeDirty =
+    tab === 'instructions' ? isInstructionsDirty : tab === 'workflow' ? isWorkflowDirty : false
   const hasWorkflow = !!workflowFile
 
   useEffect(() => {
@@ -87,7 +90,6 @@ export default function AgentsManagePage() {
       const wf = data.workflowContent ?? ''
       setWorkflowContent(wf)
       setSavedWorkflowContent(wf)
-      setTab('instructions')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת הוראות')
       setContent('')
@@ -190,13 +192,15 @@ export default function AgentsManagePage() {
   }
 
   const fileLabel =
-    tab === 'workflow'
-      ? workflowFile
-        ? `S_Skills/${workflowFile}`
-        : 'אין workflow מקושר'
-      : selected
-        ? `A_Agents/${selected.id}.md`
-        : ''
+    tab === 'config'
+      ? 'טריגרים — לוח זמנים ואירועים'
+      : tab === 'workflow'
+        ? workflowFile
+          ? `S_Skills/${workflowFile}`
+          : 'אין workflow מקושר'
+        : selected
+          ? `A_Agents/${selected.id}.md`
+          : ''
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-4rem)]">
@@ -204,7 +208,7 @@ export default function AgentsManagePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ניהול סוכנים</h1>
           <p className="text-xs text-[#5a688c] mt-1">
-            עריכת כרטיס סוכן (A_Agents) ו-workflow מקושר (S_Skills) — נשמר לקבצים
+            הגדרת טריגרים (שעות ואירועים), עריכת כרטיס סוכן (A_Agents) ו-workflow מקושר (S_Skills)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -288,28 +292,41 @@ export default function AgentsManagePage() {
                     <div className="text-[10px] text-[#5a688c] font-mono mt-0.5">{fileLabel}</div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={
-                    !selectedId ||
-                    !activeDirty ||
-                    saving ||
-                    loadingContent ||
-                    (tab === 'workflow' && !hasWorkflow)
-                  }
-                  onClick={handleSave}
-                >
-                  {saving
-                    ? 'שומר...'
-                    : tab === 'workflow'
-                      ? 'שמור workflow'
-                      : 'שמור הוראות'}
-                </button>
+                {tab !== 'config' && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={
+                      !selectedId ||
+                      !activeDirty ||
+                      saving ||
+                      loadingContent ||
+                      (tab === 'workflow' && !hasWorkflow)
+                    }
+                    onClick={handleSave}
+                  >
+                    {saving
+                      ? 'שומר...'
+                      : tab === 'workflow'
+                        ? 'שמור workflow'
+                        : 'שמור הוראות'}
+                  </button>
+                )}
               </div>
 
               {selectedId && (
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[#0a1224] border border-[#1d2b46] w-fit">
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange('config')}
+                    className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                      tab === 'config'
+                        ? 'bg-[#2dd4bf]/20 text-[#eef3fb]'
+                        : 'text-[#97a4c2] hover:text-[#eef3fb]'
+                    }`}
+                  >
+                    הגדרות והרצה
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleTabChange('instructions')}
@@ -369,13 +386,15 @@ export default function AgentsManagePage() {
               )}
             </div>
 
-            {loadingContent ? (
-              <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
-                טוען...
-              </div>
-            ) : !selectedId ? (
+            {!selectedId ? (
               <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
                 בחר סוכן לעריכה
+              </div>
+            ) : tab === 'config' ? (
+              <AgentConfigPanel agentId={selectedId} />
+            ) : loadingContent ? (
+              <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
+                טוען...
               </div>
             ) : tab === 'workflow' && !hasWorkflow ? (
               <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm px-6 text-center">

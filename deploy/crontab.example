@@ -37,5 +37,7 @@ SHELL=/bin/bash
 # Runs israeli-bank-scrapers sequentially (one Chromium at a time) — keep daily, do not increase.
 45 1 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/bank-sync >/dev/null 2>&1
 
-# ABC agent triggers — every 15 min
-*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/agent-triggers >/dev/null 2>&1
+# Scheduled ABC agents — every 15 min. Runs agents whose clock schedule (set in
+# /agents/manage ▸ הגדרות והרצה) matches the current HH:MM.
+# Replaces /api/cron/agent-triggers, which still forwards here but is deprecated.
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/scheduled-agents >/dev/null 2>&1
