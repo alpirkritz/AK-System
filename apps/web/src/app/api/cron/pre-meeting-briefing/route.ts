@@ -14,6 +14,27 @@ import {
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
 
+// In-memory cache to prevent briefing the same meeting twice in one day
+const briefedToday = new Map<string, string>() // eventId -> date (YYYY-MM-DD)
+
+function wasMeetingBriefedToday(eventId: string, date: string): boolean {
+  const cached = briefedToday.get(eventId)
+  if (!cached) return false
+  if (cached !== date) {
+    briefedToday.delete(eventId) // Stale entry from yesterday
+    return false
+  }
+  return true
+}
+
+function markMeetingBriefed(eventId: string, date: string): void {
+  briefedToday.set(eventId, date)
+  // Auto-cleanup: if cache grows beyond 1000 entries, clear it
+  if (briefedToday.size > 1000) {
+    briefedToday.clear()
+  }
+}
+
 /**
  * Cron: Pre-meeting briefing (run every 5 min). Finds meetings starting in ~15 min,
  * sends a short briefing per meeting to Telegram/WhatsApp.
@@ -70,7 +91,14 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
 
     let sent = 0
     let skippedGate = 0
+    let skippedDupe = 0
     for (const calEvent of toBrief) {
+      // Deduplicate: don't brief the same meeting twice in one day
+      if (wasMeetingBriefedToday(calEvent.id, today)) {
+        skippedDupe++
+        continue
+      }
+
       const eventShape = {
         title: calEvent.title,
         start: calEvent.start,
@@ -125,10 +153,9 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
           continue
         }
         const context = buildPreMeetingAgentContext(briefInput)
-        // No dedupeSlot: prep runs once per meeting, so several runs in one slot
-        // are expected when meetings are back to back.
         const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context })
         if (routed.status !== 'not_routed') {
+          markMeetingBriefed(calEvent.id, today)
           sent++
           continue
         }
@@ -137,12 +164,16 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
       // Template fallback when not routed to an agent
       const text = formatPreMeetingBrief(briefInput)
       const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'pre_meeting_briefing' })
-      if (pushed.telegram || pushed.whatsapp) sent++
+      if (pushed.telegram || pushed.whatsapp) {
+        markMeetingBriefed(calEvent.id, today)
+        sent++
+      }
     }
     return NextResponse.json({
       ok: true,
       briefed: sent,
       skippedGate,
+      skippedDupe,
       total: toBrief.length,
       mode: routing.agentId ? 'agent' : 'template',
     })
