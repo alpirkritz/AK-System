@@ -57,7 +57,12 @@ export async function runEventAgentIfRouted(
   const message = options?.context ? `${base}\n\n${options.context}` : base
 
   try {
-    const result = await runAgentForUser({ agentId, message, channel: 'cron' })
+    const result = await runAgentForUser({
+      agentId,
+      message,
+      channel: 'cron',
+      notifyOnComplete: false,
+    })
 
     const agentName = await resolveAgentDisplayName(agentId)
     await pushAssistantMessage(`🤖 ${agentName}\n\n${result.text}`, 'cron', {

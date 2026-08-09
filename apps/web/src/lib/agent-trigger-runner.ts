@@ -99,6 +99,7 @@ export async function runAgentTrigger(agentId: string): Promise<{
       message,
       history,
       channel: 'cron',
+      notifyOnComplete: false,
     })
 
     await saveAgentMessage(agentId, 'assistant', result.text)

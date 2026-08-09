@@ -24,6 +24,11 @@ export async function notifyAgentRunComplete(options: {
   agentId: string
   summary: string
   channel: AgentNotifyChannel
+  /**
+   * Set false when the caller delivers its own push for this run, otherwise the
+   * user gets the same output twice. The Notion archive is written either way.
+   */
+  push?: boolean
 }): Promise<{ notion: boolean; webPush: number; fcmPush: number }> {
   const agentName = await resolveAgentDisplayName(options.agentId)
   const short = excerpt(options.summary)
@@ -48,6 +53,10 @@ export async function notifyAgentRunComplete(options: {
 
   const isHugo = options.agentId === HUGO_AGENT_ID
   const url = isHugo ? '/chat' : `/agents?agent=${encodeURIComponent(options.agentId)}`
+
+  if (options.push === false) {
+    return { notion, webPush: 0, fcmPush: 0 }
+  }
 
   const channels = await resolveNotificationChannels(isHugo ? 'hugo_reply' : 'agent_run')
   if (!channels.push) {

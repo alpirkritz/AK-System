@@ -8,6 +8,12 @@ export async function runAgentForUser(options: {
   message: string
   history?: ChatTurn[]
   channel: AgentNotifyChannel
+  /**
+   * Whether this call owns the completion push. The cron and event paths send
+   * their own, with an event-specific title and deep link, so they pass false —
+   * otherwise one run reaches the user as two identical notifications.
+   */
+  notifyOnComplete?: boolean
 }): Promise<{ text: string }> {
   const result = await runGeminiAgentChat({
     agentId: options.agentId,
@@ -20,6 +26,7 @@ export async function runAgentForUser(options: {
     agentId: options.agentId,
     summary: result.text,
     channel: options.channel,
+    push: options.notifyOnComplete ?? true,
   }).catch((err) => console.warn('[runAgentForUser] notify failed:', err))
 
   return result

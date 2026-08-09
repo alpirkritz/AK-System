@@ -26,7 +26,7 @@
     "ec2:tunnel": "bash scripts/ec2-setup-named-tunnel.sh",
     "deploy:ec2": "bash scripts/deploy-ec2.sh",
     "sync:vat:ec2": "bash scripts/sync-vat-to-ec2.sh",
-    "test": "pnpm run pretest && pnpm --filter @ak-system/api run test",
+    "test": "pnpm run pretest && pnpm --filter @ak-system/api run test && pnpm --filter @ak-system/web run test",
     "test:api": "pnpm --filter @ak-system/api run test",
     "test:watch": "pnpm --filter @ak-system/api run test:watch",
     "pretest": "mkdir -p packages/api/test-data && (cd packages/database && DATABASE_PATH=../api/test-data/ak_system.sqlite pnpm run push)",
