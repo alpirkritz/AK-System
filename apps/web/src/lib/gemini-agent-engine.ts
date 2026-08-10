@@ -122,6 +122,18 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     '',
   ]
 
+  // Universal outbound-channel formatting guard — applies to EVERY agent, not
+  // only 04/06 (the email assistant used to emit Markdown tables into WhatsApp).
+  if (channel === 'whatsapp' || channel === 'telegram' || channel === 'cron') {
+    parts.push(
+      '## Channel formatting (MANDATORY on WhatsApp / Telegram / cron delivery)',
+      'NEVER use Markdown tables (| ... | or |---|) — they do not render on these channels. Use short grouped bullet lines instead.',
+      'Keep output concise and phone-skimmable. No meta-narration, no announcing agents or workflow steps, no "I understood / הוראה נקלטה".',
+      'Write in Hebrew unless the user/trigger message is in English.',
+      '',
+    )
+  }
+
   if (agentId === CALENDAR_OPTIMIZER_AGENT_ID) {
     parts.push(getCalendarOptimizerBriefOverride(), '')
   }
@@ -171,11 +183,6 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     parts.push('', '## Applicable workflow (S_Skills)', '', workflow, '', '---')
   }
 
-  const memoryBlock = await getMemoryPromptBlock()
-  if (memoryBlock) {
-    parts.push('', memoryBlock, '', '---')
-  }
-
   const calendarScopeBlock = await getAgentCalendarScopePromptBlock()
   if (calendarScopeBlock) {
     parts.push('', calendarScopeBlock, '', '---')
@@ -209,6 +216,22 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
         '---',
       )
     }
+  }
+
+  // User memory goes LAST so it is closest to the generation point and cannot be
+  // buried under card/workflow/context blocks. Explicit precedence resolves the
+  // old conflict between "MANDATORY overrides" above and "user instructions win".
+  const memoryBlock = await getMemoryPromptBlock()
+  if (memoryBlock) {
+    parts.push(
+      '',
+      '## PRECEDENCE (read carefully)',
+      "The user's standing instructions below OVERRIDE any conflicting default formatting/content instruction above (including the MANDATORY blocks), EXCEPT grounding rules: never invent facts, never dump the full task backlog, never use Markdown tables on WhatsApp/Telegram/cron.",
+      '',
+      memoryBlock,
+      '',
+      '---',
+    )
   }
 
   return parts.join('\n')
@@ -412,6 +435,12 @@ export async function runGeminiAgentChat(options: {
   const buildModel = (modelOpts: ReturnType<typeof getGeminiModelOptions>) =>
     genAI.getGenerativeModel({
       ...modelOpts,
+      generationConfig: {
+        ...modelOpts.generationConfig,
+        // Scheduled runs must be consistent day to day — default sampling (~1.0)
+        // produced format drift between runs.
+        ...(options.channel === 'cron' ? { temperature: 0.3 } : {}),
+      },
       systemInstruction,
       tools: [{ functionDeclarations: getToolDeclarations() }],
       toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },

@@ -1,0 +1,29 @@
+{
+  "title": "AK System bugfix pipeline — smoke-bugfix-final",
+  "tasks": [
+    {
+      "id": "reproduce",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a senior engineer on the AK System monorepo (Next.js 14, tRPC, Drizzle). Read .cursor/skills/dev-agent/SKILL.md for stack conventions — but do not write production code yet.\n\nREPORTED BUG:\ntest\n\nDeliverables:\n1. Identify the file(s) most likely responsible. Cite absolute paths and line ranges.\n2. Write the minimal failing test that reproduces the bug — append it to packages/api/src/routers/<area>.test.ts (preferred) or apps/web/e2e/<area>.spec.ts if it is a UI bug. The test must fail right now.\n3. Run the relevant test command (pnpm test or pnpm e2e) and include the failing output in your reply.\n4. End by listing the file paths of the failing test and the suspected source files."
+    },
+    {
+      "id": "patch",
+      "depends_on": ["reproduce"],
+      "complexity": "MED",
+      "subtask_prompt": "You are the dev-agent for the AK System monorepo. Read .cursor/skills/dev-agent/SKILL.md and follow it strictly.\n\nThe upstream context contains a failing test and the suspected source file(s). Apply the minimum-viable fix:\n1. Edit only the suspected source file(s). Do not refactor adjacent code.\n2. If the fix requires a schema change, update BOTH packages/database/src/schema.ts and schema.pg.ts.\n3. Do NOT modify the failing test.\n4. End by listing every modified file and a one-line summary of the change."
+    },
+    {
+      "id": "qa",
+      "depends_on": ["patch"],
+      "complexity": "LOW",
+      "subtask_prompt": "You are the qa-agent for the AK System monorepo. Read .cursor/skills/qa-agent/SKILL.md and follow it strictly.\n\nRun the full test suite from the repo root:\n\n  pnpm test\n  pnpm e2e\n\nDeliverables:\n1. Confirm the previously failing test now passes.\n2. Confirm no other tests regressed. If anything fails, list the failures and stop.\n3. End with the full pass/fail summary."
+    },
+    {
+      "id": "review",
+      "depends_on": ["qa"],
+      "complexity": "LOW",
+      "subtask_prompt": "You are the reviewer-agent for the AK System monorepo. Read .cursor/skills/reviewer-agent/SKILL.md and follow it strictly.\n\nThis is a bugfix review. Apply the relevant subset of the checklist:\n- Was the fix minimal and targeted? No drive-by refactors.\n- Was a regression test added that would have caught the bug?\n- Are types still tight (no new any / @ts-ignore)?\n- For schema changes: both schema.ts and schema.pg.ts updated?\n- Static checks: pnpm -r run lint and pnpm --filter @ak-system/web build.\n\nWrite the review to reports/smoke-bugfix-final.md using the template from your skill (Verdict, Static checks, Findings, Suggested PR description). End with the verdict and the path."
+    }
+  ]
+}

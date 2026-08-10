@@ -56,6 +56,14 @@ if [ "${SKIP_BRIDGE:-0}" != "1" ]; then
   PIDS+=($!)
 fi
 
+if [ "${SKIP_CRON:-0}" != "1" ]; then
+  # Without this, /api/cron/* is never invoked locally — no morning briefing,
+  # no meeting prep, no agent triggers, no push. (EC2 uses a real crontab.)
+  echo "▶  Starting local cron scheduler..."
+  node "$SCRIPT_DIR/local-cron.mjs" &
+  PIDS+=($!)
+fi
+
 if [ "${SKIP_TUNNEL:-0}" != "1" ]; then
   echo "▶  Starting Cloudflare Tunnel..."
   bash "$SCRIPT_DIR/tunnel.sh" &

@@ -6,6 +6,8 @@ import { useParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
+import { SyncToast } from '@/components/SyncToast'
+import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -26,6 +28,7 @@ export default function ProjectDetailPage() {
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [peopleSyncMessage, setPeopleSyncMessage] = useState<string | null>(null)
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
   const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
@@ -159,7 +162,9 @@ export default function ProjectDetailPage() {
           name: w.name,
           hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
         }))}
+        onPeopleSync={(sync) => setPeopleSyncMessage(notionPeopleSyncMessage(sync))}
       />
+      <SyncToast message={peopleSyncMessage} onDismiss={() => setPeopleSyncMessage(null)} />
     </div>
   )
 }

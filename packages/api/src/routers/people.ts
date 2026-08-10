@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { people, meetings, meetingPeople, tasks, taskPeople, projects, workspaces, PEOPLE_STATUSES } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
+import { ensureSelfPerson } from '../services/self-person'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
 
@@ -41,6 +42,11 @@ const SORT_COLUMNS = {
 export const peopleRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(people).where(eq(people.status, 'confirmed')).orderBy(people.name)
+  }),
+
+  /** The contact row that represents the app owner, created on first use. */
+  me: protectedProcedure.query(async ({ ctx }) => {
+    return ensureSelfPerson(ctx.db)
   }),
 
   listPaginated: protectedProcedure

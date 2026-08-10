@@ -6,6 +6,9 @@ import { trpc } from '@/lib/trpc'
 
 type Tab = 'groups' | 'insights' | 'labels' | 'connection'
 
+type DigestWindow = '6h' | '24h' | 'today' | 'yesterday' | '7d'
+type InsightWindow = 'today' | 'yesterday' | '24h' | '7d' | '30d'
+
 const PRIORITY_LABELS = ['רגיל', 'חשוב', 'קריטי']
 
 function Toggle({
@@ -85,14 +88,18 @@ export default function WhatsAppSettingsPage() {
   const [newLabelTimes, setNewLabelTimes] = useState('20:00')
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
 
-  const [digestWindow, setDigestWindow] = useState<'6h' | '24h' | '7d'>('24h')
+  const [digestWindow, setDigestWindow] = useState<DigestWindow>('24h')
   const [digestResult, setDigestResult] = useState<{
     text: string
     items: { groupJid: string; name: string; priority: number; messageCount: number; topic: string | null }[]
   } | null>(null)
   const [insightGroupJid, setInsightGroupJid] = useState<string>('')
-  const [insightWindow, setInsightWindow] = useState<'24h' | '7d' | '30d'>('7d')
-  const [groupInsight, setGroupInsight] = useState<{ text: string; mode: string; messageCount: number } | null>(null)
+  const [insightWindow, setInsightWindow] = useState<InsightWindow>('7d')
+  const [groupInsight, setGroupInsight] = useState<{
+    text: string
+    mode: string
+    messageCount: number
+  } | null>(null)
 
   const utils = trpc.useUtils()
   const { data: labels = [], isLoading: labelsLoading } = trpc.whatsapp.labels.list.useQuery()
@@ -493,12 +500,15 @@ export default function WhatsAppSettingsPage() {
               <div className="text-sm text-[#b8c4dc]">מה קורה עכשיו בקבוצות</div>
               <div className="flex items-center gap-2">
                 <select
+                  aria-label="טווח זמן לתדריך"
                   value={digestWindow}
-                  onChange={(e) => setDigestWindow(e.target.value as '6h' | '24h' | '7d')}
+                  onChange={(e) => setDigestWindow(e.target.value as DigestWindow)}
                   className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
                 >
                   <option value="6h">6 שעות</option>
                   <option value="24h">24 שעות</option>
+                  <option value="today">היום</option>
+                  <option value="yesterday">אתמול</option>
                   <option value="7d">7 ימים</option>
                 </select>
                 <button
@@ -571,10 +581,16 @@ export default function WhatsAppSettingsPage() {
                   ))}
               </select>
               <select
+                aria-label="טווח זמן לתובנות הקבוצה"
                 value={insightWindow}
-                onChange={(e) => setInsightWindow(e.target.value as '24h' | '7d' | '30d')}
+                onChange={(e) => {
+                  setInsightWindow(e.target.value as InsightWindow)
+                  setGroupInsight(null)
+                }}
                 className="text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-2 py-1.5 text-[#97a4c2]"
               >
+                <option value="today">היום</option>
+                <option value="yesterday">אתמול</option>
                 <option value="24h">24 שעות</option>
                 <option value="7d">7 ימים</option>
                 <option value="30d">30 יום</option>
@@ -615,8 +631,13 @@ export default function WhatsAppSettingsPage() {
             {forGroupMut.isPending ? (
               <div className="text-xs text-[#4d659c]">מנתח את הקבוצה…</div>
             ) : groupInsight ? (
-              <div className="text-[13px] text-[#b8c4dc] whitespace-pre-wrap leading-relaxed border-t border-[#1d2b46] pt-3">
-                {groupInsight.text}
+              <div className="border-t border-[#1d2b46] pt-3 space-y-2">
+                <div className="text-[11px] text-[#5a688c]">
+                  {`${groupInsight.messageCount} הודעות בטווח שנבחר`}
+                </div>
+                <div className="text-[13px] text-[#b8c4dc] whitespace-pre-wrap leading-relaxed">
+                  {groupInsight.text}
+                </div>
               </div>
             ) : null}
           </div>

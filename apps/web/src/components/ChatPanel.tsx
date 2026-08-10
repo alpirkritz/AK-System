@@ -17,9 +17,24 @@ export function ChatPanel() {
   const [initialLoading, setInitialLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Notification deep link: /chat?message=<id>. Read from the URL rather than
+  // useSearchParams so this stays a client-only concern and /chat keeps its
+  // static render.
+  const [linkedId, setLinkedId] = useState<string | null>(null)
+  const [highlightOn, setHighlightOn] = useState(false)
+  const linkedHandled = useRef(false)
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('message')?.trim()
+    if (id) {
+      setLinkedId(id)
+      setHighlightOn(true)
+    }
   }, [])
 
   const loadHistory = useCallback(async () => {
@@ -47,8 +62,24 @@ export function ChatPanel() {
   }, [loadHistory])
 
   useEffect(() => {
+    if (messages.length > 0 && linkedId && !linkedHandled.current) {
+      const target = messageRefs.current.get(linkedId)
+      if (target) {
+        linkedHandled.current = true
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+      // Referenced message is not in the loaded history — fall back to the bottom.
+      if (!initialLoading) linkedHandled.current = true
+    }
     scrollToBottom()
-  }, [messages, scrollToBottom])
+  }, [messages, linkedId, initialLoading, scrollToBottom])
+
+  useEffect(() => {
+    if (!highlightOn) return
+    const timer = setTimeout(() => setHighlightOn(false), 2500)
+    return () => clearTimeout(timer)
+  }, [highlightOn])
 
   // Surface messages pushed from other channels (WhatsApp, cron, agents) and after
   // a push notification reopens the app. Polls while visible; refreshes on focus.
@@ -159,15 +190,24 @@ export function ChatPanel() {
         {messages.map((msg) => (
           <div
             key={msg.id}
+            ref={(el) => {
+              if (el) messageRefs.current.set(msg.id, el)
+              else messageRefs.current.delete(msg.id)
+            }}
+            data-message-id={msg.id}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap transition-shadow duration-300 ${
                 msg.role === 'user'
                   ? 'bg-[#2dd4bf] text-[#0a1120] rounded-br-sm'
                   : msg.role === 'system'
                     ? 'bg-[#34203a] text-red-300 border border-red-900/30 rounded-bl-sm'
                     : 'bg-[#1d2b46] text-[#eef3fb] rounded-bl-sm'
+              } ${
+                highlightOn && msg.id === linkedId
+                  ? 'ring-2 ring-[#2dd4bf] ring-offset-2 ring-offset-[#0a1120]'
+                  : ''
               }`}
             >
               {sourceTag(msg.source) && (

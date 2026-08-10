@@ -88,6 +88,7 @@ local token.
 - `OUTLOOK_BRIDGE_ACCOUNT` = `alpirkritz@gmail.com`
 - `OUTLOOK_SOURCE_CALENDAR` = `Calendar`
 - `OUTLOOK_BRIDGE_DAYS_BACK` = `7`, `OUTLOOK_BRIDGE_DAYS_FWD` = `60`
+- `OUTLOOK_BRIDGE_TITLE_BLOCKLIST` (optional) = comma-separated, case-insensitive title substrings that are never mirrored — see `docs/specs/outlook-bridge-title-blocklist.md`. Must be quoted in `.env.local` because the runner `source`s that file and the values contain spaces.
 
 ## One-time setup
 

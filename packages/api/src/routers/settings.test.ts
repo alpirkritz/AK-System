@@ -129,7 +129,7 @@ describe('settings notifications router', () => {
     const res = await caller.settings.notifications.list()
     const morning = res.items.find((i) => i.id === 'morning_briefing')
     expect(morning?.routable).toBe(true)
-    expect(morning?.suggestedAgentId).toBe('06_calendar_optimizer')
+    expect(morning?.suggestedAgentId).toBe('03_morning_briefing')
     const feed = res.items.find((i) => i.id === 'feed_digest')
     expect(feed?.routable).toBeFalsy()
     expect(Array.isArray(res.agents)).toBe(true)

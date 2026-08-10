@@ -1,0 +1,47 @@
+{
+  "title": "AK System weekly audit — endtoend-2026-05-11-1719",
+  "tasks": [
+    {
+      "id": "lint",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. Run `pnpm -r run lint` from the repo root and capture the full output. Summarize: total errors, total warnings, and the top 5 most-occurring rule names with their counts. Do NOT fix anything — read-only audit."
+    },
+    {
+      "id": "typecheck-build",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. Run `pnpm --filter @ak-system/web build` from the repo root and capture the full output. Report: does the Next.js build succeed? List any TypeScript errors with file:line. Do NOT fix anything."
+    },
+    {
+      "id": "tests",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. Run `pnpm test` from the repo root and capture the full output. Report total suites/tests passed/failed/skipped, and the names of any failing tests. Do NOT fix anything."
+    },
+    {
+      "id": "schema-drift",
+      "depends_on": [],
+      "complexity": "MED",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. Compare packages/database/src/schema.ts (SQLite) and packages/database/src/schema.pg.ts (Postgres). For each table:\n- Does it exist in both files?\n- Do the columns match by name and (compatible) type?\n- Are nullability and defaults consistent?\n\nReport any table that exists in only one file, any column mismatch, and any constraint mismatch. Do NOT edit files — read-only audit."
+    },
+    {
+      "id": "deps",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. Inspect package.json files at the repo root and in apps/web, packages/api, packages/database, packages/types. Report:\n- Top-level dependencies whose version pin uses `*` or `latest` (forbid these).\n- Packages duplicated across workspaces with different versions.\n- Any dependency marked deprecated in its npm entry (best-effort check; only flag well-known deprecated packages).\n\nDo NOT edit any package.json — read-only audit."
+    },
+    {
+      "id": "skill-inventory",
+      "depends_on": [],
+      "complexity": "LOW",
+      "subtask_prompt": "You are a read-only auditor on the AK System monorepo. List every skill under .cursor/skills/ (every directory containing a SKILL.md). For each, report: name, one-line description (from the frontmatter), and whether SKILL.md exists with a valid YAML frontmatter."
+    },
+    {
+      "id": "summary",
+      "depends_on": ["lint", "typecheck-build", "tests", "schema-drift", "deps", "skill-inventory"],
+      "complexity": "MED",
+      "subtask_prompt": "You are the reviewer-agent for the AK System monorepo. The upstream tasks ran a six-part read-only audit (lint, build/typecheck, tests, schema drift, dependencies, skill inventory). Synthesize their outputs into a single report at reports/audit-endtoend-2026-05-11-1719.md.\n\nStructure:\n# Weekly Audit — endtoend-2026-05-11-1719\n\n## Health snapshot\n| Check | Status | Notes |\n| Lint | OK / N warnings / N errors | top rules |\n| Build / typecheck | OK / FAIL | first failure |\n| Tests | OK / FAIL | failing tests |\n| Schema drift | OK / N drifts | tables affected |\n| Dependencies | OK / N issues | summary |\n| Skills | N skills, all valid? | |\n\n## Findings (sorted by severity)\n## Recommendations (max 5, sorted by impact)\n## Trend vs last audit (if reports/audit-*.md exists, mention regressions/improvements)\n\nDo NOT edit production code or fix any of the findings — the audit is read-only. End by replying with the absolute path of the report."
+    }
+  ]
+}

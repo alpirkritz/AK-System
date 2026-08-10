@@ -9,6 +9,7 @@ import { CategoryBreakdownList } from './components/CategoryBreakdownList'
 import { RecurringList } from './components/RecurringList'
 import { InsightCard } from './components/InsightCard'
 import { CategorizeDrawer } from './components/CategorizeDrawer'
+import { MonthCompositionPanel } from './components/MonthCompositionPanel'
 import { currentMonthKey, fmt, monthLabel, shiftMonth } from './lib/format'
 
 type Window = 3 | 6 | 12
@@ -22,6 +23,7 @@ export default function InsightsTab() {
   const [month, setMonth] = useState(currentMonthKey())
   const [window, setWindow] = useState<Window>(12)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [compositionOpen, setCompositionOpen] = useState(false)
   const [showAllInsights, setShowAllInsights] = useState(false)
 
   const coverage = trpc.finance.analytics.coverage.useQuery()
@@ -107,8 +109,8 @@ export default function InsightsTab() {
           style={{ background: '#fb718511', color: '#fb7185', border: '1px solid #fb718533' }}
         >
           <span>
-            {coverage.data.hiddenCardShare}% מההוצאות מוסתרות מאחורי חיוב אשראי אחד. חבר את כרטיס
-            האשראי כדי לראות על מה באמת יצא הכסף.
+            {coverage.data.hiddenCardShare}% מההוצאות מוסתרות מאחורי חיוב אשראי אחד. חבר כרטיס
+            כדי לראות פירוט קניות — אפשר גם מאוחר יותר; בינתיים הסכום לא כולל את הפירוט הזה.
           </span>
           <a className="btn btn-ghost" href="/finance?tab=accounts">
             חבר כרטיס
@@ -145,13 +147,26 @@ export default function InsightsTab() {
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <SummaryCard icon="⬆️" label="הכנסות" value={point ? fmt(point.income) : '—'} color="#34d399" />
-        <SummaryCard icon="⬇️" label="הוצאות" value={point ? fmt(point.expense) : '—'} color="#fb7185" />
+        <SummaryCard
+          icon="⬆️"
+          label="הכנסות"
+          value={point ? fmt(point.income) : '—'}
+          sub="ללא העברות פנימיות"
+          color="#34d399"
+        />
+        <SummaryCard
+          icon="⬇️"
+          label="הוצאות"
+          value={point ? fmt(point.expense) : '—'}
+          sub="ללא העברות וחיובי אשראי"
+          color="#fb7185"
+        />
         <SummaryCard
           icon="⚖️"
           label="נטו"
           value={point ? fmt(point.net) : '—'}
           color={point && point.net < 0 ? '#fb7185' : '#34d399'}
+          sub="הכנסות פחות הוצאות (אותה הגדרה)"
         />
         {/* Withheld until coverage is clean: a wrong headline number is worse than none. */}
         <SummaryCard
@@ -164,6 +179,12 @@ export default function InsightsTab() {
           }
           sub={coverageClean ? undefined : 'זמין אחרי סיווג התנועות'}
         />
+      </div>
+
+      <div className="mb-5">
+        <button className="btn btn-ghost text-xs" onClick={() => setCompositionOpen(true)}>
+          ממה מורכב הסכום
+        </button>
       </div>
 
       {/* Trend */}
@@ -279,10 +300,16 @@ export default function InsightsTab() {
       </div>
 
       <p className="text-[11px] text-[#647399] mt-4">
-        העברות פנימיות וחיובי אשראי לא נכללים בסכומים, כדי למנוע כפל ספירה.
+        העברות פנימיות וחיובי אשראי לא נכללים בסכומים, כדי למנוע כפל ספירה. לשינוי תיוג — «ממה מורכב
+        הסכום» או טאב תזרים.
       </p>
 
       <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <MonthCompositionPanel
+        open={compositionOpen}
+        onClose={() => setCompositionOpen(false)}
+        month={month}
+      />
     </>
   )
 }

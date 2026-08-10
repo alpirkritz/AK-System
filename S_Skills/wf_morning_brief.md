@@ -45,11 +45,11 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
         │
         ▼
 ┌──────────────────────────────┐
-│  STAGE 4: STAGE AND LOG      │
+│  STAGE 4: DELIVER            │
 └──────────────────────────────┘
         │
         ▼
-[Output: O_Output/ artifact + M_Memory/ log]
+[Output: the brief, written in full in the chat reply — delivered automatically to WhatsApp / push / app]
 ```
 
 ---
@@ -107,11 +107,11 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 
 ### Step 2.2 — Gather from Approved Sources
 - **Input:** Research scope
-- **Action:** Search through Notion, Calendar, Mail, and Slack:
+- **Action:** Search through Notion, Calendar, and Mail (Slack is not connected):
   - Notion (shared databases and calendars; task DBs per Step 1.4)
-  - `B_Brain/organization_knowledge.md`
-  - Staged notes in `O_Output/`
-  - User-provided context
+  - Injected Google Calendar context
+  - `search_gmail` when an email is likely relevant to today
+  - User-provided context and injected Memory
 - **Output:** Research notes
 
 ### Step 2.3 — Apply Compliance
@@ -122,10 +122,9 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 **Research guidelines (from agent Instructions → Actions):**
 
 1. Only use approved sources listed above
-2. Redact PII per `C_Core/brand_dna_and_compliance.md`
+2. Redact third-party PII
 3. Limit depth to what today's brief requires
-4. Flag gaps rather than inventing context
-5. Mark output for human review
+4. Flag gaps rather than inventing context (`לא נמצא בנתונים`)
 
 ---
 
@@ -146,52 +145,38 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 
 ---
 
-## Stage 4: Stage and Log
+## Stage 4: Deliver
 
 **Agent:** `03_morning_briefing`
-**Objective:** Save the brief and log the run.
+**Objective:** Deliver the brief.
 
-### Step 4.1 — Stage Artifact
+### Step 4.1 — Write the Full Brief in the Reply
 - **Input:** Validated draft
-- **Action:** Save to `O_Output/YYYY-MM-DD_morning-brief.md`
-- **Output:** Staged artifact path
-
-### Step 4.2 — Human Review Flag
-- **Input:** Staged artifact
-- **Action:** Ensure header includes `DRAFT — REQUIRES HUMAN REVIEW`
-- **Output:** Review flag confirmed
-
-### Step 4.3 — Log Run
-- **Input:** Run metadata (agent, steps, outputs)
-- **Action:** Append entry to `M_Memory/agents_daily_sync.md`
-- **Output:** Memory log entry confirmed
+- **Action:** Write the complete brief (Hebrew, template below) as the chat reply. The platform sends it to WhatsApp / push / app and archives it automatically — do not create pages, stage files, or send notifications yourself
+- **Output:** Delivered brief
 
 ---
 
 ## Output Template
 
-```md
-# ☀️ Morning Brief — Short Date
+```
+☀️ תדריך בוקר — <תאריך>
+TL;DR: <שורה אחת>
 
-> TL;DR: <brief summary for the page TL;DR property>
+🏆 העדיפויות של היום
+• <עדיפות 1> — מה צריך לעשות ולמה זה חשוב (מקור: <DB>)
+• <עדיפות 2> — ...
+• <עדיפות 3> — ...
 
-## 🏆 Today's Priorities
-
-- **<Priority 1>** — what needs to be done and why it matters. Link to task DB item. (no checkboxes)
-- **<Priority 2>** — ...
-- **<Priority 3>** — ...
-
-## 👀 Things I Missed Yesterday
-
-- <One or two important items only; skip if nothing important>
+👀 דברים שפספסתי אתמול
+• <רק פריט אחד או שניים חשובים; לדלג אם אין>
 ```
 
 Notes on the output (per agent Instructions):
-- Page is created in the database (not in Morning briefs hub), titled `Morning Brief – Short Date`.
-- Use H2 headings; no checklist checkboxes — link tasks to their task DB item.
-- Suggested non-task next steps use a `Next step:` bullet.
-- Bold key actions/decisions; always cite sources; friendly tone.
-- When finished, send a Notion notification with a link to the brief page.
+- Hebrew, phone-friendly: short bullets, no Markdown tables, no H2/H3 headers
+- No checklist checkboxes — reference tasks by their task-DB name
+- Suggested non-task next steps use a `Next step:` bullet
+- Bold key actions/decisions; name sources briefly; friendly tone
 
 ---
 
@@ -199,8 +184,7 @@ Notes on the output (per agent Instructions):
 
 | Artifact | Location | Format |
 |---|---|---|
-| Morning brief (draft) | `O_Output/` | `.md` |
-| Run log | `M_Memory/agents_daily_sync.md` | Append entry |
+| Morning brief | The chat reply itself (auto-delivered to WhatsApp / push / app) | Short Hebrew text |
 
 ---
 
@@ -212,7 +196,6 @@ Notes on the output (per agent Instructions):
 | Missing org knowledge | 1.4 | Use user context only; flag gap |
 | PII detected | 2.3 | Redact; notify in Open Questions |
 | Research scope too broad | 2.1 | Narrow to today's meetings/tasks |
-| Output staging failure | 4.1 | Retry once; log error in `M_Memory/` |
 
 ---
 

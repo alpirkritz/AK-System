@@ -1,0 +1,22 @@
+
+> ak-system@0.1.0 agent:feature /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system
+> node tools/agent-pipelines/run.mjs --pipeline feature "--slug" "add-people-notes" "--request" "Add an optional 'notes' string field (max 2000 chars) to the Person record. It should be: (1) added to packages/database/src/schema.ts AND schema.pg.ts on the existing people table as a nullable text column, (2) accepted as an optional Zod-validated input by the existing 'update' procedure in packages/api/src/routers/people.ts and returned on read, (3) shown in apps/web/src/app/people as a small editable textarea inside the existing PersonRow or PersonModal. Do NOT add new tRPC procedures or new pages."
+
+[agent-pipeline] pipeline:    feature
+[agent-pipeline] slug:        add-people-notes
+[agent-pipeline] dag json:    /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/feature-add-people-notes.dag.json
+[agent-pipeline] canvas:      /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/feature-add-people-notes.canvas.tsx
+[agent-pipeline] models file: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/tools/agent-pipelines/models.profile.json
+[dag-runner] DAG "AK System feature pipeline — add-people-notes" — 6 tasks across 5 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/feature-add-people-notes.canvas.tsx
+[dag-runner] --init-only: initial canvas written, exiting
+[agent-pipeline] initial canvas rendered. Open it in Cursor: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/feature-add-people-notes.canvas.tsx
+[agent-pipeline] launching runner...
+[dag-runner] DAG "AK System feature pipeline — add-people-notes" — 6 tasks across 5 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/feature-add-people-notes.canvas.tsx
+[dag-runner] rank 1/5: spec
+[dag-runner] rank 2/5: dev-backend, dev-frontend
+[dag-runner] rank 3/5: tests
+[dag-runner] rank 4/5: qa
+[dag-runner] rank 5/5: review
+[dag-runner] done — 6/6 succeeded in 15m 28s

@@ -34,8 +34,15 @@ declare module 'israeli-bank-scrapers' {
     showBrowser?: boolean
     verbose?: boolean
     timeout?: number
+    defaultTimeout?: number
     executablePath?: string
     args?: string[]
+    preparePage?: (page: {
+      evaluate: <T>(fn: (...args: unknown[]) => T | Promise<T>, ...args: unknown[]) => Promise<T>
+      setUserAgent: (ua: string) => Promise<void>
+      on?: (event: string, handler: (...args: unknown[]) => void) => void
+      once?: (event: string, handler: (...args: unknown[]) => void) => void
+    }) => Promise<void>
   }
 
   export interface Scraper {

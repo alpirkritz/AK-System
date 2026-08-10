@@ -11,8 +11,10 @@ import {
 import { useFocusEffect, useRouter, type Href } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import {
+  fetchNotionConfigured,
   fetchTasks,
   fetchWorkspaces,
+  syncTasksFromNotion,
   toggleTaskDone,
   type MobileTask,
   type MobileWorkspace,
@@ -54,6 +56,9 @@ export default function TasksScreen() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<StatusFilter>('open')
   const [workspaceId, setWorkspaceId] = useState<string | 'all'>('all')
+  const [notionConfigured, setNotionConfigured] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
@@ -62,9 +67,14 @@ export default function TasksScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [t, w] = await Promise.all([fetchTasks(token), fetchWorkspaces(token)])
+        const [t, w, notion] = await Promise.all([
+          fetchTasks(token),
+          fetchWorkspaces(token),
+          fetchNotionConfigured(token).catch(() => false),
+        ])
         setTasks(t)
         setWorkspaces(w)
+        setNotionConfigured(notion)
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת המשימות נכשלה')
@@ -75,6 +85,27 @@ export default function TasksScreen() {
     },
     [token],
   )
+
+  const onSync = async () => {
+    if (!token || syncing) return
+    setSyncing(true)
+    setSyncMessage(null)
+    setError(null)
+    try {
+      const res = await syncTasksFromNotion(token)
+      const imported = res.tasksCreated + res.tasksUpdated
+      setSyncMessage(
+        res.errors.length > 0
+          ? `יובאו ${imported} משימות · ${res.errors.length} שגיאות`
+          : `יובאו ${imported} משימות מ-Notion`,
+      )
+      await load('refresh')
+    } catch {
+      setSyncMessage('הסנכרון נכשל')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -149,6 +180,24 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.flex}>
+      {notionConfigured ? (
+        <View style={styles.actionRow}>
+          <Pressable
+            onPress={() => void onSync()}
+            disabled={syncing}
+            accessibilityRole="button"
+            accessibilityLabel="סנכרן משימות מ-Notion"
+            accessibilityState={{ disabled: syncing }}
+            style={[styles.syncBtn, syncing && styles.syncBtnDisabled]}
+          >
+            {syncing ? <ActivityIndicator size="small" color={colors.accent} /> : null}
+            <Text style={styles.syncBtnText}>{syncing ? 'מסנכרן…' : 'סנכרן מ-Notion'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
+
       <View style={styles.filterRow}>
         {filters.map((f) => (
           <Pressable
@@ -310,6 +359,32 @@ const styles = StyleSheet.create({
   },
   chipText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
   chipTextActive: { color: colors.accent, fontWeight: '600' },
+  actionRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  syncBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  syncBtnDisabled: { opacity: 0.6 },
+  syncBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600', writingDirection: 'rtl' },
+  notice: {
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   list: { paddingHorizontal: 16, flexGrow: 1 },
   taskRow: {
     flexDirection: 'row-reverse',

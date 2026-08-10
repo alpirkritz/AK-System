@@ -74,20 +74,37 @@ export interface Insight {
 }
 
 const MS_PER_DAY = 86_400_000
+const JERUSALEM = 'Asia/Jerusalem'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-export function monthKey(iso: string): string {
-  return (iso ?? '').slice(0, 7)
+/** Calendar year/month/day in Asia/Jerusalem for an instant. */
+export function jerusalemParts(instant: Date = new Date()): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: JERUSALEM,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === type)?.value)
+  return { y: get('year'), m: get('month'), d: get('day') }
 }
 
-/** Walk back `count` months from `from`, oldest first, as 'YYYY-MM' keys. */
-export function monthWindow(count: number, from: Date): string[] {
+/** Month bucket for a transaction ISO timestamp (Israel calendar month). */
+export function monthKey(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return (iso ?? '').slice(0, 7)
+  const { y, m } = jerusalemParts(d)
+  return `${y}-${String(m).padStart(2, '0')}`
+}
+
+/** Walk back `count` months from `from` (Israel calendar), oldest first. */
+export function monthWindow(count: number, from: Date = new Date()): string[] {
   const keys: string[] = []
-  const y = from.getUTCFullYear()
-  const m = from.getUTCMonth()
+  const { y, m } = jerusalemParts(from)
   for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(y, m - i, 1))
+    const d = new Date(Date.UTC(y, m - 1 - i, 1))
     keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`)
   }
   return keys

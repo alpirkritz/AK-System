@@ -76,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const pushBody = text.slice(0, 240)
         await createNotification({
           title: pushTitle,
-          body: pushBody,
+          body: text,
           url: '/settings/whatsapp',
           type: 'fomo',
         })

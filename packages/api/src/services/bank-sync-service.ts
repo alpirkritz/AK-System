@@ -14,6 +14,9 @@ import {
 } from '@ak-system/database'
 import { decryptCredentials } from '../lib/bank-credentials-crypto'
 import { categorizeTransaction, type CategoryRule } from './transaction-categorizer'
+import { ensureBrowserProfileDir } from './bank-browser-profile'
+import { cancelOtpWait, getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
+import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
 
 /**
  * Bank/credit-card account sync via israeli-bank-scrapers.
@@ -57,10 +60,17 @@ export interface ScrapeOutcome {
   errorMessage?: string
 }
 
+export interface ScrapeOptions {
+  connectionId: string
+  /** Called once when an OTP screen is detected (set DB status awaiting_otp). */
+  onAwaitingOtp?: () => Promise<void>
+}
+
 export type ScrapeFn = (
   provider: BankProvider,
   credentials: Record<string, string>,
   startDate: Date,
+  options?: ScrapeOptions,
 ) => Promise<ScrapeOutcome>
 
 /** bank vs credit card, derived from provider */
@@ -79,21 +89,144 @@ export function transactionDedupeKey(
 }
 
 /**
+ * Chromium flags required inside Docker (root + small /dev/shm on EC2).
+ * Harmless on macOS local runs — always pass them.
+ */
+export const CHROMIUM_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--disable-blink-features=AutomationControlled',
+] as const
+
+/** Strip HeadlessChrome from UA so bank bot-gates (e.g. Otsar/Radware) still serve the login form. */
+export async function maskHeadlessUserAgent(page: {
+  evaluate: (fn: () => string) => Promise<string>
+  setUserAgent: (ua: string) => Promise<void>
+}): Promise<void> {
+  const userAgent = await page.evaluate(() => navigator.userAgent)
+  await page.setUserAgent(userAgent.replace('HeadlessChrome/', 'Chrome/'))
+}
+
+type WaitingModule = {
+  waitUntil: (
+    fn: () => Promise<boolean> | boolean,
+    message: string,
+    timeout?: number,
+    interval?: number,
+  ) => Promise<void>
+}
+
+/**
+ * Real Node `require` — Next/webpack rewrites plain require/import('module') and
+ * breaks createRequire (prod symptom: "t is not a function").
+ */
+function nodeRequire(): NodeRequire {
+  // eslint-disable-next-line no-eval
+  return eval('require') as NodeRequire
+}
+
+/**
+ * Extend israeli-bank-scrapers' short redirect wait so the user can enter OTP.
+ * The packaged Hapoalim scraper calls waitForRedirect with a 20s default.
+ * If the patch cannot load (bundling), scrape still runs with the library default.
+ */
+async function withExtendedRedirectWait<T>(run: () => Promise<T>): Promise<T> {
+  let waiting: WaitingModule | null = null
+  let original: WaitingModule['waitUntil'] | null = null
+  try {
+    const req = nodeRequire()
+    waiting = req(req.resolve('israeli-bank-scrapers/lib/helpers/waiting.js')) as WaitingModule
+    original = waiting.waitUntil.bind(waiting)
+    const extendedMs = getOtpWaitMs() + 30_000
+    waiting.waitUntil = async (fn, message, timeout, interval) => {
+      const isRedirect =
+        typeof message === 'string' && message.toLowerCase().includes('waiting for redirect')
+      return original!(
+        fn,
+        message,
+        isRedirect ? Math.max(timeout ?? 0, extendedMs) : timeout,
+        interval,
+      )
+    }
+  } catch {
+    waiting = null
+    original = null
+  }
+  try {
+    return await run()
+  } finally {
+    if (waiting && original) waiting.waitUntil = original
+  }
+}
+
+type PreparePage = NonNullable<
+  import('israeli-bank-scrapers').ScraperOptions['preparePage']
+>
+
+function createPreparePage(opts?: ScrapeOptions): PreparePage {
+  return async (page) => {
+    await maskHeadlessUserAgent(page)
+    if (!opts?.connectionId) return
+
+    let otpStarted = false
+    const tick = async () => {
+      if (otpStarted) return
+      try {
+        if (!(await pageLooksLikeOtp(page))) return
+      } catch {
+        return
+      }
+      otpStarted = true
+      try {
+        // Register waiter before DB update so submitOtp can resolve immediately.
+        const codePromise = waitForOtp(opts.connectionId)
+        await opts.onAwaitingOtp?.()
+        const code = await codePromise
+        await fillOtpAndSubmit(page, code)
+      } catch {
+        // scrape will surface timeout / cancel as failure
+      }
+    }
+
+    const interval = setInterval(() => {
+      void tick()
+    }, 1500)
+    page.on?.('close', () => clearInterval(interval))
+    // First check shortly after login navigation may paint OTP
+    setTimeout(() => void tick(), 800)
+  }
+}
+
+/**
  * Real scraper implementation. Dynamic import keeps puppeteer/chromium out of
  * the Next.js build graph and out of test runs (tests inject a fake ScrapeFn).
  */
-export const realScrape: ScrapeFn = async (provider, credentials, startDate) => {
+export const realScrape: ScrapeFn = async (provider, credentials, startDate, options) => {
   const { createScraper, CompanyTypes } = await import('israeli-bank-scrapers')
   const companyId = CompanyTypes[provider]
-  const scraper = createScraper({
-    companyId,
-    startDate,
-    combineInstallments: false,
-    showBrowser: false,
+  const args = [...CHROMIUM_LAUNCH_ARGS]
+  if (options?.connectionId) {
+    const profileDir = ensureBrowserProfileDir(options.connectionId)
+    args.push(`--user-data-dir=${profileDir}`)
+  }
+
+  return withExtendedRedirectWait(async () => {
+    const scraper = createScraper({
+      companyId,
+      startDate,
+      combineInstallments: false,
+      showBrowser: false,
+      timeout: getOtpWaitMs() + 60_000,
+      defaultTimeout: getOtpWaitMs() + 60_000,
+      args,
+      preparePage: createPreparePage(options),
+    })
+    // READ-ONLY: scrape() is the only operation ever invoked on the scraper.
+    const result = await scraper.scrape(credentials as never)
+    return result as unknown as ScrapeOutcome
   })
-  // READ-ONLY: scrape() is the only operation ever invoked on the scraper.
-  const result = await scraper.scrape(credentials as never)
-  return result as unknown as ScrapeOutcome
 }
 
 export interface SyncResult {
@@ -135,10 +268,26 @@ export async function syncConnection(
   )) as BankAccountRow[]
   const startDate = computeStartDate(existingAccounts.length > 0)
 
+  cancelOtpWait(connection.id, 'סנכרון חדש התחיל')
+
   let outcome: ScrapeOutcome
   try {
-    outcome = await scrape(connection.provider as BankProvider, credentials, startDate)
+    outcome = await scrape(connection.provider as BankProvider, credentials, startDate, {
+      connectionId: connection.id,
+      onAwaitingOtp: async () => {
+        await db
+          .update(bankConnections)
+          .set({
+            status: 'awaiting_otp',
+            lastError: 'ממתין לקוד אימות מהבנק',
+            lastErrorType: 'OTP_REQUIRED',
+            updatedAt: nowIso(),
+          })
+          .where(eq(bankConnections.id, connection.id))
+      },
+    })
   } catch (err) {
+    cancelOtpWait(connection.id)
     const msg = err instanceof Error ? err.message : 'Scrape failed'
     await db
       .update(bankConnections)
@@ -146,6 +295,8 @@ export async function syncConnection(
       .where(eq(bankConnections.id, connection.id))
     return { success: false, accountsSynced: 0, transactionsInserted: 0, error: msg }
   }
+
+  cancelOtpWait(connection.id)
 
   if (!outcome.success) {
     const msg = outcome.errorMessage || outcome.errorType || 'Scrape failed'

@@ -6,6 +6,7 @@ import {
   computeInsights,
   monthWindow,
   previousMonths,
+  monthKey,
   normalizeDescription,
   type AnalyticsTxn,
 } from './cashflow-analytics'
@@ -24,6 +25,12 @@ function txn(over: Partial<AnalyticsTxn> = {}): AnalyticsTxn {
 }
 
 describe('month helpers', () => {
+  it('monthKey uses Asia/Jerusalem (Israel midnight stored as …T21:00Z)', () => {
+    // 2026-07-31 21:00 UTC = 2026-08-01 00:00 Israel (DST UTC+3)
+    expect(monthKey('2026-07-31T21:00:00.000Z')).toBe('2026-08')
+    expect(monthKey('2026-08-01T21:00:00.000Z')).toBe('2026-08')
+  })
+
   it('monthWindow returns keys oldest first, inclusive of the current month', () => {
     expect(monthWindow(3, NOW)).toEqual(['2026-06', '2026-07', '2026-08'])
   })

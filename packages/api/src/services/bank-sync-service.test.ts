@@ -10,6 +10,8 @@ import {
   transactionDedupeKey,
   accountTypeForProvider,
   computeStartDate,
+  CHROMIUM_LAUNCH_ARGS,
+  maskHeadlessUserAgent,
   type ScrapeFn,
   type ScrapeOutcome,
 } from './bank-sync-service'
@@ -81,6 +83,25 @@ describe('bank-sync-service', () => {
   })
 
   describe('helpers', () => {
+    it('CHROMIUM_LAUNCH_ARGS includes Docker-safe flags', () => {
+      expect(CHROMIUM_LAUNCH_ARGS).toContain('--no-sandbox')
+      expect(CHROMIUM_LAUNCH_ARGS).toContain('--disable-setuid-sandbox')
+      expect(CHROMIUM_LAUNCH_ARGS).toContain('--disable-dev-shm-usage')
+    })
+
+    it('maskHeadlessUserAgent replaces HeadlessChrome in UA', async () => {
+      let setUa = ''
+      await maskHeadlessUserAgent({
+        evaluate: async () =>
+          'Mozilla/5.0 HeadlessChrome/148.0.0.0 Safari/537.36',
+        setUserAgent: async (ua) => {
+          setUa = ua
+        },
+      })
+      expect(setUa).toContain('Chrome/148')
+      expect(setUa).not.toContain('HeadlessChrome')
+    })
+
     it('accountTypeForProvider maps banks vs credit cards', () => {
       expect(accountTypeForProvider('hapoalim')).toBe('bank')
       expect(accountTypeForProvider('otsarHahayal')).toBe('bank')

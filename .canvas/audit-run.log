@@ -1,0 +1,24 @@
+
+> ak-system@0.1.0 agent:audit /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system
+> node tools/agent-pipelines/run.mjs --pipeline audit "--slug" "endtoend-2026-05-11-1718"
+
+[agent-pipeline] pipeline:    audit
+[agent-pipeline] slug:        endtoend-2026-05-11-1718
+[agent-pipeline] dag json:    /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1718.dag.json
+[agent-pipeline] canvas:      /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1718.canvas.tsx
+[agent-pipeline] models file: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/tools/agent-pipelines/models.profile.json
+[dag-runner] DAG "AK System weekly audit — endtoend-2026-05-11-1718" — 7 tasks across 2 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1718.canvas.tsx
+[dag-runner] --init-only: initial canvas written, exiting
+[agent-pipeline] initial canvas rendered. Open it in Cursor: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1718.canvas.tsx
+[agent-pipeline] launching runner...
+[dag-runner] DAG "AK System weekly audit — endtoend-2026-05-11-1718" — 7 tasks across 2 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1718.canvas.tsx
+[dag-runner] rank 1/2: lint, typecheck-build, tests, schema-drift, deps, skill-inventory
+[dag-runner] fatal: ConfigurationError: Cannot use this model: auto-low. Available models: default, composer-2, gpt-5.5, gpt-5.3-codex, claude-sonnet-4-6, claude-opus-4-7, grok-4.3, gpt-5.4, claude-opus-4-6, claude-opus-4-5, gpt-5.2, gemini-3.1-pro, gpt-5.4-mini, gpt-5.4-nano, claude-haiku-4-5, gpt-5.3-codex-spark, claude-sonnet-4-5, gpt-5.2-codex, gpt-5.1-codex-max, gpt-5.1, gemini-3-flash, gpt-5.1-codex-mini, claude-sonnet-4, gpt-5-mini, gemini-2.5-flash, kimi-k2.5. Use Cursor.models.list() to discover valid selections.
+    at assertModelIdInList (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.cursor/skills/dag-task-runner/scripts/node_modules/@cursor/sdk/dist/esm/index.js:8:5496112)
+    at <anonymous> (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.cursor/skills/dag-task-runner/scripts/node_modules/@cursor/sdk/dist/esm/index.js:8:5495986)
+    at Generator.next (<anonymous>)
+    at i (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.cursor/skills/dag-task-runner/scripts/node_modules/@cursor/sdk/dist/esm/index.js:8:5495628)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ ELIFECYCLE  Command failed with exit code 1.

@@ -1,0 +1,139 @@
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+──────── 2026-07-04 21:41:37 ────────
+! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.14.2.tgz
+[Google] Supabase fetch error: TypeError: fetch failed
+    at node:internal/deps/undici/undici:15433:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async fetchGoogleConnectionsFromSupabase (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/packages/api/src/services/google-connections.ts:93:17)
+    at async listGoogleConnections (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/packages/api/src/services/google-connections.ts:259:26)
+    at async main (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-to-google-sync.ts:255:23) {
+  [cause]: Error: getaddrinfo ENOTFOUND ubccuvasnoebdjxwsqbt.supabase.co
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'ubccuvasnoebdjxwsqbt.supabase.co'
+  }
+}
+[outlook-bridge] FATAL: no Google connection for alpirkritz@gmail.com. Connect it (with write scope) from Settings first.
+──────── 2026-07-04 21:41:58 ────────
+[outlook-bridge] source: 36 Outlook events (calendar "Calendar")
+[outlook-bridge] existing copies in Dragontail: 0
+[outlook-bridge] done — created 36, updated 0, deleted 0, unchanged 0
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/scripts/outlook-bridge-run.sh: Operation not permitted
+──────── 2026-07-05 17:03:47 ────────
+[outlook-bridge] source: 37 Outlook events (calendar "Calendar")
+[outlook-bridge] existing copies in Dragontail: 32
+[outlook-bridge] done — created 5, updated 0, deleted 0, unchanged 32
+──────── 2026-08-05 16:03:54 ────────
+imported and verified alpirkritz@gmail.com
+[token-import] imported and verified alpirkritz@gmail.com from EC2
+[outlook-bridge] source: 31 Outlook events (calendar "Calendar"), 3 blocked by title, 319 attendees with email, 0 name-only
+[outlook-bridge] existing copies in Dragontail: 29, all in window: 41
+[outlook-bridge] done — created 0, adopted 0, updated 3, deleted 1, unchanged 28

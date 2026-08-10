@@ -1,0 +1,355 @@
+
+━━ Ensure SSH access from this IP ━━
+✓  SSH already allowed from 199.203.93.204/32
+
+━━ Local production build (EC2 is too small to run next build) ━━
+→ Building with NEXT_PUBLIC_APP_URL=https://attach-special-bar-intend.trycloudflare.com
+
+> ak-system@0.1.0 build /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system
+> pnpm --filter @ak-system/web build
+
+
+> @ak-system/web@0.1.0 build /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web
+> node scripts/diagnose-build-context.js && node scripts/ensure-callback-route.js && next build
+
+[DEBUG 93817e] callback route path: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web/src/app/api/auth/google-calendar/callback/route.ts
+[DEBUG 93817e] cwd: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web
+[DEBUG 93817e] L1: // Google OAuth: token exchange lives in @ak-system/api (do not import googleapis here)
+[DEBUG 93817e] L2: import { NextRequest, NextResponse } from 'next/server'
+[DEBUG 93817e] L3: import { exchangeGoogleCalendarCode, upsertGoogleCalendarConnection } from '@ak-system/api'
+[DEBUG 93817e] L4: 
+[DEBUG 93817e] L5: const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+[DEBUG 93817e] package.json has googleapis: true
+[ensure-callback-route] OK
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ (serwist) Bundling the service worker script with the URL '/sw.js' and the scope '/'...
+ ✓ Compiled successfully
+   Skipping validation of types
+   Linting ...
+   Collecting page data ...
+[NextAuth] production config: NEXTAUTH_SECRET set= true 
+[NextAuth] production config: NEXTAUTH_SECRET set= true 
+[NextAuth] production config: NEXTAUTH_SECRET set= true 
+[NextAuth] production config: NEXTAUTH_SECRET set= true 
+[NextAuth] production config: NEXTAUTH_SECRET set= true 
+   Generating static pages (0/44) ...
+[api/chat/history] DynamicServerError: Dynamic server usage: Route /api/chat/history couldn't be rendered statically because it used `headers`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at trackDynamicDataAccessed (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/server/app-render/dynamic-rendering.js:126:25)
+    at headers (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/client/components/headers.js:44:60)
+    at getServerSession (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next-auth@4.24.13_next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_re_skcrkxpxd3s3oxm52zgd3aqrka/node_modules/next-auth/next/index.js:113:41)
+    at o (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web/.next/server/app/api/chat/history/route.js:1:2244)
+    at p (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web/.next/server/app/api/chat/history/route.js:1:1026)
+    at /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38417
+    at /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/server/lib/trace/tracer.js:140:36
+    at NoopContextManager.with (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:7062)
+    at ContextAPI.with (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:518)
+    at NoopTracer.startActiveSpan (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:18093) {
+  description: "Route /api/chat/history couldn't be rendered statically because it used `headers`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+[api/agents/history] B [Error]: Dynamic server usage: Route /api/agents/history couldn't be rendered statically because it used `nextUrl.searchParams`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at V (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:21778)
+    at Object.get (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:29137)
+    at p (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/apps/web/.next/server/app/api/agents/history/route.js:1:970)
+    at /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38417
+    at /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/server/lib/trace/tracer.js:140:36
+    at NoopContextManager.with (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:7062)
+    at ContextAPI.with (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:518)
+    at NoopTracer.startActiveSpan (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:18093)
+    at ProxyTracer.startActiveSpan (/Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:18854)
+    at /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/node_modules/.pnpm/next@14.2.35_@babel+core@7.29.7_@playwright+test@1.58.2_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/server/lib/trace/tracer.js:122:103 {
+  description: "Route /api/agents/history couldn't be rendered statically because it used `nextUrl.searchParams`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
+   Generating static pages (11/44) 
+   Generating static pages (22/44) 
+   Generating static pages (33/44) 
+ ✓ Generating static pages (44/44)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    5.28 kB         122 kB
+├ ○ /_not-found                          876 B          89.9 kB
+├ ○ /agents                              2.45 kB         100 kB
+├ ○ /agents/manage                       2 kB           99.7 kB
+├ ƒ /api/agents                          0 B                0 B
+├ ƒ /api/agents/[id]                     0 B                0 B
+├ ƒ /api/agents/chat                     0 B                0 B
+├ ƒ /api/agents/history                  0 B                0 B
+├ ƒ /api/analyze                         0 B                0 B
+├ ƒ /api/auth/[...nextauth]              0 B                0 B
+├ ƒ /api/auth/google-calendar            0 B                0 B
+├ ƒ /api/auth/google-calendar/callback   0 B                0 B
+├ ƒ /api/auth/mobile/google              0 B                0 B
+├ ƒ /api/chat                            0 B                0 B
+├ ƒ /api/chat/history                    0 B                0 B
+├ ƒ /api/cron/agent-triggers             0 B                0 B
+├ ƒ /api/cron/daily-meeting-summary      0 B                0 B
+├ ƒ /api/cron/feed-sync                  0 B                0 B
+├ ƒ /api/cron/morning-briefing           0 B                0 B
+├ ƒ /api/cron/pre-meeting-briefing       0 B                0 B
+├ ƒ /api/cron/task-reminder              0 B                0 B
+├ ƒ /api/cron/whatsapp-group-summary     0 B                0 B
+├ ○ /api/health                          0 B                0 B
+├ ƒ /api/notifications                   0 B                0 B
+├ ƒ /api/push/expo/register              0 B                0 B
+├ ƒ /api/push/test                       0 B                0 B
+├ ƒ /api/telegram/webhook                0 B                0 B
+├ ƒ /api/trpc/[trpc]                     0 B                0 B
+├ ○ /api/version                         0 B                0 B
+├ ƒ /api/whatsapp/group-alert            0 B                0 B
+├ ƒ /api/whatsapp/group-summary          0 B                0 B
+├ ƒ /api/whatsapp/sync-bridge            0 B                0 B
+├ ƒ /api/whatsapp/webhook                0 B                0 B
+├ ○ /calendar                            10.9 kB         119 kB
+├ ○ /chat                                1.37 kB        90.4 kB
+├ ○ /finance                             5.72 kB         114 kB
+├ ○ /login                               1.45 kB        99.6 kB
+├ ○ /meetings                            6.15 kB         123 kB
+├ ƒ /meetings/[id]                       5.73 kB         123 kB
+├ ○ /memory                              2.52 kB         120 kB
+├ ○ /notifications                       1.59 kB         119 kB
+├ ○ /people                              16.9 kB         125 kB
+├ ○ /projects                            1.96 kB         119 kB
+├ ƒ /projects/[id]                       3.76 kB         121 kB
+├ ○ /recurring                           2.05 kB         119 kB
+├ ○ /settings                            6.22 kB         123 kB
+├ ○ /settings/whatsapp                   4.73 kB         122 kB
+├ ○ /tasks                               3.39 kB         121 kB
+└ ○ /updates                             3.49 kB         112 kB
++ First Load JS shared by all            89 kB
+  ├ chunks/710-22ba35f702c8d3eb.js       33.2 kB
+  ├ chunks/d42061ba-52cae9d49770d5b2.js  53.7 kB
+  └ other shared chunks (total)          2.16 kB
+
+
+ƒ Middleware                             26.5 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+━━ Sync code → ubuntu@3.209.54.228:/opt/ak-system ━━
+
+━━ Copy deploy/production.env ━━
+
+━━ Sync WhatsApp bridge webhook URL ━━
+✓  /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/deploy/whatsapp-bridge.env
+   AK_WEBHOOK_URL=https://attach-special-bar-intend.trycloudflare.com/api/whatsapp/webhook
+
+━━ docker compose up -d --build ━━
+→ Including WhatsApp bridge profile
+ Image deploy-web Building 
+ Image deploy-whatsapp-bridge Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 929B done
+#1 DONE 0.0s
+
+#2 [whatsapp-bridge internal] load build definition from Dockerfile
+#2 transferring dockerfile: 590B 0.0s done
+#2 DONE 0.1s
+
+#3 [web internal] load build definition from Dockerfile.runtime
+#3 transferring dockerfile: 1.26kB 0.0s done
+#3 DONE 0.1s
+
+#4 [web internal] load metadata for docker.io/library/node:20-bookworm-slim
+#4 DONE 0.4s
+
+#5 [whatsapp-bridge internal] load metadata for docker.io/library/node:20-alpine
+#5 DONE 0.4s
+
+#6 [web internal] load .dockerignore
+#6 transferring context: 680B done
+#6 DONE 0.0s
+
+#7 [whatsapp-bridge internal] load build context
+#7 DONE 0.0s
+
+#8 [whatsapp-bridge  1/10] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#8 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#8 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 0.0s done
+#8 DONE 0.1s
+
+#9 [web  1/20] FROM docker.io/library/node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+#9 resolve docker.io/library/node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 0.0s done
+#9 DONE 0.1s
+
+#10 [web internal] load build context
+#10 ...
+
+#7 [whatsapp-bridge internal] load build context
+#7 transferring context: 39.14kB 0.7s done
+#7 DONE 0.8s
+
+#11 [whatsapp-bridge  2/10] WORKDIR /app
+#11 CACHED
+
+#12 [whatsapp-bridge  5/10] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+#12 CACHED
+
+#13 [whatsapp-bridge  6/10] COPY apps/whatsapp-bridge/package.json ./apps/whatsapp-bridge/
+#13 CACHED
+
+#14 [whatsapp-bridge  3/10] RUN apk add --no-cache git
+#14 CACHED
+
+#15 [whatsapp-bridge  4/10] RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+#15 CACHED
+
+#16 [whatsapp-bridge  7/10] RUN pnpm install --filter @ak-system/whatsapp-bridge --frozen-lockfile
+#16 CACHED
+
+#10 [web internal] load build context
+#10 transferring context: 65.10MB 1.7s done
+#10 DONE 1.7s
+
+#17 [web  4/20] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+#17 CACHED
+
+#18 [web  2/20] RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+#18 CACHED
+
+#19 [web  3/20] WORKDIR /app
+#19 CACHED
+
+#20 [web  5/20] COPY apps/web/package.json ./apps/web/
+#20 CACHED
+
+#21 [web  7/20] COPY packages/database/package.json ./packages/database/
+#21 CACHED
+
+#22 [web  6/20] COPY packages/api/package.json ./packages/api/
+#22 CACHED
+
+#23 [web  8/20] COPY packages/types/package.json ./packages/types/
+#23 CACHED
+
+#24 [web  9/20] RUN pnpm install --frozen-lockfile
+#24 CACHED
+
+#25 [web 10/20] COPY packages ./packages
+#25 DONE 0.3s
+
+#26 [whatsapp-bridge  8/10] COPY apps/whatsapp-bridge ./apps/whatsapp-bridge
+#26 DONE 1.3s
+
+#27 [whatsapp-bridge  9/10] WORKDIR /app/apps/whatsapp-bridge
+#27 DONE 0.1s
+
+#28 [web 11/20] COPY apps/web ./apps/web
+#28 DONE 1.8s
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 ...
+
+#30 [web 12/20] COPY A_Agents ./A_Agents
+#30 DONE 0.2s
+
+#31 [web 13/20] COPY S_Skills ./S_Skills
+#31 DONE 0.1s
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 ...
+
+#32 [web 14/20] COPY C_Core ./C_Core
+#32 DONE 0.1s
+
+#33 [web 15/20] COPY B_Brain ./B_Brain
+#33 DONE 0.1s
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 ...
+
+#34 [web 16/20] COPY M_Memory ./M_Memory
+#34 DONE 0.1s
+
+#35 [web 17/20] COPY O_Output ./O_Output
+#35 DONE 0.1s
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 ...
+
+#36 [web 18/20] COPY scripts/production-start.sh scripts/db-push.sh ./scripts/
+#36 DONE 0.2s
+
+#37 [web 19/20] RUN chmod +x scripts/production-start.sh scripts/db-push.sh
+#37 DONE 0.8s
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 3.343 
+#29 3.343 > @ak-system/whatsapp-bridge@0.1.0 build /app/apps/whatsapp-bridge
+#29 3.343 > tsc
+#29 3.343 
+#29 ...
+
+#38 [web 20/20] RUN test -d apps/web/.next || (echo "✗  apps/web/.next missing — run pnpm build on Mac first" && exit 1)
+#38 DONE 0.5s
+
+#39 [web] exporting to image
+#39 exporting layers
+#39 exporting layers 5.0s done
+#39 exporting manifest sha256:125f4950afa3796aadbfbb5ca4c558aae8c69b88e5006abfb2e59638dd983e29 0.0s done
+#39 exporting config sha256:af5cadab68eb1cfc7dd25a6449d2a16cdd3ecd6d77d56a20b719e5a02617b24c 0.0s done
+#39 exporting attestation manifest sha256:9b1bbf64f20aae7c0b053eec30f3c8f34eaaeb03508328c27f0e546eda8d043b 0.0s done
+#39 exporting manifest list sha256:64ec3d6f07ad40ab058913d085c216c7d2ca35df58ae67fc60e9e7dda0b516d5
+#39 exporting manifest list sha256:64ec3d6f07ad40ab058913d085c216c7d2ca35df58ae67fc60e9e7dda0b516d5 0.0s done
+#39 naming to docker.io/library/deploy-web:latest 0.0s done
+#39 unpacking to docker.io/library/deploy-web:latest
+#39 unpacking to docker.io/library/deploy-web:latest 2.0s done
+#39 ...
+
+#29 [whatsapp-bridge 10/10] RUN pnpm build
+#29 DONE 11.4s
+
+#39 [web] exporting to image
+#39 DONE 7.4s
+
+#40 [whatsapp-bridge] exporting to image
+#40 exporting layers 0.3s done
+#40 exporting manifest sha256:54efe804d65fe261a91acc1889453879e1ede6f74a9c9cc923ddd6a09c2df468 0.0s done
+#40 exporting config sha256:089a26f9cc7f241a4130ad94b42e60287c148aeae1b5c822756da2cfb242538c 0.0s done
+#40 exporting attestation manifest sha256:1b7366ca81929c4218a07d1fb7b3292d462223f03a78284f690934f103bd73bb 0.0s done
+#40 exporting manifest list sha256:afd92130d85429dc13d54b5c5319abe97cb162da51eea59a6c1ef8cf649ef0c7
+#40 exporting manifest list sha256:afd92130d85429dc13d54b5c5319abe97cb162da51eea59a6c1ef8cf649ef0c7 0.0s done
+#40 naming to docker.io/library/deploy-whatsapp-bridge:latest done
+#40 unpacking to docker.io/library/deploy-whatsapp-bridge:latest 0.1s done
+#40 DONE 0.6s
+
+#41 [web] resolving provenance for metadata file
+#41 ...
+
+#42 [whatsapp-bridge] resolving provenance for metadata file
+#42 DONE 0.2s
+
+#41 [web] resolving provenance for metadata file
+#41 DONE 0.3s
+ Image deploy-web Built 
+ Image deploy-whatsapp-bridge Built 
+ Container deploy-web-1 Recreate 
+ Container deploy-whatsapp-bridge-1 Recreate 
+ Container deploy-whatsapp-bridge-1 Recreated 
+ Container deploy-web-1 Recreated 
+ Container deploy-web-1 Starting 
+ Container deploy-whatsapp-bridge-1 Starting 
+ Container deploy-web-1 Started 
+ Container deploy-whatsapp-bridge-1 Started 
+NAME                       IMAGE                    COMMAND                  SERVICE           CREATED         STATUS                  PORTS
+deploy-web-1               deploy-web               "docker-entrypoint.s…"   web               4 seconds ago   Up Less than a second   0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+deploy-whatsapp-bridge-1   deploy-whatsapp-bridge   "docker-entrypoint.s…"   whatsapp-bridge   4 seconds ago   Up Less than a second   0.0.0.0:3001->3001/tcp, [::]:3001->3001/tcp
+
+━━ Health check ━━
+⚠  https://attach-special-bar-intend.trycloudflare.com not responding yet (proxy/cert may still be warming up).
+
+━━ Re-sync WhatsApp group rules → bridge ━━
+{"ok":true,"enabled":43} ✓ synced
+
+════════════════════════════════════════════════════════════
+✓  Deploy complete → ubuntu@3.209.54.228:/opt/ak-system
+   Logs:   ssh ubuntu@3.209.54.228 'cd /opt/ak-system && docker compose -f deploy/docker-compose.production.yml logs -f web'
+   Cron:   ssh ubuntu@3.209.54.228 'cd /opt/ak-system && bash scripts/install-server-cron.sh'
+════════════════════════════════════════════════════════════

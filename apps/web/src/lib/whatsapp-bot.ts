@@ -7,6 +7,7 @@ import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 import { sendBrowserPush } from './web-push'
 import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
+import { withChatMessageId } from './notification-url'
 import { chatMessages, getDb, desc, eq, whatsappGroups } from '@ak-system/database'
 import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs } from '@ak-system/api'
 
@@ -169,16 +170,17 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
       channel: 'whatsapp',
     })
     await saveAgentMessage(HUGO_AGENT_ID, 'assistant', result.text)
-    await saveChatMessage('assistant', result.text, 'whatsapp')
+    const messageId = await saveChatMessage('assistant', result.text, 'whatsapp')
     // Mirror Hugo's reply to the phone as an OS push (WhatsApp self-chat does not notify reliably).
     try {
       const channels = await resolveNotificationChannels('hugo_reply')
       if (channels.push) {
         const pushTitle = await resolveAgentDisplayName(HUGO_AGENT_ID)
         const pushBody = pushExcerpt(result.text)
-        await createNotification({ title: pushTitle, body: pushBody, url: '/chat', type: 'hugo' })
-        await sendBrowserPush(pushTitle, pushBody, '/chat')
-        await sendMobilePush(pushTitle, pushBody, '/chat')
+        const url = withChatMessageId('/chat', messageId)
+        await createNotification({ title: pushTitle, body: result.text, url, type: 'hugo' })
+        await sendBrowserPush(pushTitle, pushBody, url)
+        await sendMobilePush(pushTitle, pushBody, url)
       }
     } catch (err) {
       console.warn('[WhatsAppBot] Push failed:', err)

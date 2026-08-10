@@ -85,11 +85,16 @@ function wasInboundProcessed(messageId: string): boolean {
   return processedInboundIds.has(messageId)
 }
 
-function messageAgeMs(msg: proto.IWebMessageInfo): number | null {
+/** Baileys reports message time in seconds; everything downstream expects ms. */
+function messageTimestampMs(msg: proto.IWebMessageInfo): number | null {
   const raw = Number(msg.messageTimestamp)
   if (!Number.isFinite(raw) || raw <= 0) return null
-  const ms = raw < 1e12 ? raw * 1000 : raw
-  return Date.now() - ms
+  return Math.round(raw < 1e12 ? raw * 1000 : raw)
+}
+
+function messageAgeMs(msg: proto.IWebMessageInfo): number | null {
+  const ms = messageTimestampMs(msg)
+  return ms == null ? null : Date.now() - ms
 }
 
 function normalizeTextKey(text: string): string {
@@ -273,7 +278,7 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
       sender,
       senderName: sender.split('@')[0] ?? sender,
       text: trimmed,
-      timestamp: Number(msg.messageTimestamp) || Date.now(),
+      timestamp: messageTimestampMs(msg) ?? Date.now(),
     }
     bufferGroupMessage(remoteJid, groupMessage)
     enqueuePersistMessage(remoteJid, groupMessage)

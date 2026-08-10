@@ -6,6 +6,7 @@ import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
 import { StatusPill } from '@/components/StatusPill'
+import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import dynamic from 'next/dynamic'
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -314,6 +315,10 @@ export default function TasksPage() {
         }))}
         onCreated={(sync) => {
           if (sync && !sync.ok) setSyncMessage('המשימה נשמרה, אבל לא נוצרה ב-Notion')
+        }}
+        onPeopleSync={(sync) => {
+          const message = notionPeopleSyncMessage(sync)
+          if (message) setSyncMessage(message)
         }}
       />
     </div>

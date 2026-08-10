@@ -20,6 +20,8 @@ services:
       DATABASE_PATH: /data/ak_system.sqlite
       ABC_ROOT: /data/abc
       WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
+      WS_NO_BUFFER_UTIL: '1'
+      WS_NO_UTF_8_VALIDATE: '1'
     restart: unless-stopped
 
   whatsapp-bridge:

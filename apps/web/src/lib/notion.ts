@@ -736,7 +736,13 @@ export function formatNotionContextForPrompt(ctx: NotionContext): string {
     ...(ctx.meetingNotes.length === 0 ? ['- None'] : []),
     '',
     '### Calendar Review',
-    ctx.calendarReview || '_No calendar review page found for today._',
+    // Cap: an unbounded Notion page here pushed the actual instructions thousands
+    // of tokens away from the generation point.
+    ctx.calendarReview
+      ? ctx.calendarReview.length > 6000
+        ? `${ctx.calendarReview.slice(0, 6000)}\n[…קוצר — העמוד המלא ארוך מדי להזרקה]`
+        : ctx.calendarReview
+      : '_No calendar review page found for today._',
   ]
   if (ctx.errors.length > 0) {
     lines.push(

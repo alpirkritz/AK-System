@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,10 +19,14 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import {
   createTask,
+  fetchPeople,
+  fetchSelfPerson,
   fetchTask,
   fetchWorkspaces,
   updateTask,
+  type MobilePerson,
   type MobileWorkspace,
+  type TaskInput,
 } from '../../lib/data'
 import {
   colors,
@@ -77,16 +83,31 @@ export default function TaskDetailScreen() {
   const [dueDate, setDueDate] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [people, setPeople] = useState<MobilePerson[]>([])
+  const [selfPersonId, setSelfPersonId] = useState<string | null>(null)
+  const [assigneeId, setAssigneeId] = useState<string | null>(null)
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
+  const [assigneeSearch, setAssigneeSearch] = useState('')
 
   const selectedWorkspace = workspaces.find((w) => w.id === workspaceId)
   const willCreateInNotion = isNew && (selectedWorkspace?.notionDatabases?.length ?? 0) > 0
+  const assignee = people.find((p) => p.id === assigneeId) ?? null
 
   const load = useCallback(async () => {
     if (!token) return
     try {
-      const ws = await fetchWorkspaces(token)
+      const [ws, contacts, self] = await Promise.all([
+        fetchWorkspaces(token),
+        fetchPeople(token),
+        fetchSelfPerson(token),
+      ])
       setWorkspaces(ws)
-      if (!isNew && id) {
+      // The owner may not be in `people.list` yet on a fresh install.
+      setPeople(contacts.some((p) => p.id === self.id) ? contacts : [self, ...contacts])
+      setSelfPersonId(self.id)
+      if (isNew) {
+        setAssigneeId(self.id)
+      } else if (id) {
         setLoading(true)
         const task = await fetchTask(token, id)
         if (!task) {
@@ -98,6 +119,7 @@ export default function TaskDetailScreen() {
         setPriority(task.priority)
         setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : '')
         setWorkspaceId(task.workspaceId ?? null)
+        setAssigneeId(task.assigneeId ?? null)
         setNotionHint(task.source === 'notion' && Boolean(task.notionPageId))
       }
     } catch (err) {
@@ -106,6 +128,33 @@ export default function TaskDetailScreen() {
       setLoading(false)
     }
   }, [token, id, isNew])
+
+  const visiblePeople = useMemo(() => {
+    const ordered = selfPersonId
+      ? [
+          ...people.filter((p) => p.id === selfPersonId),
+          ...people.filter((p) => p.id !== selfPersonId),
+        ]
+      : people
+    const q = assigneeSearch.trim().toLowerCase()
+    if (!q) return ordered
+    return ordered.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.company ?? '').toLowerCase().includes(q) ||
+        (p.role ?? '').toLowerCase().includes(q),
+    )
+  }, [people, selfPersonId, assigneeSearch])
+
+  const closeAssigneePicker = () => {
+    setAssigneePickerOpen(false)
+    setAssigneeSearch('')
+  }
+
+  const pickAssignee = (personId: string | null) => {
+    setAssigneeId(personId)
+    closeAssigneePicker()
+  }
 
   useEffect(() => {
     void load()
@@ -129,13 +178,17 @@ export default function TaskDetailScreen() {
     setSaving(true)
     setError(null)
     try {
-      const payload = {
+      const payload: TaskInput = {
         title: trimmed,
         status,
         priority,
         dueDate: dueDate.trim() || null,
         workspaceId,
       }
+      // Only send an assignee once the picker actually has state. If loading the
+      // owner failed, omitting the key lets the server apply its own default
+      // rather than silently creating an unassigned task.
+      if (assigneeId !== null || selfPersonId !== null) payload.assigneeId = assigneeId
       if (isNew) {
         const result = await createTask(token, payload)
         if (result.notionSync && !result.notionSync.ok) {
@@ -239,6 +292,21 @@ export default function TaskDetailScreen() {
             autoFocus={isNew}
             textAlign="right"
           />
+
+          <Text style={styles.label}>אחראי</Text>
+          <Pressable
+            onPress={() => setAssigneePickerOpen(true)}
+            style={[styles.input, styles.assigneeField]}
+            accessibilityRole="button"
+            accessibilityLabel={assignee ? `אחראי ${assignee.name}` : 'בחר אחראי'}
+          >
+            <Text style={[styles.dateText, !assignee && styles.datePlaceholder]}>
+              {assignee ? assignee.name : 'ללא אחראי'}
+            </Text>
+            {assignee && assignee.id === selfPersonId ? (
+              <Text style={styles.selfTag}>אני</Text>
+            ) : null}
+          </Pressable>
 
           <Text style={styles.label}>סטטוס</Text>
           <View style={styles.chips}>
@@ -402,6 +470,76 @@ export default function TaskDetailScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={assigneePickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={closeAssigneePicker}
+      >
+        <Pressable style={styles.modalOverlay} onPress={closeAssigneePicker}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>אחראי</Text>
+            <TextInput
+              value={assigneeSearch}
+              onChangeText={setAssigneeSearch}
+              placeholder="התחל להקליד שם..."
+              placeholderTextColor={colors.textMuted}
+              style={[styles.input, styles.inputRtl]}
+              textAlign="right"
+              autoFocus
+              accessibilityLabel="חיפוש אחראי"
+            />
+            <Pressable
+              onPress={() => pickAssignee(null)}
+              style={styles.personRow}
+              accessibilityRole="button"
+              accessibilityState={{ selected: assigneeId === null }}
+            >
+              <Text style={[styles.personName, styles.personNameMuted]}>ללא אחראי</Text>
+            </Pressable>
+            <FlatList
+              data={visiblePeople}
+              keyExtractor={(p) => p.id}
+              keyboardShouldPersistTaps="handled"
+              style={styles.personList}
+              ListEmptyComponent={<Text style={styles.emptyText}>לא נמצא איש קשר</Text>}
+              renderItem={({ item }) => {
+                const active = item.id === assigneeId
+                return (
+                  <Pressable
+                    onPress={() => pickAssignee(item.id)}
+                    style={styles.personRow}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text
+                      style={[styles.personName, active && styles.personNameActive]}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    {item.id === selfPersonId ? <Text style={styles.selfTag}>אני</Text> : null}
+                    {item.company ? (
+                      <Text style={styles.personMeta} numberOfLines={1}>
+                        {item.company}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                )
+              }}
+            />
+            <Pressable
+              onPress={closeAssigneePicker}
+              style={styles.modalClose}
+              accessibilityRole="button"
+              accessibilityLabel="סגור בחירת אחראי"
+            >
+              <Text style={styles.modalCloseText}>סגור</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   )
 }
@@ -433,6 +571,76 @@ const styles = StyleSheet.create({
   inputRtl: { writingDirection: 'rtl' },
   dateRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   dateField: { flex: 1, justifyContent: 'center' },
+  assigneeField: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+  },
+  selfTag: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+    borderWidth: 1,
+    borderColor: colors.accent + '55',
+    backgroundColor: colors.accent + '22',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: '#00000099',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surfaceCard,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 32,
+    gap: 10,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  personList: { flexGrow: 0 },
+  personRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  personName: {
+    color: colors.text,
+    fontSize: 15,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    flexShrink: 1,
+  },
+  personNameActive: { color: colors.accent, fontWeight: '600' },
+  personNameMuted: { color: colors.textMuted },
+  personMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl', flexShrink: 1 },
+  emptyText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    paddingVertical: 12,
+  },
+  modalClose: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: { color: colors.accent, fontSize: 16, fontWeight: '600' },
   dateText: { color: colors.text, fontSize: 16, textAlign: 'right', writingDirection: 'rtl' },
   datePlaceholder: { color: colors.textMuted },
   clearDate: {

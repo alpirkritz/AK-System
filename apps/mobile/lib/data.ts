@@ -45,6 +45,19 @@ export type TaskInput = {
   priority?: 'high' | 'medium' | 'low'
   dueDate?: string | null
   workspaceId?: string | null
+  /** Omit to let the server default to the owner; `null` means nobody. */
+  assigneeId?: string | null
+}
+
+/** Counters returned by a manual Notion tasks sync. */
+export type NotionTasksSyncResult = {
+  peopleCreated: number
+  peopleUpdated: number
+  tasksCreated: number
+  tasksUpdated: number
+  tasksSkipped: number
+  tasksPruned: number
+  errors: string[]
 }
 
 export type MobileMeeting = {
@@ -61,6 +74,12 @@ export type MobileMeeting = {
 export async function fetchPeople(token: string): Promise<MobilePerson[]> {
   const client = createTrpcClient(token)
   return (await client.people.list.query()) as MobilePerson[]
+}
+
+/** The contact row representing the app owner, used to default the assignee. */
+export async function fetchSelfPerson(token: string): Promise<MobilePerson> {
+  const client = createTrpcClient(token)
+  return (await client.people.me.query()) as MobilePerson
 }
 
 export async function fetchTasks(token: string): Promise<MobileTask[]> {
@@ -105,6 +124,20 @@ export async function toggleTaskDone(
   return (await client.tasks.toggleDone.mutate({ id })) as MobileTask & {
     notionSync?: NotionSyncResult
   }
+}
+
+export async function fetchNotionConfigured(token: string): Promise<boolean> {
+  const client = createTrpcClient(token)
+  const res = (await client.tasks.notionConfigured.query()) as { configured: boolean }
+  return res.configured
+}
+
+export async function syncTasksFromNotion(token: string): Promise<NotionTasksSyncResult> {
+  const client = createTrpcClient(token)
+  return (await client.tasks.syncFromNotion.mutate({
+    windowDays: 60,
+    dryRun: false,
+  })) as NotionTasksSyncResult
 }
 
 export async function fetchMeetings(token: string): Promise<MobileMeeting[]> {

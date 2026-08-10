@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { verifyWhatsAppBridgeAuth } from '@/lib/whatsapp-bot'
 import { getDb, whatsappGroups, whatsappMessages, eq, and, inArray } from '@ak-system/database'
+import { normalizeWhatsappTs } from '@ak-system/api'
 
 interface IngestMessage {
   id: string
@@ -8,11 +9,6 @@ interface IngestMessage {
   senderName: string
   text: string
   timestamp: number
-}
-
-function toEpochMs(raw: number): number {
-  if (!Number.isFinite(raw) || raw <= 0) return Date.now()
-  return raw < 1e12 ? raw * 1000 : raw
 }
 
 /**
@@ -57,7 +53,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       sender: String(m.sender ?? 'unknown'),
       senderName: String(m.senderName ?? m.sender ?? 'unknown'),
       text: m.text.trim(),
-      ts: toEpochMs(Number(m.timestamp)),
+      ts: normalizeWhatsappTs(Number(m.timestamp)),
     }))
 
   if (normalized.length === 0) {

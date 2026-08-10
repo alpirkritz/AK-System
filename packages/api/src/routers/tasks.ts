@@ -8,7 +8,15 @@ import {
   resolveWorkspaceNotionTarget,
   type CanonicalStatus,
 } from '../services/notion-tasks-sync'
-import { pushTaskStatus, createNotionTask, type WriteBackResult, type CreateResult } from '../services/notion-task-writeback'
+import {
+  pushTaskStatus,
+  pushTaskPeople,
+  createNotionTask,
+  type WriteBackResult,
+  type CreateResult,
+  type PeopleRelationResult,
+} from '../services/notion-task-writeback'
+import { ensureSelfPerson } from '../services/self-person'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 const statusEnum = z.enum(TASK_STATUSES)
@@ -102,13 +110,18 @@ export const tasksRouter = router({
       if (meeting?.projectId) projectId = meeting.projectId
     }
     const status = input.status ?? (input.done ? 'done' : 'not_started')
+    // Tasks opened through the app belong to the owner unless he says otherwise.
+    // An omitted key means "not specified" and gets the default; an explicit
+    // `null` is the user picking "ללא אחראי" and is left alone.
+    const assigneeId =
+      input.assigneeId === undefined ? (await ensureSelfPerson(ctx.db)).id : input.assigneeId
     await ctx.db.insert(tasks).values({
       id,
       title: input.title,
       meetingId: input.meetingId ?? null,
       projectId,
       workspaceId: input.workspaceId ?? null,
-      assigneeId: input.assigneeId ?? null,
+      assigneeId,
       dueDate: input.dueDate ?? null,
       done: doneFromStatus(status),
       status,
@@ -125,7 +138,24 @@ export const tasksRouter = router({
     if (input.workspaceId) {
       const target = await resolveWorkspaceNotionTarget(input.workspaceId)
       if (target) {
-        notionSync = await createNotionTask({ target, title: input.title, dueDate: input.dueDate ?? null })
+        // The assignee is what keeps the page visible in Notion's filtered views and stops the
+        // next pull-sync from pruning it, so it travels with the page from the start.
+        let assignee: { name: string; email: string | null } | null = null
+        if (assigneeId) {
+          const [person] = await ctx.db
+            .select({ name: people.name, email: people.email })
+            .from(people)
+            .where(eq(people.id, assigneeId))
+          if (person) assignee = { name: person.name, email: person.email }
+        }
+        notionSync = await createNotionTask({
+          target,
+          title: input.title,
+          dueDate: input.dueDate ?? null,
+          status: status as CanonicalStatus,
+          priority: input.priority ?? 'medium',
+          assignee,
+        })
         if (notionSync.ok) {
           await ctx.db
             .update(tasks)
@@ -231,7 +261,37 @@ export const tasksRouter = router({
       for (const personId of input.personIds) {
         await ctx.db.insert(taskPeople).values({ taskId: input.taskId, personId })
       }
-      return { ok: true }
+
+      // The clients call this right after `create`, so this is also the moment a brand-new task's
+      // people reach Notion — `create` itself never sees them.
+      const [task] = await ctx.db
+        .select({
+          notionPageId: tasks.notionPageId,
+          notionAccount: tasks.notionAccount,
+          notionDb: tasks.notionDb,
+        })
+        .from(tasks)
+        .where(eq(tasks.id, input.taskId))
+
+      let notionSync: PeopleRelationResult | null = null
+      if (task?.notionPageId) {
+        const names = input.personIds.length
+          ? (
+              await ctx.db
+                .select({ name: people.name })
+                .from(people)
+                .where(inArray(people.id, input.personIds))
+            ).map(r => r.name)
+          : []
+        notionSync = await pushTaskPeople({
+          notionPageId: task.notionPageId,
+          notionAccount: task.notionAccount,
+          notionDb: task.notionDb,
+          personNames: names,
+        })
+      }
+
+      return { ok: true, notionSync }
     }),
 
   /** האם מוגדר בסיס נתונים של משימות ב-Notion (לכפתור סנכרון) */

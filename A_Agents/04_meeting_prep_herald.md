@@ -2,8 +2,9 @@
 
 > **Agent ID:** `04_meeting_prep_herald`
 > **Status:** Active
-> **Last Updated:** 2026-07-19
+> **Last Updated:** 2026-08-03
 > **Reports to:** `01_Hugo_orchestrator`
+> **Runtime:** AK System agent engine. Your chat reply **is** the delivered briefing (WhatsApp / push / app). No staging, no Notion page creation, no Markdown tables.
 
 ---
 
@@ -50,9 +51,6 @@ Prepares the user for meetings by pulling together open action items to push for
 | Notion — AI Meeting Notes | Read | `get_notion_meeting_notes` + injected "Recent Meeting Notes" |
 | Local meeting record + notes | Read | `get_next_meeting_brief` |
 | Find any item by name | Read | `search_notion` |
-| `C_Core/` | Read (mandatory) | Pre-flight check |
-| `O_Output/` | Write | Stage briefings |
-| `M_Memory/` | Append | Log runs |
 
 ---
 
@@ -179,7 +177,6 @@ line `המלצה — לא מהנתונים`; omit the section entirely if there 
 
 ## Run Protocol
 
-1. Read `C_Core/brand_dna_and_compliance.md` — confirm alignment
-2. Follow **Instructions** above; execute `S_Skills/wf_meeting_prep.md`
-3. Stage briefing in `O_Output/`
-4. Append run log to `M_Memory/agents_daily_sync.md`
+1. Follow **Instructions** above; the injected `wf_meeting_prep` steps define the order
+2. Call at least `get_notion_tasks` + `get_notion_meeting_notes` this run before writing anything
+3. The reply itself is the delivered briefing (WhatsApp / push / app) — no staging, no meta-narration, write in Hebrew

@@ -191,4 +191,17 @@ describe('finance.bankConnections router', () => {
     delete process.env.BANK_CREDENTIALS_ENCRYPTION_KEY
     expect((await caller.finance.bankConnections.cryptoConfigured()).configured).toBe(false)
   })
+
+  it('submitOtp rejects when no scrape is waiting', async () => {
+    const caller = await createTestCaller()
+    const { id } = await caller.finance.bankConnections.create({
+      provider: 'hapoalim',
+      displayName: 'הפועלים',
+      userCode: 'AB1234',
+      password: 'pw',
+    })
+    await expect(
+      caller.finance.bankConnections.submitOtp({ id, code: '123456' }),
+    ).rejects.toThrow(/אין סנכרון/)
+  })
 })

@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc'
 import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages } from '@ak-system/database'
 import { eq, asc, and, gte, lte, inArray } from 'drizzle-orm'
 import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
+import { WHATSAPP_WINDOWS, resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import {
   discoverGroups,
   getBridgeStatus,
@@ -32,11 +33,10 @@ function stringifyJsonArray(arr: string[]): string {
   return JSON.stringify(arr)
 }
 
-const WINDOW_MS: Record<string, number> = {
-  '6h': 6 * 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
+/** Shared time-range input for the insight procedures. */
+const timeRangeInput = {
+  sinceHour: z.number().int().min(0).max(23).optional(),
+  untilHour: z.number().int().min(1).max(24).optional(),
 }
 
 function genMsgId(): string {
@@ -447,12 +447,17 @@ export const whatsappRouter = router({
       .input(
         z.object({
           groupJid: z.string().min(1),
-          window: z.enum(['24h', '7d', '30d']).default('7d'),
+          window: z.enum(WHATSAPP_WINDOWS).default('7d'),
           mode: z.enum(['summary', 'topics', 'style']).default('summary'),
+          ...timeRangeInput,
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const sinceMs = Date.now() - (WINDOW_MS[input.window] ?? WINDOW_MS['7d'])
+        const range = resolveWhatsappTimeWindow({
+          window: input.window,
+          sinceHour: input.sinceHour,
+          untilHour: input.untilHour,
+        })
         const groupRows = await ctx.db
           .select({ name: whatsappGroups.name })
           .from(whatsappGroups)
@@ -467,33 +472,56 @@ export const whatsappRouter = router({
             ts: whatsappMessages.ts,
           })
           .from(whatsappMessages)
-          .where(and(eq(whatsappMessages.groupJid, input.groupJid), gte(whatsappMessages.ts, sinceMs)))
+          .where(
+            and(
+              eq(whatsappMessages.groupJid, input.groupJid),
+              gte(whatsappMessages.ts, range.sinceMs),
+              lte(whatsappMessages.ts, range.untilMs),
+            ),
+          )
           .orderBy(asc(whatsappMessages.ts))
 
-        const text = await generateGroupInsight(displayName, msgs, input.mode)
-        const header =
+        const text = await generateGroupInsight(displayName, msgs, input.mode, range.rangeLabel)
+        const title =
           input.mode === 'style'
-            ? `🔎 תובנות — ${displayName}\n\n`
+            ? `🔎 תובנות — ${displayName}`
             : input.mode === 'topics'
-              ? `💬 על מה מדברים — ${displayName}\n\n`
-              : `📋 סיכום קבוצה — ${displayName}\n\n`
+              ? `💬 על מה מדברים — ${displayName}`
+              : `📋 סיכום קבוצה — ${displayName}`
+        const header = `${title} · ${range.rangeLabel}\n\n`
         const full = (header + text).slice(0, 65000)
         if (msgs.length > 0) await saveInsightToChat(ctx.db, full)
-        return { text: full, messageCount: msgs.length, mode: input.mode, window: input.window }
+        return {
+          text: full,
+          messageCount: msgs.length,
+          mode: input.mode,
+          window: input.window,
+          rangeLabel: range.rangeLabel,
+          sinceMs: range.sinceMs,
+          untilMs: range.untilMs,
+        }
       }),
 
     /** Prioritized cross-group briefing: "what's happening now in my groups". */
     digest: protectedProcedure
-      .input(z.object({ window: z.enum(['6h', '24h', '7d']).default('24h') }).optional())
+      .input(
+        z
+          .object({ window: z.enum(WHATSAPP_WINDOWS).default('24h'), ...timeRangeInput })
+          .optional(),
+      )
       .mutation(async ({ ctx, input }) => {
         const window = input?.window ?? '24h'
-        const nowMs = Date.now()
-        const sinceMs = nowMs - (WINDOW_MS[window] ?? WINDOW_MS['24h'])
+        const range = resolveWhatsappTimeWindow({
+          window,
+          sinceHour: input?.sinceHour,
+          untilHour: input?.untilHour,
+        })
+        const meta = { window, rangeLabel: range.rangeLabel, sinceMs: range.sinceMs, untilMs: range.untilMs }
 
         const groups = await ctx.db.select().from(whatsappGroups)
         const enabled = groups.filter((g) => g.enabled)
         if (enabled.length === 0) {
-          return { text: 'אין קבוצות פעילות במעקב.', items: [], window }
+          return { text: 'אין קבוצות פעילות במעקב.', items: [], ...meta }
         }
 
         const jids = enabled.map((g) => g.jid)
@@ -505,7 +533,13 @@ export const whatsappRouter = router({
             ts: whatsappMessages.ts,
           })
           .from(whatsappMessages)
-          .where(and(inArray(whatsappMessages.groupJid, jids), gte(whatsappMessages.ts, sinceMs)))
+          .where(
+            and(
+              inArray(whatsappMessages.groupJid, jids),
+              gte(whatsappMessages.ts, range.sinceMs),
+              lte(whatsappMessages.ts, range.untilMs),
+            ),
+          )
           .orderBy(asc(whatsappMessages.ts))
 
         const byGroup = new Map<string, { senderName: string; text: string; ts: number }[]>()
@@ -519,7 +553,9 @@ export const whatsappRouter = router({
           .map((g) => {
             const messages = byGroup.get(g.jid) ?? []
             const keywords = parseJsonArray(g.keywords)
-            const score = computeGroupScore(messages, keywords, g.priority ?? 0, nowMs)
+            // Recency is measured against the end of the requested range, so a
+            // past range ("yesterday", "14:00–16:00") is not penalized for being old.
+            const score = computeGroupScore(messages, keywords, g.priority ?? 0, range.untilMs)
             return {
               groupJid: g.jid,
               name: g.name,
@@ -532,14 +568,22 @@ export const whatsappRouter = router({
           .sort((a, b) => b.score - a.score)
 
         if (scored.length === 0) {
-          return { text: 'אין פעילות חדשה בקבוצות שאתה עוקב אחריהן בטווח הזה.', items: [], window }
+          return {
+            text: `אין פעילות חדשה בקבוצות שאתה עוקב אחריהן בטווח הזה (${range.rangeLabel}).`,
+            items: [],
+            ...meta,
+          }
         }
 
-        const { text, items } = await generateCrossGroupDigest(scored)
-        const header = `📡 מה קורה עכשיו בקבוצות\n\n`
-        const full = (header + text).slice(0, 65000)
+        const { text, items } = await generateCrossGroupDigest(scored, range.rangeLabel)
+        const isPastRange =
+          window === 'yesterday' || input?.sinceHour !== undefined || input?.untilHour !== undefined
+        const title = isPastRange
+          ? `📡 מה היה בקבוצות · ${range.rangeLabel}`
+          : `📡 מה קורה עכשיו בקבוצות · ${range.rangeLabel}`
+        const full = (`${title}\n\n` + text).slice(0, 65000)
         await saveInsightToChat(ctx.db, full)
-        return { text: full, items, window }
+        return { text: full, items, ...meta }
       }),
   }),
 

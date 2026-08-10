@@ -23,6 +23,11 @@ describe('categorizeByKeywords', () => {
     expect(categorizeByKeywords('הפקדה לפיקדון', 'expense')).toBe('חיסכון והשקעות')
   })
 
+  it('maps rent keywords to שכירות', () => {
+    expect(categorizeByKeywords('שכ"ד דירה', 'expense')).toBe('שכירות')
+    expect(categorizeByKeywords('תשלום שכירות', 'expense')).toBe('שכירות')
+  })
+
   it('prefers salary over the generic transfer rule', () => {
     expect(categorizeByKeywords('העברת משכורת', 'income')).toBe('משכורת')
   })

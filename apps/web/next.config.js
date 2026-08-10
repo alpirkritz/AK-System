@@ -25,7 +25,22 @@ const nextConfig = {
   reactStrictMode: true,
   typescript: { ignoreBuildErrors: true },
   transpilePackages: ['@ak-system/types', '@ak-system/api', '@ak-system/database'],
-  experimental: { serverComponentsExternalPackages: ['better-sqlite3', 'bindings', 'node-ical', 'next-auth', 'jose', '@cursor/sdk'] },
+  experimental: {
+    serverComponentsExternalPackages: [
+      'better-sqlite3',
+      'bindings',
+      'node-ical',
+      'next-auth',
+      'jose',
+      '@cursor/sdk',
+      // Keep Puppeteer/ws out of the webpack graph — bundling breaks bufferUtil.mask
+      // and bank sync throws "e.mask is not a function" on EC2.
+      'israeli-bank-scrapers',
+      'puppeteer',
+      'puppeteer-core',
+      'ws',
+    ],
+  },
   ...(useDefaultDist ? {} : { distDir: TMP_DIR }),
   webpack: (config, { isServer }) => {
     // Store webpack's persistent cache in /tmp.
@@ -59,7 +74,11 @@ const nextConfig = {
           ctx.request === 'util' ||
           ctx.request === 'node-ical' ||
           ctx.request === 'jose' ||
-          ctx.request === '@cursor/sdk'
+          ctx.request === '@cursor/sdk' ||
+          ctx.request === 'israeli-bank-scrapers' ||
+          ctx.request === 'puppeteer' ||
+          ctx.request === 'puppeteer-core' ||
+          ctx.request === 'ws'
         ) {
           return cb(null, `commonjs ${ctx.request}`)
         }

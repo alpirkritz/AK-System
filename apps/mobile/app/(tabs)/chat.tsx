@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -14,7 +14,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { ChatMessage } from '../../lib/api'
-import { fetchChatHistory, sendChatMessage } from '../../lib/api'
+import { fetchChatHistory, mobileRouteForNotificationUrl, sendChatMessage } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { addNotificationResponseListener, syncPushToken } from '../../lib/notifications'
 import { colors, layout } from '../../lib/theme'
@@ -27,6 +27,9 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Row>>(null)
+  const { message: messageParam } = useLocalSearchParams<{ message?: string }>()
+  // Honour a deep link once; afterwards the list resumes following new messages.
+  const deepLinkHandled = useRef<string | null>(null)
 
   const [messages, setMessages] = useState<Row[]>([])
   const [input, setInput] = useState('')
@@ -69,14 +72,38 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const sub = addNotificationResponseListener((url) => {
-      if (url.includes('chat')) {
-        router.push('/chat')
-      } else {
-        router.push('/notifications')
-      }
+      const target = mobileRouteForNotificationUrl(url)
+      router.push(
+        (target.message
+          ? { pathname: target.pathname, params: { message: target.message } }
+          : target.pathname) as Href,
+      )
     })
     return () => sub.remove()
   }, [router])
+
+  /**
+   * Deep link target, or null once handled / when the message is not in history.
+   * Falling back to null keeps the normal scroll-to-end behaviour.
+   */
+  const pendingDeepLinkIndex = (() => {
+    if (!messageParam || deepLinkHandled.current === messageParam) return null
+    const index = messages.findIndex((m) => m.id === messageParam)
+    return index >= 0 ? index : null
+  })()
+
+  const settleScroll = useCallback(() => {
+    if (pendingDeepLinkIndex != null && messageParam) {
+      deepLinkHandled.current = messageParam
+      listRef.current?.scrollToIndex({
+        index: pendingDeepLinkIndex,
+        animated: true,
+        viewPosition: 0.5,
+      })
+      return
+    }
+    listRef.current?.scrollToEnd({ animated: true })
+  }, [messageParam, pendingDeepLinkIndex])
 
   const onSend = async () => {
     const text = input.trim()
@@ -123,12 +150,14 @@ export default function ChatScreen() {
     }
 
     const isUser = item.role === 'user'
+    const isLinked = !!messageParam && item.id === messageParam
     return (
       <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
         <View
           style={[
             styles.bubble,
             isUser ? styles.bubbleUser : styles.bubbleAssistant,
+            isLinked && styles.bubbleLinked,
             { maxWidth: contentWidth * 0.85 },
           ]}
         >
@@ -157,8 +186,15 @@ export default function ChatScreen() {
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 8 }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={settleScroll}
+          onLayout={settleScroll}
+          onScrollToIndexFailed={({ index }) => {
+            // Variable bubble heights mean the offset can be unknown on first pass.
+            listRef.current?.scrollToOffset({ offset: index * 96, animated: false })
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
+            }, 80)
+          }}
         />
       )}
 
@@ -225,6 +261,10 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+  },
+  bubbleLinked: {
+    borderWidth: 1.5,
+    borderColor: colors.accent,
   },
   messageText: {
     color: colors.text,

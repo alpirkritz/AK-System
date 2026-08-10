@@ -4,6 +4,7 @@
  * directly. Only runs when GEMINI_API_KEY is set.
  */
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
+import { getDefaultTimezone } from '../lib/calendar-dates'
 
 export type GroupInsightMode = 'summary' | 'topics' | 'style'
 
@@ -59,10 +60,19 @@ function getModel() {
   return genAI.getGenerativeModel({ model: geminiModelId(), generationConfig: geminiGenerationConfig() })
 }
 
+/** Message lines for the prompt, timestamped in the system timezone (not the server's UTC). */
 function formatLines(messages: InsightMessage[]): string {
+  const timeZone = getDefaultTimezone()
   return messages
     .map((m) => {
-      const time = new Date(m.ts).toLocaleString('he-IL')
+      const time = new Date(m.ts).toLocaleString('he-IL', {
+        timeZone,
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
       return `[${time}] ${m.senderName}: ${m.text}`
     })
     .join('\n')
@@ -98,13 +108,22 @@ export async function generateGroupInsight(
   displayName: string,
   messages: InsightMessage[],
   mode: GroupInsightMode,
+  rangeLabel?: string,
 ): Promise<string> {
   if (messages.length === 0) {
-    return 'אין הודעות בקבוצה בטווח הזמן שנבחר.'
+    return rangeLabel
+      ? `אין הודעות בקבוצה בטווח הזה (${rangeLabel}).`
+      : 'אין הודעות בקבוצה בטווח הזמן שנבחר.'
   }
   const model = getModel()
   const prompt = [
     ...MODE_PROMPTS[mode](displayName),
+    ...(rangeLabel
+      ? [
+          `The messages below cover exactly this period: ${rangeLabel} (Israel local time, timestamps shown as DD.MM, HH:MM).`,
+          'Only describe what happened in this period. Do not claim anything about times outside it.',
+        ]
+      : []),
     '',
     'Messages:',
     formatLines(messages),
@@ -128,6 +147,7 @@ interface DigestJson {
  */
 export async function generateCrossGroupDigest(
   groups: (DigestGroupInput & { score: number })[],
+  rangeLabel?: string,
 ): Promise<CrossGroupDigestResult> {
   const withMessages = groups.filter((g) => g.messages.length > 0)
   if (withMessages.length === 0) {
@@ -145,7 +165,9 @@ export async function generateCrossGroupDigest(
     .join('\n\n')
 
   const prompt = [
-    'You are giving the user a single briefing answering "what is happening right now in my WhatsApp groups".',
+    rangeLabel
+      ? `You are giving the user a single briefing about their WhatsApp groups for exactly this period: ${rangeLabel} (Israel local time, timestamps shown as DD.MM, HH:MM). Only describe what happened in this period.`
+      : 'You are giving the user a single briefing answering "what is happening right now in my WhatsApp groups".',
     'Write in natural spoken Hebrew (unless most messages are in English).',
     'Rank by importance: the user marked some groups as חשוב/קריטי — weight those higher, and weight bursts of activity higher.',
     'Connect related topics that span multiple groups (if the same event/person/subject appears in more than one group, say so).',

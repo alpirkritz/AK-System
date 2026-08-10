@@ -37,17 +37,26 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   pending: { label: 'ממתין לסנכרון', color: '#647399' },
   error: { label: 'שגיאה', color: '#fb7185' },
   disabled: { label: 'מושבת', color: '#647399' },
+  awaiting_otp: { label: 'ממתין לקוד אימות', color: '#fbbf24' },
 }
 
 export default function AccountsTab() {
   const [modalOpen, setModalOpen] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [otpByConnection, setOtpByConnection] = useState<Record<string, string>>({})
 
   const utils = trpc.useUtils()
   const { data: snapshot, isLoading: snapshotLoading } = trpc.finance.getAccountsSnapshot.useQuery()
   const { data: connections = [], isLoading: connectionsLoading } =
-    trpc.finance.bankConnections.list.useQuery()
+    trpc.finance.bankConnections.list.useQuery(undefined, {
+      // TanStack Query v4: refetchInterval fn is (data, query) — not (query) like v5.
+      refetchInterval: (data) => {
+        if (syncingId) return 2000
+        if (data?.some((c) => c.status === 'awaiting_otp')) return 2000
+        return false
+      },
+    })
   const { data: crypto } = trpc.finance.bankConnections.cryptoConfigured.useQuery()
 
   const invalidateAll = () => {
@@ -74,6 +83,16 @@ export default function AccountsTab() {
     },
   })
 
+  const otpMutation = trpc.finance.bankConnections.submitOtp.useMutation({
+    onSuccess: () => {
+      setSyncMessage('הקוד נשלח — ממשיכים בסנכרון…')
+      invalidateAll()
+    },
+    onError: (err) => {
+      setSyncMessage(`שגיאה: ${err.message}`)
+    },
+  })
+
   const deleteMutation = trpc.finance.bankConnections.delete.useMutation({
     onSuccess: invalidateAll,
   })
@@ -82,6 +101,15 @@ export default function AccountsTab() {
     setSyncingId(id)
     setSyncMessage(null)
     syncMutation.mutate({ id })
+  }
+
+  const handleSubmitOtp = (id: string) => {
+    const code = (otpByConnection[id] ?? '').trim()
+    if (code.length < 4) {
+      setSyncMessage('שגיאה: הזן קוד אימות בן 4 ספרות לפחות')
+      return
+    }
+    otpMutation.mutate({ id, code })
   }
 
   const handleDelete = (id: string, name: string) => {
@@ -195,7 +223,7 @@ export default function AccountsTab() {
                     <button
                       className="btn btn-ghost text-xs"
                       onClick={() => handleSync(c.id)}
-                      disabled={syncingId === c.id}
+                      disabled={syncingId === c.id || c.status === 'awaiting_otp'}
                     >
                       {syncingId === c.id ? '⏳ מסנכרן...' : '🔄 סנכרן עכשיו'}
                     </button>
@@ -207,6 +235,40 @@ export default function AccountsTab() {
                     </button>
                   </div>
                 </div>
+
+                {c.status === 'awaiting_otp' && (
+                  <div
+                    className="mt-3 px-3 py-3 rounded-lg"
+                    style={{ background: '#fbbf2411', border: '1px solid #fbbf2433' }}
+                  >
+                    <div className="text-sm font-semibold text-[#fbbf24] mb-1">נדרש קוד אימות</div>
+                    <div className="text-xs text-[#7a89ab] mb-3">
+                      הזן את הקוד שקיבלת מהבנק (SMS). אחרי אימות מוצלח המכשיר יישמר לסנכרונים הבאים.
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        className="input text-sm max-w-[10rem]"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="קוד"
+                        value={otpByConnection[c.id] ?? ''}
+                        onChange={(e) =>
+                          setOtpByConnection((prev) => ({ ...prev, [c.id]: e.target.value }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSubmitOtp(c.id)
+                        }}
+                      />
+                      <button
+                        className="btn btn-primary text-xs"
+                        disabled={otpMutation.isPending}
+                        onClick={() => handleSubmitOtp(c.id)}
+                      >
+                        {otpMutation.isPending ? 'שולח...' : 'שלח קוד'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {c.status === 'error' && c.lastError && (
                   <div className="mt-3 text-xs text-[#fb7185] px-3 py-2 rounded-lg" style={{ background: '#fb718511', border: '1px solid #fb718533' }}>

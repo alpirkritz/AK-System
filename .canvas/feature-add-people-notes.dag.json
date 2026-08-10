@@ -1,0 +1,41 @@
+{
+  "title": "AK System feature pipeline — add-people-notes",
+  "tasks": [
+    {
+      "id": "spec",
+      "depends_on": [],
+      "complexity": "MED",
+      "subtask_prompt": "You are the PM agent for the AK System monorepo. Read .cursor/skills/pm-agent/SKILL.md and follow it strictly.\n\nUSER REQUEST:\nAdd an optional 'notes' string field (max 2000 chars) to the Person record. It should be: (1) added to packages/database/src/schema.ts AND schema.pg.ts on the existing people table as a nullable text column, (2) accepted as an optional Zod-validated input by the existing 'update' procedure in packages/api/src/routers/people.ts and returned on read, (3) shown in apps/web/src/app/people as a small editable textarea inside the existing PersonRow or PersonModal. Do NOT add new tRPC procedures or new pages.\n\nSlug to use for the spec filename: add-people-notes\n\nDeliverable: write the spec at docs/specs/add-people-notes.md following the template in your skill (Goal, User stories, Acceptance criteria, Data model, tRPC API, UI surface, Out of scope, Open questions). Reply with a one-paragraph summary and the absolute path of the spec file you wrote."
+    },
+    {
+      "id": "dev-backend",
+      "depends_on": ["spec"],
+      "complexity": "HIGH",
+      "subtask_prompt": "You are the dev-agent for the AK System monorepo, running as the BACKEND node. Read .cursor/skills/dev-agent/SKILL.md and follow it strictly — only touch files under packages/api/ and packages/database/.\n\nRead the spec at docs/specs/add-people-notes.md end-to-end before writing any code.\n\nDeliverables, in this order:\n1. Update packages/database/src/schema.ts and schema.pg.ts with any new tables/columns the spec requires.\n2. Add or extend the tRPC router under packages/api/src/routers/<area>.ts as the spec describes. Use Zod for inputs.\n3. Register the router in packages/api/src/index.ts if it is new.\n4. Do NOT touch apps/web/ or anything under packages/types/<...>/client.\n5. End by listing every file you created or modified (absolute paths) and the names of all new tRPC procedures."
+    },
+    {
+      "id": "dev-frontend",
+      "depends_on": ["spec"],
+      "complexity": "HIGH",
+      "subtask_prompt": "You are the dev-agent for the AK System monorepo, running as the FRONTEND node. Read .cursor/skills/dev-agent/SKILL.md and follow it strictly — only touch files under apps/web/.\n\nRead the spec at docs/specs/add-people-notes.md end-to-end before writing any code. Assume the backend tRPC procedures named in the spec will exist (the backend node is implementing them in parallel).\n\nDeliverables, in this order:\n1. Add or update Next.js routes under apps/web/src/app/<area>/ as the spec describes (App Router, page.tsx + layout.tsx as needed).\n2. Add shared components under apps/web/src/components/ if multiple routes need them; co-locate route-specific components inside the route folder.\n3. Wire client calls through the existing tRPC client. Do NOT inline fetch calls to /api/trpc.\n4. Style with the existing Tailwind setup. Do NOT add new CSS frameworks.\n5. End by listing every file you created or modified (absolute paths) and every new route path."
+    },
+    {
+      "id": "tests",
+      "depends_on": ["dev-backend", "dev-frontend"],
+      "complexity": "MED",
+      "subtask_prompt": "You are the dev-tests-agent for the AK System monorepo. Read .cursor/skills/dev-tests-agent/SKILL.md and follow it strictly.\n\nThe upstream context lists every file the dev-agent backend and frontend nodes added. The spec is at docs/specs/add-people-notes.md.\n\nDeliverables:\n1. For every new tRPC procedure, add Vitest cases to (or create) packages/api/src/routers/<area>.test.ts. Cover happy path, Zod rejection, and auth gate where applicable.\n2. For every new user-facing flow, add or extend apps/web/e2e/<area>.spec.ts (Playwright). Cover the happy path from the spec acceptance criteria and one validation/error path.\n3. Do NOT modify production code. If a Playwright selector requires a data-testid that doesn't exist, leave a // TODO comment in the test instead of editing the component.\n4. Do NOT run the tests — the next DAG node does that.\n5. End by listing every test file you created or modified and the describe/test blocks you added."
+    },
+    {
+      "id": "qa",
+      "depends_on": ["tests"],
+      "complexity": "MED",
+      "subtask_prompt": "You are the qa-agent for the AK System monorepo. Read .cursor/skills/qa-agent/SKILL.md and follow it strictly.\n\nRun the full test suite from the repo root:\n\n  pnpm test\n  pnpm e2e\n\nIf any test fails, investigate and fix — but ONLY by editing test files or production code where the failure is unambiguously a bug introduced by the upstream dev nodes (not by your own test additions). Do not loosen assertions to make tests pass.\n\nDeliverables:\n1. Report the full test summary (pass/fail counts for unit + e2e).\n2. List every file you modified to make tests pass, with a one-line reason each.\n3. If any failure is still outstanding, mark this task ERROR and include the failing test names and the last 20 lines of output."
+    },
+    {
+      "id": "review",
+      "depends_on": ["qa"],
+      "complexity": "MED",
+      "subtask_prompt": "You are the reviewer-agent for the AK System monorepo. Read .cursor/skills/reviewer-agent/SKILL.md and follow it strictly.\n\nThe spec is at docs/specs/add-people-notes.md. The upstream context lists every modified file and the QA test summary.\n\nDeliverables:\n1. Run pnpm -r run lint and pnpm --filter @ak-system/web build to capture static check results.\n2. Walk the diff and apply the checklist in your skill (types, Drizzle parity, tRPC Zod gates, Next.js server/client boundaries, security, performance, test coverage, style).\n3. Write the structured review to reports/add-people-notes.md following the template in your skill (Verdict, Spec conformance, Static checks, Findings split by Must-fix/Should-fix/Nits, Out of scope creep, Suggested PR description).\n4. Do NOT edit production code under packages/ or apps/. The only file you may write outside reports/ is to fix obvious typos in your own review.\n5. End by replying with the verdict (APPROVED | APPROVED WITH NITS | CHANGES REQUESTED) and the absolute path to the review file."
+    }
+  ]
+}

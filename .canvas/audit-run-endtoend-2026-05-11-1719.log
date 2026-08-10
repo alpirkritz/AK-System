@@ -1,0 +1,19 @@
+
+> ak-system@0.1.0 agent:audit /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system
+> node tools/agent-pipelines/run.mjs --pipeline audit "--slug" "endtoend-2026-05-11-1719"
+
+[agent-pipeline] pipeline:    audit
+[agent-pipeline] slug:        endtoend-2026-05-11-1719
+[agent-pipeline] dag json:    /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1719.dag.json
+[agent-pipeline] canvas:      /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1719.canvas.tsx
+[agent-pipeline] models file: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/tools/agent-pipelines/models.profile.json
+[dag-runner] DAG "AK System weekly audit — endtoend-2026-05-11-1719" — 7 tasks across 2 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1719.canvas.tsx
+[dag-runner] --init-only: initial canvas written, exiting
+[agent-pipeline] initial canvas rendered. Open it in Cursor: /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1719.canvas.tsx
+[agent-pipeline] launching runner...
+[dag-runner] DAG "AK System weekly audit — endtoend-2026-05-11-1719" — 7 tasks across 2 rank(s)
+[dag-runner] canvas → /Users/alpir/Library/CloudStorage/GoogleDrive-alpirkritz@gmail.com/My Drive/Alpir/DEV/AK_system/.canvas/audit-endtoend-2026-05-11-1719.canvas.tsx
+[dag-runner] rank 1/2: lint, typecheck-build, tests, schema-drift, deps, skill-inventory
+[dag-runner] rank 2/2: summary
+[dag-runner] done — 7/7 succeeded in 1m 13s

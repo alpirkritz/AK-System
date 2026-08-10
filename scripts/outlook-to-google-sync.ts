@@ -202,6 +202,21 @@ function parseAttendees(raw: RawEvent): SourceAttendee[] {
   }))
 }
 
+/** Comma-separated, case-insensitive substrings; blank entries are dropped so they can't match everything. */
+export function parseBlocklist(raw: string | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((p) => p.trim().toLowerCase())
+    .filter((p) => p.length > 0)
+}
+
+export function isBlockedTitle(title: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false
+  const normalized = title.trim().toLowerCase()
+  return patterns.some((p) => normalized.includes(p))
+}
+
 export function toSourceEvents(raw: RawEvent[], sourceCalendar = SOURCE_CALENDAR): SourceEvent[] {
   const out: SourceEvent[] = []
   for (const e of raw) {
@@ -482,7 +497,10 @@ async function main(): Promise<void> {
   const timeMax = new Date(now.getTime() + DAYS_FWD * 86400000)
 
   const raw = await runHelper(timeMin, timeMax)
-  const sources = toSourceEvents(raw)
+  const allSources = toSourceEvents(raw)
+  const blocklist = parseBlocklist(process.env.OUTLOOK_BRIDGE_TITLE_BLOCKLIST)
+  const sources = allSources.filter((s) => !isBlockedTitle(s.title, blocklist))
+  const blocked = allSources.length - sources.length
   const attendeesWithEmail = sources.reduce(
     (n, s) => n + s.attendees.filter((a) => a.email).length,
     0,
@@ -493,6 +511,7 @@ async function main(): Promise<void> {
   )
   log(
     `source: ${sources.length} Outlook events (calendar "${SOURCE_CALENDAR}"), ` +
+    `${blocked} blocked by title, ` +
     `${attendeesWithEmail} attendees with email, ${attendeesSkipped} name-only`,
   )
 

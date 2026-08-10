@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from 'serwist'
-import { ExpirationPlugin, Serwist, StaleWhileRevalidate } from 'serwist'
+import { ExpirationPlugin, NetworkOnly, Serwist, StaleWhileRevalidate } from 'serwist'
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -42,13 +42,30 @@ const iconCaching: RuntimeCaching = {
   }),
 }
 
+/**
+ * `defaultCache` caches ALL same-origin GET /api/* requests (incl. tRPC
+ * queries — sent as GET) as "NetworkFirst" with a 10s timeout, falling back
+ * to a stale cached response if the network is slow (e.g. right after a
+ * deploy, while the container is cold-starting). For this app almost every
+ * /api/* GET is live, mutable app data (tasks, notifications, meetings...),
+ * so a stale fallback is actively wrong — e.g. an archived notification could
+ * still show up because the SW served a cached pre-archive response. Force
+ * these straight to the network, no cache fallback. Must come before
+ * defaultCache's own /api/* rule to win.
+ */
+const apiNoCache: RuntimeCaching = {
+  matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname.startsWith('/api/'),
+  handler: new NetworkOnly(),
+}
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  // iconCaching first so it wins over defaultCache's own (headerless) image rule.
-  runtimeCaching: [iconCaching, ...defaultCache],
+  // iconCaching first so it wins over defaultCache's own (headerless) image rule;
+  // apiNoCache first so it wins over defaultCache's stale-tolerant /api/* rule.
+  runtimeCaching: [iconCaching, apiNoCache, ...defaultCache],
 })
 
 serwist.addEventListeners()

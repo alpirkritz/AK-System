@@ -29,6 +29,45 @@ function addDays(d: Date, n: number): Date {
   return r
 }
 
+// ─── WhatsApp time-window arguments ───────────────────────────────────────────
+// Mirrors WHATSAPP_WINDOWS in packages/api/src/lib/whatsapp-time-window.ts, which
+// is the Zod-validated source of truth on the server.
+
+const WA_WINDOWS = ['6h', '24h', '7d', '30d', 'today', 'yesterday'] as const
+type WaWindow = (typeof WA_WINDOWS)[number]
+
+const WA_WINDOW_PARAM_DESC =
+  "Time range: '6h' | '24h' | '7d' | '30d' (rolling), or 'today' / 'yesterday' (calendar day, Israel time). Use 'today' for היום, 'yesterday' for אתמול."
+const WA_SINCE_HOUR_DESC =
+  'Optional start hour 0-23 in Israel local time, inside the chosen day. For "בין 14 ל-16" pass 14.'
+const WA_UNTIL_HOUR_DESC =
+  'Optional end hour 1-24 (exclusive) in Israel local time. For "בין 14 ל-16" pass 16; for "אחרי 20:00" leave empty.'
+
+function parseWaWindow(raw: unknown, fallback: WaWindow): WaWindow {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  return (WA_WINDOWS as readonly string[]).includes(value) ? (value as WaWindow) : fallback
+}
+
+function parseWaHour(raw: unknown, min: number, max: number): number | undefined {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN
+  if (!Number.isFinite(n)) return undefined
+  const rounded = Math.round(n)
+  if (rounded < min || rounded > max) return undefined
+  return rounded
+}
+
+/** Window + optional hour range, as accepted by whatsapp.insights.* */
+function waTimeArgs(args: Record<string, unknown>, fallbackWindow: WaWindow) {
+  const sinceHour = parseWaHour(args.sinceHour, 0, 23)
+  const untilHour = parseWaHour(args.untilHour, 1, 24)
+  const hasHours = sinceHour !== undefined || untilHour !== undefined
+  return {
+    window: parseWaWindow(args.window, hasHours ? 'today' : fallbackWindow),
+    ...(sinceHour !== undefined ? { sinceHour } : {}),
+    ...(untilHour !== undefined ? { untilHour } : {}),
+  }
+}
+
 // ─── Tool declarations ────────────────────────────────────────────────────────
 
 export type ToolExecutionContext = {
@@ -385,31 +424,29 @@ const baseToolDeclarations: FunctionDeclaration[] = [
           type: SchemaType.STRING,
           description: 'Optional: summarize one group by JID. Omit to summarize all watched/enabled groups.',
         },
-        window: {
-          type: SchemaType.STRING,
-          description: 'Optional time window: 6h, 24h (default), or 7d. For a single group, 7d (default) or 30d.',
-        },
+        window: { type: SchemaType.STRING, description: WA_WINDOW_PARAM_DESC },
+        sinceHour: { type: SchemaType.NUMBER, description: WA_SINCE_HOUR_DESC },
+        untilHour: { type: SchemaType.NUMBER, description: WA_UNTIL_HOUR_DESC },
       },
     },
   },
   {
     name: 'whatsapp_now',
     description:
-      'Prioritized briefing across ALL watched WhatsApp groups from stored history — answers "what is happening now in my groups". Use for: מה קורה לי עכשיו בקבוצות, מה חדש בוואטסאפ, סיכום כללי של הקבוצות, catch me up on whatsapp.',
+      'Prioritized briefing across ALL watched WhatsApp groups from stored history — answers "what is happening now in my groups", and also "what happened today/yesterday" or in a specific hour range when window/hours are given. Use for: מה קורה לי עכשיו בקבוצות, מה חדש בוואטסאפ, מה היה היום בקבוצות, מה היה אתמול, catch me up on whatsapp.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        window: {
-          type: SchemaType.STRING,
-          description: "Time window: '6h', '24h' (default), or '7d'.",
-        },
+        window: { type: SchemaType.STRING, description: WA_WINDOW_PARAM_DESC },
+        sinceHour: { type: SchemaType.NUMBER, description: WA_SINCE_HOUR_DESC },
+        untilHour: { type: SchemaType.NUMBER, description: WA_UNTIL_HOUR_DESC },
       },
     },
   },
   {
     name: 'query_whatsapp_group',
     description:
-      'Answer what a SPECIFIC WhatsApp group is discussing, from stored history. Use for: על מה מדברים בקבוצה X, מה קורה בקבוצה, what are they talking about in <group>, סכם לי את קבוצה X.',
+      'Answer what a SPECIFIC WhatsApp group is discussing, from stored history, optionally limited to today / yesterday / an hour range. Use for: על מה מדברים בקבוצה X, מה קורה בקבוצה, מה היה היום בקבוצה X, מה נכתב בין 14 ל-16, what are they talking about in <group>, סכם לי את קבוצה X.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -418,7 +455,9 @@ const baseToolDeclarations: FunctionDeclaration[] = [
           description: 'Group name to look up (fuzzy match against watched groups). Provide this or groupJid.',
         },
         groupJid: { type: SchemaType.STRING, description: 'Exact group JID (optional if groupName given).' },
-        window: { type: SchemaType.STRING, description: "Time window: '24h', '7d' (default), or '30d'." },
+        window: { type: SchemaType.STRING, description: WA_WINDOW_PARAM_DESC },
+        sinceHour: { type: SchemaType.NUMBER, description: WA_SINCE_HOUR_DESC },
+        untilHour: { type: SchemaType.NUMBER, description: WA_UNTIL_HOUR_DESC },
         mode: {
           type: SchemaType.STRING,
           description: "'summary' (default), or 'topics' for a breakdown of what is being discussed.",
@@ -435,7 +474,9 @@ const baseToolDeclarations: FunctionDeclaration[] = [
       properties: {
         groupName: { type: SchemaType.STRING, description: 'Group name to look up (fuzzy match). Provide this or groupJid.' },
         groupJid: { type: SchemaType.STRING, description: 'Exact group JID (optional if groupName given).' },
-        window: { type: SchemaType.STRING, description: "Time window: '24h', '7d' (default), or '30d'." },
+        window: { type: SchemaType.STRING, description: WA_WINDOW_PARAM_DESC },
+        sinceHour: { type: SchemaType.NUMBER, description: WA_SINCE_HOUR_DESC },
+        untilHour: { type: SchemaType.NUMBER, description: WA_UNTIL_HOUR_DESC },
       },
     },
   },
@@ -958,24 +999,38 @@ export async function executeTool(
 
     case 'summarize_whatsapp_groups': {
       const groupJid = (args.groupJid as string | undefined)?.trim()
-      const rawWindow = (args.window as string | undefined)?.trim()
       // Use the DB-backed insights path so a real summary is produced inline, independent
       // of the live WhatsApp bridge / its in-memory buffer.
       if (groupJid) {
-        const groupWindow = rawWindow === '7d' || rawWindow === '30d' ? rawWindow : '7d'
-        const result = await caller.whatsapp.insights.forGroup({ groupJid, window: groupWindow, mode: 'summary' })
-        return { text: result.text, messageCount: result.messageCount, window: result.window }
+        const result = await caller.whatsapp.insights.forGroup({
+          groupJid,
+          ...waTimeArgs(args, '7d'),
+          mode: 'summary',
+        })
+        return {
+          text: result.text,
+          messageCount: result.messageCount,
+          window: result.window,
+          rangeLabel: result.rangeLabel,
+        }
       }
-      const window = rawWindow === '6h' || rawWindow === '7d' ? rawWindow : '24h'
-      const result = await caller.whatsapp.insights.digest({ window })
-      return { text: result.text, items: result.items, window: result.window }
+      const result = await caller.whatsapp.insights.digest(waTimeArgs(args, '24h'))
+      return {
+        text: result.text,
+        items: result.items,
+        window: result.window,
+        rangeLabel: result.rangeLabel,
+      }
     }
 
     case 'whatsapp_now': {
-      const raw = (args.window as string | undefined)?.trim()
-      const window = raw === '6h' || raw === '7d' ? raw : '24h'
-      const result = await caller.whatsapp.insights.digest({ window })
-      return { text: result.text, items: result.items, window: result.window }
+      const result = await caller.whatsapp.insights.digest(waTimeArgs(args, '24h'))
+      return {
+        text: result.text,
+        items: result.items,
+        window: result.window,
+        rangeLabel: result.rangeLabel,
+      }
     }
 
     case 'query_whatsapp_group':
@@ -994,16 +1049,24 @@ export async function executeTool(
       if (!groupJid) {
         return { error: 'לא מצאתי קבוצה תואמת. ציין שם קבוצה מדויק יותר.' }
       }
-      const rawWin = (args.window as string | undefined)?.trim()
-      const window = rawWin === '24h' || rawWin === '30d' ? rawWin : '7d'
       const mode =
         name === 'whatsapp_group_insights'
           ? 'style'
           : (args.mode as string | undefined) === 'topics'
             ? 'topics'
             : 'summary'
-      const result = await caller.whatsapp.insights.forGroup({ groupJid, window, mode })
-      return { text: result.text, messageCount: result.messageCount, mode: result.mode, window: result.window }
+      const result = await caller.whatsapp.insights.forGroup({
+        groupJid,
+        ...waTimeArgs(args, '7d'),
+        mode,
+      })
+      return {
+        text: result.text,
+        messageCount: result.messageCount,
+        mode: result.mode,
+        window: result.window,
+        rangeLabel: result.rangeLabel,
+      }
     }
 
     case 'run_abc_agent': {
@@ -1062,6 +1125,7 @@ export async function resolveIntent(
     'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
     'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
     'For WhatsApp group summaries (סיכום וואטסאפ / סיכום קבוצות), call summarize_whatsapp_groups and include the returned summary text directly in this reply.',
+    'For time-anchored WhatsApp questions, always pass the time arguments instead of accepting the default rolling window: "היום"/"today" → window="today"; "אתמול"/"yesterday" → window="yesterday"; "בין 14 ל-16"/"מ-9 עד 12" → sinceHour/untilHour (24h clock, Israel time); "מהבוקר" → window="today" with sinceHour=6. Every WhatsApp tool result includes rangeLabel — state that covered range in your reply and never imply a wider range than it.',
     'Notion (all connected accounts) IS accessible to you: use get_notion_meetings and get_notion_tasks for the user\'s meetings and tasks, and search_notion to find specific items. For daily prep ("תכין אותי ליום"/"מה יש לי היום") pull Notion meetings + tasks. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
     'Never redirect the user to Notion as the only place to see agent results.',
     'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
@@ -1103,13 +1167,15 @@ export async function resolveIntent(
 
 // ─── Chat message persistence ─────────────────────────────────────────────────
 
+/** Returns the new message id so callers can build a `/chat?message=<id>` deep link. */
 export async function saveChatMessage(
   role: 'user' | 'assistant' | 'system',
   content: string,
   source: 'web' | 'telegram' | 'whatsapp' | 'cron',
-): Promise<void> {
+): Promise<string> {
   const db = getDb()
   const id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
   const now = new Date().toISOString()
   await db.insert(chatMessages).values({ id, role, content, source, createdAt: now })
+  return id
 }

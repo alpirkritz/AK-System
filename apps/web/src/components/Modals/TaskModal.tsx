@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_LABELS, PRIORITY_COLORS, type TaskStatus } from '@ak-system/types'
 import { StatusChips } from '@/components/StatusChips'
+import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
+import type { PeopleSyncResult } from '@/lib/notion-people-sync-message'
 import type { Person } from '@ak-system/database'
 
 type MeetingOption = { id: string; title: string }
@@ -22,6 +24,7 @@ export function TaskModal({
   projects,
   workspaces = [],
   onCreated,
+  onPeopleSync,
 }: {
   open: boolean
   onClose: () => void
@@ -35,6 +38,8 @@ export function TaskModal({
   workspaces?: WorkspaceOption[]
   /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
   onCreated?: (notionSync: { ok: boolean } | null) => void
+  /** Fired after the related people are saved, with the outcome of pushing them to the Notion relation. */
+  onPeopleSync?: (notionSync: PeopleSyncResult | null) => void
 }) {
   const [form, setForm] = useState({
     title: '',
@@ -57,6 +62,7 @@ export function TaskModal({
     { id: editingTaskId! },
     { enabled: !!editingTaskId && open }
   )
+  const { data: selfPerson } = trpc.people.me.useQuery(undefined, { enabled: open })
   useEffect(() => {
     if (!open) return
     if (editingTaskId && editingTask) {
@@ -86,6 +92,25 @@ export function TaskModal({
       setRelatedPeopleFilter('')
     }
   }, [open, editingTaskId, editingTask, meetingId, projectIdProp, workspaceIdProp, meeting, taskPeopleIds])
+
+  // New tasks default to the owner. Applied once per open so a deliberate
+  // "ללא אחראי" is not undone when the query refetches.
+  const assigneePrefilled = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      assigneePrefilled.current = false
+      return
+    }
+    if (editingTaskId || assigneePrefilled.current || !selfPerson) return
+    assigneePrefilled.current = true
+    setForm((f) => (f.assigneeId ? f : { ...f, assigneeId: selfPerson.id }))
+  }, [open, editingTaskId, selfPerson])
+
+  // The owner row can be created by `people.me` after `people.list` was fetched,
+  // so on a fresh database it would otherwise be missing from the picker.
+  const assigneeOptions: PersonOption[] =
+    selfPerson && !people.some((p) => p.id === selfPerson.id) ? [selfPerson, ...people] : people
+
   const utils = trpc.useUtils()
   const invalidateAndClose = () => {
     utils.tasks.list.invalidate()
@@ -99,7 +124,10 @@ export function TaskModal({
     onClose()
   }
   const setTaskPeople = trpc.tasks.setTaskPeople.useMutation({
-    onSuccess: invalidateAndClose,
+    onSuccess: (res) => {
+      onPeopleSync?.((res as { notionSync?: PeopleSyncResult | null }).notionSync ?? null)
+      invalidateAndClose()
+    },
   })
   const create = trpc.tasks.create.useMutation()
   const update = trpc.tasks.update.useMutation()
@@ -246,20 +274,18 @@ export function TaskModal({
                 </select>
               </div>
               <div>
-                <label className="label">אחראי</label>
-                <select
-                  className="select"
+                <label className="label" id="task-assignee-label">אחראי</label>
+                <PersonSelect
+                  id="task-assignee"
+                  labelledBy="task-assignee-label"
                   value={form.assigneeId}
-                  onChange={(e) => setForm((f) => ({ ...f, assigneeId: e.target.value }))}
-                >
-                  <option value="">ללא</option>
-                  {people.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                  options={assigneeOptions}
+                  selfId={selfPerson?.id ?? null}
+                  onChange={(personId) => setForm((f) => ({ ...f, assigneeId: personId }))}
+                />
               </div>
               <div>
-                <label className="label">קשור לאנשים</label>
+                <label className="label" id="task-related-people-label">קשור לאנשים</label>
                 <p className="text-[11px] text-[#647399] mb-2">המשימה תופיע בכרטיסיה של כל אדם שנבחר</p>
                 <input
                   type="text"
@@ -268,7 +294,11 @@ export function TaskModal({
                   value={relatedPeopleFilter}
                   onChange={(e) => setRelatedPeopleFilter(e.target.value)}
                 />
-                <div className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2f4368] bg-[#1d2b46] p-2 space-y-1">
+                <div
+                  role="group"
+                  aria-labelledby="task-related-people-label"
+                  className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2f4368] bg-[#1d2b46] p-2 space-y-1"
+                >
                   {people.length === 0 ? (
                     <span className="text-xs text-[#5a688c]">אין אנשי קשר</span>
                   ) : (() => {

@@ -111,3 +111,79 @@ describe('executeTool — summarize_whatsapp_groups', () => {
     expect(digest).toHaveBeenCalledWith({ window: '6h' })
   })
 })
+
+describe('executeTool — WhatsApp time-anchored windows', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('passes window=today through to the digest', async () => {
+    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום' })
+    const caller = buildCaller({ digest })
+
+    const result = (await executeTool('whatsapp_now', { window: 'today' }, caller)) as {
+      rangeLabel: string
+    }
+
+    expect(digest).toHaveBeenCalledWith({ window: 'today' })
+    expect(result.rangeLabel).toBe('היום')
+  })
+
+  it('passes window=yesterday through to the digest', async () => {
+    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'yesterday', rangeLabel: 'אתמול' })
+    const caller = buildCaller({ digest })
+
+    await executeTool('summarize_whatsapp_groups', { window: 'yesterday' }, caller)
+
+    expect(digest).toHaveBeenCalledWith({ window: 'yesterday' })
+  })
+
+  it('forwards an hour range and anchors it to today when no window is given', async () => {
+    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום 14:00–16:00' })
+    const caller = buildCaller({ digest })
+
+    await executeTool('whatsapp_now', { sinceHour: 14, untilHour: 16 }, caller)
+
+    expect(digest).toHaveBeenCalledWith({ window: 'today', sinceHour: 14, untilHour: 16 })
+  })
+
+  it('keeps an hour range anchored to yesterday when asked', async () => {
+    const forGroup = vi.fn().mockResolvedValue({
+      text: 'y',
+      messageCount: 2,
+      mode: 'summary',
+      window: 'yesterday',
+      rangeLabel: 'אתמול מ-22:00',
+    })
+    const caller = buildCaller({ forGroup })
+
+    await executeTool(
+      'summarize_whatsapp_groups',
+      { groupJid: '120363@g.us', window: 'yesterday', sinceHour: 22 },
+      caller,
+    )
+
+    expect(forGroup).toHaveBeenCalledWith({
+      groupJid: '120363@g.us',
+      window: 'yesterday',
+      sinceHour: 22,
+      mode: 'summary',
+    })
+  })
+
+  it('accepts numeric hours sent as strings and drops out-of-range values', async () => {
+    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום מ-08:00' })
+    const caller = buildCaller({ digest })
+
+    await executeTool('whatsapp_now', { sinceHour: '8', untilHour: 99 }, caller)
+
+    expect(digest).toHaveBeenCalledWith({ window: 'today', sinceHour: 8 })
+  })
+
+  it('falls back to the default window when the model invents one', async () => {
+    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: '24h', rangeLabel: '24 השעות האחרונות' })
+    const caller = buildCaller({ digest })
+
+    await executeTool('whatsapp_now', { window: 'this-week' }, caller)
+
+    expect(digest).toHaveBeenCalledWith({ window: '24h' })
+  })
+})

@@ -55,9 +55,9 @@ LOAD INBOXES → ANALYZE → TRIAGE → RECOMMEND → NOTIFY → LEARN
 
 ## Stage 4: Recommend
 
-### Step 4.1 — Build Triage Table
-- **Action:** Table: From · Subject · Summary · Recommended action (Reply / Archive / FYI). For Reply items, optionally draft a short editable reply.
-- **Output:** Triage table + draft replies
+### Step 4.1 — Build Triage List (no tables — WhatsApp)
+- **Action:** One line per thread, grouped 🔴/🟡/🟢: sender — subject — one-line summary — recommended action (Reply / Archive / FYI). For Reply items, optionally draft a short editable reply at the end. Hebrew.
+- **Output:** Triage list + draft replies
 
 ### Step 4.2 — Summary
 - **Action:** Lead with counts per category + the 1-3 most important items
@@ -65,15 +65,15 @@ LOAD INBOXES → ANALYZE → TRIAGE → RECOMMEND → NOTIFY → LEARN
 
 ---
 
-## Stage 5: Notify & Learn
+## Stage 5: Deliver & Learn
 
-### Step 5.1 — Notify
-- **Action:** Send Notion Inbox notification when triage is ready
-- **Output:** Notification sent
+### Step 5.1 — Deliver
+- **Action:** The chat reply itself is the triage report — it is sent automatically to WhatsApp / push / app. Do not send Notion notifications or stage files
+- **Output:** Delivered triage
 
 ### Step 5.2 — Learn
-- **Action:** Record feedback patterns (senders/types always archived, who always gets a reply) in `M_Memory/`; adjust future recommendations
-- **Output:** Updated preferences
+- **Action:** Apply feedback patterns from injected Memory (senders/types always archived, who always gets a reply); when the user states a new preference, suggest saving it to Memory
+- **Output:** Adjusted recommendations
 
 ---
 

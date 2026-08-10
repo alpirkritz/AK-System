@@ -48,7 +48,17 @@ export function monthShort(month: string): string {
 }
 
 export function currentMonthKey(now: Date = new Date()): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(now)
+  const y = parts.find((p) => p.type === 'year')?.value
+  const m = parts.find((p) => p.type === 'month')?.value
+  if (!y || !m) {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
+  return `${y}-${m}`
 }
 
 export function shiftMonth(month: string, delta: number): string {

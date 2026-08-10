@@ -4,8 +4,10 @@ import { sendTelegramMessage } from './telegram-bot'
 import { sendBrowserPush } from './web-push'
 import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
+import { withChatMessageId } from './notification-url'
 import { resolveNotificationChannels } from '@ak-system/api'
 
+/** Short, single-line form for the OS push payload only — never for the stored body. */
 function excerpt(text: string, max = 240): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   if (flat.length <= max) return flat
@@ -17,6 +19,7 @@ function deriveTitle(text: string): string {
   const firstLine = text.split('\n').map((l) => l.trim()).find(Boolean) ?? 'ARO'
   return firstLine.length > 60 ? firstLine.slice(0, 59) + '…' : firstLine
 }
+
 
 /**
  * Push an assistant message to every channel: Web Push (phone), Telegram, WhatsApp.
@@ -38,7 +41,7 @@ export async function pushAssistantMessage(
     return { telegram: false, whatsapp: false, webPush: 0, fcmPush: 0, skipped: true }
   }
 
-  await saveChatMessage('assistant', text, source)
+  const messageId = await saveChatMessage('assistant', text, source)
 
   let telegram = false
   let whatsapp = false
@@ -46,24 +49,24 @@ export async function pushAssistantMessage(
   let fcmPush = 0
 
   const title = options?.title ?? deriveTitle(text)
-  const body = excerpt(text)
-  const url = options?.url ?? '/chat'
+  const pushBody = excerpt(text)
+  const url = withChatMessageId(options?.url ?? '/chat', messageId)
 
   try {
-    await createNotification({ title, body, url, type: 'cron' })
+    await createNotification({ title, body: text, url, type: 'cron' })
   } catch (err) {
     console.warn('[push-notifications] createNotification failed:', err)
   }
 
   if (channels.push) {
     try {
-      webPush = await sendBrowserPush(title, body, url)
+      webPush = await sendBrowserPush(title, pushBody, url)
     } catch (err) {
       console.warn('[push-notifications] Web push failed:', err)
     }
 
     try {
-      fcmPush = await sendMobilePush(title, body, url)
+      fcmPush = await sendMobilePush(title, pushBody, url)
     } catch (err) {
       console.warn('[push-notifications] FCM push failed:', err)
     }

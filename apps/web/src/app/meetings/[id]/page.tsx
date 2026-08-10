@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
+import { SyncToast } from '@/components/SyncToast'
+import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -88,6 +90,7 @@ export default function MeetingDetailPage() {
   })
 
   const [meetingModalOpen, setMeetingModalOpen] = useState(false)
+  const [peopleSyncMessage, setPeopleSyncMessage] = useState<string | null>(null)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [followUpOpen, setFollowUpOpen] = useState(false)
@@ -605,7 +608,9 @@ onClick={() => {
           name: w.name,
           hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
         }))}
+        onPeopleSync={(sync) => setPeopleSyncMessage(notionPeopleSyncMessage(sync))}
       />
+      <SyncToast message={peopleSyncMessage} onDismiss={() => setPeopleSyncMessage(null)} />
     </div>
   )
 }

@@ -176,6 +176,68 @@ export function isNavigableNotificationUrl(url: string): boolean {
   return path.startsWith('/')
 }
 
+/**
+ * Flatten a stored body into a dense one-line summary for the list row, which
+ * clamps to two lines. Markdown markers are stripped because they read as noise
+ * once flattened. The detail sheet renders the raw body with line breaks.
+ */
+export function notificationPreview(body: string, maxChars = 300): string {
+  const flat = body
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/^[-*+]\s+/, '')
+        .replace(/^\d+[.)]\s+/, '')
+        .replace(/^>\s*/, '')
+        .replace(/\*\*|__|`/g, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(' · ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (flat.length <= maxChars) return flat
+  return flat.slice(0, maxChars - 1) + '…'
+}
+
+/** Screens a notification can open. Must stay in sync with `apps/mobile/app`. */
+export type MobileNotificationRoute =
+  | '/'
+  | '/chat'
+  | '/people'
+  | '/tasks'
+  | '/meetings'
+  | '/reading-list'
+  | '/settings'
+
+export type MobileNotificationTarget = {
+  pathname: MobileNotificationRoute
+  /** Chat message to scroll to, from a `/chat?message=<id>` link. */
+  message?: string
+}
+
+/**
+ * Map a web notification URL onto the mobile screen that shows the same thing.
+ * Web-only destinations (agents, finance, projects) fall back to home rather
+ * than stranding the user on an unrelated tab.
+ */
+export function mobileRouteForNotificationUrl(url: string): MobileNotificationTarget {
+  const [rawPath = '', query = ''] = url.trim().split('?')
+  const path = rawPath.replace(/\/+$/, '').toLowerCase()
+  const message = query ? new URLSearchParams(query).get('message')?.trim() || undefined : undefined
+
+  if (path === '/chat') return { pathname: '/chat', message }
+  if (path.startsWith('/people')) return { pathname: '/people' }
+  if (path.startsWith('/tasks')) return { pathname: '/tasks' }
+  if (path.startsWith('/meetings')) return { pathname: '/meetings' }
+  if (path.startsWith('/reading-list')) return { pathname: '/reading-list' }
+  if (path.startsWith('/settings')) return { pathname: '/settings' }
+  if (path === '' || path === '/') return { pathname: '/' }
+  return { pathname: '/' }
+}
+
 export async function fetchNotifications(
   token: string,
   limit = 50,
@@ -222,6 +284,25 @@ export async function archiveNotification(
     const data = (await res.json()) as { error?: string }
     throw new ApiError(data.error ?? 'Archive failed', res.status)
   }
+}
+
+export async function archiveAllNotifications(
+  token: string,
+  options?: { undo?: boolean; batchAt?: string },
+): Promise<{ updated: number; batchAt?: string }> {
+  const res = await apiFetch('/api/notifications', {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({
+      action: options?.undo ? 'archiveAllUndo' : 'archiveAll',
+      batchAt: options?.batchAt,
+    }),
+  })
+  const data = (await res.json()) as { error?: string; updated?: number; batchAt?: string }
+  if (!res.ok) {
+    throw new ApiError(data.error ?? 'Archive all failed', res.status)
+  }
+  return { updated: data.updated ?? 0, batchAt: data.batchAt }
 }
 
 export async function sendTestPush(

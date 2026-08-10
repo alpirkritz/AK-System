@@ -27,6 +27,7 @@ import {
   and,
   inArray,
 } from '@ak-system/database'
+import { ensureSelfPerson, getSelfPersonName } from './self-person'
 
 const NOTION_VERSION = '2022-06-28'
 
@@ -75,9 +76,7 @@ export interface NotionTasksSyncOptions {
 
 // ─── Config resolution ───────────────────────────────────────────────────────
 
-function getUserName(): string {
-  return process.env.NOTION_USER_NAME?.trim() || 'Alpir Kritzler'
-}
+const getUserName = getSelfPersonName
 
 /** Databases of a given Notion type across all configured accounts. */
 function resolveDatabases(type: 'tasks' | 'people'): NotionDb[] {
@@ -136,6 +135,11 @@ export function listConfiguredTaskDatabases(): Array<{
     name: d.name,
     accountLabel: d.accountLabel,
   }))
+}
+
+/** Ids of every configured `people` database — the strongest signal for a people relation target. */
+export function listConfiguredPeopleDatabaseIds(): string[] {
+  return resolveDatabases('people').map((d) => d.databaseId)
 }
 
 /**
@@ -537,25 +541,13 @@ export async function syncNotionTasks(
     }
   }
 
-  // Ensure a person row exists for the user.
+  // Ensure a person row exists for the user. Shared with the app's default-assignee
+  // resolution so both paths point at the same contact instead of duplicating it.
   const userName = getUserName()
   let userPerson = maps.byName.get(userName.toLowerCase())
   if (!userPerson) {
-    const id = newId('p_me_')
+    const id = dryRun ? newId('p_me_') : (await ensureSelfPerson(db)).id
     userPerson = { id, name: userName, email: null, notionPageId: null }
-    if (!dryRun) {
-      await db.insert(people).values({
-        id,
-        name: userName,
-        email: null,
-        role: null,
-        color: '#e8c547',
-        status: 'confirmed',
-        source: 'notion',
-        notionPageId: null,
-        createdAt: now,
-      })
-    }
     registerPerson(userPerson)
     result.peopleCreated++
   }

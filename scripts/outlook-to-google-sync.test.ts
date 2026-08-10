@@ -5,9 +5,11 @@ import {
   eventBody,
   findDuplicateBridgeCopies,
   googleEventMatchFields,
+  isBlockedTitle,
   isBridgeCopy,
   matchKey,
   needsAttendeeCleanup,
+  parseBlocklist,
   normalizeStart,
   planSyncActions,
   signature,
@@ -210,6 +212,72 @@ describe('planSyncActions', () => {
     expect(needsAttendeeCleanup(copy)).toBe(true)
     const actions = planSyncActions([source], [copy], [copy])
     expect(actions[0].action).toBe('update')
+  })
+})
+
+describe('parseBlocklist', () => {
+  it('returns an empty list when unset or empty', () => {
+    expect(parseBlocklist(undefined)).toEqual([])
+    expect(parseBlocklist('')).toEqual([])
+    expect(parseBlocklist('   ')).toEqual([])
+  })
+
+  it('trims, lowercases and drops blank entries', () => {
+    expect(parseBlocklist(' Town Hall , ,TECH HOUR,, [HOLD] ')).toEqual([
+      'town hall',
+      'tech hour',
+      '[hold]',
+    ])
+  })
+})
+
+describe('isBlockedTitle', () => {
+  it('never blocks when the list is empty', () => {
+    expect(isBlockedTitle('Global D&T Town Hall [HOLD]', [])).toBe(false)
+  })
+
+  it('matches case-insensitively on a substring', () => {
+    const patterns = parseBlocklist('town hall,tech hour')
+    expect(isBlockedTitle('Global D&T Town Hall [HOLD]', patterns)).toBe(true)
+    expect(isBlockedTitle('  TECH HOUR [Details Enclosed]  ', patterns)).toBe(true)
+  })
+
+  it('leaves unrelated meetings alone', () => {
+    const patterns = parseBlocklist('town hall,tech hour')
+    expect(isBlockedTitle('Algo Weekly', patterns)).toBe(false)
+    expect(isBlockedTitle('Alpir - Tinko 1:1', patterns)).toBe(false)
+  })
+
+  it('drops a blocked event from the source set', () => {
+    const patterns = parseBlocklist('town hall')
+    const sources = [
+      makeSource({ title: 'Algo Weekly' }),
+      makeSource({ title: 'Global D&T Town Hall [HOLD]' }),
+    ]
+    const kept = sources.filter((s) => !isBlockedTitle(s.title, patterns))
+    expect(kept.map((s) => s.title)).toEqual(['Algo Weekly'])
+  })
+
+  it('leaves the bridge copy of a blocked title orphaned so the delete pass removes it', () => {
+    const blocked = makeSource({ title: 'Global D&T Town Hall [HOLD]' })
+    const copy = makeGoogle({
+      id: 'g-townhall',
+      summary: blocked.title,
+      extendedProperties: {
+        private: {
+          akSource: AK_SOURCE,
+          akSourceUid: blocked.uid,
+          akSig: blocked.sig,
+          akAttendeesCleared: ATTENDEES_CLEARED_VERSION,
+        },
+      },
+    })
+    const patterns = parseBlocklist('town hall')
+    const sources = [blocked].filter((s) => !isBlockedTitle(s.title, patterns))
+
+    expect(planSyncActions(sources, [copy], [copy])).toEqual([])
+    const sourceUids = new Set(sources.map((s) => s.uid))
+    expect(sourceUids.has(blocked.uid)).toBe(false)
   })
 })
 

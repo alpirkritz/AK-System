@@ -7,6 +7,7 @@ import { resolveAgentDisplayName, resolveNotificationChannels } from '@ak-system
 
 export type AgentNotifyChannel = 'web' | 'whatsapp' | 'telegram' | 'cron'
 
+/** Short, single-line form for the OS push payload only — never for the stored body. */
 function excerpt(text: string, max = 240): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   if (flat.length <= max) return flat
@@ -31,7 +32,7 @@ export async function notifyAgentRunComplete(options: {
   push?: boolean
 }): Promise<{ notion: boolean; webPush: number; fcmPush: number }> {
   const agentName = await resolveAgentDisplayName(options.agentId)
-  const short = excerpt(options.summary)
+  const pushBody = excerpt(options.summary)
   const title = `${agentName} — סיים`
 
   let notion = false
@@ -64,19 +65,19 @@ export async function notifyAgentRunComplete(options: {
   }
 
   try {
-    await createNotification({ title, body: short, url, type: 'agent' })
+    await createNotification({ title, body: options.summary, url, type: 'agent' })
   } catch (err) {
     console.warn('[agent-notifications] createNotification failed:', err)
   }
 
   try {
-    webPushCount = await sendBrowserPush(title, short, url)
+    webPushCount = await sendBrowserPush(title, pushBody, url)
   } catch (err) {
     console.warn('[agent-notifications] Web push failed:', err)
   }
 
   try {
-    fcmPushCount = await sendMobilePush(title, short, url)
+    fcmPushCount = await sendMobilePush(title, pushBody, url)
   } catch (err) {
     console.warn('[agent-notifications] FCM push failed:', err)
   }
