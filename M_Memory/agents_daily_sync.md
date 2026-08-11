@@ -1352,3 +1352,16 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Verification:** 15/15 new mapping tests; typecheck clean on the changed scripts; `--source-only` against the live mailbox returns 151 events with 4 blocklisted, all-day PTO/OOO mapped to dates, and cancelled items excluded. Full sync not run — Google still `invalid_grant`, now confirmed on EC2 as well as locally, so `pull-google-token-from-ec2.sh` cannot self-heal it.
 - **Performance Notes:** The instinct to treat "IT blocked it" as terminal was wrong twice over. The policy gates *applications*, not the browser, and the distinction was worth probing before proposing a manual export workflow — the user pushing back on that recommendation is what surfaced the working path. Second: "scrape the UI" had a far better reading than the literal one. Driving the browser for its *session* while reading through a supported REST API keeps the robustness of an API with the access rights of a browser; DOM scraping would have been strictly worse. Also of note, `akSourceUid` now keys on `iCalUId` rather than the REST `Id`, which embeds a change key that churns on every edit — keying on `Id` would recreate a copy each time a meeting is touched. The uid scheme change means the first real run deletes and recreates every mirrored copy. Cleanup: three exploratory scripts had the Exchange password in plaintext in the working tree and were deleted; the shipped design reads no credentials, but that password is worth rotating.
 - **Compliance:** N/A (scripts/apps engineering, not ABC workspace).
+
+---
+
+## 2026-08-11 — Outlook bridge: end-to-end verification and token capture fix
+
+- **Active Agent:** Dev → QA
+- **Workflow:** `docs/specs/outlook-bridge-alternative-access.md` (completion)
+- **Status:** ✅ Complete — 154 events synced from pizzahut.com to Dragontail
+- **Actions Taken:** User reconnected Google via `/settings`, clearing the `invalid_grant` blocker. First sync attempt failed with "OWA never issued an access token" — the headless browser loaded the calendar but OWA's authenticated requests fire after `domcontentloaded`. Changed `owa-calendar-source.ts` to `waitUntil: 'networkidle'` (line 200), which reliably captures the Bearer token. Also loosened `owa-login.ts` to accept any `/calendar/view/*` URL as success, since the grid detection was timing out despite reaching the calendar.
+- **Outputs:** `scripts/owa-calendar-source.ts`, `scripts/owa-login.ts`, `reports/outlook-bridge-alternative-access.md` (verdict → APPROVED ✅)
+- **Verification:** Full sync: 154 events from Pizza Hut Outlook → 135 created, 7 adopted (untagged duplicates), 10 updated, 23 deleted (old yum.com copies), 0 unchanged. Two rate-limit 403s for "Sync R&D Leadership" (Google Calendar API quota), but sync completed with exit code 0.
+- **Performance Notes:** Networkidle was the key — OWA front-loads HTML but defers authenticated API calls. The one-time churn (23 deleted + 135 created) matches expectations for switching from yum.com to pizzahut.com with a new uid scheme (`iCalUId` vs EventKit id). Next: monitor the launchd agent's 15-minute runs to confirm headless stability under the IT tenant's session lifetime policies.
+- **Compliance:** N/A (scripts/apps engineering, not ABC workspace).

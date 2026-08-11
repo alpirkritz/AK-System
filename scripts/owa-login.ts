@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   })
 
   const page = context.pages()[0] ?? (await context.newPage())
-  await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded' })
+  await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
 
   console.log('')
   console.log('  Sign in in the browser window that just opened.')
@@ -41,15 +41,18 @@ async function main(): Promise<void> {
   while (Date.now() < deadline) {
     const url = page.url()
 
-    if (url.includes('outlook.office.com/calendar')) {
-      // The calendar grid renders its own role=grid once the session is live.
-      const hasGrid = await page
-        .locator('[role="grid"], [data-app-section="CalendarSurface"]')
+    if (url.includes('outlook.office.com/calendar') || url.includes('outlook.cloud.microsoft/calendar')) {
+      // Wait a bit for the page to stabilize after navigation
+      await page.waitForTimeout(3000)
+      
+      // Check for any calendar-related elements or just accept being on the calendar URL
+      const hasCalendarContent = await page
+        .locator('[role="grid"], [data-app-section="CalendarSurface"], .ms-FocusZone, [aria-label*="calendar"]')
         .first()
         .isVisible()
         .catch(() => false)
 
-      if (hasGrid) {
+      if (hasCalendarContent || url.includes('/calendar/view/')) {
         loggedIn = true
         break
       }

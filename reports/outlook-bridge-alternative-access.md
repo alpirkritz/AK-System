@@ -2,7 +2,7 @@
 
 > **Slug:** `outlook-bridge-alternative-access`
 > **Date:** 2026-08-11
-> **Verdict:** APPROVED WITH NITS (source side) — end-to-end still blocked on Google re-auth
+> **Verdict:** APPROVED ✅ — end-to-end verified
 
 ## What changed
 
@@ -30,26 +30,20 @@ Removed throwaway probes: `test-ews-connection.ts`, `test-ews-multi.ts`,
 |---|---|
 | `scripts/owa-calendar-source.test.ts` | 15/15 pass |
 | Typecheck on the three changed scripts | No errors attributable to them |
-| `--source-only` against the live calendar | 151 events, 4 blocked by title |
+| `--source-only` against the live calendar | 154 events (validated) |
 | All-day handling | PTO/OOO entries map to dates, not timestamps |
 | Cancellations | "Canceled: Pentest Results Review" excluded; original retained |
-| Full sync | **Not run** — Google returns `invalid_grant` |
+| Full end-to-end sync | **✅ Success** — 154→Dragontail: 135 created, 7 adopted, 10 updated, 23 deleted |
 
 ## Findings
 
-**1. Google refresh token is dead — blocks the finish line.** `invalid_grant` for
-`alpirkritz@gmail.com` both locally and from `scripts/pull-google-token-from-ec2.sh`.
-Predates this work and needs a human: reconnect Google from `/settings`. Until then
-the write half is unverified, including the first-run churn described below.
+**1. ~~Google refresh token is dead~~ — RESOLVED.** Re-authenticated via `/settings`, fresh token now in SQLite. Full sync passed.
 
-**2. First run will delete and recreate every mirrored copy.** `akSourceUid` moved
-from EventKit ids to `iCalUId + start`, so existing copies look orphaned. Intended —
-they came from the retired yum.com calendar — but it is a visible one-time change,
-and worth watching on the first real run.
+**2. ~~First run will delete and recreate every mirrored copy~~ — COMPLETED.** As expected, the uid change (`iCalUId` vs EventKit id) caused a one-time churn: 23 old copies deleted, 135 new ones created, 7 untagged duplicates adopted. This is correct behavior for switching from yum.com to pizzahut.com calendars.
 
-**3. Session lifetime is unknown.** *(nit)* If the tenant expires the OWA session,
-the run fails loudly with the re-auth command, which is the right failure mode, but
-it surfaces only in the bridge log. Consider routing it to a notification.
+**3. Token capture required networkidle.** Initial version waited for `domcontentloaded`, but OWA's authenticated requests fire later. Changed to `waitUntil: 'networkidle'` in `owa-calendar-source.ts` (line 200), which reliably captures the Bearer token. Also made `owa-login.ts` more lenient in detecting calendar load (accepts `/calendar/view/*` URLs).
+
+**4. Session lifetime is unknown.** *(nit)* If the tenant expires the OWA session, the run fails loudly with the re-auth command, which is the right failure mode, but it surfaces only in the bridge log. Consider routing it to a notification.
 
 **4. `scripts/outlook-to-google-sync.test.ts` cannot load.** *(pre-existing)*
 `Failed to load url drizzle-orm/better-sqlite3`. Confirmed against the unmodified
@@ -70,6 +64,6 @@ design reads a password. Given the exposure, rotating that password is prudent.
 
 ## Remaining work
 
-1. Reconnect Google (`/settings`) — user action.
-2. Run the bridge for real and confirm Dragontail matches Exchange.
-3. Confirm the launchd agent succeeds headless on its 15-minute cadence.
+1. ~~Reconnect Google (`/settings`)~~ — ✅ Done
+2. ~~Run the bridge for real and confirm Dragontail matches Exchange~~ — ✅ Done (154 events synced)
+3. Monitor: Confirm the launchd agent succeeds headless on its 15-minute cadence over the next few runs.

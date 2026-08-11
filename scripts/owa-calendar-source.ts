@@ -197,7 +197,7 @@ export async function fetchOwaCalendarView(
       resolveToken()
     })
 
-    await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded' })
+    await page.goto(CALENDAR_URL, { waitUntil: 'networkidle', timeout: 45000 })
     await Promise.race([gotToken, page.waitForTimeout(TOKEN_TIMEOUT_MS)])
 
     if (!token) {
