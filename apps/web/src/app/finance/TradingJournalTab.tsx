@@ -2,15 +2,26 @@
 
 import { useState } from 'react'
 import { trpc } from '@/lib/trpc'
+import { InsightCard } from './components/InsightCard'
+import { TradingMetricCard } from './components/TradingMetricCard'
 
-type Period = 'today' | 'week' | 'month' | 'all'
+type Period = 'today' | 'week' | 'month' | 'quarter' | 'all'
+
+/** The insight engine has no notion of a single day — one session is never a statistic. */
+type InsightPeriod = 'week' | 'month' | 'quarter' | 'all'
 
 const PERIODS: [Period, string][] = [
   ['today', 'היום'],
   ['week', 'השבוע'],
   ['month', 'החודש'],
+  ['quarter', 'הרבעון'],
   ['all', 'הכל'],
 ]
+
+/** 'today' has too few trades to say anything about an edge, so it reads the week instead. */
+function insightPeriod(period: Period): InsightPeriod {
+  return period === 'today' ? 'week' : period
+}
 
 const GREEN = '#34d399'
 const RED = '#fb7185'
@@ -64,6 +75,8 @@ export default function TradingJournalTab() {
 
   const { data: journal, isLoading: journalLoading } = trpc.finance.getTradingJournal.useQuery({ period })
   const { data: ranking, isLoading: rankingLoading } = trpc.finance.getSymbolRanking.useQuery({ period, limit: 5 })
+  const { data: analysis, isLoading: analysisLoading } =
+    trpc.finance.analytics.tradingInsights.useQuery({ period: insightPeriod(period) })
 
   const realizedPnl = journal?.realizedPnl ?? 0
 
@@ -130,6 +143,94 @@ export default function TradingJournalTab() {
           </div>
           <div className="mt-1"><SyncBadge status={journal?.lastSync?.status ?? null} /></div>
         </div>
+      </div>
+
+      {/* Trading insights */}
+      <div className="mb-8">
+        <h2 className="text-sm font-semibold text-[#7a89ab] mb-3 uppercase tracking-wider">
+          תובנות מסחר
+          {period === 'today' && <span className="normal-case text-[#5a688c]"> · לפי השבוע האחרון</span>}
+        </h2>
+        {analysisLoading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="skeleton h-24 rounded-xl" />
+            ))}
+          </div>
+        ) : !analysis || analysis.metrics.matchedSellsCount === 0 ? (
+          <div className="card text-center py-10">
+            <div className="text-[#5a688c] text-sm">אין עדיין מכירות סגורות למדוד לפיהן</div>
+            <div className="text-xs text-[#4d659c] mt-1">
+              המדדים מחושבים על מכירות שהותאמו לקנייה קודמת (FIFO)
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <TradingMetricCard
+                label="אחוז הצלחה"
+                value={analysis.metrics.winRate === null ? null : `${analysis.metrics.winRate}%`}
+                hint={`מתוך ${analysis.metrics.matchedSellsCount} מכירות סגורות בתקופה`}
+                color={
+                  analysis.metrics.winRate !== null && analysis.metrics.winRate >= 50 ? GREEN : RED
+                }
+                emphasis
+              />
+              <TradingMetricCard
+                label="Profit factor"
+                value={analysis.metrics.profitFactor === null ? null : String(analysis.metrics.profitFactor)}
+                hint={
+                  analysis.metrics.profitFactor === null
+                    ? 'אין הפסדים בתקופה, אז אין ביחס למה למדוד'
+                    : 'סך הרווחים חלקי סך ההפסדים. מעל 1 = רווחי'
+                }
+                color={
+                  analysis.metrics.profitFactor !== null && analysis.metrics.profitFactor >= 1
+                    ? GREEN
+                    : RED
+                }
+                emphasis
+              />
+              <TradingMetricCard
+                label="תוחלת לעסקה"
+                value={analysis.metrics.expectancy === null ? null : fmtSignedUsd(analysis.metrics.expectancy)}
+                hint="כמה מכניסה בממוצע מכירה סגורה אחת"
+                color={
+                  analysis.metrics.expectancy !== null && analysis.metrics.expectancy >= 0 ? GREEN : RED
+                }
+              />
+              <TradingMetricCard
+                label="ירידה מקסימלית"
+                value={fmtUsd(analysis.metrics.maxDrawdownRealized)}
+                hint="הנפילה הגדולה ביותר מהשיא בעקומת ה-P&L הממומש"
+                color={analysis.metrics.maxDrawdownRealized > 0 ? RED : undefined}
+              />
+            </div>
+
+            {/* Blind spots are about the data, not the trading — same banner treatment as
+                the coverage warnings on the insights tab. */}
+            {analysis.insights
+              .filter((i) => i.kind === 'data_quality')
+              .map((insight) => (
+                <div
+                  key={insight.id}
+                  className="mb-3 text-xs px-3 py-2.5 rounded-lg"
+                  style={{ background: '#fbbf2411', color: '#fbbf24', border: '1px solid #fbbf2433' }}
+                >
+                  <span className="font-semibold">{insight.title}</span>
+                  <span className="opacity-90"> — {insight.body}</span>
+                </div>
+              ))}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {analysis.insights
+                .filter((i) => i.kind !== 'data_quality')
+                .map((insight) => (
+                  <InsightCard key={insight.id} insight={insight} />
+                ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Period trades */}

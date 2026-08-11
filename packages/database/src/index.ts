@@ -306,6 +306,19 @@ const FINANCE_CATEGORY_RULES_TABLE = [
   `CREATE INDEX IF NOT EXISTS idx_finance_category_rules_pattern ON finance_category_rules(pattern)`,
 ]
 
+const FINANCE_INSIGHT_NARRATIVES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_insight_narratives (
+    id TEXT PRIMARY KEY,
+    scope_key TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    model TEXT,
+    content TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_finance_insight_narratives_scope_hash ON finance_insight_narratives(scope_key, input_hash)`,
+]
+
 const BANK_TABLES = [
   `CREATE TABLE IF NOT EXISTS bank_connections (
     id TEXT PRIMARY KEY,
@@ -751,6 +764,9 @@ export function getDb() {
   for (const sql of FINANCE_CATEGORY_RULES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of FINANCE_INSIGHT_NARRATIVES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -834,6 +850,7 @@ export const financeTransactions = schema.financeTransactions
 export const bankConnections = schema.bankConnections
 export const bankAccounts = schema.bankAccounts
 export const financeCategoryRules = schema.financeCategoryRules
+export const financeInsightNarratives = schema.financeInsightNarratives
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
 export const readingListItems = schema.readingListItems
@@ -916,6 +933,8 @@ export type BankAccount = typeof schemaPg.bankAccounts.$inferSelect
 export type NewBankAccount = typeof schemaPg.bankAccounts.$inferInsert
 export type FinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferSelect
 export type NewFinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferInsert
+export type FinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferSelect
+export type NewFinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferInsert
 export const BANK_PROVIDERS = schemaPg.BANK_PROVIDERS
 export const BANK_CONNECTION_STATUSES = schemaPg.BANK_CONNECTION_STATUSES
 export type { BankProvider, BankConnectionStatus } from './schema.pg'

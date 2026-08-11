@@ -402,6 +402,48 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'get_cashflow_insights',
+    description:
+      'Deterministic personal cash-flow insights for a month: overspend per category, new or pricier recurring charges, anomalies, year-over-year shifts, savings rate and next-month forecast. Use for: מה קרה לי החודש כספית, תובנות תזרים, על מה בזבזתי יותר, תחזית הוצאות, איך נראה החודש.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        month: { type: SchemaType.STRING, description: 'Month as YYYY-MM. Defaults to the current month.' },
+      },
+    },
+  },
+  {
+    name: 'get_trading_insights',
+    description:
+      'Deterministic trading-journal metrics and insights: win rate, profit factor, expectancy, drawdown, symbol concentration, revenge-trading and over-trading patterns, plus what the data cannot show. Use for: איך אני סוחר, תובנות מסחר, win rate, האם אני רווחי, יומן מסחר.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        period: {
+          type: SchemaType.STRING,
+          description: "'week' | 'month' | 'quarter' | 'all' (default 'month')",
+        },
+      },
+    },
+  },
+  {
+    name: 'get_finance_overview',
+    description:
+      'The whole financial picture: bank balance, portfolio at cost, months of runway, savings rate including investments, broker deposits trend and currency exposure. Use for: כמה כסף יש לי, תמונה כוללת, מסלול, הון, חשיפה מטבעית.',
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_recurring_charges',
+    description:
+      'Recurring charges detected in the bank/card history with their cadence, average amount and annualized cost. Use for: חיובים קבועים, מנויים, כמה עולים לי המנויים, הוראות קבע.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        lookbackMonths: { type: SchemaType.NUMBER, description: 'Months of history to scan (default 12)' },
+      },
+    },
+  },
+  {
     name: 'get_whatsapp_status',
     description:
       'Get WhatsApp bridge connection status (connected, QR available, self JID). Use for: whatsapp status, וואטסאפ מחובר.',
@@ -976,6 +1018,63 @@ export async function executeTool(
         skipped: result.skipped,
         total: result.total,
         subjects: result.subjects.slice(0, 15),
+      }
+    }
+
+    case 'get_cashflow_insights': {
+      const month = (args.month as string | undefined)?.trim() || todayStr.slice(0, 7)
+      const { insights, forecast } = await caller.finance.analytics.insights({ month })
+      return {
+        month,
+        forecast,
+        insights: insights.map((i) => ({
+          kind: i.kind,
+          severity: i.severity,
+          title: i.title,
+          body: i.body,
+          amount: i.amount,
+          category: i.category,
+        })),
+      }
+    }
+
+    case 'get_trading_insights': {
+      const raw = (args.period as string | undefined)?.trim()
+      const period = (['week', 'month', 'quarter', 'all'] as const).includes(raw as never)
+        ? (raw as 'week' | 'month' | 'quarter' | 'all')
+        : 'month'
+      const result = await caller.finance.analytics.tradingInsights({ period })
+      return {
+        period,
+        metrics: result.metrics,
+        dataQuality: result.dataQuality,
+        insights: result.insights.map((i) => ({
+          kind: i.kind,
+          severity: i.severity,
+          title: i.title,
+          body: i.body,
+        })),
+      }
+    }
+
+    case 'get_finance_overview': {
+      return await caller.finance.analytics.overview()
+    }
+
+    case 'get_recurring_charges': {
+      const lookbackMonths = Math.min(Math.max((args.lookbackMonths as number | undefined) ?? 12, 3), 24)
+      const { items, monthlyFixedTotal } = await caller.finance.analytics.recurring({ lookbackMonths })
+      return {
+        monthlyFixedTotal,
+        items: items.slice(0, 25).map((i) => ({
+          label: i.label,
+          category: i.category,
+          cadence: i.cadence,
+          avgAmount: i.avgAmount,
+          annualizedCost: i.annualizedCost,
+          lastDate: i.lastDate,
+          increasedPct: i.increasedPct,
+        })),
       }
     }
 

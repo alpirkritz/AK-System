@@ -76,6 +76,14 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     schedulable: false,
   },
   {
+    id: 'finance_insight',
+    category: 'cron',
+    label: 'התראת פיננסים',
+    description: 'תובנה פיננסית חריגה שנמצאה בבדיקה היומית — לכל היותר פעם ביום',
+    availableChannels: ALL_CHANNELS,
+    schedulable: false,
+  },
+  {
     id: 'agent_run',
     category: 'agent',
     label: 'סוכנים מתוזמנים',

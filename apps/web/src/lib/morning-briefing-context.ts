@@ -19,9 +19,11 @@ export function formatMorningBriefingContext(
   today: string,
   events: MorningBriefEvent[],
   dueTasks: MorningBriefTask[],
+  /** Pre-formatted finance lines (warn-level insights only) — omitted when nothing stands out. */
+  financeLines: string[] = [],
 ): string {
   const lines: string[] = ['📅 סיכום הבוקר – ' + today]
-  if (events.length === 0 && dueTasks.length === 0) {
+  if (events.length === 0 && dueTasks.length === 0 && financeLines.length === 0) {
     lines.push('אין אירועים או משימות מועדות להיום.')
   } else {
     if (events.length > 0) {
@@ -36,6 +38,9 @@ export function formatMorningBriefingContext(
       for (const t of dueTasks) {
         lines.push(`• [${t.priority}] ${t.title}`)
       }
+    }
+    if (financeLines.length > 0) {
+      lines.push('', 'פיננסים:', ...financeLines)
     }
   }
   return lines.join('\n').slice(0, 4000)

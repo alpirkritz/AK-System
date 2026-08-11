@@ -307,6 +307,22 @@ export const financeCategoryRules = pgTable('finance_category_rules', {
   patternIdx: index('idx_finance_category_rules_pattern').on(table.pattern),
 }))
 
+/**
+ * Cache of LLM-written finance narratives. Keyed by the facts that produced them, so the
+ * same deterministic inputs never pay for a second Gemini call.
+ */
+export const financeInsightNarratives = pgTable('finance_insight_narratives', {
+  id: text('id').primaryKey(),
+  scopeKey: text('scope_key').notNull(), // 'cashflow:2026-08' | 'trading:month' | 'overview'
+  inputHash: text('input_hash').notNull(), // hash of the facts sent to the model
+  model: text('model'),
+  content: text('content').notNull(), // JSON { headline, body, connections, watchlist }
+  generatedAt: text('generated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  scopeHashUq: uniqueIndex('uq_finance_insight_narratives_scope_hash').on(table.scopeKey, table.inputHash),
+}))
+
 export const feedSources = pgTable('feed_sources', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

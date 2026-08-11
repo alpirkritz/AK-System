@@ -21,6 +21,13 @@ export interface TradeInput {
   tradeDate: string
 }
 
+/** A slice of a buy lot consumed by a sell — carries the buy date so holding time is derivable. */
+export interface MatchedLot {
+  quantity: number
+  price: number
+  buyDate: string
+}
+
 export interface SellRealized {
   id?: string
   symbol: string
@@ -30,6 +37,10 @@ export interface SellRealized {
   costBasis: number
   commission: number
   realizedPnl: number
+  /** Buy-lot slices this sell was matched against, oldest first (FIFO). */
+  matchedLots: MatchedLot[]
+  /** Quantity that had no prior buy lot (partial history) — contributed zero cost basis. */
+  unmatchedQuantity: number
 }
 
 export interface SymbolPnl {
@@ -52,6 +63,7 @@ export interface FifoResult {
 interface Lot {
   quantity: number
   price: number
+  buyDate: string
 }
 
 export function computeFifoPnl(trades: TradeInput[]): FifoResult {
@@ -89,7 +101,11 @@ export function computeFifoPnl(trades: TradeInput[]): FifoResult {
     stat.commission += commission
 
     if (trade.direction === 'buy') {
-      lotsBySymbol[trade.symbol]!.push({ quantity: trade.quantity, price: trade.price })
+      lotsBySymbol[trade.symbol]!.push({
+        quantity: trade.quantity,
+        price: trade.price,
+        buyDate: trade.tradeDate,
+      })
       stat.totalBought += trade.quantity * trade.price
       stat.buyCount += 1
       continue
@@ -99,11 +115,13 @@ export function computeFifoPnl(trades: TradeInput[]): FifoResult {
     const proceeds = trade.quantity * trade.price
     let remaining = trade.quantity
     let costBasis = 0
+    const matchedLots: MatchedLot[] = []
     const lots = lotsBySymbol[trade.symbol]!
     while (remaining > 0 && lots.length > 0) {
       const lot = lots[0]!
       const take = Math.min(remaining, lot.quantity)
       costBasis += take * lot.price
+      matchedLots.push({ quantity: take, price: lot.price, buyDate: lot.buyDate })
       lot.quantity -= take
       remaining -= take
       if (lot.quantity <= 1e-9) lots.shift()
@@ -122,6 +140,8 @@ export function computeFifoPnl(trades: TradeInput[]): FifoResult {
       costBasis,
       commission,
       realizedPnl,
+      matchedLots,
+      unmatchedQuantity: remaining,
     })
   }
 

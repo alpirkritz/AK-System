@@ -31,6 +31,28 @@ test.describe('Cash flow insights tab', () => {
     ).toBeVisible({ timeout: 20000 })
   })
 
+  test('the cross-domain overview and narrative degrade gracefully with no data', async ({ page }) => {
+    await page.goto('/finance?tab=insights')
+    await expect(page.getByRole('heading', { name: 'פיננסים' })).toBeVisible({ timeout: 20000 })
+
+    // The overview strip and narrative panel only render past the onboarding state; when the
+    // ledger is empty the tab must still be a coherent screen rather than a broken one.
+    const overview = page.getByRole('heading', { name: 'התמונה הכוללת' })
+    if ((await overview.count()) === 0) {
+      test.skip(true, 'אין תנועות מסווגות בבסיס הנתונים של הבדיקות')
+    }
+
+    await expect(overview).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('שערוך לפי עלות')).toBeVisible()
+
+    // Without a Gemini key the narrative fails quietly and offers a retry — the numbers stay.
+    await expect(
+      page
+        .getByRole('button', { name: 'נסה שוב' })
+        .or(page.getByRole('button', { name: 'רענן' })),
+    ).toBeVisible({ timeout: 20000 })
+  })
+
   test('categorize drawer opens from the onboarding action and can be dismissed', async ({ page }) => {
     await page.goto('/finance?tab=insights')
     await expect(page.getByRole('heading', { name: 'פיננסים' })).toBeVisible({ timeout: 20000 })

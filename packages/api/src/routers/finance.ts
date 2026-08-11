@@ -4,6 +4,7 @@ import { router, protectedProcedure } from '../trpc'
 import {
   financeTrades,
   financeTransactions,
+  financeInsightNarratives,
   agentSchedules,
   bankConnections,
   bankAccounts,
@@ -28,10 +29,23 @@ import {
   buildCategoryBreakdown,
   detectRecurring,
   computeInsights,
+  forecastNextMonth,
   monthKey,
   jerusalemParts,
   type AnalyticsTxn,
 } from '../services/cashflow-analytics'
+import {
+  computeTradingInsights,
+  type JournalTrade,
+  type TradingPeriod,
+} from '../services/trading-insights'
+import { computeFinanceOverview, type OverviewAccount } from '../services/finance-overview'
+import {
+  generateFinanceNarrative,
+  hashNarrativeInput,
+  isNarrativeConfigured,
+  type NarrativeInput,
+} from '../services/finance-narrative'
 import {
   categorizeByKeywords,
   categorizeTransaction,
@@ -40,7 +54,9 @@ import {
 } from '../services/transaction-categorizer'
 import { CATEGORY_FALLBACK, isInternalCategory } from '@ak-system/types'
 
-type JournalPeriod = 'today' | 'week' | 'month' | 'all'
+type JournalPeriod = 'today' | 'week' | 'month' | 'quarter' | 'all'
+
+const JOURNAL_PERIODS = ['today', 'week', 'month', 'quarter', 'all'] as const
 
 /** Inclusive lower-bound ISO timestamp for a journal period (empty = all-time). */
 function periodSince(period: JournalPeriod): string {
@@ -52,6 +68,7 @@ function periodSince(period: JournalPeriod): string {
     return d.toISOString()
   }
   if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  if (period === 'quarter') return new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString()
   return ''
 }
 
@@ -78,6 +95,14 @@ function toTradeInputs(
 }
 
 const idInput = z.object({ id: z.string().min(1) })
+
+/** Hebrew period names for the narrative prompt, which reads better than 'quarter'. */
+const TRADING_PERIOD_LABELS: Record<TradingPeriod, string> = {
+  week: 'השבוע האחרון',
+  month: 'החודש הנוכחי',
+  quarter: 'הרבעון האחרון',
+  all: 'כל ההיסטוריה',
+}
 
 /** First day of the month `months - 1` back, as an ISO timestamp for a date lower bound. */
 function analyticsWindowStart(months: number): string {
@@ -122,6 +147,81 @@ async function loadAnalyticsTxns(
     description: r.description,
     transactionDate: r.transactionDate,
   }))
+}
+
+/** Every trade, in the shape the pure trading engines expect. */
+async function loadJournalTrades(ctx: { db: any }): Promise<JournalTrade[]> {
+  const rows = (await queryRows(
+    ctx.db
+      .select({
+        id: financeTrades.id,
+        symbol: financeTrades.symbol,
+        direction: financeTrades.direction,
+        quantity: financeTrades.quantity,
+        price: financeTrades.price,
+        commission: financeTrades.commission,
+        currency: financeTrades.currency,
+        tradeDate: financeTrades.tradeDate,
+      })
+      .from(financeTrades)
+  )) as Array<{
+    id: string
+    symbol: string
+    direction: string
+    quantity: string
+    price: string
+    commission: string | null
+    currency: string | null
+    tradeDate: string
+  }>
+
+  return rows.map((r) => ({
+    id: r.id,
+    symbol: r.symbol,
+    direction: r.direction === 'buy' ? 'buy' : 'sell',
+    quantity: parseFloat(r.quantity) || 0,
+    price: parseFloat(r.price) || 0,
+    // A missing commission stays null: the engines report that blindness instead of assuming zero.
+    commission: r.commission === null || r.commission === '' ? null : parseFloat(r.commission) || 0,
+    currency: r.currency,
+    tradeDate: r.tradeDate,
+  }))
+}
+
+async function loadOverviewAccounts(ctx: { db: any }): Promise<OverviewAccount[]> {
+  const rows = (await queryRows(
+    ctx.db
+      .select({
+        accountType: bankAccounts.accountType,
+        balance: bankAccounts.balance,
+        balanceCurrency: bankAccounts.balanceCurrency,
+        balanceUpdatedAt: bankAccounts.balanceUpdatedAt,
+      })
+      .from(bankAccounts)
+  )) as Array<{
+    accountType: string
+    balance: string | null
+    balanceCurrency: string | null
+    balanceUpdatedAt: string | null
+  }>
+
+  return rows.map((r) => ({
+    accountType: r.accountType,
+    balance: r.balance === null || r.balance === '' ? null : Number(r.balance),
+    balanceCurrency: r.balanceCurrency ?? 'ILS',
+    balanceUpdatedAt: r.balanceUpdatedAt,
+  }))
+}
+
+/**
+ * The system has no market-data source, so the shekel value of a dollar is only known if the
+ * deployment states it. Without it the overview reports each currency separately.
+ */
+function configuredUsdIls(): number | null {
+  const raw = process.env.USD_ILS_RATE?.trim()
+  if (!raw) return null
+  const rate = Number(raw)
+  return Number.isFinite(rate) && rate > 0 ? rate : null
 }
 
 async function loadCategoryRules(ctx: { db: any }): Promise<CategoryRule[]> {
@@ -573,15 +673,190 @@ export const financeRouter = router({
         })
       }),
 
+    /**
+     * Two years of rows rather than one: the year-over-year engine needs the same month a
+     * year back, which a 12-month window ends exactly one month short of.
+     */
     insights: protectedProcedure
       .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
-        const txns = await loadAnalyticsTxns(ctx, 12)
+        const txns = await loadAnalyticsTxns(ctx, 24)
         const trend = buildMonthlyTrend(txns, 12)
         const breakdown = buildCategoryBreakdown(txns, input.month, 'expense')
         const recurring = detectRecurring(txns, { lookbackMonths: 12 })
         return {
-          insights: computeInsights({ month: input.month, trend, breakdown, recurring }),
+          insights: computeInsights({ month: input.month, trend, breakdown, recurring, txns }),
+          forecast: forecastNextMonth(txns, { from: input.month }),
+        }
+      }),
+
+    /** Deterministic trading-journal metrics and insights over FIFO realized P&L. */
+    tradingInsights: protectedProcedure
+      .input(z.object({ period: z.enum(['week', 'month', 'quarter', 'all']).default('month') }))
+      .query(async ({ ctx, input }) => {
+        const trades = await loadJournalTrades(ctx)
+        const { metrics, insights, dataQuality } = computeTradingInsights(
+          trades,
+          input.period as TradingPeriod
+        )
+        return { period: input.period, metrics, insights, dataQuality }
+      }),
+
+    /** Bank, portfolio, runway, savings and currency exposure in one shape. */
+    overview: protectedProcedure.query(async ({ ctx }) => {
+      const [accounts, trades, txns] = await Promise.all([
+        loadOverviewAccounts(ctx),
+        loadJournalTrades(ctx),
+        loadAnalyticsTxns(ctx, 12),
+      ])
+      return computeFinanceOverview({ accounts, trades, txns, usdIls: configuredUsdIls() })
+    }),
+
+    /**
+     * Gemini's reading of the deterministic output, cached by the facts that produced it.
+     *
+     * The cache is keyed on a hash of the facts, so the model is asked once per distinct
+     * financial picture — reloading the tab is free, and `force` is the explicit way past it.
+     */
+    narrative: protectedProcedure
+      .input(
+        z.object({
+          scope: z.enum(['cashflow', 'trading', 'overview']),
+          month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          period: z.enum(['week', 'month', 'quarter', 'all']).default('month'),
+          force: z.boolean().default(false),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        if (!isNarrativeConfigured()) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'GEMINI_API_KEY לא מוגדר — הנרטיב אינו זמין',
+          })
+        }
+
+        const month = input.month ?? monthKey(new Date().toISOString())
+        let narrativeInput: NarrativeInput
+        let scopeKey: string
+
+        if (input.scope === 'trading') {
+          const trades = await loadJournalTrades(ctx)
+          const { metrics, insights, dataQuality } = computeTradingInsights(
+            trades,
+            input.period as TradingPeriod
+          )
+          scopeKey = `trading:${input.period}`
+          narrativeInput = {
+            scope: 'trading',
+            periodLabel: TRADING_PERIOD_LABELS[input.period],
+            facts: { ...metrics, ...dataQuality, valuation: 'realized_fifo' },
+            insights,
+          }
+        } else if (input.scope === 'overview') {
+          const [accounts, trades, txns] = await Promise.all([
+            loadOverviewAccounts(ctx),
+            loadJournalTrades(ctx),
+            loadAnalyticsTxns(ctx, 12),
+          ])
+          const overview = computeFinanceOverview({
+            accounts,
+            trades,
+            txns,
+            usdIls: configuredUsdIls(),
+          })
+          scopeKey = `overview:${month}`
+          narrativeInput = {
+            scope: 'overview',
+            periodLabel: month,
+            facts: { ...overview },
+            insights: [],
+          }
+        } else {
+          const txns = await loadAnalyticsTxns(ctx, 24)
+          const trend = buildMonthlyTrend(txns, 12)
+          const breakdown = buildCategoryBreakdown(txns, month, 'expense')
+          const recurring = detectRecurring(txns, { lookbackMonths: 12 })
+          const insights = computeInsights({ month, trend, breakdown, recurring, txns })
+          const point = trend.find((p) => p.month === month)
+          scopeKey = `cashflow:${month}`
+          narrativeInput = {
+            scope: 'cashflow',
+            periodLabel: month,
+            facts: {
+              income: point?.income ?? 0,
+              expense: point?.expense ?? 0,
+              net: point?.net ?? 0,
+              monthlyFixedTotal: recurring.monthlyFixedTotal,
+              topCategories: breakdown.items.slice(0, 5).map((i) => ({
+                category: i.category,
+                total: i.total,
+                trailingAvg: i.trailingAvg,
+              })),
+              forecast: forecastNextMonth(txns, { from: month }),
+            },
+            insights,
+          }
+        }
+
+        const inputHash = hashNarrativeInput(narrativeInput)
+
+        if (!input.force) {
+          const [cached] = (await queryRows(
+            ctx.db
+              .select()
+              .from(financeInsightNarratives)
+              .where(
+                and(
+                  eq(financeInsightNarratives.scopeKey, scopeKey),
+                  eq(financeInsightNarratives.inputHash, inputHash)
+                )
+              )
+              .limit(1)
+          )) as Array<{ content: string; generatedAt: string }>
+
+          if (cached) {
+            return {
+              ...(JSON.parse(cached.content) as Record<string, unknown>),
+              generatedAt: cached.generatedAt,
+              cached: true,
+            }
+          }
+        }
+
+        const narrative = await generateFinanceNarrative(narrativeInput)
+        const generatedAt = new Date().toISOString()
+        const content = JSON.stringify({
+          headline: narrative.headline,
+          body: narrative.body,
+          connections: narrative.connections,
+          watchlist: narrative.watchlist,
+        })
+
+        try {
+          await ctx.db
+            .insert(financeInsightNarratives)
+            .values({
+              id: crypto.randomUUID(),
+              scopeKey,
+              inputHash,
+              model: narrative.model,
+              content,
+              generatedAt,
+              createdAt: generatedAt,
+            })
+            .onConflictDoNothing()
+        } catch (err) {
+          // A cache miss on the next call is cheaper than failing a narrative we already have.
+          console.warn('[finance.analytics.narrative] cache write failed:', err)
+        }
+
+        return {
+          headline: narrative.headline,
+          body: narrative.body,
+          connections: narrative.connections,
+          watchlist: narrative.watchlist,
+          generatedAt,
+          cached: false,
         }
       }),
 
@@ -981,7 +1256,7 @@ export const financeRouter = router({
 
   /** מצב יומי + P&L ממומש (FIFO) לתקופה נבחרת, כולל סטטוס סנכרון אחרון */
   getTradingJournal: protectedProcedure
-    .input(z.object({ period: z.enum(['today', 'week', 'month', 'all']).default('today') }))
+    .input(z.object({ period: z.enum(JOURNAL_PERIODS).default('today') }))
     .query(async ({ ctx, input }) => {
       const rows = await ctx.db
         .select()
@@ -1044,7 +1319,7 @@ export const financeRouter = router({
   getSymbolRanking: protectedProcedure
     .input(
       z.object({
-        period: z.enum(['today', 'week', 'month', 'all']).default('all'),
+        period: z.enum(JOURNAL_PERIODS).default('all'),
         limit: z.number().min(1).max(50).default(5),
       }),
     )

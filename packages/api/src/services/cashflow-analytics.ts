@@ -61,6 +61,17 @@ export type InsightKind =
   | 'price_increase'
   | 'commitment_load'
   | 'savings_rate'
+  | 'anomaly'
+  | 'yoy_shift'
+  | 'forecast_gap'
+  // Trading-journal kinds (produced by trading-insights.ts over the same Insight shape).
+  | 'concentration'
+  | 'revenge_pattern'
+  | 'overtrading'
+  | 'commission_drag'
+  | 'edge_summary'
+  /** The engine is blind here — say so instead of showing a number that cannot be trusted. */
+  | 'data_quality'
 
 export interface Insight {
   id: string
@@ -342,16 +353,223 @@ export const INSIGHT_THRESHOLDS = {
   overspendMinDelta: 200,
   priceIncreaseRatio: 1.1,
   newRecurringDays: 60,
+  /** A transaction this many times its own historical average is an anomaly. */
+  anomalyRatio: 2,
+  /** …but only once the surprise is worth reading about. */
+  anomalyMinDelta: 500,
+  /** Occurrences required before a merchant has an average worth deviating from. */
+  anomalyMinHistory: 2,
+  /** Year-over-year category change worth reporting. */
+  yoyRatio: 1.25,
+  yoyMinDelta: 500,
+  /** Projected spending above expected income before the gap is called out. */
+  forecastGapMinDelta: 500,
 } as const
+
+/** How many insights each of the noisier engines may contribute, best first. */
+const ANOMALY_LIMIT = 5
+const YOY_LIMIT = 3
+
+export interface CashflowForecast {
+  /** The month being projected (the one after the reference month). */
+  month: string
+  total: number
+  /** Monthly recurring commitments — the part that is already decided. */
+  fixed: number
+  /** Trailing average of everything else. */
+  variable: number
+  confidence: 'high' | 'medium' | 'low'
+  /** Distinct months with countable data behind the projection. */
+  monthsOfHistory: number
+}
+
+function nextMonth(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  const d = new Date(Date.UTC(y, m, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function shiftYear(month: string, years: number): string {
+  const [y, m] = month.split('-').map(Number)
+  return `${y + years}-${String(m).padStart(2, '0')}`
+}
+
+/**
+ * Project next month's spending: fixed commitments plus a trailing average of the rest.
+ *
+ * The trailing window deliberately excludes the reference month itself — it is usually still
+ * in progress, and averaging a half-finished month would forecast a suspiciously cheap future.
+ */
+export function forecastNextMonth(
+  txns: readonly AnalyticsTxn[],
+  opts: { from?: string; now?: Date; trailingMonths?: number } = {}
+): CashflowForecast {
+  const now = opts.now ?? new Date()
+  const from = opts.from ?? monthKey(now.toISOString())
+  const trailingMonths = opts.trailingMonths ?? 3
+
+  const recurring = detectRecurring(txns, { lookbackMonths: 12, now })
+  const fixedLabels = new Set(
+    recurring.items.filter((i) => i.cadence === 'monthly').map((i) => i.label)
+  )
+
+  const trailing = previousMonths(from, trailingMonths)
+  const trailingSet = new Set(trailing)
+  const variableByMonth = new Map<string, number>()
+  const monthsWithData = new Set<string>()
+
+  for (const t of txns) {
+    if (!isCountable(t)) continue
+    const key = monthKey(t.transactionDate)
+    monthsWithData.add(key)
+    if (t.direction !== 'expense' || !trailingSet.has(key)) continue
+    if (fixedLabels.has(normalizeDescription(t.description))) continue
+    variableByMonth.set(key, (variableByMonth.get(key) ?? 0) + t.amount)
+  }
+
+  const observed = trailing.filter((m) => variableByMonth.has(m))
+  const variable = observed.length
+    ? [...variableByMonth.values()].reduce((s, v) => s + v, 0) / observed.length
+    : 0
+
+  const monthsOfHistory = monthsWithData.size
+  const confidence: CashflowForecast['confidence'] =
+    monthsOfHistory >= 6 && observed.length >= trailingMonths
+      ? 'high'
+      : monthsOfHistory >= 3
+        ? 'medium'
+        : 'low'
+
+  return {
+    month: nextMonth(from),
+    total: round2(recurring.monthlyFixedTotal + variable),
+    fixed: round2(recurring.monthlyFixedTotal),
+    variable: round2(variable),
+    confidence,
+    monthsOfHistory,
+  }
+}
+
+/**
+ * Transactions that broke their own pattern.
+ *
+ * The baseline is the merchant's own history rather than its category average — a ₪900 grocery
+ * run is unremarkable next to other groceries but glaring next to the same shop's usual ₪200.
+ */
+export function detectAnomalies(
+  txns: readonly AnalyticsTxn[],
+  month: string,
+  opts: { limit?: number } = {}
+): Insight[] {
+  const history = new Map<string, number[]>()
+  const current: { key: string; label: string; txn: AnalyticsTxn }[] = []
+
+  for (const t of txns) {
+    if (!isCountable(t)) continue
+    const label = normalizeDescription(t.description)
+    if (!label) continue
+    const key = `${t.direction}:${label}`
+    const bucket = monthKey(t.transactionDate)
+    if (bucket === month) current.push({ key, label, txn: t })
+    else if (bucket < month) history.set(key, [...(history.get(key) ?? []), t.amount])
+  }
+
+  const insights: Insight[] = []
+
+  for (const { key, label, txn } of current) {
+    const prior = history.get(key)
+    if (!prior || prior.length < INSIGHT_THRESHOLDS.anomalyMinHistory) continue
+    const avg = prior.reduce((s, a) => s + a, 0) / prior.length
+    if (avg <= 0) continue
+    const delta = txn.amount - avg
+    if (txn.amount < avg * INSIGHT_THRESHOLDS.anomalyRatio) continue
+    if (delta < INSIGHT_THRESHOLDS.anomalyMinDelta) continue
+
+    const direction = txn.direction === 'income' ? 'הכנסה' : 'הוצאה'
+    insights.push({
+      id: `anomaly:${key}:${txn.transactionDate.slice(0, 10)}`,
+      kind: 'anomaly',
+      severity: txn.direction === 'income' ? 'info' : 'warn',
+      title: `${label} — ${direction} חריגה של ${shekels(txn.amount)}`,
+      body: `הסכום גבוה פי ${round2(txn.amount / avg)} מהממוצע ההיסטורי של ${label} (${shekels(avg)} על פני ${prior.length} חיובים קודמים).`,
+      amount: round2(delta),
+      category: txn.category,
+      href: null,
+    })
+  }
+
+  return insights
+    .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
+    .slice(0, opts.limit ?? ANOMALY_LIMIT)
+}
+
+/**
+ * Category-level comparison to the same month a year ago.
+ *
+ * Skipped entirely when either side has no countable data, since "spending up 100%" is
+ * meaningless when last year simply was not recorded.
+ */
+export function yoyComparison(
+  txns: readonly AnalyticsTxn[],
+  month: string,
+  opts: { limit?: number } = {}
+): Insight[] {
+  const lastYear = shiftYear(month, -1)
+  const currentByCategory = new Map<string, number>()
+  const priorByCategory = new Map<string, number>()
+
+  for (const t of txns) {
+    if (!isCountable(t) || t.direction !== 'expense') continue
+    const bucket = monthKey(t.transactionDate)
+    const target =
+      bucket === month ? currentByCategory : bucket === lastYear ? priorByCategory : null
+    if (!target) continue
+    const label = t.category ?? CATEGORY_UNCATEGORIZED
+    target.set(label, (target.get(label) ?? 0) + t.amount)
+  }
+
+  if (currentByCategory.size === 0 || priorByCategory.size === 0) return []
+
+  const insights: Insight[] = []
+
+  for (const [category, total] of currentByCategory) {
+    if (category === CATEGORY_UNCATEGORIZED) continue
+    const prior = priorByCategory.get(category)
+    if (!prior || prior <= 0) continue
+    const delta = total - prior
+    if (Math.abs(delta) < INSIGHT_THRESHOLDS.yoyMinDelta) continue
+    const ratio = total / prior
+    const increased = ratio >= INSIGHT_THRESHOLDS.yoyRatio
+    const decreased = ratio <= 1 / INSIGHT_THRESHOLDS.yoyRatio
+    if (!increased && !decreased) continue
+
+    insights.push({
+      id: `yoy_shift:${category}`,
+      kind: 'yoy_shift',
+      severity: increased ? 'warn' : 'info',
+      title: `${category} ${increased ? 'עלתה' : 'ירדה'} ב-${Math.abs(Math.round((ratio - 1) * 100))}% מול אשתקד`,
+      body: `${shekels(total)} החודש, מול ${shekels(prior)} ב-${lastYear} — הפרש של ${shekels(Math.abs(delta))}.`,
+      amount: round2(delta),
+      category,
+      href: null,
+    })
+  }
+
+  return insights
+    .sort((a, b) => Math.abs(b.amount ?? 0) - Math.abs(a.amount ?? 0))
+    .slice(0, opts.limit ?? YOY_LIMIT)
+}
 
 export function computeInsights(input: {
   month: string
   trend: readonly MonthlyPoint[]
   breakdown: { total: number; items: readonly CategorySlice[] }
   recurring: { items: readonly RecurringItem[]; monthlyFixedTotal: number }
+  /** Raw transactions unlock the deeper engines: anomalies, year-over-year and the forecast. */
+  txns?: readonly AnalyticsTxn[]
   now?: Date
 }): Insight[] {
-  const { month, trend, breakdown, recurring } = input
+  const { month, trend, breakdown, recurring, txns } = input
   const now = input.now ?? new Date()
   const insights: Insight[] = []
 
@@ -470,6 +688,32 @@ export function computeInsights(input: {
     })
   }
 
+  if (txns) {
+    insights.push(...detectAnomalies(txns, month))
+    insights.push(...yoyComparison(txns, month))
+
+    // Forecast gap: next month's projected spending against the income actually seen lately.
+    const forecast = forecastNextMonth(txns, { from: month, now })
+    const gap = forecast.total - trailingIncome
+    if (trailingIncome > 0 && gap >= INSIGHT_THRESHOLDS.forecastGapMinDelta) {
+      insights.push({
+        id: 'forecast_gap',
+        kind: 'forecast_gap',
+        severity: 'warn',
+        title: `תחזית ל-${forecast.month}: ${shekels(gap)} מעל ההכנסה הצפויה`,
+        body: `צפי הוצאות ${shekels(forecast.total)} (${shekels(forecast.fixed)} מחויבויות קבועות + ${shekels(forecast.variable)} ממוצע משתנה), מול הכנסה חודשית ממוצעת של ${shekels(trailingIncome)}.`,
+        amount: round2(gap),
+        category: null,
+        href: null,
+      })
+    }
+  }
+
+  return sortInsights(insights)
+}
+
+/** Shared ordering: act-on-this first, then by size of the number. */
+export function sortInsights(insights: Insight[]): Insight[] {
   const severityOrder = { opportunity: 0, warn: 1, info: 2 } as const
   return insights.sort(
     (a, b) =>

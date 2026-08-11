@@ -42,6 +42,9 @@ export const CASHFLOW_CATEGORIES: readonly CashflowCategoryDef[] = [
 /** Fallback category written by the categorizer when nothing matches. */
 export const CATEGORY_FALLBACK = 'אחר'
 
+/** Money moved to a broker or savings account — internal, but it is the part that builds capital. */
+export const CATEGORY_INVESTMENTS = 'חיסכון והשקעות'
+
 /** Shown for `category IS NULL`. Deliberately not 'אחר', which is a real category. */
 export const CATEGORY_UNCATEGORIZED = 'ללא סיווג'
 

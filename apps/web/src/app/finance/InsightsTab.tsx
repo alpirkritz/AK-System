@@ -10,7 +10,9 @@ import { RecurringList } from './components/RecurringList'
 import { InsightCard } from './components/InsightCard'
 import { CategorizeDrawer } from './components/CategorizeDrawer'
 import { MonthCompositionPanel } from './components/MonthCompositionPanel'
-import { currentMonthKey, fmt, monthLabel, shiftMonth } from './lib/format'
+import { NarrativePanel } from './components/NarrativePanel'
+import { OverviewStrip } from './components/OverviewStrip'
+import { currentMonthKey, fmt, fmtShort, monthLabel, shiftMonth } from './lib/format'
 
 type Window = 3 | 6 | 12
 
@@ -31,6 +33,14 @@ export default function InsightsTab() {
   const breakdown = trpc.finance.analytics.categoryBreakdown.useQuery({ month, direction: 'expense' })
   const recurring = trpc.finance.analytics.recurring.useQuery({ minOccurrences: 3, lookbackMonths: 12 })
   const insights = trpc.finance.analytics.insights.useQuery({ month })
+  const overview = trpc.finance.analytics.overview.useQuery()
+
+  // The narrative is the one query allowed to fail without consequence — retries stay manual
+  // so a Gemini outage cannot turn into a retry storm behind a tab nobody is looking at.
+  const narrative = trpc.finance.analytics.narrative.useQuery(
+    { scope: 'cashflow', month },
+    { retry: false, refetchOnWindowFocus: false }
+  )
 
   const point = useMemo(
     () => trend.data?.months.find((p) => p.month === month) ?? null,
@@ -81,9 +91,13 @@ export default function InsightsTab() {
     )
   }
 
-  const visibleInsights = showAllInsights
-    ? insights.data?.insights ?? []
-    : (insights.data?.insights ?? []).slice(0, MAX_VISIBLE_INSIGHTS)
+  const allInsights = insights.data?.insights ?? []
+  // Data-quality findings are about the data, not the spending — they belong with the other
+  // coverage banners rather than competing with real findings in the card grid.
+  const dataQuality = allInsights.filter((i) => i.kind === 'data_quality')
+  const findings = allInsights.filter((i) => i.kind !== 'data_quality')
+  const visibleInsights = showAllInsights ? findings : findings.slice(0, MAX_VISIBLE_INSIGHTS)
+  const forecast = insights.data?.forecast ?? null
 
   return (
     <>
@@ -118,6 +132,17 @@ export default function InsightsTab() {
         </div>
       )}
 
+      {dataQuality.map((insight) => (
+        <div
+          key={insight.id}
+          className="mb-4 text-xs px-3 py-2.5 rounded-lg"
+          style={{ background: '#fbbf2411', color: '#fbbf24', border: '1px solid #fbbf2433' }}
+        >
+          <span className="font-semibold">{insight.title}</span>
+          <span className="opacity-90"> — {insight.body}</span>
+        </div>
+      ))}
+
       {/* Month selector */}
       <div className="flex items-center gap-2 mb-4">
         <button
@@ -144,6 +169,16 @@ export default function InsightsTab() {
           <span className="text-[11px] text-[#fbbf24] ms-2">מבוסס על נתונים חלקיים</span>
         )}
       </div>
+
+      <OverviewStrip data={overview.data} isLoading={overview.isLoading} />
+
+      <NarrativePanel
+        data={narrative.data ?? null}
+        isLoading={narrative.isLoading}
+        isError={narrative.isError}
+        isRefreshing={narrative.isFetching && !narrative.isLoading}
+        onRetry={() => narrative.refetch()}
+      />
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -181,10 +216,18 @@ export default function InsightsTab() {
         />
       </div>
 
-      <div className="mb-5">
+      <div className="mb-5 flex items-center gap-3 flex-wrap">
         <button className="btn btn-ghost text-xs" onClick={() => setCompositionOpen(true)}>
           ממה מורכב הסכום
         </button>
+        {/* A forecast only makes sense forward of today; for a past month it would be history. */}
+        {forecast && month === currentMonthKey() && forecast.total > 0 && (
+          <span className="text-[11px] text-[#647399]">
+            צפי ל-{monthLabel(forecast.month)}: {fmtShort(forecast.total)} (
+            {fmtShort(forecast.fixed)} קבוע + {fmtShort(forecast.variable)} משתנה)
+            {forecast.confidence === 'low' && ' · מבוסס על היסטוריה קצרה'}
+          </span>
+        )}
       </div>
 
       {/* Trend */}
@@ -263,14 +306,12 @@ export default function InsightsTab() {
                 <InsightCard key={insight.id} insight={insight} />
               ))}
             </div>
-            {(insights.data?.insights.length ?? 0) > MAX_VISIBLE_INSIGHTS && (
+            {findings.length > MAX_VISIBLE_INSIGHTS && (
               <button
                 className="btn btn-ghost mt-3"
                 onClick={() => setShowAllInsights((v) => !v)}
               >
-                {showAllInsights
-                  ? 'הצג פחות'
-                  : `הצג עוד ${(insights.data?.insights.length ?? 0) - MAX_VISIBLE_INSIGHTS}`}
+                {showAllInsights ? 'הצג פחות' : `הצג עוד ${findings.length - MAX_VISIBLE_INSIGHTS}`}
               </button>
             )}
           </>

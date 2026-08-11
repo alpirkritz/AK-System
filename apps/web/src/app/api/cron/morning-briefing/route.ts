@@ -9,6 +9,11 @@ import {
 } from '@ak-system/api'
 import { createServiceCaller } from '@/lib/api-caller'
 import { formatMorningBriefingContext } from '@/lib/morning-briefing-context'
+import {
+  formatFinanceBriefLines,
+  maybePushFinanceAlert,
+  type FinanceAlertInsight,
+} from '@/lib/finance-alerts'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
 
@@ -70,7 +75,23 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     ])
     const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
     const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === today)
-    const text = formatMorningBriefingContext(today, scopedEvents, dueTasks)
+
+    // Finance is a nice-to-have on this brief: an analytics failure must not cost the user
+    // their schedule, so it degrades to no finance section rather than a 500.
+    let financeInsights: FinanceAlertInsight[] = []
+    try {
+      const result = await caller.finance.analytics.insights({ month: today.slice(0, 7) })
+      financeInsights = result.insights
+    } catch (err) {
+      console.warn('[cron/morning-briefing] finance insights unavailable:', err)
+    }
+
+    const text = formatMorningBriefingContext(
+      today,
+      scopedEvents,
+      dueTasks,
+      formatFinanceBriefLines(financeInsights),
+    )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {
       context: text,
@@ -79,11 +100,13 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     })
     if (routed.status !== 'not_routed') {
       await markNotificationSent('morning_briefing')
+      const finance = await maybePushFinanceAlert(financeInsights)
       return NextResponse.json({
         ok: true,
         mode: routed.status === 'ran' ? 'agent' : 'agent-deduped',
         events: scopedEvents.length,
         dueTasks: dueTasks.length,
+        finance: finance.reason,
       })
     }
 
@@ -92,6 +115,7 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     const labeled = `${text}\n\n(תבנית אוטומטית ללא סוכן — לניתוב סוכן: הגדרות ▸ נוטיפיקציות)`
     const pushed = await pushAssistantMessage(labeled, 'cron', { typeId: 'morning_briefing' })
     await markNotificationSent('morning_briefing')
+    const finance = await maybePushFinanceAlert(financeInsights)
     return NextResponse.json({
       ok: true,
       events: scopedEvents.length,
@@ -99,6 +123,7 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       sent: pushed.telegram || pushed.whatsapp,
       telegram: pushed.telegram,
       whatsapp: pushed.whatsapp,
+      finance: finance.reason,
     })
   } catch (err) {
     console.error('[cron/morning-briefing]', err)

@@ -4,6 +4,9 @@ import {
   buildCategoryBreakdown,
   detectRecurring,
   computeInsights,
+  forecastNextMonth,
+  detectAnomalies,
+  yoyComparison,
   monthWindow,
   previousMonths,
   monthKey,
@@ -503,5 +506,254 @@ describe('computeInsights', () => {
     })
     expect(insights.map((i) => i.kind)).not.toContain('coverage')
     expect(insights.map((i) => i.kind)).not.toContain('blind_spot')
+  })
+
+  it('adds anomaly, year-over-year and forecast insights once raw transactions are supplied', () => {
+    const txns = [
+      // A merchant with a settled pattern, then a blowout in the current month.
+      ...['2026-05', '2026-06', '2026-07'].map((m) =>
+        txn({ amount: 300, description: 'חשמל', category: 'חשבונות', transactionDate: `${m}-05T00:00:00.000Z` })
+      ),
+      txn({ amount: 2000, description: 'חשמל', category: 'חשבונות', transactionDate: '2026-08-05T00:00:00.000Z' }),
+      // Same month last year, for the year-over-year side.
+      txn({ amount: 1000, category: 'נסיעות', description: 'טיסה', transactionDate: '2025-08-05T00:00:00.000Z' }),
+      txn({ amount: 4000, category: 'נסיעות', description: 'טיסה', transactionDate: '2026-08-06T00:00:00.000Z' }),
+    ]
+
+    const insights = computeInsights({
+      month: '2026-08',
+      trend: baseTrend(),
+      breakdown: { total: 0, items: [] },
+      recurring: emptyRecurring,
+      txns,
+      now: NOW,
+    })
+
+    expect(insights.find((i) => i.kind === 'anomaly')).toBeDefined()
+    expect(insights.find((i) => i.kind === 'yoy_shift')).toBeDefined()
+  })
+
+  it('warns when next month is projected to cost more than the income coming in', () => {
+    const txns = ['2026-05', '2026-06', '2026-07'].flatMap((m) => [
+      txn({ amount: 30000, description: `קניות ${m}`, transactionDate: `${m}-10T00:00:00.000Z` }),
+    ])
+
+    const insights = computeInsights({
+      month: '2026-08',
+      trend: baseTrend(),
+      breakdown: { total: 0, items: [] },
+      recurring: emptyRecurring,
+      txns,
+      now: NOW,
+    })
+
+    const gap = insights.find((i) => i.kind === 'forecast_gap')
+    expect(gap).toBeDefined()
+    expect(gap!.severity).toBe('warn')
+    expect(gap!.amount).toBeGreaterThan(0)
+    expect(gap!.title).toContain('2026-09')
+  })
+
+  it('leaves the deeper engines out when only aggregates are supplied', () => {
+    const insights = computeInsights({
+      month: '2026-08',
+      trend: baseTrend(),
+      breakdown: { total: 0, items: [] },
+      recurring: emptyRecurring,
+      now: NOW,
+    })
+    const kinds = insights.map((i) => i.kind)
+    expect(kinds).not.toContain('anomaly')
+    expect(kinds).not.toContain('yoy_shift')
+    expect(kinds).not.toContain('forecast_gap')
+  })
+})
+
+describe('forecastNextMonth', () => {
+  it('adds fixed commitments to the trailing average of everything else', () => {
+    const txns = [
+      // A monthly commitment across six months.
+      ...['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'].map((m) =>
+        txn({ amount: 2000, description: 'משכנתא', category: 'משכנתא', transactionDate: `${m}-05T00:00:00.000Z` })
+      ),
+      // One-off spending in the trailing window — different merchants, so nothing recurring.
+      txn({ amount: 1000, description: 'ריהוט', transactionDate: '2026-05-11T00:00:00.000Z' }),
+      txn({ amount: 1400, description: 'מסעדה', transactionDate: '2026-06-11T00:00:00.000Z' }),
+      txn({ amount: 1200, description: 'טיסה', transactionDate: '2026-07-11T00:00:00.000Z' }),
+    ]
+
+    const forecast = forecastNextMonth(txns, { from: '2026-08', now: NOW })
+    expect(forecast.month).toBe('2026-09')
+    expect(forecast.fixed).toBe(2000)
+    expect(forecast.variable).toBe(1200)
+    expect(forecast.total).toBe(3200)
+    expect(forecast.confidence).toBe('high')
+  })
+
+  it('rolls the year over at the December boundary', () => {
+    expect(forecastNextMonth([], { from: '2026-12', now: NOW }).month).toBe('2027-01')
+  })
+
+  it('reports low confidence and a zero forecast with no history', () => {
+    const forecast = forecastNextMonth([], { from: '2026-08', now: NOW })
+    expect(forecast.total).toBe(0)
+    expect(forecast.fixed).toBe(0)
+    expect(forecast.variable).toBe(0)
+    expect(forecast.confidence).toBe('low')
+    expect(forecast.monthsOfHistory).toBe(0)
+  })
+
+  it('ignores the reference month itself, which is usually still in progress', () => {
+    const txns = [
+      txn({ amount: 900, description: 'ריהוט', transactionDate: '2026-05-11T00:00:00.000Z' }),
+      txn({ amount: 1100, description: 'מסעדה', transactionDate: '2026-06-11T00:00:00.000Z' }),
+      txn({ amount: 1000, description: 'טיסה', transactionDate: '2026-07-11T00:00:00.000Z' }),
+      txn({ amount: 20, description: 'קיוסק', transactionDate: '2026-08-01T00:00:00.000Z' }),
+    ]
+    expect(forecastNextMonth(txns, { from: '2026-08', now: NOW }).variable).toBe(1000)
+  })
+
+  it('excludes internal transfers, like every other cash-flow figure', () => {
+    const txns = [
+      txn({ amount: 5000, category: 'העברות', description: 'העברה לחשבון', transactionDate: '2026-07-11T00:00:00.000Z' }),
+      txn({ amount: 4000, category: 'כרטיס אשראי', description: 'חיוב אשראי', transactionDate: '2026-06-11T00:00:00.000Z' }),
+    ]
+    expect(forecastNextMonth(txns, { from: '2026-08', now: NOW }).total).toBe(0)
+  })
+})
+
+describe('detectAnomalies', () => {
+  const pattern = ['2026-05', '2026-06', '2026-07'].map((m) =>
+    txn({ amount: 300, description: 'חשמל', category: 'חשבונות', transactionDate: `${m}-05T00:00:00.000Z` })
+  )
+
+  it('flags a charge that dwarfs the merchant own history', () => {
+    const anomalies = detectAnomalies(
+      [...pattern, txn({ amount: 2000, description: 'חשמל', category: 'חשבונות', transactionDate: '2026-08-05T00:00:00.000Z' })],
+      '2026-08'
+    )
+    expect(anomalies).toHaveLength(1)
+    expect(anomalies[0].kind).toBe('anomaly')
+    expect(anomalies[0].severity).toBe('warn')
+    expect(anomalies[0].amount).toBe(1700)
+    expect(anomalies[0].category).toBe('חשבונות')
+  })
+
+  it('ignores a large charge that is still within the merchant normal range', () => {
+    const anomalies = detectAnomalies(
+      [...pattern, txn({ amount: 400, description: 'חשמל', transactionDate: '2026-08-05T00:00:00.000Z' })],
+      '2026-08'
+    )
+    expect(anomalies).toEqual([])
+  })
+
+  it('ignores a doubled charge whose absolute surprise is small', () => {
+    const small = ['2026-05', '2026-06', '2026-07'].map((m) =>
+      txn({ amount: 50, description: 'קפה', transactionDate: `${m}-05T00:00:00.000Z` })
+    )
+    const anomalies = detectAnomalies(
+      [...small, txn({ amount: 150, description: 'קפה', transactionDate: '2026-08-05T00:00:00.000Z' })],
+      '2026-08'
+    )
+    expect(anomalies).toEqual([])
+  })
+
+  it('needs a baseline before it calls anything unusual', () => {
+    const anomalies = detectAnomalies(
+      [
+        txn({ amount: 300, description: 'ספק חדש', transactionDate: '2026-07-05T00:00:00.000Z' }),
+        txn({ amount: 5000, description: 'ספק חדש', transactionDate: '2026-08-05T00:00:00.000Z' }),
+      ],
+      '2026-08'
+    )
+    expect(anomalies).toEqual([])
+  })
+
+  it('marks an unusually large income as information rather than a warning', () => {
+    const income = ['2026-05', '2026-06', '2026-07'].map((m) =>
+      txn({ amount: 5000, direction: 'income', category: 'הכנסה', description: 'לקוח קבוע', transactionDate: `${m}-05T00:00:00.000Z` })
+    )
+    const anomalies = detectAnomalies(
+      [...income, txn({ amount: 20000, direction: 'income', category: 'הכנסה', description: 'לקוח קבוע', transactionDate: '2026-08-05T00:00:00.000Z' })],
+      '2026-08'
+    )
+    expect(anomalies).toHaveLength(1)
+    expect(anomalies[0].severity).toBe('info')
+  })
+
+  it('caps the list so one chaotic month cannot flood the feed', () => {
+    const many = Array.from({ length: 8 }, (_, i) => {
+      const label = `ספק ${i}`
+      return [
+        txn({ amount: 300, description: label, transactionDate: '2026-06-05T00:00:00.000Z' }),
+        txn({ amount: 300, description: label, transactionDate: '2026-07-05T00:00:00.000Z' }),
+        txn({ amount: 3000 + i * 100, description: label, transactionDate: '2026-08-05T00:00:00.000Z' }),
+      ]
+    }).flat()
+    const anomalies = detectAnomalies(many, '2026-08')
+    expect(anomalies).toHaveLength(5)
+    // Biggest surprise first.
+    expect(anomalies[0].amount).toBeGreaterThan(anomalies[4].amount!)
+  })
+})
+
+describe('yoyComparison', () => {
+  it('compares a category to the same month last year', () => {
+    const shifts = yoyComparison(
+      [
+        txn({ amount: 1000, category: 'נסיעות', transactionDate: '2025-08-05T00:00:00.000Z' }),
+        txn({ amount: 4000, category: 'נסיעות', transactionDate: '2026-08-05T00:00:00.000Z' }),
+      ],
+      '2026-08'
+    )
+    expect(shifts).toHaveLength(1)
+    expect(shifts[0].kind).toBe('yoy_shift')
+    expect(shifts[0].severity).toBe('warn')
+    expect(shifts[0].amount).toBe(3000)
+    expect(shifts[0].body).toContain('2025-08')
+  })
+
+  it('reports a drop as information, not a warning', () => {
+    const shifts = yoyComparison(
+      [
+        txn({ amount: 4000, category: 'נסיעות', transactionDate: '2025-08-05T00:00:00.000Z' }),
+        txn({ amount: 1000, category: 'נסיעות', transactionDate: '2026-08-05T00:00:00.000Z' }),
+      ],
+      '2026-08'
+    )
+    expect(shifts[0].severity).toBe('info')
+    expect(shifts[0].amount).toBe(-3000)
+  })
+
+  it('stays silent when last year has no data to compare against', () => {
+    expect(
+      yoyComparison([txn({ amount: 4000, category: 'נסיעות', transactionDate: '2026-08-05T00:00:00.000Z' })], '2026-08')
+    ).toEqual([])
+  })
+
+  it('stays silent for a change too small to matter', () => {
+    expect(
+      yoyComparison(
+        [
+          txn({ amount: 1000, category: 'נסיעות', transactionDate: '2025-08-05T00:00:00.000Z' }),
+          txn({ amount: 1300, category: 'נסיעות', transactionDate: '2026-08-05T00:00:00.000Z' }),
+        ],
+        '2026-08'
+      )
+    ).toEqual([])
+  })
+
+  it('skips uncategorised money, where a comparison says nothing actionable', () => {
+    expect(
+      yoyComparison(
+        [
+          txn({ amount: 1000, category: null, transactionDate: '2025-08-05T00:00:00.000Z' }),
+          txn({ amount: 9000, category: null, transactionDate: '2026-08-05T00:00:00.000Z' }),
+          txn({ amount: 100, category: 'מזון', transactionDate: '2025-08-05T00:00:00.000Z' }),
+          txn({ amount: 100, category: 'מזון', transactionDate: '2026-08-05T00:00:00.000Z' }),
+        ],
+        '2026-08'
+      )
+    ).toEqual([])
   })
 })

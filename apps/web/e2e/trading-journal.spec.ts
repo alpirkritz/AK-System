@@ -21,6 +21,25 @@ test.describe('Trading journal tab', () => {
     await expect(page.getByText('עסקאות בתקופה')).toBeVisible()
   })
 
+  test('shows the trading insights section, including the quarter period', async ({ page }) => {
+    await page.goto('/finance')
+    await expect(page.getByRole('heading', { name: 'פיננסים' })).toBeVisible({ timeout: 15000 })
+    await page.getByRole('button', { name: /יומן מסחר/ }).click()
+
+    await expect(page.getByText('תובנות מסחר')).toBeVisible({ timeout: 10000 })
+
+    // With no closed sells in the seeded database the section explains itself rather than
+    // rendering zeroed-out metrics.
+    await expect(
+      page
+        .getByText('אין עדיין מכירות סגורות למדוד לפיהן')
+        .or(page.getByText('אחוז הצלחה')),
+    ).toBeVisible({ timeout: 10000 })
+
+    await page.getByRole('button', { name: 'הרבעון' }).click()
+    await expect(page.getByText('תובנות מסחר')).toBeVisible()
+  })
+
   test('exposes the Notion history import in the import tab', async ({ page }) => {
     await page.goto('/finance')
     await expect(page.getByRole('heading', { name: 'פיננסים' })).toBeVisible({ timeout: 15000 })

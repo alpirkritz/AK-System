@@ -21,4 +21,15 @@ describe('formatMorningBriefingContext', () => {
     expect(text).toContain('• כל היום – יום הולדת')
     expect(text).toContain('• [high] לסגור מע״מ')
   })
+
+  it('adds a finance section when something stands out', () => {
+    const text = formatMorningBriefingContext('2026-07-20', [], [], ['• מזון — ₪800 מעל הרגיל'])
+    expect(text).toContain('פיננסים:')
+    expect(text).toContain('• מזון — ₪800 מעל הרגיל')
+    expect(text).not.toContain('אין אירועים או משימות מועדות להיום.')
+  })
+
+  it('leaves the finance section out entirely when there is nothing to say', () => {
+    expect(formatMorningBriefingContext('2026-07-20', [], [], [])).not.toContain('פיננסים')
+  })
 })
