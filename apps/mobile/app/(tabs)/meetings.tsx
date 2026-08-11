@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { FilterChips } from '../../components/FilterChips'
 import { useAuth } from '../../lib/auth'
 import { fetchMeetings, type MobileMeeting } from '../../lib/data'
 import { colors } from '../../lib/theme'
@@ -69,20 +71,14 @@ export default function MeetingsScreen() {
 
   return (
     <View style={styles.flex}>
-      <View style={styles.filterRow}>
-        <Pressable
-          onPress={() => setRecurringOnly(false)}
-          style={[styles.chip, !recurringOnly && styles.chipActive]}
-        >
-          <Text style={[styles.chipText, !recurringOnly && styles.chipTextActive]}>הכל</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setRecurringOnly(true)}
-          style={[styles.chip, recurringOnly && styles.chipActive]}
-        >
-          <Text style={[styles.chipText, recurringOnly && styles.chipTextActive]}>↻ חוזרות</Text>
-        </Pressable>
-      </View>
+      <FilterChips
+        items={[
+          { key: 'all', label: 'הכל' },
+          { key: 'recurring', label: '↻ חוזרות' },
+        ]}
+        selectedKey={recurringOnly ? 'recurring' : 'all'}
+        onSelect={(key) => setRecurringOnly(key === 'recurring')}
+      />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -94,15 +90,13 @@ export default function MeetingsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>📅</Text>
-            <Text style={styles.emptyText}>
-              {recurringOnly ? 'אין פגישות חוזרות' : 'אין פגישות קרובות'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="📅"
+            text={recurringOnly ? 'אין פגישות חוזרות' : 'אין פגישות קרובות'}
+          />
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <Card style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.title}>{item.title}</Text>
               {item.recurring ? (
@@ -117,7 +111,7 @@ export default function MeetingsScreen() {
             {(item.peopleIds?.length ?? 0) > 0 && (
               <Text style={styles.people}>{item.peopleIds!.length} משתתפים</Text>
             )}
-          </View>
+          </Card>
         )}
       />
     </View>
@@ -127,31 +121,8 @@ export default function MeetingsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  filterRow: {
-    flexDirection: 'row-reverse',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.accent + '22', borderColor: colors.accent },
-  chipText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
-  chipTextActive: { color: colors.accent, fontWeight: '600' },
   list: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 16,
-    marginBottom: 10,
-  },
+  card: { padding: 16, marginBottom: 10 },
   cardHeader: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -170,8 +141,5 @@ const styles = StyleSheet.create({
   recurringText: { color: colors.accent, fontSize: 14 },
   meta: { color: colors.textMuted, fontSize: 13, textAlign: 'right', marginTop: 6 },
   people: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 8 },
-  emptyIcon: { fontSize: 34 },
-  emptyText: { color: colors.textMuted, fontSize: 15, writingDirection: 'rtl' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
 })

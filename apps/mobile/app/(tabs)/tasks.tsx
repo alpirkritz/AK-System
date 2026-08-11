@@ -9,6 +9,9 @@ import {
   View,
 } from 'react-native'
 import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { EmptyState } from '../../components/EmptyState'
+import { FilterChips, type FilterChipItem } from '../../components/FilterChips'
+import { StatusPill } from '../../components/StatusPill'
 import { useAuth } from '../../lib/auth'
 import {
   fetchNotionConfigured,
@@ -19,30 +22,13 @@ import {
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
-import {
-  colors,
-  PRIORITY_COLOR,
-  PRIORITY_LABEL,
-  STATUS_COLOR,
-  STATUS_LABEL,
-} from '../../lib/theme'
+import { colors, PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR } from '../../lib/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
 
 function effectiveStatus(t: MobileTask): string {
   return t.status ?? (t.done ? 'done' : 'not_started')
-}
-
-function StatusPill({ status }: { status: string }) {
-  // Match web: silent for not_started and done — the checkbox already conveys those.
-  if (!status || status === 'not_started' || status === 'done') return null
-  const color = STATUS_COLOR[status] ?? colors.textMuted
-  return (
-    <View style={[styles.pill, { borderColor: color + '66', backgroundColor: color + '22' }]}>
-      <Text style={[styles.pillText, { color }]}>{STATUS_LABEL[status] ?? status}</Text>
-    </View>
-  )
 }
 
 export default function TasksScreen() {
@@ -163,11 +149,16 @@ export default function TasksScreen() {
     })
   }, [tasks, filter, workspaceId])
 
-  const filters: { id: StatusFilter; label: string }[] = [
-    { id: 'open', label: 'פתוחות' },
-    { id: 'done', label: 'הושלמו' },
-    { id: 'cancelled', label: 'בוטלו' },
-    { id: 'all', label: 'הכל' },
+  const filters: FilterChipItem[] = [
+    { key: 'open', label: 'פתוחות' },
+    { key: 'done', label: 'הושלמו' },
+    { key: 'cancelled', label: 'בוטלו' },
+    { key: 'all', label: 'הכל' },
+  ]
+
+  const workspaceFilters: FilterChipItem[] = [
+    { key: 'all', label: 'כל המקורות' },
+    ...workspaces.map((w) => ({ key: w.id, label: w.name })),
   ]
 
   if (loading) {
@@ -198,48 +189,18 @@ export default function TasksScreen() {
 
       {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
 
-      <View style={styles.filterRow}>
-        {filters.map((f) => (
-          <Pressable
-            key={f.id}
-            onPress={() => setFilter(f.id)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === f.id }}
-            style={[styles.chip, filter === f.id && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, filter === f.id && styles.chipTextActive]}>
-              {f.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <FilterChips
+        items={filters}
+        selectedKey={filter}
+        onSelect={(key) => setFilter(key as StatusFilter)}
+      />
 
       {workspaces.length > 0 ? (
-        <View style={styles.filterRow}>
-          <Pressable
-            onPress={() => setWorkspaceId('all')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: workspaceId === 'all' }}
-            style={[styles.chip, workspaceId === 'all' && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, workspaceId === 'all' && styles.chipTextActive]}>
-              כל המקורות
-            </Text>
-          </Pressable>
-          {workspaces.map((w) => (
-            <Pressable
-              key={w.id}
-              onPress={() => setWorkspaceId(w.id)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: workspaceId === w.id }}
-              style={[styles.chip, workspaceId === w.id && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, workspaceId === w.id && styles.chipTextActive]}>
-                {w.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <FilterChips
+          items={workspaceFilters}
+          selectedKey={workspaceId}
+          onSelect={setWorkspaceId}
+        />
       ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -252,12 +213,11 @@ export default function TasksScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>✓</Text>
-            <Text style={styles.emptyText}>
-              {filter === 'open' ? 'אין משימות פתוחות' : 'אין משימות להצגה'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="✓"
+            iconColor={colors.success}
+            text={filter === 'open' ? 'אין משימות פתוחות' : 'אין משימות להצגה'}
+          />
         }
         renderItem={({ item }) => {
           const st = effectiveStatus(item)
@@ -337,28 +297,6 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  filterRow: {
-    flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    minHeight: 36,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-  },
-  chipActive: {
-    backgroundColor: colors.accent + '22',
-    borderColor: colors.accent,
-  },
-  chipText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
-  chipTextActive: { color: colors.accent, fontWeight: '600' },
   actionRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -422,18 +360,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
-  pill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  pillText: { fontSize: 11, fontWeight: '600', writingDirection: 'rtl' },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
   priorityLabel: { color: colors.textMuted, fontSize: 11, minWidth: 44, textAlign: 'left' },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 8 },
-  emptyIcon: { fontSize: 34, color: colors.success },
-  emptyText: { color: colors.textMuted, fontSize: 15, writingDirection: 'rtl' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
   fab: {
     position: 'absolute',

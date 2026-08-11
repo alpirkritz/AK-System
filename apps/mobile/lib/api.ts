@@ -202,7 +202,14 @@ export function notificationPreview(body: string, maxChars = 300): string {
   return flat.slice(0, maxChars - 1) + '…'
 }
 
-/** Screens a notification can open. Must stay in sync with `apps/mobile/app`. */
+/**
+ * Screens a notification can open. Must stay in sync with `apps/mobile/app`.
+ *
+ * This union plus `mobileRouteForNotificationUrl` below is the single extension
+ * point for deep links: every `mobile-web-parity` wave that ships a new screen
+ * (finance, calendar, projects, memory, updates) has to add its path here and a
+ * matching branch in the mapper, otherwise its pushes keep falling back to `/`.
+ */
 export type MobileNotificationRoute =
   | '/'
   | '/chat'

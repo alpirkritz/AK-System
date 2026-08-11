@@ -8,9 +8,12 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useAuth } from '../../lib/auth'
-import { fetchPeople, type MobilePerson } from '../../lib/data'
-import { colors } from '../../lib/theme'
+import { Card } from '../components/Card'
+import { EmptyState } from '../components/EmptyState'
+import { RtlRow } from '../components/RtlRow'
+import { useAuth } from '../lib/auth'
+import { fetchPeople, type MobilePerson } from '../lib/data'
+import { colors } from '../lib/theme'
 
 export default function PeopleScreen() {
   const { token } = useAuth()
@@ -82,27 +85,26 @@ export default function PeopleScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>👥</Text>
-            <Text style={styles.emptyText}>{q ? 'לא נמצאו אנשי קשר' : 'אין אנשי קשר עדיין'}</Text>
-          </View>
+          <EmptyState icon="👥" text={q ? 'לא נמצאו אנשי קשר' : 'אין אנשי קשר עדיין'} />
         }
         renderItem={({ item }) => {
           const color = item.color ?? colors.accent
           return (
-            <View style={styles.row}>
-              <View style={[styles.avatar, { backgroundColor: color + '22', borderColor: color + '55' }]}>
-                <Text style={[styles.avatarText, { color }]}>{item.name.charAt(0)}</Text>
-              </View>
-              <View style={styles.body}>
-                <Text style={styles.name}>{item.name}</Text>
-                {(item.role || item.company) && (
-                  <Text style={styles.sub}>
-                    {[item.role, item.company].filter(Boolean).join(' · ')}
-                  </Text>
-                )}
-              </View>
-            </View>
+            <Card style={styles.row}>
+              <RtlRow style={styles.rowInner}>
+                <View style={[styles.avatar, { backgroundColor: color + '22', borderColor: color + '55' }]}>
+                  <Text style={[styles.avatarText, { color }]}>{item.name.charAt(0)}</Text>
+                </View>
+                <View style={styles.body}>
+                  <Text style={styles.name}>{item.name}</Text>
+                  {(item.role || item.company) && (
+                    <Text style={styles.sub}>
+                      {[item.role, item.company].filter(Boolean).join(' · ')}
+                    </Text>
+                  )}
+                </View>
+              </RtlRow>
+            </Card>
           )
         }}
       />
@@ -125,14 +127,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   list: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
-  row: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
+  row: { marginBottom: 8 },
+  rowInner: { gap: 12 },
   avatar: {
     width: 42,
     height: 42,
@@ -145,8 +141,5 @@ const styles = StyleSheet.create({
   body: { flex: 1 },
   name: { color: colors.text, fontSize: 16, fontWeight: '600', textAlign: 'right', writingDirection: 'rtl' },
   sub: { color: colors.textMuted, fontSize: 13, textAlign: 'right', marginTop: 2 },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 8 },
-  emptyIcon: { fontSize: 34 },
-  emptyText: { color: colors.textMuted, fontSize: 15, writingDirection: 'rtl' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
 })

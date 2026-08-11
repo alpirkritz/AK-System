@@ -85,11 +85,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="people"
+        name="more"
         options={{
-          title: 'אנשים',
-          tabBarLabel: 'אנשים',
-          tabBarIcon: ({ color }) => <TabIcon icon="👥" color={color} />,
+          title: 'עוד',
+          tabBarLabel: 'עוד',
+          tabBarIcon: ({ color }) => <TabIcon icon="☰" color={color} />,
         }}
       />
       <Tabs.Screen

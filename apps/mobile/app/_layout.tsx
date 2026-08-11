@@ -43,6 +43,7 @@ function RootNavigator() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ title: 'התראות' }} />
+        <Stack.Screen name="people" options={{ title: 'אנשים' }} />
         <Stack.Screen name="reading-list" options={{ title: 'רשימת קריאה' }} />
         <Stack.Screen name="settings" options={{ title: 'הגדרות' }} />
         <Stack.Screen

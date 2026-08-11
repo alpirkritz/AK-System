@@ -2,13 +2,16 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { KpiCard } from '../../components/KpiCard'
+import { SectionHeader } from '../../components/SectionHeader'
 import { useAuth } from '../../lib/auth'
 import {
   fetchMeetings,
@@ -107,45 +110,61 @@ export default function DashboardScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.kpiRow}>
-        <Pressable style={styles.kpi} onPress={() => router.push('/tasks')}>
-          <Text style={[styles.kpiNum, { color: colors.coral }]}>{openTasks.length}</Text>
-          <Text style={styles.kpiLabel}>משימות פתוחות</Text>
-        </Pressable>
-        <Pressable style={styles.kpi} onPress={() => router.push('/meetings')}>
-          <Text style={[styles.kpiNum, { color: colors.info }]}>{upcoming.length}</Text>
-          <Text style={styles.kpiLabel}>פגישות קרובות</Text>
-        </Pressable>
-        <Pressable style={styles.kpi} onPress={() => router.push('/people')}>
-          <Text style={[styles.kpiNum, { color: colors.accent }]}>{peopleCount}</Text>
-          <Text style={styles.kpiLabel}>אנשי קשר</Text>
-        </Pressable>
+        <KpiCard
+          value={openTasks.length}
+          label="משימות פתוחות"
+          color={colors.coral}
+          onPress={() => router.push('/tasks')}
+        />
+        <KpiCard
+          value={upcoming.length}
+          label="פגישות קרובות"
+          color={colors.info}
+          onPress={() => router.push('/meetings')}
+        />
+        <KpiCard
+          value={peopleCount}
+          label="אנשי קשר"
+          color={colors.accent}
+          onPress={() => router.push('/people')}
+        />
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>פגישות קרובות</Text>
+        <SectionHeader title="פגישות קרובות" style={styles.sectionHeader} />
         {upcoming.length === 0 ? (
-          <Text style={styles.emptyText}>אין פגישות קרובות</Text>
+          <EmptyState text="אין פגישות קרובות" compact />
         ) : (
           upcoming.slice(0, 4).map((m) => (
-            <Pressable key={m.id} style={styles.item} onPress={() => router.push('/meetings')}>
+            <Card
+              key={m.id}
+              style={styles.item}
+              onPress={() => router.push('/meetings')}
+              accessibilityLabel={`פגישה: ${m.title}`}
+            >
               <Text style={styles.itemTitle}>{m.title}</Text>
               <Text style={styles.itemMeta}>
                 {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
               </Text>
-            </Pressable>
+            </Card>
           ))
         )}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>משימות פתוחות</Text>
+        <SectionHeader title="משימות פתוחות" style={styles.sectionHeader} />
         {openTasks.length === 0 ? (
-          <Text style={styles.emptyText}>הכול נקי ✓</Text>
+          <EmptyState text="הכול נקי ✓" compact />
         ) : (
           openTasks.slice(0, 5).map((t) => (
-            <Pressable key={t.id} style={styles.item} onPress={() => router.push('/tasks')}>
+            <Card
+              key={t.id}
+              style={styles.item}
+              onPress={() => router.push('/tasks')}
+              accessibilityLabel={`משימה: ${t.title}`}
+            >
               <Text style={styles.itemTitle}>{t.title}</Text>
-            </Pressable>
+            </Card>
           ))
         )}
       </View>
@@ -160,36 +179,10 @@ const styles = StyleSheet.create({
   greeting: { color: colors.text, fontSize: 24, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl' },
   subGreeting: { color: colors.textMuted, fontSize: 14, textAlign: 'right', marginTop: 2 },
   kpiRow: { flexDirection: 'row-reverse', gap: 10, marginTop: 20 },
-  kpi: {
-    flex: 1,
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    alignItems: 'flex-end',
-  },
-  kpiNum: { fontSize: 26, fontWeight: '700' },
-  kpiLabel: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: 'right', writingDirection: 'rtl' },
-  section: { marginTop: 24 },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 10,
-    textAlign: 'right',
-    writingDirection: 'rtl',
-  },
-  item: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    marginBottom: 8,
-  },
+  section: { marginTop: 12 },
+  sectionHeader: { paddingHorizontal: 0, paddingTop: 12, paddingBottom: 10 },
+  item: { marginBottom: 8 },
   itemTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   itemMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
-  emptyText: { color: colors.textMuted, fontSize: 14, textAlign: 'right', writingDirection: 'rtl' },
   error: { color: colors.error, textAlign: 'center', padding: 8, marginTop: 8, writingDirection: 'rtl' },
 })
