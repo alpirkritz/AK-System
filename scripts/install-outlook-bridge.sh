@@ -62,7 +62,7 @@ fi
   echo "# Generated $(date -u '+%Y-%m-%dT%H:%M:%SZ') from ${GOOGLE_ENV_SOURCE##*/} + apps/web/.env.local"
   echo "# Re-run install-outlook-bridge.sh after changing Google OAuth credentials."
   grep -E '^(GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|GOOGLE_CALENDAR_CLIENT_ID|GOOGLE_CALENDAR_CLIENT_SECRET)=' "$GOOGLE_ENV_SOURCE" 2>/dev/null || true
-  grep -E '^(DRAGONTAIL_|OUTLOOK_|TIMEZONE=)' "$REPO_ENV" || true
+  grep -E '^(DRAGONTAIL_|OUTLOOK_|OWA_|TIMEZONE=)' "$REPO_ENV" || true
   echo "DATABASE_PATH=\"${ROOT_DIR}/apps/web/data/ak_system.sqlite\""
   echo "CALENDAR_HELPER_PATH=\"${LOCAL_HELPER}\""
   echo "OUTLOOK_BRIDGE_HELPER_TIMEOUT_MS=120000"

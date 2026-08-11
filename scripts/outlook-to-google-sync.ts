@@ -1,10 +1,13 @@
 /**
- * Outlook → Google Dragontail bridge (macOS-only).
+ * Outlook → Google Dragontail bridge.
  *
- * Reads the local Outlook/Exchange calendar via the EventKit Swift helper and
- * mirrors it into the Google "Dragontail" calendar. One-way, idempotent:
- * only events tagged `akSource=outlook-exchange` are ever created/updated/deleted,
- * so the real Dragontail events are never touched.
+ * Reads the Exchange calendar and mirrors it into the Google "Dragontail" calendar.
+ * One-way, idempotent: only events tagged `akSource=outlook-exchange` are ever
+ * created/updated/deleted, so the real Dragontail events are never touched.
+ *
+ * Two interchangeable sources (OUTLOOK_BRIDGE_SOURCE):
+ *   owa      — signed-in Outlook Web session (default; works under Conditional Access)
+ *   eventkit — local macOS EventKit helper, only if the account syncs to macOS Calendar
  *
  * Run:  pnpm exec tsx scripts/outlook-to-google-sync.ts
  * (usually via scripts/outlook-bridge-run.sh from launchd)
@@ -16,7 +19,12 @@
  * Optional env:
  *   DRAGONTAIL_GCAL_ID     — target Google calendar id
  *   OUTLOOK_BRIDGE_ACCOUNT — Google account that owns Dragontail (default alpirkritz@gmail.com)
- *   OUTLOOK_SOURCE_CALENDAR— local Exchange calendar name (default "Calendar")
+ *   OUTLOOK_BRIDGE_SOURCE  — "owa" (default) or "eventkit"
+ *   OWA_PROFILE_DIR        — Chromium profile holding the OWA session (owa source)
+ *   OUTLOOK_SOURCE_CALENDAR— local Exchange calendar name (eventkit source, default "Calendar")
+ *   OUTLOOK_SOURCE_CALENDAR_ID — EventKit calendarIdentifier of the source calendar.
+ *                            Takes precedence over OUTLOOK_SOURCE_CALENDAR, which cannot
+ *                            pick a side when two Exchange accounts both expose "Calendar".
  *   OUTLOOK_BRIDGE_DAYS_BACK / OUTLOOK_BRIDGE_DAYS_FWD (default 7 / 60)
  */
 import { spawn } from 'node:child_process'
@@ -37,7 +45,9 @@ const DRAGONTAIL_GCAL_ID =
   process.env.DRAGONTAIL_GCAL_ID ||
   'bfa8306ecf5f05d42d22b2349ddbec44d5bd4746dc12940d79e8b3e235add13b@group.calendar.google.com'
 const ACCOUNT = (process.env.OUTLOOK_BRIDGE_ACCOUNT || 'alpirkritz@gmail.com').toLowerCase()
+const BRIDGE_SOURCE = (process.env.OUTLOOK_BRIDGE_SOURCE || 'owa').trim().toLowerCase()
 const SOURCE_CALENDAR = process.env.OUTLOOK_SOURCE_CALENDAR || 'Calendar'
+const SOURCE_CALENDAR_ID = process.env.OUTLOOK_SOURCE_CALENDAR_ID?.trim() || null
 const DAYS_BACK = Number(process.env.OUTLOOK_BRIDGE_DAYS_BACK || 7)
 const DAYS_FWD = Number(process.env.OUTLOOK_BRIDGE_DAYS_FWD || 60)
 const TIME_ZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
@@ -46,6 +56,8 @@ export const AK_SOURCE = 'outlook-exchange'
 const HELPER_TIMEOUT_MS = Number(process.env.OUTLOOK_BRIDGE_HELPER_TIMEOUT_MS || 60_000)
 const WRITE_DELAY_MS = Number(process.env.OUTLOOK_BRIDGE_WRITE_DELAY_MS || 300)
 const DRY_RUN = process.argv.includes('--dry-run')
+/** Inspect the Exchange side alone — useful when the Google half is misconfigured. */
+const SOURCE_ONLY = process.argv.includes('--source-only')
 
 export interface SourceAttendee {
   email: string | null
@@ -202,6 +214,27 @@ function parseAttendees(raw: RawEvent): SourceAttendee[] {
   }))
 }
 
+/**
+ * A calendar id that matches nothing yields an empty source set, and the delete pass
+ * would then treat every mirrored copy as orphaned and wipe it. Fail loudly instead.
+ */
+export function assertSourceCalendarPresent(raw: RawEvent[], calendarId: string | null): void {
+  if (!calendarId) return
+  if (raw.some((e) => e.calendarId === calendarId)) return
+  const seen = [
+    ...new Set(
+      raw
+        .filter((e) => e.calSource === 'Exchange')
+        .map((e) => `"${e.calendar}" [${e.calendarId}]`),
+    ),
+  ]
+  throw new Error(
+    `OUTLOOK_SOURCE_CALENDAR_ID=${calendarId} matched no event in the sync window. ` +
+    `Exchange calendars seen: ${seen.length > 0 ? seen.join(', ') : 'none'}. ` +
+    `Refusing to sync so the delete pass cannot remove every mirrored copy.`,
+  )
+}
+
 /** Comma-separated, case-insensitive substrings; blank entries are dropped so they can't match everything. */
 export function parseBlocklist(raw: string | undefined): string[] {
   if (!raw) return []
@@ -217,11 +250,17 @@ export function isBlockedTitle(title: string, patterns: string[]): boolean {
   return patterns.some((p) => normalized.includes(p))
 }
 
-export function toSourceEvents(raw: RawEvent[], sourceCalendar = SOURCE_CALENDAR): SourceEvent[] {
+export function toSourceEvents(
+  raw: RawEvent[],
+  opts: { calendar?: string; calendarId?: string | null } = {},
+): SourceEvent[] {
+  const sourceCalendar = opts.calendar ?? SOURCE_CALENDAR
+  // Explicit `null` forces name matching even when the env var is set.
+  const sourceCalendarId = opts.calendarId === undefined ? SOURCE_CALENDAR_ID : opts.calendarId
   const out: SourceEvent[] = []
   for (const e of raw) {
     if (e.calSource !== 'Exchange') continue
-    if (e.calendar !== sourceCalendar) continue
+    if (sourceCalendarId ? e.calendarId !== sourceCalendarId : e.calendar !== sourceCalendar) continue
     if (e.status === 'cancelled') continue
     if (!e.title) continue
     const location = e.location && e.location.length > 0 ? e.location : null
@@ -243,6 +282,37 @@ export function toSourceEvents(raw: RawEvent[], sourceCalendar = SOURCE_CALENDAR
     })
   }
   return out
+}
+
+/**
+ * Pull the Exchange side of the sync. Both sources land on the same SourceEvent
+ * shape, so everything downstream — matching, adoption, deletion — is unchanged.
+ */
+async function loadSourceEvents(
+  timeMin: Date,
+  timeMax: Date,
+): Promise<{ events: SourceEvent[]; label: string }> {
+  if (BRIDGE_SOURCE === 'owa') {
+    const { fetchOwaCalendarView, owaToSourceEvents } = await import('./owa-calendar-source')
+    const raw = await fetchOwaCalendarView(timeMin, timeMax)
+    const events = owaToSourceEvents(raw).map((e) => ({ ...e, sig: signature(e) }))
+    return { events, label: 'Outlook Web session' }
+  }
+
+  if (BRIDGE_SOURCE !== 'eventkit') {
+    throw new Error(`unknown OUTLOOK_BRIDGE_SOURCE "${BRIDGE_SOURCE}" (expected "owa" or "eventkit")`)
+  }
+
+  if (process.platform !== 'darwin') {
+    throw new Error('the eventkit source only runs on macOS; use OUTLOOK_BRIDGE_SOURCE=owa')
+  }
+
+  const raw = await runHelper(timeMin, timeMax)
+  assertSourceCalendarPresent(raw, SOURCE_CALENDAR_ID)
+  const label = SOURCE_CALENDAR_ID
+    ? `EventKit calendar id ${SOURCE_CALENDAR_ID}`
+    : `EventKit calendar "${SOURCE_CALENDAR}"`
+  return { events: toSourceEvents(raw), label }
 }
 
 /** All-day: Google needs date (YYYY-MM-DD) with an exclusive end date. */
@@ -476,8 +546,20 @@ async function listDragontailEvents(
 }
 
 async function main(): Promise<void> {
-  if (process.platform !== 'darwin') {
-    throw new Error('Outlook bridge only runs on macOS (EventKit required)')
+  if (SOURCE_ONLY) {
+    const now = new Date()
+    const { events, label } = await loadSourceEvents(
+      new Date(now.getTime() - DAYS_BACK * 86400000),
+      new Date(now.getTime() + DAYS_FWD * 86400000),
+    )
+    const blocklist = parseBlocklist(process.env.OUTLOOK_BRIDGE_TITLE_BLOCKLIST)
+    const kept = events.filter((e) => !isBlockedTitle(e.title, blocklist))
+    log(`source: ${kept.length} events via ${label} (${events.length - kept.length} blocked by title)`)
+    for (const e of kept.slice(0, 20)) {
+      log(`  ${e.allDay ? e.start.slice(0, 10) : e.start} — ${e.title}`)
+    }
+    if (kept.length > 20) log(`  … ${kept.length - 20} more`)
+    return
   }
 
   const connections = await listGoogleConnections()
@@ -496,8 +578,7 @@ async function main(): Promise<void> {
   const timeMin = new Date(now.getTime() - DAYS_BACK * 86400000)
   const timeMax = new Date(now.getTime() + DAYS_FWD * 86400000)
 
-  const raw = await runHelper(timeMin, timeMax)
-  const allSources = toSourceEvents(raw)
+  const { events: allSources, label: sourceLabel } = await loadSourceEvents(timeMin, timeMax)
   const blocklist = parseBlocklist(process.env.OUTLOOK_BRIDGE_TITLE_BLOCKLIST)
   const sources = allSources.filter((s) => !isBlockedTitle(s.title, blocklist))
   const blocked = allSources.length - sources.length
@@ -510,7 +591,7 @@ async function main(): Promise<void> {
     0,
   )
   log(
-    `source: ${sources.length} Outlook events (calendar "${SOURCE_CALENDAR}"), ` +
+    `source: ${sources.length} Outlook events (via ${sourceLabel}), ` +
     `${blocked} blocked by title, ` +
     `${attendeesWithEmail} attendees with email, ${attendeesSkipped} name-only`,
   )

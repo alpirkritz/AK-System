@@ -52,5 +52,9 @@
   "devDependencies": {
     "playwright": "^1.58.2",
     "tsx": "^4.19.2"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^5.5.0",
+    "node-ews": "^3.5.0"
   }
 }

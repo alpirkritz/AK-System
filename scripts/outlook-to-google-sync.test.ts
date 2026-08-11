@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AK_SOURCE,
   ATTENDEES_CLEARED_VERSION,
+  assertSourceCalendarPresent,
   eventBody,
   findDuplicateBridgeCopies,
   googleEventMatchFields,
@@ -17,6 +18,25 @@ import {
   type GoogleEvent,
   type SourceEvent,
 } from './outlook-to-google-sync'
+
+type RawEvent = Parameters<typeof toSourceEvents>[0][number]
+
+function makeRaw(overrides: Partial<RawEvent> = {}): RawEvent {
+  return {
+    id: 'x',
+    title: 'Meet',
+    start: '2026-07-06T14:00:00+03:00',
+    end: '2026-07-06T15:00:00+03:00',
+    allDay: false,
+    calendar: 'Calendar',
+    calendarId: 'c1',
+    calSource: 'Exchange',
+    calType: 2,
+    status: 'confirmed',
+    attendees: [],
+    ...overrides,
+  }
+}
 
 function makeSource(overrides: Partial<SourceEvent> = {}): SourceEvent {
   const base = {
@@ -116,24 +136,66 @@ describe('eventBody', () => {
 describe('toSourceEvents', () => {
   it('parses attendees from raw helper output', () => {
     const events = toSourceEvents([
-      {
-        id: 'x',
-        title: 'Meet',
-        start: '2026-07-06T14:00:00+03:00',
-        end: '2026-07-06T15:00:00+03:00',
-        allDay: false,
-        calendar: 'Calendar',
-        calendarId: 'c1',
-        calSource: 'Exchange',
-        calType: 2,
-        status: 'confirmed',
-        attendees: [{ email: 'a@x.com', name: 'A', responseStatus: 'tentative' }],
-      },
+      makeRaw({ attendees: [{ email: 'a@x.com', name: 'A', responseStatus: 'tentative' }] }),
     ])
     expect(events).toHaveLength(1)
     expect(events[0].attendees).toEqual([
       { email: 'a@x.com', name: 'A', responseStatus: 'tentative' },
     ])
+  })
+
+  it('picks one of two same-named Exchange calendars by id', () => {
+    const raw = [
+      makeRaw({ title: 'Yum meeting', calendar: 'Calendar', calendarId: 'yum-cal' }),
+      makeRaw({ title: 'Pizza Hut meeting', calendar: 'Calendar', calendarId: 'ph-cal' }),
+    ]
+    const events = toSourceEvents(raw, { calendarId: 'ph-cal' })
+    expect(events.map((e) => e.title)).toEqual(['Pizza Hut meeting'])
+  })
+
+  it('matches by name when no calendar id is given', () => {
+    const raw = [
+      makeRaw({ title: 'Work', calendar: 'Calendar', calendarId: 'any-id' }),
+      makeRaw({ title: 'Holiday', calendar: 'United States holidays', calendarId: 'hol-id' }),
+    ]
+    const events = toSourceEvents(raw, { calendar: 'Calendar', calendarId: null })
+    expect(events.map((e) => e.title)).toEqual(['Work'])
+  })
+
+  it('ignores the calendar name once an id is set', () => {
+    const raw = [makeRaw({ title: 'Renamed', calendar: 'Alpir Kritzler', calendarId: 'ph-cal' })]
+    expect(toSourceEvents(raw, { calendar: 'Calendar', calendarId: 'ph-cal' })).toHaveLength(1)
+  })
+
+  it('still skips non-Exchange sources when filtering by id', () => {
+    const raw = [makeRaw({ calSource: 'Google', calendarId: 'ph-cal' })]
+    expect(toSourceEvents(raw, { calendarId: 'ph-cal' })).toEqual([])
+  })
+})
+
+describe('assertSourceCalendarPresent', () => {
+  it('does nothing when no calendar id is configured', () => {
+    expect(() => assertSourceCalendarPresent([], null)).not.toThrow()
+  })
+
+  it('passes when the configured id is present in the window', () => {
+    const raw = [makeRaw({ calendarId: 'ph-cal' })]
+    expect(() => assertSourceCalendarPresent(raw, 'ph-cal')).not.toThrow()
+  })
+
+  it('throws and lists the Exchange calendars it did see', () => {
+    const raw = [
+      makeRaw({ calendar: 'Calendar', calendarId: 'yum-cal' }),
+      makeRaw({ calendar: 'Birthdays', calendarId: 'g-cal', calSource: 'Google' }),
+    ]
+    expect(() => assertSourceCalendarPresent(raw, 'typo-cal')).toThrow(/typo-cal/)
+    expect(() => assertSourceCalendarPresent(raw, 'typo-cal')).toThrow(/"Calendar" \[yum-cal\]/)
+    // Google calendars are irrelevant to the bridge and must not be suggested.
+    expect(() => assertSourceCalendarPresent(raw, 'typo-cal')).not.toThrow(/g-cal/)
+  })
+
+  it('throws when the helper returned nothing at all', () => {
+    expect(() => assertSourceCalendarPresent([], 'ph-cal')).toThrow(/none/)
   })
 })
 

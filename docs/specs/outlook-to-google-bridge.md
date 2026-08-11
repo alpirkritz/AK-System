@@ -87,8 +87,39 @@ local token.
 - `DRAGONTAIL_GCAL_ID` = `bfa8306ecf5f05d42d22b2349ddbec44d5bd4746dc12940d79e8b3e235add13b@group.calendar.google.com`
 - `OUTLOOK_BRIDGE_ACCOUNT` = `alpirkritz@gmail.com`
 - `OUTLOOK_SOURCE_CALENDAR` = `Calendar`
+- `OUTLOOK_SOURCE_CALENDAR_ID` (optional) = EventKit `calendarIdentifier` of the source calendar. Takes precedence over `OUTLOOK_SOURCE_CALENDAR` — see "Choosing the source calendar" below.
 - `OUTLOOK_BRIDGE_DAYS_BACK` = `7`, `OUTLOOK_BRIDGE_DAYS_FWD` = `60`
 - `OUTLOOK_BRIDGE_TITLE_BLOCKLIST` (optional) = comma-separated, case-insensitive title substrings that are never mirrored — see `docs/specs/outlook-bridge-title-blocklist.md`. Must be quoted in `.env.local` because the runner `source`s that file and the values contain spaces.
+
+## Choosing the source calendar
+
+Matching by calendar *name* is ambiguous once more than one Exchange account is added to
+macOS: each account exposes its primary calendar as `Calendar`, so `OUTLOOK_SOURCE_CALENDAR`
+cannot say which one to mirror. `OUTLOOK_SOURCE_CALENDAR_ID` resolves this by matching the
+EventKit `calendarIdentifier`, which is unique per calendar. When it is set, the name is ignored.
+
+The bridge only sees Exchange accounts registered in **System Settings > Internet Accounts**.
+Outlook for Mac does not expose its own calendars to EventKit, so adding a mailbox to Outlook
+alone is not enough — it has to be added as a macOS Exchange account with Calendars enabled.
+
+List the candidate calendars (the helper reports events, so a calendar with no events in the
+window will not appear):
+
+```bash
+./packages/api/src/services/calendar-helper/calendar-helper \
+  --start 2026-08-01T00:00:00+03:00 --end 2026-08-20T00:00:00+03:00 \
+  | jq -r 'group_by(.calendarId)[] | "\(length) events | \(.[0].calSource) | \(.[0].calendar) | \(.[0].calendarId)"'
+```
+
+Then set `OUTLOOK_SOURCE_CALENDAR_ID` in `apps/web/.env.local` and re-run
+`bash scripts/install-outlook-bridge.sh` so launchd picks up the new value.
+
+**Switching source calendars is destructive by design.** Tagged copies whose `akSourceUid`
+is absent from the new source are deleted, so the previous account's mirrored events are
+removed from Dragontail on the first run — which is what "stop syncing that account" means.
+Run `pnpm exec tsx scripts/outlook-to-google-sync.ts --dry-run` first to see the counts.
+As a safety rail, `assertSourceCalendarPresent` aborts the run if the configured id matches
+no event at all, so a typo cannot empty Dragontail of every mirrored copy.
 
 ## One-time setup
 
