@@ -217,32 +217,113 @@ export type MobileNotificationRoute =
   | '/tasks'
   | '/meetings'
   | '/reading-list'
-  | '/settings'
+  | '/account'
+  | '/more'
+  | '/agents'
+  | '/projects'
+  | '/calendar'
+  | '/finance'
+  | '/memory'
+  | '/updates'
+  | '/settings/notifications'
+  | '/settings/dashboard'
+  | '/settings/developer'
 
 export type MobileNotificationTarget = {
   pathname: MobileNotificationRoute
   /** Chat message to scroll to, from a `/chat?message=<id>` link. */
   message?: string
+  /** Specialist agent id from `/chat?agent=<id>`. */
+  agent?: string
+  /** Meeting id from `/meetings?focus=<id>` or `/meeting/<id>`. */
+  focus?: string
 }
 
 /**
  * Map a web notification URL onto the mobile screen that shows the same thing.
- * Web-only destinations (agents, finance, projects) fall back to home rather
- * than stranding the user on an unrelated tab.
+ * Every new Stack/tab route must get a branch here.
  */
 export function mobileRouteForNotificationUrl(url: string): MobileNotificationTarget {
   const [rawPath = '', query = ''] = url.trim().split('?')
   const path = rawPath.replace(/\/+$/, '').toLowerCase()
-  const message = query ? new URLSearchParams(query).get('message')?.trim() || undefined : undefined
+  const params = query ? new URLSearchParams(query) : null
+  const message = params?.get('message')?.trim() || undefined
+  const agent = params?.get('agent')?.trim() || undefined
+  const focus = params?.get('focus')?.trim() || undefined
 
-  if (path === '/chat') return { pathname: '/chat', message }
+  if (path === '/chat' || path.startsWith('/agents/chat')) {
+    return { pathname: '/chat', message, agent }
+  }
+  if (path.startsWith('/agents')) return { pathname: '/agents' }
   if (path.startsWith('/people')) return { pathname: '/people' }
   if (path.startsWith('/tasks')) return { pathname: '/tasks' }
-  if (path.startsWith('/meetings')) return { pathname: '/meetings' }
+  if (path.match(/^\/meeting\/[^/]+/)) {
+    return { pathname: '/meetings', focus: path.split('/')[2] }
+  }
+  if (path.startsWith('/meetings')) return { pathname: '/meetings', focus }
   if (path.startsWith('/reading-list')) return { pathname: '/reading-list' }
-  if (path.startsWith('/settings')) return { pathname: '/settings' }
+  if (path.startsWith('/projects')) return { pathname: '/projects' }
+  if (path.startsWith('/calendar')) return { pathname: '/calendar' }
+  if (path.startsWith('/finance')) return { pathname: '/finance' }
+  if (path.startsWith('/memory')) return { pathname: '/memory' }
+  if (path.startsWith('/updates')) return { pathname: '/updates' }
+  if (path.startsWith('/settings/notifications')) return { pathname: '/settings/notifications' }
+  if (path.startsWith('/settings/dashboard')) return { pathname: '/settings/dashboard' }
+  if (path.startsWith('/settings/developer')) return { pathname: '/settings/developer' }
+  if (path.startsWith('/settings')) return { pathname: '/more' }
+  if (path.startsWith('/account')) return { pathname: '/account' }
   if (path === '' || path === '/') return { pathname: '/' }
   return { pathname: '/' }
+}
+
+export type AgentSummary = {
+  id: string
+  name: string
+  role: string
+  defaultName?: string
+}
+
+export async function fetchAgents(
+  token: string,
+): Promise<{ agents: AgentSummary[]; engine: string }> {
+  const res = await apiFetch('/api/agents', { token })
+  const data = (await res.json()) as {
+    agents?: AgentSummary[]
+    engine?: string
+    error?: string
+  }
+  if (!res.ok) throw new ApiError(data.error ?? 'Failed to list agents', res.status)
+  return { agents: data.agents ?? [], engine: data.engine ?? 'gemini' }
+}
+
+export async function fetchAgentHistory(token: string, agentId: string): Promise<ChatMessage[]> {
+  const res = await apiFetch(`/api/agents/history?agentId=${encodeURIComponent(agentId)}`, {
+    token,
+  })
+  const data = (await res.json()) as { messages?: ChatMessage[]; error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? 'Failed to load agent history', res.status)
+  return data.messages ?? []
+}
+
+export async function sendAgentMessage(
+  token: string,
+  agentId: string,
+  message: string,
+): Promise<{ assistantMessage: string; engine: string }> {
+  const res = await apiFetch('/api/agents/chat', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ agentId, message }),
+  })
+  const data = (await res.json()) as {
+    assistantMessage?: string
+    engine?: string
+    error?: string
+  }
+  if (!res.ok || !data.assistantMessage) {
+    throw new ApiError(data.error ?? 'Agent chat failed', res.status)
+  }
+  return { assistantMessage: data.assistantMessage, engine: data.engine ?? 'gemini' }
 }
 
 export async function fetchNotifications(

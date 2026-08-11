@@ -1376,3 +1376,34 @@ For end-of-day rollups, Hugo may append a summary entry:
 - **Verification:** `tsc --noEmit` clean. Also ran `expo export --platform android` (1713 modules, exit 0) — worth doing on any route move, since tsc alone would not catch a Metro resolution failure on the relocated file. Net −255 lines across the four screens. `pnpm -r run lint` still fails on `apps/web` for the known reason logged 2026-08-05 (no ESLint config → `next lint` prompts interactively); unrelated to this change.
 - **Performance Notes:** Four visual deltas are intentional but unverified on hardware — KPI tiles now centered at 22pt (were right-aligned 26pt), section titles 17/700 (were 16/600), people rows became cards instead of hairline rows, card radius 14 vs 12. Each is a one-line override on the shared component if it reads wrong on the Fold-7. One design catch during review: `more.tsx` initially rendered a `SectionHeader title="עוד"` under a tab header already titled "עוד" — removed, and the spec corrected to match rather than left drifting. Handoff for waves A–E is written into the report: add the Stack screen, append one `ENTRIES` line, and extend `MobileNotificationRoute` *plus* its mapper branch, or the wave's pushes silently fall back to `/`.
 - **Compliance:** N/A (apps/packages engineering, not ABC workspace).
+
+---
+
+## 2026-08-11 — Dev Pipeline — mobile-full-parity
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — PM → UI → Dev → Tests → QA → Reviewer
+**Status:** Completed
+
+### Stand-up
+- **Goal:** IA restructure + full mobile parity waves + agent picker
+- **Context:** User approved master plan ARO Mobile Full Parity
+
+### Actions Taken
+1. Wrote specs `mobile-full-parity.md`, `mobile-information-architecture.md`; UX pre-review
+2. Backend: `dashboard_prefs`, `settings.dashboard.*`, auth on `/api/agents/**`
+3. Shared mobile components + unread provider + More hub + settings split
+4. Chat AgentPickerSheet dual-path; agents config; meetings/people/projects/calendar/finance/memory/updates
+5. Vitest for dashboard prefs; mobile tsc green; reports written
+
+### Outputs
+- `docs/specs/mobile-full-parity.md`
+- `reports/mobile-full-parity.md`
+- `reports/qa-mobile-full-parity.md`
+- `reports/mobile-information-architecture.md`
+
+### Compliance
+- [x] Engineering work under apps/packages — C_Core N/A for product code
+- [x] No PII exposed
+
+### Performance Improvements
+- Parallel subagents for feature waves after Phase 0 foundation

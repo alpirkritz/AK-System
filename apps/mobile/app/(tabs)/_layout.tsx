@@ -1,5 +1,8 @@
 import { Tabs, useRouter, type Href } from 'expo-router'
 import { Pressable, Text, StyleSheet, View, type ColorValue } from 'react-native'
+import { Avatar } from '../../components/Avatar'
+import { useAuth } from '../../lib/auth'
+import { useUnread } from '../../lib/unread'
 import { colors } from '../../lib/theme'
 
 function TabIcon({ icon, color }: { icon: string; color: ColorValue }) {
@@ -8,6 +11,9 @@ function TabIcon({ icon, color }: { icon: string; color: ColorValue }) {
 
 function HeaderButtons() {
   const router = useRouter()
+  const { count } = useUnread()
+  const badge = count > 99 ? '99+' : count > 0 ? String(count) : null
+
   return (
     <View style={styles.headerGroup}>
       <Pressable
@@ -24,9 +30,14 @@ function HeaderButtons() {
         hitSlop={10}
         style={styles.headerBtn}
         accessibilityRole="button"
-        accessibilityLabel="התראות"
+        accessibilityLabel={badge ? `התראות, ${badge} לא נקראו` : 'התראות'}
       >
         <Text style={styles.headerIcon}>🔔</Text>
+        {badge ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badge}</Text>
+          </View>
+        ) : null}
       </Pressable>
     </View>
   )
@@ -34,6 +45,8 @@ function HeaderButtons() {
 
 export default function TabsLayout() {
   const router = useRouter()
+  const { user } = useAuth()
+
   return (
     <Tabs
       screenOptions={{
@@ -50,13 +63,12 @@ export default function TabsLayout() {
         headerTitleStyle: { fontWeight: '600' },
         headerRight: () => <HeaderButtons />,
         headerLeft: () => (
-          <Pressable
-            onPress={() => router.push('/settings')}
-            hitSlop={10}
-            style={styles.headerBtn}
-          >
-            <Text style={styles.headerIcon}>⚙️</Text>
-          </Pressable>
+          <View style={styles.headerLeft}>
+            <Avatar
+              name={user?.name ?? user?.email}
+              onPress={() => router.push('/account' as Href)}
+            />
+          </View>
         ),
       }}
     >
@@ -85,19 +97,19 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="more"
-        options={{
-          title: 'עוד',
-          tabBarLabel: 'עוד',
-          tabBarIcon: ({ color }) => <TabIcon icon="☰" color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="chat"
         options={{
           title: 'עוזר',
           tabBarLabel: 'עוזר',
           tabBarIcon: ({ color }) => <TabIcon icon="✨" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'עוד',
+          tabBarLabel: 'עוד',
+          tabBarIcon: ({ color }) => <TabIcon icon="☰" color={color} />,
         }}
       />
     </Tabs>
@@ -106,6 +118,25 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   headerGroup: { flexDirection: 'row-reverse', alignItems: 'center' },
-  headerBtn: { paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  headerLeft: { paddingHorizontal: 8 },
+  headerBtn: {
+    paddingHorizontal: 12,
+    minHeight: 44,
+    justifyContent: 'center',
+    position: 'relative',
+  },
   headerIcon: { fontSize: 20 },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    left: 4,
+    backgroundColor: colors.coral,
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 })

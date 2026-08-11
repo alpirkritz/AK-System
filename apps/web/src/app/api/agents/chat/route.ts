@@ -8,11 +8,17 @@ import {
 import { runAgentForUser } from '@/lib/agent-runner'
 import { getAgentEngine } from '@/lib/abc-agents'
 import { runAgentChat } from '@/lib/cursor-agent-engine'
+import { clientChannel, getApiSession } from '@/lib/api-session'
 
 export const maxDuration = 300
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const session = await getApiSession(request)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = (await request.json()) as { agentId?: string; message?: string }
     const agentId = body.agentId?.trim()
     const message = body.message?.trim()
@@ -30,6 +36,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await saveAgentMessage(agentId, 'user', message)
 
     const engine = getAgentEngine()
+    const channel = clientChannel(request)
     let assistantText: string
     let cursorAgentId: string | undefined
 
@@ -38,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         agentId,
         message,
         history,
-        channel: 'web',
+        channel,
       })
       assistantText = result.text
     } else {

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import {
   getAgentInstructions,
   getAgentWorkflowContent,
@@ -6,16 +6,21 @@ import {
   saveAgentInstructions,
   saveAgentWorkflowContent,
 } from '@/lib/abc-agents'
+import { getApiSession } from '@/lib/api-session'
 
 interface RouteContext {
   params: Promise<{ id: string }>
 }
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
   try {
+    const session = await getApiSession(request)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { id } = await context.params
     const content = getAgentInstructions(id)
     const workflowFile = getAgentWorkflowFile(id)
@@ -35,10 +40,14 @@ export async function GET(
 }
 
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
   try {
+    const session = await getApiSession(request)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { id } = await context.params
     const body = (await request.json()) as { content?: unknown; target?: unknown }
     if (typeof body.content !== 'string') {

@@ -1,17 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterChips } from '../../components/FilterChips'
 import { useAuth } from '../../lib/auth'
-import { fetchMeetings, type MobileMeeting } from '../../lib/data'
+import {
+  createMeeting,
+  fetchMeetings,
+  syncMeetingsFromCalendar,
+  type MobileMeeting,
+} from '../../lib/data'
 import { colors } from '../../lib/theme'
 
 function isPast(date: string, time: string): boolean {
@@ -21,13 +29,28 @@ function isPast(date: string, time: string): boolean {
   return dt < new Date()
 }
 
+function todayDateInput(): string {
+  const d = new Date()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
 export default function MeetingsScreen() {
   const { token } = useAuth()
+  const router = useRouter()
+  const insets = useSafeAreaInsets()
+  const { focus } = useLocalSearchParams<{ focus?: string }>()
+  const listRef = useRef<FlatList<MobileMeeting>>(null)
+
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [recurringOnly, setRecurringOnly] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -47,7 +70,7 @@ export default function MeetingsScreen() {
   )
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   const upcoming = useMemo(() => {
@@ -61,6 +84,50 @@ export default function MeetingsScreen() {
       )
   }, [meetings, recurringOnly])
 
+  useEffect(() => {
+    if (!focus || upcoming.length === 0) return
+    const idx = upcoming.findIndex((m) => m.id === focus)
+    if (idx >= 0) {
+      setTimeout(() => {
+        listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 })
+      }, 300)
+    }
+  }, [focus, upcoming])
+
+  const onSync = async () => {
+    if (!token || syncing) return
+    setSyncing(true)
+    setSyncMessage(null)
+    setError(null)
+    try {
+      const res = await syncMeetingsFromCalendar(token)
+      setSyncMessage(`סונכרן: ${res.created} חדשות · ${res.updated} עודכנו · ${res.deleted} נמחקו`)
+      await load('refresh')
+    } catch {
+      setSyncMessage('הסנכרון נכשל')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const onCreate = async () => {
+    if (!token || creating) return
+    setCreating(true)
+    setError(null)
+    try {
+      const meeting = await createMeeting(token, {
+        title: 'פגישה חדשה',
+        date: todayDateInput(),
+        time: '09:00',
+      })
+      router.push(`/meeting/${meeting.id}` as Href)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'יצירה נכשלה')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -71,6 +138,21 @@ export default function MeetingsScreen() {
 
   return (
     <View style={styles.flex}>
+      <View style={styles.actionRow}>
+        <Pressable
+          onPress={() => void onSync()}
+          disabled={syncing}
+          accessibilityRole="button"
+          accessibilityLabel="סנכרן מיומן"
+          style={[styles.syncBtn, syncing && styles.syncBtnDisabled]}
+        >
+          {syncing ? <ActivityIndicator size="small" color={colors.accent} /> : null}
+          <Text style={styles.syncBtnText}>{syncing ? 'מסנכרן…' : 'סנכרן מיומן'}</Text>
+        </Pressable>
+      </View>
+
+      {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
+
       <FilterChips
         items={[
           { key: 'all', label: 'הכל' },
@@ -83,37 +165,60 @@ export default function MeetingsScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <FlatList
+        ref={listRef}
         data={upcoming}
         keyExtractor={(m) => m.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: 88 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
         }
+        onScrollToIndexFailed={(info) => {
+          setTimeout(() => {
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true })
+          }, 100)
+        }}
         ListEmptyComponent={
           <EmptyState
             icon="📅"
             text={recurringOnly ? 'אין פגישות חוזרות' : 'אין פגישות קרובות'}
           />
         }
-        renderItem={({ item }) => (
-          <Card style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.title}>{item.title}</Text>
-              {item.recurring ? (
-                <View style={styles.recurringBadge}>
-                  <Text style={styles.recurringText}>↻</Text>
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.meta}>
-              {new Date(item.date + 'T00:00:00').toLocaleDateString('he-IL')} · {item.time}
-            </Text>
-            {(item.peopleIds?.length ?? 0) > 0 && (
-              <Text style={styles.people}>{item.peopleIds!.length} משתתפים</Text>
-            )}
-          </Card>
-        )}
+        renderItem={({ item }) => {
+          const highlighted = focus === item.id
+          return (
+            <Card
+              style={[styles.card, highlighted && styles.cardFocused]}
+              onPress={() => router.push(`/meeting/${item.id}` as Href)}
+              accessibilityLabel={`פגישה ${item.title}`}
+            >
+              <View style={styles.cardHeader}>
+                <Text style={styles.title}>{item.title}</Text>
+                {item.recurring ? (
+                  <View style={styles.recurringBadge}>
+                    <Text style={styles.recurringText}>↻</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.meta}>
+                {new Date(item.date + 'T00:00:00').toLocaleDateString('he-IL')} · {item.time}
+              </Text>
+              {(item.peopleIds?.length ?? 0) > 0 && (
+                <Text style={styles.people}>{item.peopleIds!.length} משתתפים</Text>
+              )}
+            </Card>
+          )
+        }}
       />
+
+      <Pressable
+        style={[styles.fab, { bottom: 16 + insets.bottom }]}
+        onPress={() => void onCreate()}
+        disabled={creating}
+        accessibilityRole="button"
+        accessibilityLabel="הוסף פגישה"
+      >
+        <Text style={styles.fabPlus}>{creating ? '…' : '+'}</Text>
+      </Pressable>
     </View>
   )
 }
@@ -121,8 +226,31 @@ export default function MeetingsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  list: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
+  actionRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12 },
+  syncBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  syncBtnDisabled: { opacity: 0.6 },
+  syncBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600', writingDirection: 'rtl' },
+  notice: {
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  list: { paddingHorizontal: 16, flexGrow: 1 },
   card: { padding: 16, marginBottom: 10 },
+  cardFocused: { borderColor: colors.accent, borderWidth: 2 },
   cardHeader: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -142,4 +270,20 @@ const styles = StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 13, textAlign: 'right', marginTop: 6 },
   people: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
+  fab: {
+    position: 'absolute',
+    left: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  fabPlus: { color: colors.bg, fontSize: 32, fontWeight: '400', lineHeight: 34 },
 })

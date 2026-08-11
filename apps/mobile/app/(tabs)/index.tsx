@@ -1,7 +1,8 @@
-import { useRouter } from 'expo-router'
+import { useRouter, type Href } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,9 +15,11 @@ import { KpiCard } from '../../components/KpiCard'
 import { SectionHeader } from '../../components/SectionHeader'
 import { useAuth } from '../../lib/auth'
 import {
+  fetchDashboardPrefs,
   fetchMeetings,
-  fetchPeople,
   fetchTasks,
+  toggleTaskDone,
+  type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
 } from '../../lib/data'
@@ -28,6 +31,37 @@ function greeting(hour: number): string {
   if (hour < 17) return 'צהריים טובים'
   if (hour < 21) return 'ערב טוב'
   return 'לילה טוב'
+}
+
+function toDateKey(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+function todayKey(): string {
+  return toDateKey(new Date())
+}
+
+function endDateForWindow(window: MobileDashboardPrefs['meetingWindow']): string {
+  const d = new Date()
+  if (window === 'today') return todayKey()
+  if (window === '3days') {
+    d.setDate(d.getDate() + 2)
+    return toDateKey(d)
+  }
+  d.setDate(d.getDate() + 6)
+  return toDateKey(d)
+}
+
+function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): string {
+  if (window === 'today') return 'פגישות היום'
+  if (window === '3days') return 'פגישות 3 ימים'
+  return 'פגישות השבוע'
+}
+
+function taskSectionTitle(window: MobileDashboardPrefs['taskWindow']): string {
+  return window === 'today' ? 'משימות להיום' : 'משימות פתוחות'
 }
 
 function isPast(date: string, time: string): boolean {
@@ -42,10 +76,14 @@ export default function DashboardScreen() {
   const router = useRouter()
   const [tasks, setTasks] = useState<MobileTask[]>([])
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
-  const [peopleCount, setPeopleCount] = useState(0)
+  const [prefs, setPrefs] = useState<MobileDashboardPrefs>({
+    meetingWindow: 'today',
+    taskWindow: 'today',
+  })
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -53,14 +91,14 @@ export default function DashboardScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [t, m, p] = await Promise.all([
+        const [p, t, m] = await Promise.all([
+          fetchDashboardPrefs(token),
           fetchTasks(token),
           fetchMeetings(token),
-          fetchPeople(token),
         ])
+        setPrefs(p)
         setTasks(t)
         setMeetings(m)
-        setPeopleCount(p.length)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
       } finally {
@@ -72,21 +110,49 @@ export default function DashboardScreen() {
   )
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
-  const upcoming = useMemo(
+
+  const overdueCount = useMemo(
     () =>
-      meetings
-        .filter((m) => !isPast(m.date, m.time))
-        .sort(
-          (a, b) =>
-            new Date(a.date + 'T' + (a.time || '00:00')).getTime() -
-            new Date(b.date + 'T' + (b.time || '00:00')).getTime(),
-        ),
-    [meetings],
+      openTasks.filter((t) => t.dueDate && t.dueDate < todayKey()).length,
+    [openTasks],
   )
+
+  const windowMeetings = useMemo(() => {
+    const start = todayKey()
+    const end = endDateForWindow(prefs.meetingWindow)
+    return meetings
+      .filter((m) => m.date >= start && m.date <= end && !isPast(m.date, m.time))
+      .sort(
+        (a, b) =>
+          new Date(a.date + 'T' + (a.time || '00:00')).getTime() -
+          new Date(b.date + 'T' + (b.time || '00:00')).getTime(),
+      )
+  }, [meetings, prefs.meetingWindow])
+
+  const windowTasks = useMemo(() => {
+    if (prefs.taskWindow === 'all') return openTasks
+    const today = todayKey()
+    return openTasks.filter(
+      (t) => !t.dueDate || t.dueDate <= today,
+    )
+  }, [openTasks, prefs.taskWindow])
+
+  const onToggleTask = async (task: MobileTask) => {
+    if (!token || togglingId) return
+    setTogglingId(task.id)
+    try {
+      const updated = await toggleTaskDone(token, task.id)
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'עדכון נכשל')
+    } finally {
+      setTogglingId(null)
+    }
+  }
 
   if (loading) {
     return (
@@ -114,32 +180,32 @@ export default function DashboardScreen() {
           value={openTasks.length}
           label="משימות פתוחות"
           color={colors.coral}
-          onPress={() => router.push('/tasks')}
+          onPress={() => router.push('/tasks' as Href)}
         />
         <KpiCard
-          value={upcoming.length}
-          label="פגישות קרובות"
+          value={windowMeetings.length}
+          label="פגישות בחלון"
           color={colors.info}
-          onPress={() => router.push('/meetings')}
+          onPress={() => router.push('/meetings' as Href)}
         />
         <KpiCard
-          value={peopleCount}
-          label="אנשי קשר"
+          value={overdueCount}
+          label="באיחור"
           color={colors.accent}
-          onPress={() => router.push('/people')}
+          onPress={() => router.push('/tasks' as Href)}
         />
       </View>
 
       <View style={styles.section}>
-        <SectionHeader title="פגישות קרובות" style={styles.sectionHeader} />
-        {upcoming.length === 0 ? (
-          <EmptyState text="אין פגישות קרובות" compact />
+        <SectionHeader title={meetingSectionTitle(prefs.meetingWindow)} style={styles.sectionHeader} />
+        {windowMeetings.length === 0 ? (
+          <EmptyState text="אין פגישות בחלון" compact />
         ) : (
-          upcoming.slice(0, 4).map((m) => (
+          windowMeetings.slice(0, 6).map((m) => (
             <Card
               key={m.id}
               style={styles.item}
-              onPress={() => router.push('/meetings')}
+              onPress={() => router.push(`/meeting/${m.id}` as Href)}
               accessibilityLabel={`פגישה: ${m.title}`}
             >
               <Text style={styles.itemTitle}>{m.title}</Text>
@@ -152,18 +218,36 @@ export default function DashboardScreen() {
       </View>
 
       <View style={styles.section}>
-        <SectionHeader title="משימות פתוחות" style={styles.sectionHeader} />
-        {openTasks.length === 0 ? (
+        <SectionHeader title={taskSectionTitle(prefs.taskWindow)} style={styles.sectionHeader} />
+        {windowTasks.length === 0 ? (
           <EmptyState text="הכול נקי ✓" compact />
         ) : (
-          openTasks.slice(0, 5).map((t) => (
-            <Card
-              key={t.id}
-              style={styles.item}
-              onPress={() => router.push('/tasks')}
-              accessibilityLabel={`משימה: ${t.title}`}
-            >
-              <Text style={styles.itemTitle}>{t.title}</Text>
+          windowTasks.slice(0, 8).map((t) => (
+            <Card key={t.id} style={styles.item} accessibilityLabel={`משימה: ${t.title}`}>
+              <View style={styles.taskRow}>
+                <Pressable
+                  onPress={() => router.push(`/task/${t.id}` as Href)}
+                  style={styles.taskBody}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.itemTitle}>{t.title}</Text>
+                  {t.dueDate ? (
+                    <Text style={styles.itemMeta}>
+                      {t.dueDate < todayKey() ? 'באיחור · ' : ''}
+                      {new Date(t.dueDate + 'T00:00:00').toLocaleDateString('he-IL')}
+                    </Text>
+                  ) : null}
+                </Pressable>
+                <Pressable
+                  onPress={() => void onToggleTask(t)}
+                  disabled={togglingId === t.id}
+                  style={styles.checkBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="סמן כהושלם"
+                >
+                  <Text style={styles.checkIcon}>{togglingId === t.id ? '…' : '○'}</Text>
+                </Pressable>
+              </View>
             </Card>
           ))
         )}
@@ -176,7 +260,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
   content: { padding: 16, paddingBottom: 32 },
-  greeting: { color: colors.text, fontSize: 24, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl' },
+  greeting: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
   subGreeting: { color: colors.textMuted, fontSize: 14, textAlign: 'right', marginTop: 2 },
   kpiRow: { flexDirection: 'row-reverse', gap: 10, marginTop: 20 },
   section: { marginTop: 12 },
@@ -184,5 +274,14 @@ const styles = StyleSheet.create({
   item: { marginBottom: 8 },
   itemTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   itemMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
+  taskRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  taskBody: { flex: 1 },
+  checkBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkIcon: { color: colors.accent, fontSize: 22, fontWeight: '600' },
   error: { color: colors.error, textAlign: 'center', padding: 8, marginTop: 8, writingDirection: 'rtl' },
 })

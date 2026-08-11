@@ -15,6 +15,7 @@ import {
   setAgentDisplayName,
 } from '../services/agent-display-names'
 import { getBusinessProfile, setBusinessProfile } from '../services/business-profile'
+import { getDashboardPrefs, setDashboardPrefs } from '../services/dashboard-prefs'
 import { SALES_DOCUMENT_TYPES } from '@ak-system/types'
 
 const timeSchema = z.string().regex(/^\d{2}:\d{2}$/)
@@ -139,5 +140,18 @@ export const settingsRouter = router({
       const reset = await resetNotificationPreferences()
       return { reset }
     }),
+  }),
+
+  dashboard: router({
+    get: protectedProcedure.query(async () => getDashboardPrefs()),
+
+    set: protectedProcedure
+      .input(
+        z.object({
+          meetingWindow: z.enum(['today', '3days', 'week']).optional(),
+          taskWindow: z.enum(['today', 'all']).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => setDashboardPrefs(input)),
   }),
 })

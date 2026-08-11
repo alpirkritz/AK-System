@@ -23,6 +23,7 @@ import {
   notificationPreview,
 } from '../lib/api'
 import { parseNotificationBody } from '../lib/notification-format'
+import { useUnread } from '../lib/unread'
 import { useAuth } from '../lib/auth'
 import { colors } from '../lib/theme'
 
@@ -150,6 +151,8 @@ export default function NotificationsScreen() {
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bulkUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const { refresh: refreshUnread } = useUnread()
+
   const load = useCallback(async () => {
     if (!token) return
     setLoading(true)
@@ -157,12 +160,13 @@ export default function NotificationsScreen() {
     try {
       const data = await fetchNotifications(token)
       setItems(data.notifications)
+      void refreshUnread()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'טעינה נכשלה')
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, refreshUnread])
 
   useEffect(() => {
     load()

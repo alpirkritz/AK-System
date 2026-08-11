@@ -499,6 +499,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN agent_display_names TEXT',
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
   'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [

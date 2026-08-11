@@ -170,3 +170,34 @@ describe('settings notifications router', () => {
     expect(routing.agentId).toBeNull()
   })
 })
+
+describe('settings dashboard router', () => {
+  beforeEach(async () => {
+    await getDb().delete(userSettings)
+  })
+
+  it('get returns today/today defaults when unset', async () => {
+    const caller = await createTestCaller()
+    const res = await caller.settings.dashboard.get()
+    expect(res).toEqual({ meetingWindow: 'today', taskWindow: 'today' })
+  })
+
+  it('set persists meetingWindow and taskWindow', async () => {
+    const caller = await createTestCaller()
+    const saved = await caller.settings.dashboard.set({
+      meetingWindow: 'week',
+      taskWindow: 'all',
+    })
+    expect(saved).toEqual({ meetingWindow: 'week', taskWindow: 'all' })
+
+    const loaded = await caller.settings.dashboard.get()
+    expect(loaded).toEqual({ meetingWindow: 'week', taskWindow: 'all' })
+  })
+
+  it('set patches only provided fields', async () => {
+    const caller = await createTestCaller()
+    await caller.settings.dashboard.set({ meetingWindow: '3days', taskWindow: 'all' })
+    const patched = await caller.settings.dashboard.set({ meetingWindow: 'today' })
+    expect(patched).toEqual({ meetingWindow: 'today', taskWindow: 'all' })
+  })
+})

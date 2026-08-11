@@ -1,11 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native'
 import { useFocusEffect, useRouter, type Href } from 'expo-router'
@@ -19,6 +21,7 @@ import {
   fetchWorkspaces,
   syncTasksFromNotion,
   toggleTaskDone,
+  deleteTask,
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
@@ -45,6 +48,7 @@ export default function TasksScreen() {
   const [notionConfigured, setNotionConfigured] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
@@ -138,16 +142,41 @@ export default function TasksScreen() {
     }
   }
 
+  const onDelete = (task: MobileTask) => {
+    Alert.alert('מחיקת משימה', `למחוק את "${task.title}"?`, [
+      { text: 'ביטול', style: 'cancel' },
+      {
+        text: 'מחק',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            if (!token) return
+            const prev = tasks
+            setTasks((list) => list.filter((t) => t.id !== task.id))
+            try {
+              await deleteTask(token, task.id)
+            } catch {
+              setTasks(prev)
+              setError('מחיקה נכשלה')
+            }
+          })()
+        },
+      },
+    ])
+  }
+
   const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
     return tasks.filter((t) => {
       const st = effectiveStatus(t)
       if (filter === 'open' && (st === 'done' || st === 'cancelled')) return false
       if (filter === 'done' && st !== 'done') return false
       if (filter === 'cancelled' && st !== 'cancelled') return false
       if (workspaceId !== 'all' && t.workspaceId !== workspaceId) return false
+      if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
-  }, [tasks, filter, workspaceId])
+  }, [tasks, filter, workspaceId, search])
 
   const filters: FilterChipItem[] = [
     { key: 'open', label: 'פתוחות' },
@@ -188,6 +217,17 @@ export default function TasksScreen() {
       ) : null}
 
       {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
+
+      <View style={styles.searchWrap}>
+        <TextInput
+          style={styles.search}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="חיפוש משימה…"
+          placeholderTextColor={colors.textMuted}
+          textAlign="right"
+        />
+      </View>
 
       <FilterChips
         items={filters}
@@ -252,8 +292,10 @@ export default function TasksScreen() {
               <Pressable
                 style={styles.taskBody}
                 onPress={() => router.push(`/task/${item.id}` as Href)}
+                onLongPress={() => onDelete(item)}
                 accessibilityRole="button"
                 accessibilityLabel={`פרטי משימה: ${item.title}`}
+                accessibilityHint="לחיצה ארוכה למחיקה"
               >
                 <Text style={[styles.taskTitle, item.done && styles.taskTitleDone]}>
                   {item.title}
@@ -322,6 +364,17 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  searchWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4 },
+  search: {
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: colors.text,
+    fontSize: 15,
   },
   list: { paddingHorizontal: 16, flexGrow: 1 },
   taskRow: {

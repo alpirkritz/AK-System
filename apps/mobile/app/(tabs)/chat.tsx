@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -13,10 +13,21 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import {
+  AgentPickerSheet,
+  GENERAL_AGENT_ID,
+} from '../../components/AgentPickerSheet'
 import type { ChatMessage } from '../../lib/api'
-import { fetchChatHistory, mobileRouteForNotificationUrl, sendChatMessage } from '../../lib/api'
+import {
+  fetchAgentHistory,
+  fetchAgents,
+  fetchChatHistory,
+  sendAgentMessage,
+  sendChatMessage,
+} from '../../lib/api'
 import { useAuth } from '../../lib/auth'
-import { addNotificationResponseListener, syncPushToken } from '../../lib/notifications'
+import { syncPushToken } from '../../lib/notifications'
+import { SELECTED_AGENT_KEY, storage } from '../../lib/storage'
 import { colors, layout } from '../../lib/theme'
 
 type Row = ChatMessage | { id: string; role: 'typing'; content: string; createdAt: string }
@@ -24,13 +35,20 @@ type Row = ChatMessage | { id: string; role: 'typing'; content: string; createdA
 export default function ChatScreen() {
   const { token } = useAuth()
   const router = useRouter()
+  const navigation = useNavigation()
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Row>>(null)
-  const { message: messageParam } = useLocalSearchParams<{ message?: string }>()
-  // Honour a deep link once; afterwards the list resumes following new messages.
+  const { message: messageParam, agent: agentParam } = useLocalSearchParams<{
+    message?: string
+    agent?: string
+  }>()
   const deepLinkHandled = useRef<string | null>(null)
 
+  const [selectedId, setSelectedId] = useState(GENERAL_AGENT_ID)
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [engine, setEngine] = useState('gemini')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [messages, setMessages] = useState<Row[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(true)
@@ -39,23 +57,81 @@ export default function ChatScreen() {
   const [pushNotice, setPushNotice] = useState<string | null>(null)
 
   const contentWidth = Math.min(width - 24, layout.maxContentWidth)
+  const isGeneral = selectedId === GENERAL_AGENT_ID
+
+  const selectedName = isGeneral
+    ? 'עוזר כללי'
+    : (agents.find((a) => a.id === selectedId)?.name ?? 'סוכן')
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () =>
+        !isGeneral ? (
+          <Pressable
+            onPress={() => router.push(`/agent/${selectedId}` as Href)}
+            hitSlop={10}
+            style={styles.headerBtn}
+            accessibilityRole="button"
+            accessibilityLabel="הגדרות סוכן"
+          >
+            <Text style={styles.headerIcon}>⚙️</Text>
+          </Pressable>
+        ) : undefined,
+    })
+  }, [navigation, router, selectedId, isGeneral])
+
+  useEffect(() => {
+    if (!token) return
+    fetchAgents(token)
+      .then(({ agents: list, engine: eng }) => {
+        setAgents(list)
+        setEngine(eng)
+      })
+      .catch(() => {
+        // Agent list is optional for general chat.
+      })
+  }, [token])
+
+  useEffect(() => {
+    let cancelled = false
+    async function initSelection() {
+      if (agentParam?.trim()) {
+        setSelectedId(agentParam.trim())
+        await storage.setItem(SELECTED_AGENT_KEY, agentParam.trim())
+        return
+      }
+      const saved = await storage.getItem(SELECTED_AGENT_KEY)
+      if (!cancelled && saved) setSelectedId(saved)
+    }
+    void initSelection()
+    return () => {
+      cancelled = true
+    }
+  }, [agentParam])
+
+  const onSelectAgent = async (id: string) => {
+    setSelectedId(id)
+    await storage.setItem(SELECTED_AGENT_KEY, id)
+  }
 
   const loadHistory = useCallback(async () => {
     if (!token) return
     setLoading(true)
     setError(null)
     try {
-      const rows = await fetchChatHistory(token)
+      const rows = isGeneral
+        ? await fetchChatHistory(token)
+        : await fetchAgentHistory(token, selectedId)
       setMessages(rows)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'טעינת היסטוריה נכשלה')
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, selectedId, isGeneral])
 
   useEffect(() => {
-    loadHistory()
+    void loadHistory()
   }, [loadHistory])
 
   useEffect(() => {
@@ -70,22 +146,6 @@ export default function ChatScreen() {
       })
   }, [token])
 
-  useEffect(() => {
-    const sub = addNotificationResponseListener((url) => {
-      const target = mobileRouteForNotificationUrl(url)
-      router.push(
-        (target.message
-          ? { pathname: target.pathname, params: { message: target.message } }
-          : target.pathname) as Href,
-      )
-    })
-    return () => sub.remove()
-  }, [router])
-
-  /**
-   * Deep link target, or null once handled / when the message is not in history.
-   * Falling back to null keeps the normal scroll-to-end behaviour.
-   */
   const pendingDeepLinkIndex = (() => {
     if (!messageParam || deepLinkHandled.current === messageParam) return null
     const index = messages.findIndex((m) => m.id === messageParam)
@@ -119,16 +179,32 @@ export default function ChatScreen() {
       content: text,
       createdAt: new Date().toISOString(),
     }
-    setMessages((prev) => [...prev, optimistic, { id: 'typing', role: 'typing', content: '', createdAt: '' }])
+    setMessages((prev) => [
+      ...prev,
+      optimistic,
+      { id: 'typing', role: 'typing', content: '', createdAt: '' },
+    ])
 
     try {
-      const { assistantMessage } = await sendChatMessage(token, text)
-      const assistant: Row = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: assistantMessage,
-        createdAt: new Date().toISOString(),
-      }
+      const assistant: Row = isGeneral
+        ? await sendChatMessage(token, text).then(({ assistantMessage }) => ({
+            id: `assistant-${Date.now()}`,
+            role: 'assistant' as const,
+            content: assistantMessage,
+            createdAt: new Date().toISOString(),
+          }))
+        : await sendAgentMessage(token, selectedId, text).then(
+            ({ assistantMessage, engine: eng }) => {
+              setEngine(eng)
+              return {
+                id: `assistant-${Date.now()}`,
+                role: 'assistant' as const,
+                content: assistantMessage,
+                createdAt: new Date().toISOString(),
+              }
+            },
+          )
+
       setMessages((prev) => [...prev.filter((m) => m.role !== 'typing'), assistant])
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.role !== 'typing'))
@@ -173,12 +249,25 @@ export default function ChatScreen() {
       behavior="padding"
       keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
     >
+      <Pressable
+        style={styles.agentBar}
+        onPress={() => setPickerOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="בחר עוזר"
+      >
+        <Text style={styles.agentBarText}>
+          מדבר עם {selectedName} · {engine}
+        </Text>
+        <Text style={styles.agentBarChevron}>▾</Text>
+      </Pressable>
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
         </View>
       ) : (
         <FlatList
+          key={selectedId}
           ref={listRef}
           data={messages}
           keyExtractor={(item) => item.id}
@@ -189,7 +278,6 @@ export default function ChatScreen() {
           onContentSizeChange={settleScroll}
           onLayout={settleScroll}
           onScrollToIndexFailed={({ index }) => {
-            // Variable bubble heights mean the offset can be unknown on first pass.
             listRef.current?.scrollToOffset({ offset: index * 96, animated: false })
             setTimeout(() => {
               listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
@@ -201,7 +289,7 @@ export default function ChatScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {pushNotice ? (
-        <Pressable onPress={() => router.push('/settings')}>
+        <Pressable onPress={() => router.push('/settings/developer' as Href)}>
           <Text style={styles.pushNotice}>{pushNotice}</Text>
         </Pressable>
       ) : null}
@@ -211,7 +299,7 @@ export default function ChatScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="כתוב להוגו..."
+          placeholder={isGeneral ? 'כתוב להוגו...' : 'כתוב לסוכן...'}
           placeholderTextColor={colors.textMuted}
           multiline
           textAlign="right"
@@ -219,12 +307,20 @@ export default function ChatScreen() {
         />
         <Pressable
           style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={onSend}
+          onPress={() => void onSend()}
           disabled={!input.trim() || sending}
         >
           <Text style={styles.sendText}>שלח</Text>
         </Pressable>
       </View>
+
+      <AgentPickerSheet
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        agents={agents}
+        selectedId={selectedId}
+        onSelect={(id) => void onSelectAgent(id)}
+      />
     </KeyboardAvoidingView>
   )
 }
@@ -232,6 +328,28 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  headerBtn: { paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  headerIcon: { fontSize: 20 },
+  agentBar: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+    minHeight: 44,
+  },
+  agentBarText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    flex: 1,
+  },
+  agentBarChevron: { color: colors.textMuted, fontSize: 14, paddingHorizontal: 4 },
   list: {
     paddingHorizontal: 12,
     paddingTop: 12,
@@ -241,12 +359,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     flexDirection: 'row',
   },
-  rowUser: {
-    justifyContent: 'flex-end',
-  },
-  rowAssistant: {
-    justifyContent: 'flex-start',
-  },
+  rowUser: { justifyContent: 'flex-end' },
+  rowAssistant: { justifyContent: 'flex-start' },
   bubble: {
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -302,14 +416,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  sendBtnDisabled: {
-    opacity: 0.4,
-  },
-  sendText: {
-    color: colors.bg,
-    fontWeight: '600',
-    fontSize: 15,
-  },
+  sendBtnDisabled: { opacity: 0.4 },
+  sendText: { color: colors.bg, fontWeight: '600', fontSize: 15 },
   error: {
     color: colors.error,
     textAlign: 'center',

@@ -1,7 +1,7 @@
 # Mobile Web Parity — כל יכולות ה-web באפליקציה, מותאם-טלפון
 
 > **Slug:** `mobile-web-parity`
-> **Status:** DRAFT — open questions resolved 2026-08-11, awaiting final approval
+> **Status:** In implementation via [`mobile-full-parity.md`](./mobile-full-parity.md)
 > **Author:** PM Agent
 > **Last Updated:** 2026-08-11
 
@@ -47,7 +47,7 @@
 - [ ] גרפים כרכיבי bar פשוטים ב-View בלבד (הוחלט 2026-08-11) — בלי ספריית גרפים ובלי WebView.
 
 ### גל D — סוכנים, זיכרון, עדכונים
-- [ ] בורר סוכנים בטאב הצ'אט (מ-`/api/agents`), שיחה פר-סוכן עם היסטוריה, אינדיקציית engine; **ללא** עורך config/instructions/workflow.
+- [ ] בורר סוכנים בטאב הצ'אט + **הגדרות תפעוליות של הסוכן** (תזמון, אירועים, הודעת טריגר, שם תצוגה, הרץ עכשיו). הועבר לספק ייעודי: [`mobile-agent-picker-and-config.md`](./mobile-agent-picker-and-config.md) — עודכן 2026-08-11, ראו Out of Scope. עריכת instructions/workflow נשארת web-only.
 - [ ] מסך `memory`: עריכת הנחיות קבועות, רשימת זיכרונות עם pin/unpin, יצירה ומחיקה.
 - [ ] מסך `updates`: פיד עם סינון קטגוריה, פתיחה בדפדפן, סנכרון ידני; **ללא** ניהול מקורות (web-only).
 
@@ -89,7 +89,7 @@
 | חיבור בנקים + הזנת credentials + OTP | רגיש-אבטחה, stateful מול scraper בשרת; במובייל — snapshot לקריאה בלבד |
 | ייבוא CSV/XLS/PDF וייבוא תיקיית חשבוניות (bulk) | תלוי מערכת קבצים בשרת/desktop; החלופה המובייל: צילום חשבונית בודדת |
 | עורך מסמכי מכירה (lines, תשלומים, הדפסה) | עריכה מרובת-עמודות; מובייל יקבל לכל היותר רשימה לקריאה (לא בגרסה זו) |
-| `/agents/manage` — עריכת config/הנחיות/workflow | כתיבת פרומפטים ארוכה לא מתאימה לטלפון; בורר הסוכנים בצ'אט מכסה את הצורך |
+| `/agents/manage` — עריכת **הנחיות/workflow** (markdown של `A_Agents/` ו-`S_Skills/`) | כתיבת פרומפטים ארוכה לא מתאימה לטלפון. **עודכן 2026-08-11:** ההגדרות התפעוליות (תזמון/אירועים/הודעת טריגר/שם תצוגה/הרץ עכשיו) **כן** עוברות למובייל — `mobile-agent-picker-and-config` |
 | קונסולת WhatsApp (labels, discovery, stats) | אדמין בתדירות נמוכה |
 | Notion statuses, pricing, companies, business profile | קונפיגורציה נדירה, עלות/תועלת גרועה |
 | גריד יומן שבוע/חודש מלא | 17 קומפוננטות סביב desktop grid; אג'נדה עדיפה בטלפון |
@@ -108,7 +108,8 @@
 | `mobile-parity-meetings-calendar` | גל A |
 | `mobile-parity-people-projects` | גל B |
 | `mobile-parity-finance` | גל C |
-| `mobile-parity-agents-memory-updates` | גל D |
+| `mobile-agent-picker-and-config` | גל D — סוכנים (ספק כתוב) |
+| `mobile-parity-memory-updates` | גל D — זיכרון + עדכונים |
 | `mobile-parity-settings-dashboard` | גל E |
 
 `mobile-parity-foundation` חוסם את כל השאר; גלים A–E מקבילים ביניהם. כל slug-בן מקבל report משלו ב-`reports/`.

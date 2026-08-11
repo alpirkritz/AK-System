@@ -579,6 +579,8 @@ export const userSettings = pgTable('user_settings', {
   businessProfile: text('business_profile'),
   /** One-shot guard for the agent_triggers → agent_schedules migration */
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
+  /** JSON DashboardPrefs — meetingWindow / taskWindow for mobile (and future web) */
+  dashboardPrefs: text('dashboard_prefs'),
   updatedAt: text('updated_at').notNull(),
 })
 

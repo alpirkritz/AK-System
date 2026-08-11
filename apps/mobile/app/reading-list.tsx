@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { FilterChips } from '../components/FilterChips'
 import { useAuth } from '../lib/auth'
 import {
   createReadingListItem,
@@ -45,6 +46,21 @@ export default function ReadingListScreen() {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'unread' | 'read'>('all')
+
+  const statusChips = useMemo(
+    () => [
+      { key: 'all', label: 'הכל' },
+      { key: 'unread', label: 'לא נקרא' },
+      { key: 'read', label: 'נקרא' },
+    ],
+    [],
+  )
+
+  const visibleItems = useMemo(() => {
+    if (statusFilter === 'all') return items
+    return items.filter((i) => i.status === statusFilter)
+  }, [items, statusFilter])
 
   const load = useCallback(async () => {
     if (!token) return
@@ -158,6 +174,12 @@ export default function ReadingListScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
+      <FilterChips
+        items={statusChips}
+        selectedKey={statusFilter}
+        onSelect={(k) => setStatusFilter(k as 'all' | 'unread' | 'read')}
+      />
+
       {formOpen ? (
         <View style={styles.form}>
           <Text style={styles.label}>קישור</Text>
@@ -230,16 +252,18 @@ export default function ReadingListScreen() {
         </Pressable>
       )}
 
-      {items.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.emptyIcon}>📚</Text>
           <Text style={styles.emptyText}>
-            אין עדיין פריטים ברשימת הקריאה. הדבק קישור ותן לו כותרת כדי להתחיל.
+            {items.length === 0
+              ? 'אין עדיין פריטים ברשימת הקריאה. הדבק קישור ותן לו כותרת כדי להתחיל.'
+              : 'אין פריטים בסינון הנוכחי.'}
           </Text>
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={visibleItems}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"

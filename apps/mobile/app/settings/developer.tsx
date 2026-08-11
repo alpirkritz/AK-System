@@ -1,20 +1,13 @@
-import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
-import {
-  API_URL,
-  registerFcmPushToken,
-  sendTestPush,
-  unregisterFcmPushToken,
-} from '../lib/api'
-import { useAuth } from '../lib/auth'
-import { ensurePushPermissions, getFcmPushToken } from '../lib/notifications'
-import { colors } from '../lib/theme'
+import { API_URL, registerFcmPushToken, sendTestPush } from '../../lib/api'
+import { useAuth } from '../../lib/auth'
+import { ensurePushPermissions, getFcmPushToken } from '../../lib/notifications'
+import { colors } from '../../lib/theme'
 
-export default function SettingsScreen() {
-  const { token, user, signOut } = useAuth()
-  const router = useRouter()
+export default function DeveloperSettingsScreen() {
+  const { token } = useAuth()
   const [pushStatus, setPushStatus] = useState<string | null>(null)
   const [permission, setPermission] = useState<string>('unknown')
   const [fcmToken, setFcmToken] = useState<string | null>(null)
@@ -66,21 +59,6 @@ export default function SettingsScreen() {
     }
   }
 
-  const onSignOut = async () => {
-    if (token) {
-      const deviceToken = await getFcmPushToken()
-      if (deviceToken) {
-        try {
-          await unregisterFcmPushToken(token, deviceToken)
-        } catch {
-          // ignore
-        }
-      }
-    }
-    await signOut()
-    router.replace('/login')
-  }
-
   const permLabel =
     permission === 'granted'
       ? 'מופעל ✓'
@@ -92,12 +70,6 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.label}>משתמש</Text>
-        <Text style={styles.value}>{user?.name ?? user?.email ?? '—'}</Text>
-        <Text style={styles.muted}>{user?.email}</Text>
-      </View>
-
       <View style={styles.section}>
         <Text style={styles.label}>שרת</Text>
         <Text style={styles.muted}>{API_URL || 'לא מוגדר'}</Text>
@@ -128,10 +100,6 @@ export default function SettingsScreen() {
       </Pressable>
 
       {pushStatus ? <Text style={styles.status}>{pushStatus}</Text> : null}
-
-      <Pressable style={[styles.button, styles.danger]} onPress={onSignOut}>
-        <Text style={styles.buttonText}>התנתק</Text>
-      </Pressable>
     </View>
   )
 }
@@ -143,19 +111,11 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 20,
   },
-  section: {
-    gap: 4,
-  },
+  section: { gap: 4 },
   label: {
     color: colors.gold,
     fontSize: 14,
     fontWeight: '600',
-    textAlign: 'right',
-    writingDirection: 'rtl',
-  },
-  value: {
-    color: colors.text,
-    fontSize: 18,
     textAlign: 'right',
     writingDirection: 'rtl',
   },
@@ -171,14 +131,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingVertical: 14,
     alignItems: 'center',
+    minHeight: 48,
   },
-  buttonDisabled: {
-    opacity: 0.4,
-  },
-  danger: {
-    borderColor: colors.error,
-    marginTop: 'auto',
-  },
+  buttonDisabled: { opacity: 0.4 },
   buttonText: {
     color: colors.text,
     fontSize: 16,

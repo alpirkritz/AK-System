@@ -1,14 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import {
-  getAgentHistory,
-  getCursorAgentId,
-  saveAgentMessage,
-  saveCursorAgentId,
-} from '@/lib/agent-chat-store'
-import { runAgentChat } from '@/lib/cursor-agent-engine'
+import { getAgentHistory } from '@/lib/agent-chat-store'
+import { getApiSession } from '@/lib/api-session'
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const session = await getApiSession(request)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const agentId = request.nextUrl.searchParams.get('agentId')
     if (!agentId) {
       return NextResponse.json({ error: 'agentId is required' }, { status: 400 })

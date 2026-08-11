@@ -438,6 +438,7 @@ export const userSettings = sqliteTable('user_settings', {
   agentDisplayNames: text('agent_display_names'), // JSON Record<agentId, displayName>
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
+  dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   updatedAt: text('updated_at').notNull(),
 })
 
