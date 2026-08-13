@@ -459,6 +459,15 @@ export const feedItems = sqliteTable('feed_items', {
   publishedAtIdx: index('idx_feed_items_published_at').on(table.publishedAt),
 }))
 
+/** Last AI briefing per feed category (`id` = 'all' | category). */
+export const feedDigests = sqliteTable('feed_digests', {
+  id: text('id').primaryKey(),
+  tldr: text('tldr').notNull(),
+  watch: text('watch').notNull(), // JSON FeedDigestWatchItem[]
+  itemCount: integer('item_count').notNull(),
+  generatedAt: text('generated_at').notNull(),
+})
+
 // ─── Reading list (קישורים אישיים לקריאה) ─────────────────────────────────────
 
 export const readingListItems = sqliteTable('reading_list_items', {
@@ -966,6 +975,8 @@ export type FeedSource = typeof feedSources.$inferSelect
 export type NewFeedSource = typeof feedSources.$inferInsert
 export type FeedItem = typeof feedItems.$inferSelect
 export type NewFeedItem = typeof feedItems.$inferInsert
+export type FeedDigest = typeof feedDigests.$inferSelect
+export type NewFeedDigest = typeof feedDigests.$inferInsert
 export type BankConnection = typeof bankConnections.$inferSelect
 export type NewBankConnection = typeof bankConnections.$inferInsert
 export type BankAccount = typeof bankAccounts.$inferSelect

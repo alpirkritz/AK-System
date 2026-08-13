@@ -229,6 +229,13 @@ const FEED_TABLES = [
     tags TEXT,
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS feed_digests (
+    id TEXT PRIMARY KEY,
+    tldr TEXT NOT NULL,
+    watch TEXT NOT NULL,
+    item_count INTEGER NOT NULL,
+    generated_at TEXT NOT NULL
+  )`,
 ]
 
 const READING_LIST_TABLE = [
@@ -935,6 +942,7 @@ export const financeCategoryRules = schema.financeCategoryRules
 export const financeInsightNarratives = schema.financeInsightNarratives
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
+export const feedDigests = schema.feedDigests
 export const readingListItems = schema.readingListItems
 export const facts = schema.facts
 export const chatMessages = schema.chatMessages
@@ -1028,6 +1036,8 @@ export type FeedSource = typeof schemaPg.feedSources.$inferSelect
 export type NewFeedSource = typeof schemaPg.feedSources.$inferInsert
 export type FeedItem = typeof schemaPg.feedItems.$inferSelect
 export type NewFeedItem = typeof schemaPg.feedItems.$inferInsert
+export type FeedDigest = typeof schemaPg.feedDigests.$inferSelect
+export type NewFeedDigest = typeof schemaPg.feedDigests.$inferInsert
 export type ReadingListItem = typeof schemaPg.readingListItems.$inferSelect
 export type NewReadingListItem = typeof schemaPg.readingListItems.$inferInsert
 export type VatEntry = typeof schemaPg.vatEntries.$inferSelect

@@ -1,14 +1,55 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
-import { feedItems, feedSources } from '@ak-system/database'
-import { eq, desc, isNull, inArray } from 'drizzle-orm'
+import { feedDigests, feedItems, feedSources } from '@ak-system/database'
+import { eq, desc, isNull } from 'drizzle-orm'
 import { fetchRssFeed, DEFAULT_FEED_SOURCES } from '../services/feed-fetcher'
 import { summarizeWithGemini } from '../services/feed-summarizer'
+import {
+  generateFeedDigest,
+  isFeedDigestConfigured,
+  type FeedDigestWatchItem,
+} from '../services/feed-digest'
 
 const categoryEnum = z.enum(['economics', 'us_market', 'ai_tech', 'israel_market'])
+const digestCategoryEnum = z.enum(['all', 'economics', 'us_market', 'ai_tech', 'israel_market'])
 
 function genId(): string {
   return 'fi' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
+
+const FEED_FETCH_CONCURRENCY = 5
+
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++
+      results[idx] = await fn(items[idx]!)
+    }
+  }
+  const n = Math.min(Math.max(1, limit), items.length || 1)
+  await Promise.all(Array.from({ length: n }, () => worker()))
+  return results
+}
+
+function parseStoredWatch(raw: string): FeedDigestWatchItem[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (row): row is FeedDigestWatchItem =>
+        !!row &&
+        typeof row === 'object' &&
+        typeof (row as FeedDigestWatchItem).title === 'string' &&
+        typeof (row as FeedDigestWatchItem).why === 'string' &&
+        typeof (row as FeedDigestWatchItem).link === 'string' &&
+        typeof (row as FeedDigestWatchItem).sourceName === 'string',
+    )
+  } catch {
+    return []
+  }
 }
 
 export const feedRouter = router({
@@ -143,30 +184,136 @@ export const feedRouter = router({
       (await ctx.db.select({ link: feedItems.link }).from(feedItems)).map((r) => r.link)
     )
 
-    for (const source of sources) {
+    const fetched = await mapPool(sources, FEED_FETCH_CONCURRENCY, async (source) => {
       try {
-        const items = await fetchRssFeed(source.url)
-        for (const item of items.slice(0, 30)) {
-          if (existingLinks.has(item.link)) continue
-          await ctx.db.insert(feedItems).values({
-            id: genId(),
-            sourceId: source.id,
-            title: item.title,
-            link: item.link,
-            summary: item.summary ?? null,
-            publishedAt: item.publishedAt,
-            tags: null,
-            createdAt: now,
-          })
-          existingLinks.add(item.link)
-          itemsInserted++
-        }
+        return { source, items: await fetchRssFeed(source.url) }
       } catch (err) {
         console.warn(`[feed] Failed to fetch ${source.name} (${source.url}):`, err)
+        return { source, items: [] as Awaited<ReturnType<typeof fetchRssFeed>> }
+      }
+    })
+
+    for (const { source, items } of fetched) {
+      for (const item of items.slice(0, 30)) {
+        if (existingLinks.has(item.link)) continue
+        await ctx.db.insert(feedItems).values({
+          id: genId(),
+          sourceId: source.id,
+          title: item.title,
+          link: item.link,
+          summary: item.summary ?? null,
+          publishedAt: item.publishedAt,
+          tags: null,
+          createdAt: now,
+        })
+        existingLinks.add(item.link)
+        itemsInserted++
       }
     }
     return { sourcesInserted, itemsInserted }
   }),
+
+  /** תמצית אחרונה לקטגוריה (TLDR + שים לב) */
+  getDigest: protectedProcedure
+    .input(z.object({ category: digestCategoryEnum.default('all') }))
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.db.select().from(feedDigests).where(eq(feedDigests.id, input.category))
+      if (!row) return null
+      return {
+        category: input.category,
+        tldr: row.tldr,
+        watch: parseStoredWatch(row.watch),
+        itemCount: row.itemCount,
+        generatedAt: row.generatedAt,
+      }
+    }),
+
+  /** קורא את פריטי הפיד הנוכחיים ומייצר TLDR + נקודות לתשומת לב */
+  generateDigest: protectedProcedure
+    .input(
+      z.object({
+        category: digestCategoryEnum.default('all'),
+        limit: z.number().min(1).max(150).default(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!isFeedDigestConfigured()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'אין מפתח Gemini. הוסף GEMINI_API_KEY כדי ליצור תמצית.',
+        })
+      }
+
+      const cols = {
+        title: feedItems.title,
+        link: feedItems.link,
+        summary: feedItems.summary,
+        publishedAt: feedItems.publishedAt,
+        sourceName: feedSources.name,
+        category: feedSources.category,
+      }
+      const items =
+        input.category === 'all'
+          ? await ctx.db
+              .select(cols)
+              .from(feedItems)
+              .innerJoin(feedSources, eq(feedItems.sourceId, feedSources.id))
+              .orderBy(desc(feedItems.publishedAt))
+              .limit(input.limit)
+          : await ctx.db
+              .select(cols)
+              .from(feedItems)
+              .innerJoin(feedSources, eq(feedItems.sourceId, feedSources.id))
+              .where(eq(feedSources.category, input.category))
+              .orderBy(desc(feedItems.publishedAt))
+              .limit(input.limit)
+
+      if (items.length === 0) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'אין עדכונים לסכם. סנכרן מקורות קודם.',
+        })
+      }
+
+      let digest
+      try {
+        digest = await generateFeedDigest(items)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Digest failed'
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: msg.includes('GEMINI') ? 'אין מפתח Gemini. הוסף GEMINI_API_KEY כדי ליצור תמצית.' : 'לא הצלחתי ליצור תמצית. נסה שוב.',
+        })
+      }
+
+      const generatedAt = new Date().toISOString()
+      await ctx.db
+        .insert(feedDigests)
+        .values({
+          id: input.category,
+          tldr: digest.tldr,
+          watch: JSON.stringify(digest.watch),
+          itemCount: items.length,
+          generatedAt,
+        })
+        .onConflictDoUpdate({
+          target: feedDigests.id,
+          set: {
+            tldr: digest.tldr,
+            watch: JSON.stringify(digest.watch),
+            itemCount: items.length,
+            generatedAt,
+          },
+        })
+
+      return {
+        category: input.category,
+        tldr: digest.tldr,
+        watch: digest.watch,
+        itemCount: items.length,
+        generatedAt,
+      }
+    }),
 
   /** הפעלת Gemini לסיכום ולתגיות על פריטים שעדיין ללא תגיות (מגביל ל-10) */
   generateSummaries: protectedProcedure

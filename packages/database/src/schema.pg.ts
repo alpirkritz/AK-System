@@ -438,6 +438,14 @@ export const feedItems = pgTable('feed_items', {
   publishedAtIdx: index('idx_feed_items_published_at').on(table.publishedAt),
 }))
 
+export const feedDigests = pgTable('feed_digests', {
+  id: text('id').primaryKey(),
+  tldr: text('tldr').notNull(),
+  watch: text('watch').notNull(),
+  itemCount: integer('item_count').notNull(),
+  generatedAt: text('generated_at').notNull(),
+})
+
 export const readingListItems = pgTable('reading_list_items', {
   id: text('id').primaryKey(),
   url: text('url').notNull(),

@@ -86,6 +86,11 @@ export default function UpdatesPage() {
   }, { retry: false })
   const list = Array.isArray(items) ? items : []
 
+  const { data: digest } = trpc.feed.getDigest.useQuery(
+    { category },
+    { enabled: view === 'feed', retry: false },
+  )
+
   const utils = trpc.useUtils()
 
   const syncMutation = trpc.feed.sync.useMutation({
@@ -101,12 +106,11 @@ export default function UpdatesPage() {
     },
   })
 
-  const summarizeMutation = trpc.feed.generateSummaries.useMutation({
-    onSuccess: (res) => {
-      setSummaryResult(`עודכנו ${res.updated} פריטים עם תגיות וסיכום AI`)
+  const digestMutation = trpc.feed.generateDigest.useMutation({
+    onSuccess: () => {
+      setSummaryResult('התמצית מוכנה')
       setSummarizing(false)
-      utils.feed.getLatest.invalidate()
-      utils.feed.list.invalidate()
+      utils.feed.getDigest.invalidate()
     },
     onError: (err) => {
       setSummaryResult(`שגיאה: ${err.message}`)
@@ -121,11 +125,11 @@ export default function UpdatesPage() {
     syncMutation.mutate()
   }
 
-  const handleSummarize = () => {
+  const handleDigest = () => {
     setSummarizing(true)
     setSummaryResult(null)
     setSyncResult(null)
-    summarizeMutation.mutate({ limit: 10 })
+    digestMutation.mutate({ category, limit: 100 })
   }
 
   const handleAddSource = (e: React.FormEvent) => {
@@ -155,11 +159,11 @@ export default function UpdatesPage() {
           </button>
           <button
             className="btn btn-ghost text-sm"
-            onClick={handleSummarize}
-            disabled={summarizing}
+            onClick={handleDigest}
+            disabled={summarizing || list.length === 0}
             style={{ borderColor: '#2dd4bf44', color: '#2dd4bf' }}
           >
-            {summarizing ? '⏳ יוצר סיכומים...' : '✨ צור סיכומים (AI)'}
+            {summarizing ? '⏳ קורא את כל העדכונים...' : '✨ תמצית הפיד'}
           </button>
           {(syncResult || summaryResult) && (
             <span
@@ -197,7 +201,7 @@ export default function UpdatesPage() {
       {view === 'sources' && (
         <>
           <p className="text-sm text-[#5a688c] mb-4">
-            הוסף או הסר מקורות RSS. אחרי שינוי הרץ &quot;סנכרן מקורות&quot; בטאב פיד.
+            הוסף או הסר מקורות RSS. חשבונות X (למשל רשימת המעקב של מיכה) מתווספים אוטומטית בלחיצה על &quot;סנכרן מקורות&quot; בטאב פיד.
           </p>
           <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
             <div className="card p-0 overflow-hidden overflow-x-auto">
@@ -246,8 +250,9 @@ export default function UpdatesPage() {
               <div className="text-sm font-semibold mb-3">הוסף מקור</div>
               <form onSubmit={handleAddSource} className="flex flex-col gap-3">
                 <div>
-                  <label className="label">שם (תצוגה)</label>
+                  <label className="label" htmlFor="feed-source-name">שם (תצוגה)</label>
                   <input
+                    id="feed-source-name"
                     className="input"
                     placeholder="למשל: TheMarker"
                     value={newSource.name}
@@ -255,8 +260,9 @@ export default function UpdatesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">כתובת RSS</label>
+                  <label className="label" htmlFor="feed-source-url">כתובת RSS</label>
                   <input
+                    id="feed-source-url"
                     className="input"
                     type="url"
                     placeholder="https://..."
@@ -265,8 +271,9 @@ export default function UpdatesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">קטגוריה</label>
+                  <label className="label" htmlFor="feed-source-category">קטגוריה</label>
                   <select
+                    id="feed-source-category"
                     className="select"
                     value={newSource.category}
                     onChange={(e) => setNewSource((s) => ({ ...s, category: e.target.value as typeof s.category }))}
@@ -292,6 +299,56 @@ export default function UpdatesPage() {
 
       {view === 'feed' && (
         <>
+      <div data-testid="feed-digest" className="card mb-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="text-sm font-semibold text-[#eef3fb]">תמצית</div>
+            {digest ? (
+              <div className="text-[11px] text-[#5a688c] mt-0.5">
+                על בסיס {digest.itemCount} עדכונים · {fmtDate(digest.generatedAt)}
+              </div>
+            ) : (
+              <div className="text-[11px] text-[#5a688c] mt-0.5">
+                לחץ על תמצית הפיד כדי לקבל סיכום ומה שכדאי לשים לב אליו
+              </div>
+            )}
+          </div>
+        </div>
+        {summarizing ? (
+          <p className="text-sm text-[#647399]">קורא את כל העדכונים ומסכם…</p>
+        ) : digest ? (
+          <div className="space-y-4">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#2dd4bf] mb-1.5">TLDR</div>
+              <p className="text-sm text-[#cdd7ea] leading-relaxed whitespace-pre-wrap">{digest.tldr}</p>
+            </div>
+            {digest.watch.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#2dd4bf] mb-2">שים לב</div>
+                <ul className="space-y-2">
+                  {digest.watch.map((row) => (
+                    <li key={row.link} className="rounded-lg px-3 py-2 bg-[#111b30] border border-[#1d2b46]">
+                      <a
+                        href={row.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[13px] font-medium text-[#eef3fb] no-underline hover:underline"
+                      >
+                        {row.title}
+                      </a>
+                      <div className="text-[11px] text-[#8b98ba] mt-0.5">{row.why}</div>
+                      <div className="text-[10px] text-[#4d659c] mt-1">{row.sourceName}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : list.length === 0 ? (
+          <p className="text-sm text-[#5a688c]">אין עדכונים לסכם. סנכרן מקורות קודם.</p>
+        ) : null}
+      </div>
+
       <p className="text-sm text-[#5a688c] mb-6">
         כלכלה, בורסה בארה&quot;ב, טכנולוגיה ו-AI, בורסה ישראלית — מסוכמים ממקורות נבחרים.
       </p>
