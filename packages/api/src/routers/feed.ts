@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { router, protectedProcedure } from '../trpc'
+import { router, protectedProcedure, type Context } from '../trpc'
 import { feedDigests, feedItems, feedSources } from '@ak-system/database'
 import { eq, desc, isNull } from 'drizzle-orm'
 import { fetchRssFeed, DEFAULT_FEED_SOURCES } from '../services/feed-fetcher'
@@ -50,6 +50,26 @@ function parseStoredWatch(raw: string): FeedDigestWatchItem[] {
   } catch {
     return []
   }
+}
+
+async function ensureDefaultSources(db: Context['db']): Promise<number> {
+  const now = new Date().toISOString()
+  const existingSourceIds = new Set(
+    (await db.select({ id: feedSources.id }).from(feedSources)).map((r) => r.id)
+  )
+  let sourcesInserted = 0
+  for (const src of DEFAULT_FEED_SOURCES) {
+    if (existingSourceIds.has(src.id)) continue
+    await db.insert(feedSources).values({
+      id: src.id,
+      name: src.name,
+      url: src.url,
+      category: src.category,
+      createdAt: now,
+    })
+    sourcesInserted++
+  }
+  return sourcesInserted
 }
 
 export const feedRouter = router({
@@ -115,8 +135,9 @@ export const feedRouter = router({
       return q
     }),
 
-  /** רשימת מקורות (לאבחון/הגדרות) */
+  /** רשימת מקורות — גם מזין מקורות ברירת מחדל שחסרים (חשבונות X וכו') */
   listSources: protectedProcedure.query(async ({ ctx }) => {
+    await ensureDefaultSources(ctx.db)
     return ctx.db.select().from(feedSources).orderBy(feedSources.name)
   }),
 
@@ -159,22 +180,7 @@ export const feedRouter = router({
   /** סנכרון: מזין מקורות ברירת מחדל (אם חסרים) ומשך RSS מכל המקורות */
   sync: protectedProcedure.mutation(async ({ ctx }) => {
     const now = new Date().toISOString()
-    let sourcesInserted = 0
-
-    const existingSourceIds = new Set(
-      (await ctx.db.select({ id: feedSources.id }).from(feedSources)).map((r) => r.id)
-    )
-    for (const src of DEFAULT_FEED_SOURCES) {
-      if (existingSourceIds.has(src.id)) continue
-      await ctx.db.insert(feedSources).values({
-        id: src.id,
-        name: src.name,
-        url: src.url,
-        category: src.category,
-        createdAt: now,
-      })
-      sourcesInserted++
-    }
+    const sourcesInserted = await ensureDefaultSources(ctx.db)
 
     let itemsInserted = 0
     const sources = await ctx.db.select().from(feedSources)

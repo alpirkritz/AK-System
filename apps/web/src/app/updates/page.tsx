@@ -99,6 +99,7 @@ export default function UpdatesPage() {
       setSyncing(false)
       utils.feed.getLatest.invalidate()
       utils.feed.list.invalidate()
+      utils.feed.listSources.invalidate()
     },
     onError: (err) => {
       setSyncResult(`שגיאה: ${err.message}`)
@@ -201,7 +202,7 @@ export default function UpdatesPage() {
       {view === 'sources' && (
         <>
           <p className="text-sm text-[#5a688c] mb-4">
-            הוסף או הסר מקורות RSS. חשבונות X (למשל רשימת המעקב של מיכה) מתווספים אוטומטית בלחיצה על &quot;סנכרן מקורות&quot; בטאב פיד.
+            הוסף או הסר מקורות RSS. חשבונות X מרשימת המעקב של מיכה מופיעים כאן אוטומטית. אחרי זה הרץ &quot;סנכרן מקורות&quot; בטאב פיד כדי למשוך פוסטים.
           </p>
           <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
             <div className="card p-0 overflow-hidden overflow-x-auto">

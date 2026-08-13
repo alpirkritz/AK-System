@@ -38,6 +38,14 @@ describe('feed router', () => {
     await db.delete(feedDigests)
   })
 
+  it('listSources seeds missing default sources including Micha X accounts', async () => {
+    const caller = await createTestCaller()
+    const sources = await caller.feed.listSources()
+    expect(sources).toHaveLength(DEFAULT_FEED_SOURCES.length)
+    expect(sources.map((s) => s.id)).toContain('x-jimcramer')
+    expect(sources.map((s) => s.id)).toContain('x-tamirtiko2110')
+  })
+
   it('sync inserts missing default sources including Micha X accounts', async () => {
     const caller = await createTestCaller()
     const result = await caller.feed.sync()
