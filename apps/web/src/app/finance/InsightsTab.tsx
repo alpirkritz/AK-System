@@ -64,6 +64,20 @@ export default function InsightsTab() {
     return <LoadingState />
   }
 
+  if (coverage.isError) {
+    return (
+      <div className="card max-w-xl">
+        <div className="text-sm font-semibold text-[#fb7185] mb-2">לא הצלחתי לטעון את התזרים</div>
+        <p className="text-xs text-[#97a4c2] mb-3">
+          ייתכן שיש בעיית חיבור לשרת. שאר הדף עדיין זמין — נסה שוב או עבור לטאב תנועות.
+        </p>
+        <button className="btn btn-ghost text-xs" onClick={() => coverage.refetch()}>
+          נסה שוב
+        </button>
+      </div>
+    )
+  }
+
   if (coverage.data && coverage.data.totalTransactions === 0) {
     return (
       <EmptyState
@@ -342,7 +356,7 @@ export default function InsightsTab() {
 
       <p className="text-[11px] text-[#647399] mt-4">
         העברות פנימיות וחיובי אשראי לא נכללים בסכומים, כדי למנוע כפל ספירה. לשינוי תיוג — «ממה מורכב
-        הסכום» או טאב תזרים.
+        הסכום» או טאב תנועות.
       </p>
 
       <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />

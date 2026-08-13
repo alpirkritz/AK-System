@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
 import { SyncToast } from '@/components/SyncToast'
+import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
+import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
@@ -16,15 +18,25 @@ export default function ProjectDetailPage() {
   const params = useParams()
   const id = params.id as string
   const { data: project, isLoading } = trpc.projects.getById.useQuery({ id }, { enabled: !!id })
+  const { data: related } = trpc.projects.getRelated.useQuery({ id }, { enabled: !!id })
   const { data: people = [] } = trpc.people.list.useQuery()
-  const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
-  const { data: tasksList = [] } = trpc.tasks.list.useQuery()
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const utils = trpc.useUtils()
   const toggleTask = trpc.tasks.toggleDone.useMutation({
-    onSuccess: () => utils.tasks.list.invalidate(),
+    onSuccess: () => {
+      utils.tasks.list.invalidate()
+      utils.projects.getRelated.invalidate({ id })
+    },
   })
+  const onPeopleMutated = (res: { notionSync?: Parameters<typeof notionPeopleSyncMessage>[0] }) => {
+    utils.projects.getRelated.invalidate({ id })
+    utils.people.getRelated.invalidate()
+    const msg = notionPeopleSyncMessage(res.notionSync)
+    if (msg) setPeopleSyncMessage(msg)
+  }
+  const addPerson = trpc.projects.addPerson.useMutation({ onSuccess: onPeopleMutated })
+  const removePerson = trpc.projects.removePerson.useMutation({ onSuccess: onPeopleMutated })
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
@@ -32,11 +44,26 @@ export default function ProjectDetailPage() {
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
   const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
-  const meetings = (meetingsList as Array<{ id: string; title: string; date: string; time: string; projectId?: string; recurring?: string; recurrenceDay?: string; peopleIds?: string[] }>).filter((m) => m.projectId === id)
-  const tasks = (tasksList as Array<{ id: string; title: string; done: boolean; priority: string; assigneeId?: string; meetingId?: string; dueDate?: string; workspaceId?: string | null }>).filter((t) => (t as { projectId?: string }).projectId === id)
+  const meetings = related?.meetings ?? []
+  const tasks = useMemo(
+    () => sortTasksOpenThenDueAsc(related?.tasks ?? []),
+    [related?.tasks],
+  )
+  const roster = related?.people ?? []
+  const meetingNotes = related?.meetingNotes ?? []
 
-  if (isLoading || !project) {
+  if (isLoading) {
     return <div className="text-[#7a89ab]">טוען...</div>
+  }
+  if (!project) {
+    return (
+      <div>
+        <Link href="/projects" className="btn btn-ghost mb-4 inline-block">
+          ← חזרה
+        </Link>
+        <div className="text-[#7a89ab]">הפרויקט לא נמצא</div>
+      </div>
+    )
   }
 
   return (
@@ -67,6 +94,93 @@ export default function ProjectDetailPage() {
         </div>
         <h1 className="text-[26px] font-bold tracking-tight">{project.name}</h1>
       </div>
+      {peopleSyncMessage && (
+        <SyncToast message={peopleSyncMessage} onDismiss={() => setPeopleSyncMessage(null)} />
+      )}
+
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-3">
+          <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">
+            אנשים ({roster.length})
+          </div>
+          <SearchableAddSelect
+            id="project-add-person"
+            triggerLabel="+ הוסף אדם"
+            placeholder="חיפוש לפי שם..."
+            emptyLabel="לא נמצא איש קשר"
+            disabled={addPerson.isPending}
+            options={people
+              .filter((p) => !roster.some((r) => r.id === p.id))
+              .map((p) => ({
+                id: p.id,
+                name: p.name,
+                subtitle: p.company ?? p.role,
+                color: p.color,
+              }))}
+            onAdd={(personId) => addPerson.mutate({ projectId: id, personId })}
+          />
+        </div>
+        <div className="card flex flex-wrap gap-2">
+          {roster.length === 0 && (
+            <div className="text-[#5a688c] text-sm">אין אנשים משויכים — בחר מהרשימה למעלה או בעריכת הפרויקט</div>
+          )}
+          {roster.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="pill text-[11px] flex items-center gap-1.5"
+              title="הסר מהפרויקט"
+              disabled={removePerson.isPending}
+              onClick={() => removePerson.mutate({ projectId: id, personId: p.id })}
+            >
+              <span
+                className="w-2 h-2 rounded-full"
+                style={{ background: p.color ?? '#2dd4bf' }}
+              />
+              {p.name}
+              <span className="text-[#5a688c]">×</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {meetingNotes.length > 0 && (
+        <div className="mb-6">
+          <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
+            סיכומי ישיבות ({meetingNotes.length})
+          </div>
+          <div className="card space-y-2">
+            {meetingNotes.map((n) => {
+              const excerpt =
+                ('bodyText' in n && typeof n.bodyText === 'string' && n.bodyText.trim())
+                  ? n.bodyText.trim()
+                  : n.snippet?.trim() || ''
+              return (
+              <div key={n.id} className="py-2 border-b border-[#223052] last:border-0">
+                {n.meetingId ? (
+                  <Link href={`/meetings/${n.meetingId}`} className="text-sm font-medium hover:text-white">
+                    {n.title}
+                  </Link>
+                ) : n.notionUrl ? (
+                  <a href={n.notionUrl} target="_blank" rel="noreferrer" className="text-sm font-medium hover:text-white">
+                    {n.title}
+                  </a>
+                ) : (
+                  <div className="text-sm font-medium">{n.title}</div>
+                )}
+                <div className="text-xs text-[#647399]">
+                  {n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('he-IL') : ''}
+                </div>
+                {excerpt && (
+                  <p className="text-xs text-[#647399] mt-1 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>
+                )}
+              </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
@@ -155,7 +269,7 @@ export default function ProjectDetailPage() {
         editingTaskId={editingTaskId}
         projectId={id}
         people={people}
-        meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
+        meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         workspaces={workspaces.map((w) => ({
           id: w.id,

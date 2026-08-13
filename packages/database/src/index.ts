@@ -31,6 +31,8 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN category TEXT',
   'ALTER TABLE meetings ADD COLUMN series_id TEXT',
   'ALTER TABLE meetings ADD COLUMN type_id TEXT',
+  'ALTER TABLE meetings ADD COLUMN notion_page_id TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_meetings_notion_page_id ON meetings(notion_page_id)',
 ]
 
 const MEETING_STRUCTURE_TABLES = [
@@ -74,6 +76,75 @@ const PEOPLE_COLUMNS = [
   'CREATE INDEX IF NOT EXISTS idx_people_status ON people(status)',
   'CREATE INDEX IF NOT EXISTS idx_people_notion_page_id ON people(notion_page_id)',
   'CREATE INDEX IF NOT EXISTS idx_people_company_id ON people(company_id)',
+]
+
+/** Contact relationship graph — identities, Notion projects/companies/notes, M2M edges. */
+const CONTACT_GRAPH_TABLES = [
+  `CREATE TABLE IF NOT EXISTS person_external_ids (
+    id TEXT PRIMARY KEY,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    display_name TEXT,
+    raw TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_person_external_ids_person_id ON person_external_ids(person_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_person_external_ids_provider_account_external ON person_external_ids(provider, account_key, external_id)`,
+  // Backfill legacy people.notion_page_id → person_external_ids (idempotent via unique index)
+  `INSERT OR IGNORE INTO person_external_ids (id, person_id, provider, account_key, external_id, display_name, raw, created_at, updated_at)
+    SELECT 'pext_legacy_' || id, id, 'notion', 'legacy', notion_page_id, name, NULL, created_at, created_at
+    FROM people WHERE notion_page_id IS NOT NULL AND TRIM(notion_page_id) != ''`,
+  'ALTER TABLE companies ADD COLUMN notion_page_id TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_companies_notion_page_id ON companies(notion_page_id)',
+  'ALTER TABLE projects ADD COLUMN notion_page_id TEXT',
+  'ALTER TABLE projects ADD COLUMN company_id TEXT',
+  "ALTER TABLE projects ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+  'CREATE INDEX IF NOT EXISTS idx_projects_notion_page_id ON projects(notion_page_id)',
+  'CREATE INDEX IF NOT EXISTS idx_projects_company_id ON projects(company_id)',
+  `CREATE TABLE IF NOT EXISTS project_people (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_people_project_id ON project_people(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_people_person_id ON project_people(person_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_project_people_pair ON project_people(project_id, person_id)`,
+  `CREATE TABLE IF NOT EXISTS meeting_notes (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date TEXT,
+    snippet TEXT,
+    notion_url TEXT,
+    notion_page_id TEXT,
+    meeting_id TEXT REFERENCES meetings(id) ON DELETE SET NULL,
+    notion_account TEXT,
+    notion_db TEXT,
+    source TEXT NOT NULL DEFAULT 'notion',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_notes_notion_page_id ON meeting_notes(notion_page_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_notes_meeting_id ON meeting_notes(meeting_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_notes_date ON meeting_notes(date)`,
+  'ALTER TABLE meeting_notes ADD COLUMN body_text TEXT',
+  'ALTER TABLE meeting_notes ADD COLUMN body_synced_at TEXT',
+  'ALTER TABLE meeting_notes ADD COLUMN notion_last_edited_at TEXT',
+  `CREATE TABLE IF NOT EXISTS meeting_note_people (
+    meeting_note_id TEXT NOT NULL REFERENCES meeting_notes(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_note_people_note_id ON meeting_note_people(meeting_note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_note_people_person_id ON meeting_note_people(person_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_meeting_note_people_pair ON meeting_note_people(meeting_note_id, person_id)`,
+  `CREATE TABLE IF NOT EXISTS meeting_note_projects (
+    meeting_note_id TEXT NOT NULL REFERENCES meeting_notes(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_note_projects_note_id ON meeting_note_projects(meeting_note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_note_projects_project_id ON meeting_note_projects(project_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_meeting_note_projects_pair ON meeting_note_projects(meeting_note_id, project_id)`,
 ]
 
 const TASKS_COLUMNS = [
@@ -795,6 +866,9 @@ export function getDb() {
   for (const sql of MEETING_STRUCTURE_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of CONTACT_GRAPH_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
+  }
   for (const sql of VAT_ENTRIES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -832,7 +906,9 @@ export function getDb() {
 const schema = usePostgres() ? schemaPg : schemaSqlite
 
 export const people = schema.people
+export const personExternalIds = schema.personExternalIds
 export const projects = schema.projects
+export const projectPeople = schema.projectPeople
 export const workspaces = schema.workspaces
 export const workspaceNotionDatabases = schema.workspaceNotionDatabases
 export const notionStatusOverrides = schema.notionStatusOverrides
@@ -840,10 +916,15 @@ export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
 export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
 export const TASK_SOURCES = schemaPg.TASK_SOURCES
+export const PROJECT_SOURCES = schemaPg.PROJECT_SOURCES
+export const PERSON_EXTERNAL_PROVIDERS = schemaPg.PERSON_EXTERNAL_PROVIDERS
 export const meetings = schema.meetings
 export const meetingSeries = schema.meetingSeries
 export const meetingTypes = schema.meetingTypes
 export const meetingPeople = schema.meetingPeople
+export const meetingNotes = schema.meetingNotes
+export const meetingNotePeople = schema.meetingNotePeople
+export const meetingNoteProjects = schema.meetingNoteProjects
 export const tasks = schema.tasks
 export const taskPeople = schema.taskPeople
 export const financeTrades = schema.financeTrades
@@ -922,6 +1003,10 @@ export type NewMeetingType = typeof schemaPg.meetingTypes.$inferInsert
 export type PersonStatus = (typeof schemaPg.PEOPLE_STATUSES)[number]
 export type PersonSource = (typeof schemaPg.PEOPLE_SOURCES)[number]
 export type TaskSource = (typeof schemaPg.TASK_SOURCES)[number]
+export type ProjectSource = (typeof schemaPg.PROJECT_SOURCES)[number]
+export type PersonExternalProvider = (typeof schemaPg.PERSON_EXTERNAL_PROVIDERS)[number]
+export type PersonExternalId = typeof schemaPg.personExternalIds.$inferSelect
+export type MeetingNote = typeof schemaPg.meetingNotes.$inferSelect
 export type Task = typeof schemaPg.tasks.$inferSelect
 export type NewTask = typeof schemaPg.tasks.$inferInsert
 export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect

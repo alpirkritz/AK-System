@@ -12,6 +12,7 @@ import {
   type BankAccount as BankAccountRow,
   type BankProvider,
 } from '@ak-system/database'
+import { normalizeCurrencyCode } from '@ak-system/types'
 import { decryptCredentials } from '../lib/bank-credentials-crypto'
 import { categorizeTransaction, type CategoryRule } from './transaction-categorizer'
 import { ensureBrowserProfileDir } from './bank-browser-profile'
@@ -381,7 +382,7 @@ export async function syncConnection(
       await db.insert(financeTransactions).values({
         id: 'fx' + Date.now() + Math.random().toString(36).slice(2, 7),
         amount: String(amount),
-        currency: txn.originalCurrency || 'ILS',
+        currency: normalizeCurrencyCode(txn.originalCurrency || 'ILS'),
         direction,
         category: categorizeTransaction(description, rules, direction),
         description,

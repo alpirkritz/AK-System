@@ -22,6 +22,9 @@ import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
 import { companiesRouter } from './routers/companies'
 import { serviceItemsRouter } from './routers/service-items'
 import { salesDocumentsRouter } from './routers/sales-documents'
+import { notionGraphRouter } from './routers/notion-graph'
+import { contactsRouter } from './routers/contacts'
+import { insightsRouter } from './routers/insights'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -121,6 +124,9 @@ export const appRouter = router({
   companies: companiesRouter,
   serviceItems: serviceItemsRouter,
   salesDocuments: salesDocumentsRouter,
+  notionGraph: notionGraphRouter,
+  contacts: contactsRouter,
+  insights: insightsRouter,
 })
 
 export type AppRouter = typeof appRouter

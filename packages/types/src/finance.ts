@@ -87,3 +87,24 @@ export function isInternalCategory(label: string | null | undefined): boolean {
 export function isDiscretionaryCategory(label: string | null | undefined): boolean {
   return !!label && DISCRETIONARY_CATEGORIES.includes(label)
 }
+
+/** Bank scrapers sometimes store symbols (₪, $) instead of ISO 4217 codes. */
+const CURRENCY_ALIASES: Readonly<Record<string, string>> = {
+  '₪': 'ILS',
+  NIS: 'ILS',
+  $: 'USD',
+  US$: 'USD',
+  '€': 'EUR',
+  '£': 'GBP',
+}
+
+/** Map scraper / CSV currency labels to an ISO code Intl can format. */
+export function normalizeCurrencyCode(raw: string | null | undefined): string {
+  const trimmed = (raw ?? '').trim()
+  if (!trimmed) return 'ILS'
+  const alias = CURRENCY_ALIASES[trimmed] ?? CURRENCY_ALIASES[trimmed.toUpperCase()]
+  if (alias) return alias
+  const upper = trimmed.toUpperCase()
+  if (/^[A-Z]{3}$/.test(upper)) return upper
+  return 'ILS'
+}

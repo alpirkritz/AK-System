@@ -7,10 +7,11 @@ import { trpc } from '@/lib/trpc'
 import { SummaryCard } from './SummaryCard'
 import { fmt, fmtDate } from './lib/format'
 
+import InsightsTab from './InsightsTab'
+
 const VatTab = lazy(() => import('./VatTab'))
 const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
 const AccountsTab = lazy(() => import('./AccountsTab'))
-const InsightsTab = lazy(() => import('./InsightsTab'))
 const DocumentsTab = lazy(() => import('./DocumentsTab'))
 
 const TABS = [
@@ -91,10 +92,18 @@ function FinancePageContent() {
     symbol: symbolFilter || undefined,
     limit: 300,
   })
-  const { data: transactions = [], isLoading: txnLoading } = trpc.finance.listTransactions.useQuery({
-    direction: dirFilter === 'all' ? undefined : dirFilter,
-    limit: 300,
-  })
+  const {
+    data: transactions = [],
+    isLoading: txnLoading,
+    isError: txnError,
+    refetch: refetchTransactions,
+  } = trpc.finance.listTransactions.useQuery(
+    {
+      direction: dirFilter === 'all' ? undefined : dirFilter,
+      limit: 300,
+    },
+    { enabled: tab === 'cashflow' }
+  )
 
   const syncMutation = trpc.finance.syncIBKREmails.useMutation({
     onSuccess: (res) => {
@@ -315,7 +324,7 @@ function FinancePageContent() {
           ['accounts', 'חשבונות', '🏦'],
           ['portfolio', 'פורטפוליו', '📊'],
           ['journal', 'יומן מסחר', '📓'],
-          ['cashflow', 'תזרים', '🔄'],
+          ['cashflow', 'תנועות', '🔄'],
           ['import', 'ייבוא', '⬆️'],
           ['documents', 'מסמכים', '🧾'],
           ['vat', 'דיווח מע"מ', '📋'],
@@ -335,11 +344,7 @@ function FinancePageContent() {
       </div>
 
       {/* ── Insights Tab ──────────────────────────────────────────── */}
-      {tab === 'insights' && (
-        <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
-          <InsightsTab />
-        </Suspense>
-      )}
+      {tab === 'insights' && <InsightsTab />}
 
       {/* ── Accounts Tab ──────────────────────────────────────────── */}
       {tab === 'accounts' && (
@@ -489,7 +494,17 @@ function FinancePageContent() {
             ))}
           </div>
 
-          {txnLoading ? (
+          {txnError ? (
+            <div className="card max-w-xl">
+              <div className="text-sm font-semibold text-[#fb7185] mb-2">לא הצלחתי לטעון את התנועות</div>
+              <p className="text-xs text-[#97a4c2] mb-3">
+                ייתכן שיש בעיית חיבור לשרת או שה-session פג. נסה לרענן.
+              </p>
+              <button className="btn btn-ghost text-xs" onClick={() => refetchTransactions()}>
+                נסה שוב
+              </button>
+            </div>
+          ) : txnLoading ? (
             <div className="text-[#5a688c] text-sm">טוען...</div>
           ) : transactions.length === 0 ? (
             <div className="card text-center py-12">

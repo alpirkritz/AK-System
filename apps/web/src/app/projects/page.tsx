@@ -10,8 +10,35 @@ export default function ProjectsPage() {
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: notionGraph } = trpc.notionGraph.configured.useQuery()
+  const utils = trpc.useUtils()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+
+  const syncGraph = trpc.notionGraph.sync.useMutation({
+    onSuccess: (res) => {
+      const parts = [
+        `${res.projectsUpserted} פרויקטים`,
+        `${res.meetingsUpserted ?? 0} פגישות`,
+        `${res.tasksLinked ?? 0} משימות מקושרות`,
+        `${res.notesUpserted} סיכומים`,
+      ]
+      if (res.projectsUpserted === 0 && (notionGraph?.databases ?? []).every((d) => d.type !== 'projects')) {
+        setSyncMessage('לא מוגדר מסד Projects ב-NOTION_ACCOUNTS (type: "projects") — הוסף אותו כדי לסנכרן')
+      } else {
+        setSyncMessage(
+          res.errors.length > 0
+            ? `סונכרנו ${parts.join(' · ')} · ${res.errors.length} שגיאות`
+            : `סונכרנו ${parts.join(' · ')} מ-Notion`,
+        )
+      }
+      utils.projects.list.invalidate()
+      utils.people.list.invalidate()
+      utils.notionGraph.configured.invalidate()
+    },
+    onError: (err) => setSyncMessage(err.message || 'הסנכרון נכשל'),
+  })
 
   const meetingsWithProject = meetings as Array<{ id: string; projectId?: string }>
   const tasksWithProject = tasksList as Array<{ projectId?: string }>
@@ -20,10 +47,28 @@ export default function ProjectsPage() {
     <div>
       <div className="flex justify-between items-center mb-7">
         <h1 className="text-2xl font-bold tracking-tight">פרויקטים</h1>
-        <button className="btn btn-primary" onClick={() => { setEditingId(null); setModalOpen(true); }}>
-          + פרויקט חדש
-        </button>
+        <div className="flex gap-2">
+          {notionGraph?.configured && (
+            <button
+              className="btn btn-secondary"
+              disabled={syncGraph.isPending}
+              onClick={() => {
+                setSyncMessage(null)
+                syncGraph.mutate({ windowDays: 90, dryRun: false })
+              }}
+              title="סנכרן פרויקטים, חברות וסיכומי ישיבות מ-Notion"
+            >
+              {syncGraph.isPending ? 'מסנכרן…' : 'סנכרן מ-Notion'}
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => { setEditingId(null); setModalOpen(true); }}>
+            + פרויקט חדש
+          </button>
+        </div>
       </div>
+      {syncMessage && (
+        <div className="mb-4 text-sm text-[#97a4c2]">{syncMessage}</div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {projects.map((p) => {
           const projectMeetings = meetingsWithProject.filter((m) => m.projectId === p.id)

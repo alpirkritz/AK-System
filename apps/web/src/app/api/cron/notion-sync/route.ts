@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createServiceCaller } from '@/lib/api-caller'
 
 /**
- * Cron: sync Notion tasks + people directory into the app database.
+ * Cron: sync Notion tasks + people + relationship graph into the app database.
  * Run every 30 minutes (see deploy/crontab.example).
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
@@ -26,8 +26,17 @@ async function runNotionSync(request: NextRequest): Promise<NextResponse> {
 
   try {
     const caller = await createServiceCaller()
-    const result = await caller.tasks.syncFromNotion({ windowDays: 60, dryRun: false })
-    return NextResponse.json({ ok: true, ...result })
+    const tasksResult = await caller.tasks.syncFromNotion({ windowDays: 60, dryRun: false }).catch(
+      (err: unknown) => ({
+        error: err instanceof Error ? err.message : 'tasks sync failed',
+      }),
+    )
+    const graphResult = await caller.notionGraph.sync({ windowDays: 90, dryRun: false }).catch(
+      (err: unknown) => ({
+        error: err instanceof Error ? err.message : 'graph sync failed',
+      }),
+    )
+    return NextResponse.json({ ok: true, tasks: tasksResult, graph: graphResult })
   } catch (err) {
     console.error('[cron/notion-sync]', err)
     const msg = err instanceof Error ? err.message : 'Notion sync failed'

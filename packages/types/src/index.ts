@@ -75,6 +75,7 @@ export {
   DISCRETIONARY_CATEGORIES,
   categoryColor,
   isInternalCategory,
+  normalizeCurrencyCode,
   isDiscretionaryCategory,
 } from './finance'
 export type { CashflowCategoryDef, CashflowCategoryKind } from './finance'

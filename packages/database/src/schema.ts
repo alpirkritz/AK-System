@@ -12,6 +12,14 @@ export type PersonSource = (typeof PEOPLE_SOURCES)[number]
 export const TASK_SOURCES = ['manual', 'notion'] as const
 export type TaskSource = (typeof TASK_SOURCES)[number]
 
+/** Where a project record originated */
+export const PROJECT_SOURCES = ['manual', 'notion'] as const
+export type ProjectSource = (typeof PROJECT_SOURCES)[number]
+
+/** External identity providers for a canonical person row */
+export const PERSON_EXTERNAL_PROVIDERS = ['notion', 'google_contact', 'slack', 'email'] as const
+export type PersonExternalProvider = (typeof PERSON_EXTERNAL_PROVIDERS)[number]
+
 /** Billing-grade client entity — `people.company` stays as legacy free text */
 export const companies = sqliteTable('companies', {
   id: text('id').primaryKey(),
@@ -30,11 +38,13 @@ export const companies = sqliteTable('companies', {
   email: text('email'),
   website: text('website'),
   notes: text('notes'),
+  notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   nameIdx: index('idx_companies_name').on(table.name),
   taxIdIdx: index('idx_companies_tax_id').on(table.taxId),
+  notionPageIdIdx: index('idx_companies_notion_page_id').on(table.notionPageId),
 }))
 
 export const people = sqliteTable('people', {
@@ -68,13 +78,50 @@ export const people = sqliteTable('people', {
   companyIdIdx: index('idx_people_company_id').on(table.companyId),
 }))
 
+/** Multi-source identity links for a canonical person (many Notion people DBs, Google, Slack, email). */
+export const personExternalIds = sqliteTable('person_external_ids', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** notion | google_contact | slack | email */
+  provider: text('provider').notNull(),
+  accountKey: text('account_key').notNull(),
+  externalId: text('external_id').notNull(),
+  displayName: text('display_name'),
+  raw: text('raw'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_external_ids_person_id').on(table.personId),
+  providerExternalUq: uniqueIndex('uq_person_external_ids_provider_account_external').on(
+    table.provider,
+    table.accountKey,
+    table.externalId,
+  ),
+}))
+
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   color: text('color').default('#47b8e8'),
+  notionPageId: text('notion_page_id'),
+  companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  /** manual | notion */
+  source: text('source').notNull().default('manual'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  notionPageIdIdx: index('idx_projects_notion_page_id').on(table.notionPageId),
+  companyIdIdx: index('idx_projects_company_id').on(table.companyId),
+}))
+
+export const projectPeople = sqliteTable('project_people', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  projectIdIdx: index('idx_project_people_project_id').on(table.projectId),
+  personIdIdx: index('idx_project_people_person_id').on(table.personId),
+  pairUq: uniqueIndex('uq_project_people_pair').on(table.projectId, table.personId),
+}))
 
 /** Top-level task origin (Alpir Consulting / Dragontail / DAZ / personal) — orthogonal to projects */
 export const workspaces = sqliteTable('workspaces', {
@@ -161,6 +208,8 @@ export const meetings = sqliteTable('meetings', {
   typeId: text('type_id').references(() => meetingTypes.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
   calendarSource: text('calendar_source'),
+  /** Notion Meetings page id when synced from a Notion meetings database */
+  notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -169,6 +218,7 @@ export const meetings = sqliteTable('meetings', {
   seriesIdIdx: index('idx_meetings_series_id').on(table.seriesId),
   typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
   calendarEventIdIdx: index('idx_meetings_calendar_event_id').on(table.calendarEventId),
+  notionPageIdIdx: index('idx_meetings_notion_page_id').on(table.notionPageId),
 }))
 
 export const meetingPeople = sqliteTable('meeting_people', {
@@ -177,6 +227,50 @@ export const meetingPeople = sqliteTable('meeting_people', {
 }, (table) => ({
   meetingIdIdx: index('idx_meeting_people_meeting_id').on(table.meetingId),
   personIdIdx: index('idx_meeting_people_person_id').on(table.personId),
+}))
+
+/** Notion AI meeting notes (and similar) persisted for CRM / project context. */
+export const meetingNotes = sqliteTable('meeting_notes', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  date: text('date'),
+  snippet: text('snippet'),
+  /** Flattened Notion page body (plain text), capped at 8000 chars on write. */
+  bodyText: text('body_text'),
+  /** ISO timestamp of last successful block pull. */
+  bodySyncedAt: text('body_synced_at'),
+  /** Notion page last_edited_time at last body sync. */
+  notionLastEditedAt: text('notion_last_edited_at'),
+  notionUrl: text('notion_url'),
+  notionPageId: text('notion_page_id'),
+  meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  notionAccount: text('notion_account'),
+  notionDb: text('notion_db'),
+  source: text('source').notNull().default('notion'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  notionPageIdIdx: index('idx_meeting_notes_notion_page_id').on(table.notionPageId),
+  meetingIdIdx: index('idx_meeting_notes_meeting_id').on(table.meetingId),
+  dateIdx: index('idx_meeting_notes_date').on(table.date),
+}))
+
+export const meetingNotePeople = sqliteTable('meeting_note_people', {
+  meetingNoteId: text('meeting_note_id').notNull().references(() => meetingNotes.id, { onDelete: 'cascade' }),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  meetingNoteIdIdx: index('idx_meeting_note_people_note_id').on(table.meetingNoteId),
+  personIdIdx: index('idx_meeting_note_people_person_id').on(table.personId),
+  pairUq: uniqueIndex('uq_meeting_note_people_pair').on(table.meetingNoteId, table.personId),
+}))
+
+export const meetingNoteProjects = sqliteTable('meeting_note_projects', {
+  meetingNoteId: text('meeting_note_id').notNull().references(() => meetingNotes.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  meetingNoteIdIdx: index('idx_meeting_note_projects_note_id').on(table.meetingNoteId),
+  projectIdIdx: index('idx_meeting_note_projects_project_id').on(table.projectId),
+  pairUq: uniqueIndex('uq_meeting_note_projects_pair').on(table.meetingNoteId, table.projectId),
 }))
 
 export const tasks = sqliteTable('tasks', {

@@ -73,9 +73,9 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 - **Output:** Related open action items only (or the empty-related marker)
 
 ### Step 2.2 — Pull Recent Meeting Notes
-- **Input:** `get_notion_meeting_notes` (mandatory) (+ injected "Recent Meeting Notes"), `get_next_meeting_brief` for the next event's local notes
-- **Action:** Find what was discussed recently and what was decided / committed — grounded in the notes only
-- **Output:** Recent context per meeting; if no note exists for a meeting, output `לא נמצא בנתונים`
+- **Input:** `get_notion_meeting_notes` (mandatory — pass `meetingId` or `date` when known; returns local `bodyText`), `get_next_meeting_brief` for the next event's local notes
+- **Action:** Find what was discussed recently and what was decided / committed — grounded in `bodyText` only (synced Notion AI Meeting Notes). Do not invent from titles.
+- **Output:** Recent context per meeting; if no note / empty body for a meeting, output `לא נמצא בנתונים`
 
 ---
 

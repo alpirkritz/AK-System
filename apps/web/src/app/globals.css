@@ -43,9 +43,16 @@
   border-radius: 2px;
 }
 
+html {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 body {
   font-family: var(--font-heebo), 'Assistant', system-ui, sans-serif;
   background-color: var(--bg);
+  overflow-x: hidden;
+  max-width: 100%;
   background-image:
     radial-gradient(1100px 600px at 85% -10%, rgba(45, 212, 191, 0.06), transparent 60%),
     radial-gradient(900px 500px at 0% 110%, rgba(251, 113, 133, 0.05), transparent 55%);
@@ -207,9 +214,63 @@ body {
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid #2f4368;
+  min-width: 0;
 }
 .task-row:last-child {
   border-bottom: none;
+}
+
+/* Dashboard open-task row — checkbox + title only; never widen the page */
+.dashboard-open-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #1a2740;
+  border: 1px solid #2f4368;
+  border-bottom: 1px solid #2f4368;
+  overflow: hidden;
+}
+.dashboard-open-task:last-child {
+  border-bottom: 1px solid #2f4368;
+}
+.dashboard-open-task:hover {
+  border-color: #4d659c;
+}
+.dashboard-open-task:focus-within {
+  outline: 2px solid rgba(45, 212, 191, 0.35);
+  outline-offset: 2px;
+}
+.dashboard-open-task__title {
+  /* w-0 + flex-1 is the reliable flex truncation recipe */
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: #eef3fb;
+  text-align: right;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+}
+.dashboard-open-task__title:hover {
+  color: #fff;
+}
+.dashboard-open-task__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ── Checkbox (accessible button-based) ──────────────────────── */
@@ -274,6 +335,9 @@ body {
   display: block;
   text-decoration: none;
   color: inherit;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .meeting-card:hover {
   border-color: #4d659c;

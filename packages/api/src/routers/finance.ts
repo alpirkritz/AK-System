@@ -300,7 +300,7 @@ export const financeRouter = router({
         rows = rows.where(gte(financeTrades.tradeDate, input.since))
       }
 
-      return rows.orderBy(desc(financeTrades.tradeDate)).limit(input.limit)
+      return queryRows(rows.orderBy(desc(financeTrades.tradeDate)).limit(input.limit))
     }),
 
   deleteTrade: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
@@ -440,7 +440,9 @@ export const financeRouter = router({
         rows = rows.where(conditions.length === 1 ? conditions[0] : and(...conditions))
       }
 
-      return rows.orderBy(desc(financeTransactions.transactionDate)).limit(input.limit)
+      return queryRows(
+        rows.orderBy(desc(financeTransactions.transactionDate)).limit(input.limit)
+      )
     }),
 
   deleteTransaction: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {

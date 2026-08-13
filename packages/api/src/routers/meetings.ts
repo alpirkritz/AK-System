@@ -1,7 +1,16 @@
 import { z } from 'zod'
 import { router, protectedProcedure, type Context } from '../trpc'
-import { meetings, meetingPeople, meetingSeries, tasks, people, MEETING_CATEGORIES } from '@ak-system/database'
+import {
+  meetings,
+  meetingPeople,
+  meetingSeries,
+  meetingNotes,
+  tasks,
+  people,
+  MEETING_CATEGORIES,
+} from '@ak-system/database'
 import { eq, inArray, and, isNotNull, isNull, desc } from 'drizzle-orm'
+import { upsertPersonExternalId } from '../services/person-external-ids'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
@@ -116,16 +125,29 @@ export const meetingsRouter = router({
   }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
-    const [[meeting], links, taskList] = await Promise.all([
+    const [[meeting], links, taskList, notes] = await Promise.all([
       ctx.db.select().from(meetings).where(eq(meetings.id, input.id)),
       ctx.db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, input.id)),
       ctx.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.meetingId, input.id)),
+      ctx.db
+        .select({
+          id: meetingNotes.id,
+          title: meetingNotes.title,
+          date: meetingNotes.date,
+          snippet: meetingNotes.snippet,
+          bodyText: meetingNotes.bodyText,
+          notionUrl: meetingNotes.notionUrl,
+        })
+        .from(meetingNotes)
+        .where(eq(meetingNotes.meetingId, input.id))
+        .orderBy(desc(meetingNotes.date)),
     ])
     if (!meeting) return null
     return {
       ...meeting,
       peopleIds: links.map((l) => l.personId),
       taskIds: taskList.map((t) => t.id),
+      meetingNotes: notes,
     }
   }),
 
@@ -430,7 +452,11 @@ export const meetingsRouter = router({
       }
 
       // Link a meeting to its attendees; unknown emails become unconfirmed people (review queue).
-      const linkAttendees = async (meetingId: string, ev: SyncCalendarEvent) => {
+      const linkAttendees = async (
+        meetingId: string,
+        ev: SyncCalendarEvent,
+        calendarSource: string,
+      ) => {
         const attendees = ('attendees' in ev && Array.isArray(ev.attendees)) ? ev.attendees : []
         for (const attendee of attendees) {
           const email = (attendee as { email?: string }).email?.trim()
@@ -440,6 +466,13 @@ export const meetingsRouter = router({
           if (match) {
             if (match.status === 'ignored') continue
             await ctx.db.insert(meetingPeople).values({ meetingId, personId: match.id })
+            await upsertPersonExternalId(ctx.db, {
+              personId: match.id,
+              provider: 'email',
+              accountKey: calendarSource,
+              externalId: key,
+              displayName: (attendee as { displayName?: string }).displayName || email,
+            })
             continue
           }
           const personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
@@ -454,6 +487,13 @@ export const meetingsRouter = router({
             createdAt: now,
           })
           peopleByEmail.set(key, { id: personId, status: 'unconfirmed' })
+          await upsertPersonExternalId(ctx.db, {
+            personId,
+            provider: 'email',
+            accountKey: calendarSource,
+            externalId: key,
+            displayName: (attendee as { displayName?: string }).displayName || email,
+          })
           await ctx.db.insert(meetingPeople).values({ meetingId, personId })
         }
       }
@@ -510,7 +550,7 @@ export const meetingsRouter = router({
           updatedAt: now,
         })
 
-        await linkAttendees(id, ev)
+        await linkAttendees(id, ev, source)
 
         created++
       }

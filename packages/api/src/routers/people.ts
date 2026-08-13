@@ -1,8 +1,23 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { people, meetings, meetingPeople, tasks, taskPeople, projects, workspaces, PEOPLE_STATUSES } from '@ak-system/database'
+import {
+  people,
+  personExternalIds,
+  meetings,
+  meetingPeople,
+  meetingNotes,
+  meetingNotePeople,
+  meetingNoteProjects,
+  tasks,
+  taskPeople,
+  projects,
+  projectPeople,
+  workspaces,
+  PEOPLE_STATUSES,
+} from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 import { ensureSelfPerson } from '../services/self-person'
+import { repointPersonExternalIds } from '../services/person-external-ids'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
 
@@ -232,34 +247,99 @@ export const peopleRouter = router({
       : []
     const allTaskIds = [...new Set([...tasksAsAssignee.map(t => t.id), ...tasksAsLinked.map(t => t.id)])]
 
-    if (allTaskIds.length === 0) {
-      return { meetings: relatedMeetings, tasks: [], cadence }
+    const tasksWithContext =
+      allTaskIds.length === 0
+        ? []
+        : await ctx.db
+            .select({
+              id: tasks.id,
+              title: tasks.title,
+              done: tasks.done,
+              dueDate: tasks.dueDate,
+              meetingId: tasks.meetingId,
+              projectId: tasks.projectId,
+              assigneeId: tasks.assigneeId,
+              workspaceId: tasks.workspaceId,
+              meetingTitle: meetings.title,
+              meetingDate: meetings.date,
+              projectName: projects.name,
+              workspaceName: workspaces.name,
+              workspaceColor: workspaces.color,
+            })
+            .from(tasks)
+            .leftJoin(meetings, eq(tasks.meetingId, meetings.id))
+            .leftJoin(projects, eq(tasks.projectId, projects.id))
+            .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
+            .where(inArray(tasks.id, allTaskIds))
+            .orderBy(desc(tasks.createdAt))
+
+    const projectLinks = await ctx.db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        color: projects.color,
+      })
+      .from(projectPeople)
+      .innerJoin(projects, eq(projectPeople.projectId, projects.id))
+      .where(eq(projectPeople.personId, input.id))
+      .orderBy(projects.name)
+
+    const noteLinks = await ctx.db
+      .select({
+        id: meetingNotes.id,
+        title: meetingNotes.title,
+        date: meetingNotes.date,
+        snippet: meetingNotes.snippet,
+        bodyText: meetingNotes.bodyText,
+        notionUrl: meetingNotes.notionUrl,
+        meetingId: meetingNotes.meetingId,
+      })
+      .from(meetingNotePeople)
+      .innerJoin(meetingNotes, eq(meetingNotePeople.meetingNoteId, meetingNotes.id))
+      .where(eq(meetingNotePeople.personId, input.id))
+      .orderBy(desc(meetingNotes.date))
+      .limit(20)
+
+    const noteIds = noteLinks.map((n) => n.id)
+    const noteProjectRows =
+      noteIds.length === 0
+        ? []
+        : await ctx.db
+            .select({
+              meetingNoteId: meetingNoteProjects.meetingNoteId,
+              projectId: meetingNoteProjects.projectId,
+            })
+            .from(meetingNoteProjects)
+            .where(inArray(meetingNoteProjects.meetingNoteId, noteIds))
+    const projectIdsByNote = new Map<string, string[]>()
+    for (const row of noteProjectRows) {
+      const list = projectIdsByNote.get(row.meetingNoteId) ?? []
+      list.push(row.projectId)
+      projectIdsByNote.set(row.meetingNoteId, list)
     }
 
-    const tasksWithContext = await ctx.db
+    const identities = await ctx.db
       .select({
-        id: tasks.id,
-        title: tasks.title,
-        done: tasks.done,
-        dueDate: tasks.dueDate,
-        meetingId: tasks.meetingId,
-        projectId: tasks.projectId,
-        assigneeId: tasks.assigneeId,
-        workspaceId: tasks.workspaceId,
-        meetingTitle: meetings.title,
-        meetingDate: meetings.date,
-        projectName: projects.name,
-        workspaceName: workspaces.name,
-        workspaceColor: workspaces.color,
+        id: personExternalIds.id,
+        provider: personExternalIds.provider,
+        accountKey: personExternalIds.accountKey,
+        externalId: personExternalIds.externalId,
+        displayName: personExternalIds.displayName,
       })
-      .from(tasks)
-      .leftJoin(meetings, eq(tasks.meetingId, meetings.id))
-      .leftJoin(projects, eq(tasks.projectId, projects.id))
-      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
-      .where(inArray(tasks.id, allTaskIds))
-      .orderBy(desc(tasks.createdAt))
+      .from(personExternalIds)
+      .where(eq(personExternalIds.personId, input.id))
 
-    return { meetings: relatedMeetings, tasks: tasksWithContext, cadence }
+    return {
+      meetings: relatedMeetings,
+      tasks: tasksWithContext,
+      cadence,
+      projects: projectLinks,
+      meetingNotes: noteLinks.map((n) => ({
+        ...n,
+        projectIds: projectIdsByNote.get(n.id) ?? [],
+      })),
+      identities,
+    }
   }),
 
   /** Unknown/unconfirmed attendees awaiting review, with occurrence count and a suggested match. */
@@ -347,6 +427,41 @@ export const peopleRouter = router({
 
       // tasks.assigneeId
       await ctx.db.update(tasks).set({ assigneeId: input.toId }).where(eq(tasks.assigneeId, input.fromId))
+
+      // project_people
+      const targetProjectLinks = await ctx.db
+        .select({ projectId: projectPeople.projectId })
+        .from(projectPeople)
+        .where(eq(projectPeople.personId, input.toId))
+      const targetProjectIds = new Set(targetProjectLinks.map((l) => l.projectId))
+      const fromProjectLinks = await ctx.db
+        .select({ projectId: projectPeople.projectId })
+        .from(projectPeople)
+        .where(eq(projectPeople.personId, input.fromId))
+      for (const l of fromProjectLinks) {
+        if (targetProjectIds.has(l.projectId)) continue
+        await ctx.db.insert(projectPeople).values({ projectId: l.projectId, personId: input.toId })
+      }
+
+      // meeting_note_people
+      const targetNoteLinks = await ctx.db
+        .select({ meetingNoteId: meetingNotePeople.meetingNoteId })
+        .from(meetingNotePeople)
+        .where(eq(meetingNotePeople.personId, input.toId))
+      const targetNoteIds = new Set(targetNoteLinks.map((l) => l.meetingNoteId))
+      const fromNoteLinks = await ctx.db
+        .select({ meetingNoteId: meetingNotePeople.meetingNoteId })
+        .from(meetingNotePeople)
+        .where(eq(meetingNotePeople.personId, input.fromId))
+      for (const l of fromNoteLinks) {
+        if (targetNoteIds.has(l.meetingNoteId)) continue
+        await ctx.db.insert(meetingNotePeople).values({
+          meetingNoteId: l.meetingNoteId,
+          personId: input.toId,
+        })
+      }
+
+      await repointPersonExternalIds(ctx.db, input.fromId, input.toId)
 
       // Remove the source person (cascades remove its now-duplicate links)
       await ctx.db.delete(people).where(eq(people.id, input.fromId))

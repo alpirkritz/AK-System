@@ -116,7 +116,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const isMoreActive = MORE_ITEMS.some((item) => isActive(item.href))
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden">
       {/* Desktop / tablet sidebar */}
       <aside className="w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-6 gap-1 sticky top-0 h-screen hidden md:flex">
         <div className="px-3 pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
@@ -169,8 +169,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content with responsive padding and bottom nav spacing */}
-      <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-y-auto">
+      {/* Main content with responsive padding and bottom nav spacing.
+          min-w-0 is required so flex children can shrink; without it long
+          unbroken strings (e.g. task titles) force horizontal page scroll. */}
+      <main className="flex-1 min-w-0 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-y-auto overflow-x-hidden">
         <div className="flex justify-end mb-4 md:mb-6">
           <NotificationBell />
         </div>

@@ -48,7 +48,7 @@ Prepares the user for meetings by pulling together open action items to push for
 | Notion — People | Read | `get_notion_people` (redact PII) |
 | Notion — Projects | Read | `get_notion_projects` |
 | Notion — Companies | Read | `get_notion_companies` |
-| Notion — AI Meeting Notes | Read | `get_notion_meeting_notes` + injected "Recent Meeting Notes" |
+| Notion — AI Meeting Notes | Read | `get_notion_meeting_notes` (local `body_text`; pass `date` and/or `meetingId` when known) |
 | Local meeting record + notes | Read | `get_next_meeting_brief` |
 | Find any item by name | Read | `search_notion` |
 
@@ -134,7 +134,7 @@ Do NOT guess or rely on memory. Pull real data with the tools below every run:
 | Participants / who someone is | `get_notion_people` | Each person includes resolved relations (company, projects, manager/reports-to) — use them to connect participants to context. Redact third-party PII. |
 | Link a meeting to a project | `get_notion_projects` | Includes resolved relations. |
 | Link a meeting to a company | `get_notion_companies` | Includes resolved relations. |
-| What was discussed/decided last time | `get_notion_meeting_notes` + the injected "Recent Meeting Notes" | Most recent notes first. |
+| What was discussed/decided last time | `get_notion_meeting_notes` | Local synced `body_text`. Pass `meetingId` or `date` when known; otherwise recent 15. Use `bodyText` field — not property snippets. Empty → `לא נמצא בנתונים`. |
 | Local meeting record + saved notes | `get_next_meeting_brief` | For the very next event with linked local notes. |
 | Find a specific item by name | `search_notion` | Searches all Notion DBs (meetings, tasks, people, projects, companies, notes). |
 

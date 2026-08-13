@@ -1,29 +1,79 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { X, Pencil, Phone, Mail, Linkedin, Calendar, CheckSquare, Save, XCircle } from 'lucide-react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { X, Pencil, Phone, Mail, Linkedin, Calendar, CheckSquare, Save, XCircle, Merge } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { he } from 'date-fns/locale'
+import dynamic from 'next/dynamic'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/cn'
 import { WorkspacePill } from '@/components/WorkspacePill'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
+import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
+import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
+
+const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
 const COLORS = ['#2dd4bf', '#fb7185', '#38bdf8', '#47e8a8', '#b847e8']
 const GOAL_OPTIONS = ['Bi-Weekly', 'Monthly', 'Bi-Monthly', 'Quarterly']
+
+type RelatedTask = {
+  id: string
+  title: string
+  done: boolean
+  dueDate?: string | null
+  meetingTitle?: string | null
+  meetingDate?: string | null
+  projectName?: string | null
+  workspaceId?: string | null
+  workspaceName?: string | null
+  workspaceColor?: string | null
+}
+
+/** Hint for flipped first/last names (Shani Asaraf → Asaraf Shani). */
+function reverseNameHint(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 2) return `${parts[1]} ${parts[0]}`
+  return name.trim()
+}
 
 interface Props {
   personId: string
   onClose: () => void
 }
 
+function identityChipLabel(provider: string, accountKey: string): string {
+  if (provider === 'notion') {
+    const db = accountKey.includes('::') ? accountKey.split('::').slice(1).join('::') : accountKey
+    return `Notion · ${db || accountKey}`
+  }
+  if (provider === 'google_contact') return 'Google'
+  if (provider === 'slack') return 'Slack'
+  if (provider === 'email') return 'אימייל'
+  return provider
+}
+
 export function PersonDetailDrawer({ personId, onClose }: Props) {
   const { data: person, isLoading } = trpc.people.getById.useQuery({ id: personId })
   const { data: related } = trpc.people.getRelated.useQuery({ id: personId })
+  const { data: personContext } = trpc.insights.personContext.useQuery({ personId }, { enabled: !!personId })
+  const { data: allProjects = [] } = trpc.projects.list.useQuery()
+  const { data: allPeople = [] } = trpc.people.list.useQuery()
+  const { data: allMeetings = [] } = trpc.meetings.list.useQuery()
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: !!personId })
   const [editing, setEditing] = useState(false)
+  const [merging, setMerging] = useState(false)
+  const [mergeSearch, setMergeSearch] = useState('')
+  const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
+
+  const sortedTasks = useMemo(
+    () => sortTasksOpenThenDueAsc((related?.tasks ?? []) as RelatedTask[]),
+    [related?.tasks],
+  )
 
   const utils = trpc.useUtils()
   const update = trpc.people.update.useMutation({
@@ -33,6 +83,32 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
       utils.people.filterOptions.invalidate()
       setEditing(false)
     },
+  })
+  const merge = trpc.people.merge.useMutation({
+    onSuccess: () => {
+      void utils.people.listPaginated.invalidate()
+      void utils.people.list.invalidate()
+      void utils.people.reviewQueue.invalidate()
+      void utils.people.filterOptions.invalidate()
+      setMerging(false)
+      setMergeSearch('')
+      onClose()
+    },
+  })
+  const { data: mergeResults = [] } = trpc.people.search.useQuery(
+    { query: mergeSearch },
+    { enabled: merging && mergeSearch.trim().length > 0 },
+  )
+  const invalidatePersonProjects = () => {
+    utils.people.getRelated.invalidate({ id: personId })
+    utils.insights.personContext.invalidate({ personId })
+    utils.projects.getRelated.invalidate()
+  }
+  const addToProject = trpc.projects.addPerson.useMutation({
+    onSuccess: invalidatePersonProjects,
+  })
+  const removeFromProject = trpc.projects.removePerson.useMutation({
+    onSuccess: invalidatePersonProjects,
   })
   const toggleTaskDone = trpc.tasks.toggleDone.useMutation({
     onSuccess: () => {
@@ -87,11 +163,19 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (taskModalOpen) return
+        if (merging) {
+          setMerging(false)
+          setMergeSearch('')
+          return
+        }
+        onClose()
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, taskModalOpen, merging])
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [key]: e.target.value }))
@@ -162,7 +246,27 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           </div>
 
           {/* Contact action buttons */}
-          <div className="flex items-center gap-2 mb-6">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {!editing && (
+              <button
+                type="button"
+                className="btn btn-ghost flex items-center gap-1.5 text-xs"
+                aria-expanded={merging}
+                aria-label={`מזג את ${person.name} עם איש קשר אחר`}
+                onClick={() => {
+                  if (merging) {
+                    setMerging(false)
+                    setMergeSearch('')
+                  } else {
+                    setMerging(true)
+                    setMergeSearch(reverseNameHint(person.name))
+                  }
+                }}
+              >
+                <Merge className="w-3.5 h-3.5" />
+                מזג
+              </button>
+            )}
             {person.phone && (
               <a href={`tel:${person.phone}`} className="btn btn-ghost flex items-center gap-1.5 text-xs">
                 <Phone className="w-3.5 h-3.5" />
@@ -187,6 +291,55 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
               </a>
             )}
           </div>
+
+          {merging && (
+            <div className="mb-6 p-3 rounded-lg" style={{ border: '1px solid #29395d', background: '#0f1729' }}>
+              <p className="text-xs text-[#7a89ab] mb-2">
+                בחרי את איש הקשר שנשאר. הכרטיס הנוכחי יימחק אחרי העברת כל הקישורים.
+              </p>
+              <input
+                className="input text-sm"
+                placeholder="חפש איש קשר למיזוג…"
+                value={mergeSearch}
+                onChange={(e) => setMergeSearch(e.target.value)}
+                autoFocus
+              />
+              {mergeSearch.trim().length > 0 && (
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid #29395d' }}>
+                  {mergeResults.filter((r) => r.id !== personId).length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-[#5a688c]">לא נמצאו אנשי קשר</div>
+                  ) : (
+                    mergeResults
+                      .filter((r) => r.id !== personId)
+                      .map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="flex items-center justify-between gap-2 w-full px-3 py-2 text-right hover:bg-[#141f36] transition-colors disabled:opacity-50"
+                          onClick={() => merge.mutate({ fromId: personId, toId: r.id })}
+                          disabled={merge.isPending}
+                        >
+                          <span className="min-w-0">
+                            <span className="text-xs text-[#b8c4dc] block truncate">{r.name}</span>
+                            {r.email && (
+                              <span className="text-[11px] text-[#5a688c] block truncate" dir="ltr">
+                                {r.email}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px] text-[#e8c547] shrink-0">
+                            {merge.isPending ? 'ממזג…' : 'מזג לכאן'}
+                          </span>
+                        </button>
+                      ))
+                  )}
+                </div>
+              )}
+              {merge.isError && (
+                <p className="text-xs text-[#e57373] mt-2">המיזוג נכשל — נסי שוב</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Scrollable content */}
@@ -353,6 +506,140 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
             </section>
           )}
 
+          {/* Relationship insights */}
+          {personContext && (
+            <section className="mb-5">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">
+                הקשר
+              </h3>
+              <div
+                className="rounded-lg px-3 py-2 text-xs space-y-1"
+                style={{ background: '#141f36', border: '1px solid #29395d', color: '#97a4c2' }}
+              >
+                {personContext.lastContactAt && (
+                  <div>
+                    קשר אחרון:{' '}
+                    {format(new Date(personContext.lastContactAt + (personContext.lastContactAt.length === 10 ? 'T00:00:00' : '')), 'dd/MM/yy')}
+                  </div>
+                )}
+                <div>{personContext.meetingCount} פגישות · {personContext.sharedProjects.length} פרויקטים משותפים</div>
+              </div>
+            </section>
+          )}
+
+          {/* External identities */}
+          {related?.identities && related.identities.length > 0 && (
+            <section className="mb-5">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">
+                מקורות זהות
+              </h3>
+              <div className="flex flex-wrap gap-1.5">
+                {related.identities.map((id) => (
+                  <span key={id.id} className="pill text-[10px]">
+                    {identityChipLabel(id.provider, id.accountKey)}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Projects — always shown so the user can link from the person */}
+          <section className="mb-6">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider">
+                פרויקטים ({related?.projects?.length ?? 0})
+              </h3>
+              <SearchableAddSelect
+                id="person-add-project"
+                triggerLabel="+ שייך לפרויקט"
+                placeholder="חיפוש פרויקט..."
+                emptyLabel="לא נמצא פרויקט"
+                disabled={addToProject.isPending}
+                options={allProjects
+                  .filter((p) => !(related?.projects ?? []).some((linked) => linked.id === p.id))
+                  .map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    color: p.color,
+                  }))}
+                onAdd={(projectId) => addToProject.mutate({ projectId, personId })}
+              />
+            </div>
+            <div className="space-y-2">
+              {(related?.projects ?? []).length === 0 && (
+                <p className="text-xs text-[#5a688c]">לא משויך לפרויקטים — בחר מהרשימה למעלה</p>
+              )}
+              {(related?.projects ?? []).map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-2 py-2 border-b border-[#223052] last:border-0 text-xs"
+                >
+                  <a
+                    href={`/projects/${p.id}`}
+                    className="flex items-center gap-2 flex-1 min-w-0 text-[#97a4c2] hover:text-[#eef3fb]"
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ background: p.color ?? '#38bdf8' }}
+                    />
+                    <span className="truncate">{p.name}</span>
+                  </a>
+                  <button
+                    type="button"
+                    className="text-[#5a688c] hover:text-[#fb7185] shrink-0 px-1"
+                    title="הסר שיוך"
+                    disabled={removeFromProject.isPending}
+                    onClick={() => removeFromProject.mutate({ projectId: p.id, personId })}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Meeting notes */}
+          {related?.meetingNotes && related.meetingNotes.length > 0 && (
+            <section className="mb-6">
+              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">
+                סיכומי ישיבות ({related.meetingNotes.length})
+              </h3>
+              <div className="space-y-2">
+                {related.meetingNotes.map((note) => {
+                  const excerpt =
+                    ('bodyText' in note && typeof note.bodyText === 'string' && note.bodyText.trim())
+                      ? note.bodyText.trim()
+                      : note.snippet?.trim() || ''
+                  return (
+                  <div key={note.id} className="py-2 border-b border-[#223052] last:border-0">
+                    <div className="flex items-center gap-2 text-xs">
+                      {note.date && (
+                        <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
+                          {format(new Date(note.date + 'T00:00:00'), 'dd/MM/yy')}
+                        </span>
+                      )}
+                      {note.meetingId ? (
+                        <a href={`/meetings/${note.meetingId}`} className="text-[#97a4c2] hover:text-[#eef3fb] truncate">
+                          {note.title}
+                        </a>
+                      ) : note.notionUrl ? (
+                        <a href={note.notionUrl} target="_blank" rel="noreferrer" className="text-[#97a4c2] hover:text-[#eef3fb] truncate">
+                          {note.title}
+                        </a>
+                      ) : (
+                        <span className="text-[#97a4c2] truncate">{note.title}</span>
+                      )}
+                    </div>
+                    {excerpt && (
+                      <p className="text-[11px] text-[#5a688c] mt-1 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>
+                    )}
+                  </div>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
           {/* Activity timeline */}
           {related && related.meetings.length > 0 && (
             <section className="mb-6">
@@ -377,19 +664,22 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           )}
 
           {/* Related tasks */}
-          {related && related.tasks.length > 0 && (
+          {sortedTasks.length > 0 && (
             <section>
               <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <CheckSquare className="w-3.5 h-3.5" />
-                משימות ({related.tasks.length})
+                משימות ({sortedTasks.length})
               </h3>
               <div className="space-y-2">
-                {related.tasks.map((task: { id: string; title: string; done: boolean; dueDate?: string | null; meetingTitle?: string | null; meetingDate?: string | null; projectName?: string | null; workspaceId?: string | null; workspaceName?: string | null; workspaceColor?: string | null }) => (
+                {sortedTasks.map((task) => (
                   <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => toggleTaskDone.mutate({ id: task.id })}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleTaskDone.mutate({ id: task.id })
+                        }}
                         disabled={toggleTaskDone.isPending}
                         className={cn(
                           'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf] focus-visible:ring-offset-1 focus-visible:ring-offset-[#16233b]',
@@ -400,12 +690,20 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                       >
                         {task.done && <CheckSquare className="w-3 h-3" strokeWidth={2.5} />}
                       </button>
-                      <span className={cn(
-                        'text-xs truncate flex-1',
-                        task.done ? 'text-[#5a688c] line-through' : 'text-[#97a4c2]'
-                      )}>
+                      <button
+                        type="button"
+                        className={cn(
+                          'text-xs truncate flex-1 text-right hover:text-[#eef3fb] transition-colors',
+                          task.done ? 'text-[#5a688c] line-through' : 'text-[#97a4c2]'
+                        )}
+                        onClick={() => {
+                          setEditingTaskId(task.id)
+                          setTaskModalOpen(true)
+                        }}
+                        title="פתח משימה"
+                      >
                         {task.title}
-                      </span>
+                      </button>
                       {task.workspaceName && (
                         <WorkspacePill
                           workspace={{ id: task.workspaceId!, name: task.workspaceName, color: task.workspaceColor }}
@@ -452,6 +750,24 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           </div>
         )}
       </div>
+
+      <TaskModal
+        open={taskModalOpen}
+        onClose={() => {
+          setTaskModalOpen(false)
+          setEditingTaskId(null)
+          void utils.people.getRelated.invalidate({ id: personId })
+        }}
+        editingTaskId={editingTaskId}
+        people={allPeople}
+        meetings={allMeetings.map((m) => ({ id: m.id, title: m.title }))}
+        projects={allProjects.map((p) => ({ id: p.id, name: p.name }))}
+        workspaces={workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
+        }))}
+      />
     </>
   )
 }

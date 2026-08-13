@@ -275,8 +275,20 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meeting_notes',
     description:
-      "Read the user's AI Meeting Notes database from Notion (all accounts), most recent first. Use to find what was discussed and decided in past meetings when preparing for an upcoming one.",
-    parameters: { type: SchemaType.OBJECT, properties: {} },
+      "Read locally synced AI Meeting Notes (full stored body_text from Notion recordings), most recent first. Use for what was discussed/decided. Optional date ('today' or YYYY-MM-DD) or meetingId to filter. Default: 15 most recent notes with body text. Prefer this over inventing meeting content.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        date: {
+          type: SchemaType.STRING,
+          description: "'today' or YYYY-MM-DD to filter notes by meeting/note date",
+        },
+        meetingId: {
+          type: SchemaType.STRING,
+          description: 'Local meeting id to return notes linked to that meeting',
+        },
+      },
+    },
   },
   {
     name: 'search_notion',
@@ -851,8 +863,26 @@ export async function executeTool(
     }
 
     case 'get_notion_meeting_notes': {
-      const { entries, errors } = await getNotionEntries('meeting_notes')
-      return { meetingNotes: entries, count: entries.length, errors }
+      const date = (args.date as string | undefined)?.trim()
+      const meetingId = (args.meetingId as string | undefined)?.trim()
+      const result = await caller.insights.meetingNotes({
+        ...(date ? { date } : {}),
+        ...(meetingId ? { meetingId } : {}),
+      })
+      return {
+        meetingNotes: result.notes.map((n) => ({
+          id: n.id,
+          title: n.title,
+          date: n.date,
+          bodyText: n.bodyText,
+          snippet: n.snippet,
+          meetingId: n.meetingId,
+          meetingTitle: n.meetingTitle,
+          notionUrl: n.notionUrl,
+        })),
+        count: result.count,
+        source: 'local_db',
+      }
     }
 
     case 'search_notion': {

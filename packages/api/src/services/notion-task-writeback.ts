@@ -3,9 +3,16 @@ import {
   findStatusPropertyName,
   listConfiguredPeopleDatabaseIds,
   resolveCanonicalStatus,
+  resolveDatabases,
   resolveTaskDatabaseTarget,
   type CanonicalStatus,
 } from './notion-tasks-sync'
+import {
+  clearPeopleDirectoryCache,
+  fetchPeopleDirectoryIndex,
+  findPeopleRelation,
+  type PeopleRelationInfo,
+} from './notion-people-directory'
 
 const NOTION_VERSION = '2022-06-28'
 const SCHEMA_TTL_MS = 5 * 60 * 1000
@@ -45,32 +52,23 @@ interface DatabaseSchema {
   peoplePropertyName: string | null
   priority: PrioritySchema | null
   /** Relation pointing at a people directory, where a task's related people go. */
-  peopleRelation: PeopleRelationSchema | null
-}
-
-interface PeopleRelationSchema {
-  propertyName: string
-  targetDatabaseId: string
+  peopleRelation: PeopleRelationInfo | null
 }
 
 const dbSchemaCache = new Map<string, { at: number; schema: DatabaseSchema }>()
 const usersCache = new Map<string, { at: number; users: NotionUser[] }>()
-const peopleDirectoryCache = new Map<string, { at: number; byName: Map<string, string> }>()
 
 /** Exposed for tests — the caches would otherwise leak between cases. */
 export function clearStatusSchemaCache(): void {
   dbSchemaCache.clear()
   usersCache.clear()
-  peopleDirectoryCache.clear()
+  clearPeopleDirectoryCache()
 }
 
 /** True for the property that holds a priority, which must never be mistaken for the status. */
 function isPriorityName(name: string): boolean {
   return name.toLowerCase().includes('priority') || name.includes('עדיפות')
 }
-
-/** Names task databases give the relation that points at a directory of people. */
-const PEOPLE_RELATION_NAME = /people|person|אנשים|אנשי\s*קשר/i
 
 async function fetchDatabaseSchema(token: string, databaseId: string): Promise<DatabaseSchema> {
   const cached = dbSchemaCache.get(databaseId)
@@ -134,88 +132,10 @@ async function fetchDatabaseSchema(token: string, databaseId: string): Promise<D
     datePropertyName,
     peoplePropertyName,
     priority,
-    peopleRelation: findPeopleRelation(properties, databaseId),
+    peopleRelation: findPeopleRelation(properties, databaseId, listConfiguredPeopleDatabaseIds()),
   }
   dbSchemaCache.set(databaseId, { at: Date.now(), schema })
   return schema
-}
-
-/** Notion returns ids with and without dashes depending on the endpoint. */
-function sameId(a: string, b: string): boolean {
-  return a.replace(/-/g, '') === b.replace(/-/g, '')
-}
-
-/**
- * Picks the relation that points at a directory of people. A configured `people` database is proof;
- * otherwise the property name has to say so. Relations back into the task database itself (sub-tasks,
- * parent task, blockers) are never candidates.
- */
-function findPeopleRelation(
-  properties: Record<string, { type?: string; relation?: { database_id?: string } }>,
-  taskDatabaseId: string
-): PeopleRelationSchema | null {
-  const configured = listConfiguredPeopleDatabaseIds()
-  let byName: PeopleRelationSchema | null = null
-
-  for (const [propertyName, p] of Object.entries(properties)) {
-    if (p?.type !== 'relation') continue
-    const targetDatabaseId = p.relation?.database_id
-    if (!targetDatabaseId || sameId(targetDatabaseId, taskDatabaseId)) continue
-
-    if (configured.some((id) => sameId(id, targetDatabaseId))) return { propertyName, targetDatabaseId }
-    if (!byName && PEOPLE_RELATION_NAME.test(propertyName)) byName = { propertyName, targetDatabaseId }
-  }
-  return byName
-}
-
-/**
- * Person name → page id for one directory database. Local people rows cannot carry this mapping:
- * `people.notionPageId` holds a single id while the same human exists as a separate page in each
- * directory, so the lookup is per-database and by name.
- */
-async function fetchPeopleDirectoryIndex(token: string, databaseId: string): Promise<Map<string, string>> {
-  const cached = peopleDirectoryCache.get(databaseId)
-  if (cached && Date.now() - cached.at < SCHEMA_TTL_MS) return cached.byName
-
-  const byName = new Map<string, string>()
-  let cursor: string | undefined
-  do {
-    const res = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Notion-Version': NOTION_VERSION,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(cursor ? { page_size: 100, start_cursor: cursor } : { page_size: 100 }),
-    })
-    if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`Notion API ${res.status}: ${body.slice(0, 200)}`)
-    }
-    const data = (await res.json()) as {
-      results?: Array<{
-        id?: string
-        properties?: Record<string, { type?: string; title?: Array<{ plain_text?: string }> }>
-      }>
-      next_cursor?: string | null
-      has_more?: boolean
-    }
-    for (const page of data.results ?? []) {
-      if (!page.id) continue
-      const titleProp = Object.values(page.properties ?? {}).find((p) => p?.type === 'title')
-      const name = (titleProp?.title ?? [])
-        .map((t) => t.plain_text ?? '')
-        .join('')
-        .trim()
-      // First page wins, so a duplicated name resolves deterministically.
-      if (name && !byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), page.id)
-    }
-    cursor = data.has_more ? (data.next_cursor ?? undefined) : undefined
-  } while (cursor)
-
-  peopleDirectoryCache.set(databaseId, { at: Date.now(), byName })
-  return byName
 }
 
 interface NotionUser {
@@ -410,7 +330,7 @@ export async function pushTaskPeople(input: {
     if (input.personNames.length > 0) {
       const directory = await fetchPeopleDirectoryIndex(target.token, relation.targetDatabaseId)
       for (const name of input.personNames) {
-        const pageId = directory.get(name.trim().toLowerCase())
+        const pageId = directory.byName.get(name.trim().toLowerCase())
         if (pageId && !pageIds.includes(pageId)) {
           pageIds.push(pageId)
           matched.push(name)
@@ -519,4 +439,70 @@ export async function createNotionTask(input: {
   } catch (err) {
     return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * Push a project's related people onto the Notion project's People relation.
+ * Resolves directory pages by name against the relation's target DB (same safety
+ * net as pushTaskPeople). Never throws.
+ */
+export async function pushProjectPeople(input: {
+  notionPageId: string
+  personNames: string[]
+}): Promise<PeopleRelationResult> {
+  const projectDbs = resolveDatabases('projects')
+  if (projectDbs.length === 0) return { ok: false, reason: 'account' }
+
+  let lastError: PeopleRelationResult | null = null
+  for (const database of projectDbs) {
+    try {
+      const schema = await fetchDatabaseSchema(database.token, database.databaseId)
+      const relation = schema.peopleRelation
+      if (!relation) {
+        lastError = { ok: false, reason: 'no-people-relation' }
+        continue
+      }
+
+      const matched: string[] = []
+      const unmatched: string[] = []
+      const pageIds: string[] = []
+      if (input.personNames.length > 0) {
+        const directory = await fetchPeopleDirectoryIndex(database.token, relation.targetDatabaseId)
+        for (const name of input.personNames) {
+          const pageId = directory.byName.get(name.trim().toLowerCase())
+          if (pageId && !pageIds.includes(pageId)) {
+            pageIds.push(pageId)
+            matched.push(name)
+          } else if (!pageId) {
+            unmatched.push(name)
+          }
+        }
+        if (pageIds.length === 0) {
+          lastError = { ok: false, reason: 'no-matching-people', unmatched }
+          continue
+        }
+      }
+
+      const res = await fetch(`https://api.notion.com/v1/pages/${input.notionPageId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${database.token}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          properties: { [relation.propertyName]: { relation: pageIds.map((id) => ({ id })) } },
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.text()
+        lastError = { ok: false, reason: 'api', message: `Notion API ${res.status}: ${body.slice(0, 200)}` }
+        continue
+      }
+      return { ok: true, propertyName: relation.propertyName, matched, unmatched }
+    } catch (err) {
+      lastError = { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
+    }
+  }
+  return lastError ?? { ok: false, reason: 'account' }
 }

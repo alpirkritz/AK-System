@@ -1,10 +1,12 @@
 /**
  * Sync Notion tasks + the Notion people directory into the app database.
  *
- * Pulls tasks assigned to the user (`NOTION_USER_NAME`) and tasks assigned to
- * other people who exist in the Notion people directory, upserts those people
- * into `people`, and links every synced task to its person(s) via
- * `tasks.assigneeId` + the `task_people` join table.
+ * Pulls tasks assigned to the user (`NOTION_USER_NAME`) and tasks linked to
+ * known people via Assignee or a People-directory relation (including
+ * unconfigured directories resolved by title → existing person name), upserts
+ * configured people DBs into `people`, and links every synced task via
+ * `tasks.assigneeId` + `task_people`. Also sets `tasks.projectId` when a
+ * Projects relation matches a local `projects.notionPageId`.
  *
  * Self-contained (mirrors `notion-ibkr-import.ts`): reads Notion config from env
  * (`NOTION_ACCOUNTS`, or legacy `NOTION_API_KEY`) and talks to the Notion REST
@@ -18,6 +20,8 @@
 import {
   getDb,
   people,
+  personExternalIds,
+  projects,
   tasks,
   taskPeople,
   workspaces,
@@ -28,6 +32,13 @@ import {
   inArray,
 } from '@ak-system/database'
 import { ensureSelfPerson, getSelfPersonName } from './self-person'
+import { upsertPersonExternalId } from './person-external-ids'
+import {
+  fetchDatabaseProperties,
+  fetchPeopleDirectoryIndex,
+  findPeopleRelation,
+  type PeopleRelationInfo,
+} from './notion-people-directory'
 
 const NOTION_VERSION = '2022-06-28'
 
@@ -78,8 +89,16 @@ export interface NotionTasksSyncOptions {
 
 const getUserName = getSelfPersonName
 
+export type NotionDbType =
+  | 'tasks'
+  | 'people'
+  | 'projects'
+  | 'companies'
+  | 'meeting_notes'
+  | 'meetings'
+
 /** Databases of a given Notion type across all configured accounts. */
-function resolveDatabases(type: 'tasks' | 'people'): NotionDb[] {
+export function resolveDatabases(type: NotionDbType): NotionDb[] {
   const out: NotionDb[] = []
   const raw = process.env.NOTION_ACCOUNTS?.trim()
   if (raw) {
@@ -365,7 +384,7 @@ function getPeopleNames(props: Record<string, NotionProp>): string[] {
   return names
 }
 
-/** Related page ids from every `relation`-type property (e.g. link to People DB). */
+/** Related page ids from every `relation`-type property (legacy fallback). */
 function getRelationPageIds(props: Record<string, NotionProp>): string[] {
   const ids: string[] = []
   for (const v of Object.values(props)) {
@@ -373,6 +392,30 @@ function getRelationPageIds(props: Record<string, NotionProp>): string[] {
       for (const r of v.relation as Array<{ id?: string }>) {
         if (r?.id) ids.push(r.id)
       }
+    }
+  }
+  return ids
+}
+
+/** Page ids from one named relation property. */
+function getNamedRelationPageIds(props: Record<string, NotionProp>, propertyName: string): string[] {
+  const v = props[propertyName]
+  if (!v || v.type !== 'relation' || !Array.isArray(v.relation)) return []
+  const ids: string[] = []
+  for (const r of v.relation as Array<{ id?: string }>) {
+    if (r?.id) ids.push(r.id)
+  }
+  return ids
+}
+
+/** Project page ids from relation properties named like Projects / פרויקט. */
+function getProjectRelationPageIds(props: Record<string, NotionProp>): string[] {
+  const ids: string[] = []
+  for (const [name, v] of Object.entries(props)) {
+    if (v?.type !== 'relation' || !Array.isArray(v.relation)) continue
+    if (!/project|פרויקט/i.test(name)) continue
+    for (const r of v.relation as Array<{ id?: string }>) {
+      if (r?.id) ids.push(r.id)
     }
   }
   return ids
@@ -393,6 +436,8 @@ interface PersonRow {
   name: string
   email: string | null
   notionPageId: string | null
+  companyId?: string | null
+  status?: string | null
 }
 
 interface PeopleMaps {
@@ -411,6 +456,33 @@ function buildPeopleMaps(rows: PersonRow[]): PeopleMaps {
     byName.set(r.name.toLowerCase(), r)
   }
   return { byNotionId, byEmail, byName }
+}
+
+async function loadPeopleMaps(db: Db): Promise<PeopleMaps> {
+  const existingPeople = (await db
+    .select({
+      id: people.id,
+      name: people.name,
+      email: people.email,
+      notionPageId: people.notionPageId,
+      companyId: people.companyId,
+      status: people.status,
+    })
+    .from(people)) as PersonRow[]
+  const maps = buildPeopleMaps(existingPeople)
+  const identities = await db
+    .select({
+      personId: personExternalIds.personId,
+      externalId: personExternalIds.externalId,
+    })
+    .from(personExternalIds)
+    .where(eq(personExternalIds.provider, 'notion'))
+  const byId = new Map(existingPeople.map((p) => [p.id, p]))
+  for (const row of identities) {
+    const person = byId.get(row.personId)
+    if (person) maps.byNotionId.set(row.externalId, person)
+  }
+  return maps
 }
 
 function newId(prefix: string): string {
@@ -478,11 +550,8 @@ export async function syncNotionTasks(
   const peopleDbs = resolveDatabases('people')
   const now = new Date().toISOString()
 
-  // Load current people into lookup maps.
-  const existingPeople = (await db
-    .select({ id: people.id, name: people.name, email: people.email, notionPageId: people.notionPageId })
-    .from(people)) as PersonRow[]
-  const maps = buildPeopleMaps(existingPeople)
+  // Load current people + all Notion external identities into lookup maps.
+  const maps = await loadPeopleMaps(db)
 
   const registerPerson = (row: PersonRow): void => {
     if (row.notionPageId) maps.byNotionId.set(row.notionPageId, row)
@@ -490,7 +559,10 @@ export async function syncNotionTasks(
     maps.byName.set(row.name.toLowerCase(), row)
   }
 
-  // ── People pass: upsert the Notion people directory ──
+  const accountKeyFor = (database: NotionDb) =>
+    `${database.accountLabel}::${database.name}`
+
+  // ── People pass: upsert every configured Notion people directory ──
   for (const database of peopleDbs) {
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
     try {
@@ -503,26 +575,53 @@ export async function syncNotionTasks(
       const name = getTitle(page.properties)
       if (!name) continue
       const email = getEmail(page.properties)
-      const existing =
-        maps.byNotionId.get(page.id) ??
-        (email ? maps.byEmail.get(email.toLowerCase()) : undefined) ??
-        maps.byName.get(name.toLowerCase())
+      const byNotion = maps.byNotionId.get(page.id)
+      const byEmail = email ? maps.byEmail.get(email.toLowerCase()) : undefined
+      const byName = maps.byName.get(name.toLowerCase())
+
+      // Never auto-merge two confirmed people with conflicting non-null emails.
+      let existing = byNotion
+      if (!existing && byEmail) existing = byEmail
+      if (!existing && byName) {
+        if (
+          email &&
+          byName.email &&
+          byName.email.toLowerCase() !== email.toLowerCase() &&
+          byName.status === 'confirmed'
+        ) {
+          existing = undefined
+        } else {
+          existing = byName
+        }
+      }
 
       if (existing) {
-        // Backfill notionPageId (and email) on an already-known person.
-        if (!existing.notionPageId) {
-          if (!dryRun) {
+        if (!dryRun) {
+          if (!existing.notionPageId) {
             await db.update(people).set({ notionPageId: page.id }).where(eq(people.id, existing.id))
+            existing.notionPageId = page.id
+            result.peopleUpdated++
           }
-          existing.notionPageId = page.id
-          maps.byNotionId.set(page.id, existing)
-          result.peopleUpdated++
+          await upsertPersonExternalId(db, {
+            personId: existing.id,
+            provider: 'notion',
+            accountKey: accountKeyFor(database),
+            externalId: page.id,
+            displayName: name,
+          })
         }
+        maps.byNotionId.set(page.id, existing)
         continue
       }
 
       const id = newId('p_notion_')
-      const row: PersonRow = { id, name, email: email ?? null, notionPageId: page.id }
+      const row: PersonRow = {
+        id,
+        name,
+        email: email ?? null,
+        notionPageId: page.id,
+        status: 'confirmed',
+      }
       if (!dryRun) {
         await db.insert(people).values({
           id,
@@ -535,8 +634,16 @@ export async function syncNotionTasks(
           notionPageId: page.id,
           createdAt: now,
         })
+        await upsertPersonExternalId(db, {
+          personId: id,
+          provider: 'notion',
+          accountKey: accountKeyFor(database),
+          externalId: page.id,
+          displayName: name,
+        })
       }
       registerPerson(row)
+      maps.byNotionId.set(page.id, row)
       result.peopleCreated++
     }
   }
@@ -552,6 +659,52 @@ export async function syncNotionTasks(
     result.peopleCreated++
   }
 
+  // ── Index People directories discovered from task-DB schemas (often unconfigured) ──
+  // Match directory page titles to existing people by name; never create contacts.
+  const configuredPeopleIds = listConfiguredPeopleDatabaseIds()
+  const indexedDirectoryIds = new Set(peopleDbs.map((d) => d.databaseId))
+  const peopleRelationByTaskDb = new Map<string, PeopleRelationInfo | null>()
+
+  for (const database of taskDbs) {
+    let relation: PeopleRelationInfo | null = null
+    try {
+      const schemaProps = await fetchDatabaseProperties(database.token, database.databaseId)
+      relation = findPeopleRelation(schemaProps, database.databaseId, configuredPeopleIds)
+    } catch (err) {
+      result.errors.push(
+        `tasks-schema/${database.name}: ${err instanceof Error ? err.message : 'schema fetch failed'}`,
+      )
+      peopleRelationByTaskDb.set(database.databaseId, null)
+      continue
+    }
+    peopleRelationByTaskDb.set(database.databaseId, relation)
+    if (!relation || indexedDirectoryIds.has(relation.targetDatabaseId)) continue
+
+    try {
+      const index = await fetchPeopleDirectoryIndex(database.token, relation.targetDatabaseId)
+      const accountKey = `${database.accountLabel}::people-dir::${relation.targetDatabaseId}`
+      for (const [pageId, title] of index.byPageId) {
+        const person = maps.byName.get(title.toLowerCase())
+        if (!person) continue
+        maps.byNotionId.set(pageId, person)
+        if (!dryRun) {
+          await upsertPersonExternalId(db, {
+            personId: person.id,
+            provider: 'notion',
+            accountKey,
+            externalId: pageId,
+            displayName: title,
+          })
+        }
+      }
+      indexedDirectoryIds.add(relation.targetDatabaseId)
+    } catch (err) {
+      result.errors.push(
+        `people-dir/${relation.propertyName}: ${err instanceof Error ? err.message : 'query failed'}`,
+      )
+    }
+  }
+
   // ── Tasks pass ──
   const filter = recentActivityFilter(windowDays)
   const fetchedPageIds = new Set<string>()
@@ -565,6 +718,14 @@ export async function syncNotionTasks(
   const taskIdByPage = new Map<string, string>()
   for (const t of existingNotionTasks) {
     if (t.notionPageId) taskIdByPage.set(t.notionPageId, t.id)
+  }
+
+  const projectRows = await db
+    .select({ id: projects.id, notionPageId: projects.notionPageId })
+    .from(projects)
+  const projectByNotionId = new Map<string, string>()
+  for (const p of projectRows) {
+    if (p.notionPageId) projectByNotionId.set(p.notionPageId, p.id)
   }
 
   const workspaceRows = await db
@@ -604,6 +765,8 @@ export async function syncNotionTasks(
       continue
     }
 
+    const peopleRel = peopleRelationByTaskDb.get(database.databaseId) ?? null
+
     for (const page of pages) {
       fetchedPageIds.add(page.id)
       const props = page.properties
@@ -613,9 +776,11 @@ export async function syncNotionTasks(
         continue
       }
 
-      // Resolve assignees → known people.
+      // Resolve assignees + People-relation links → known people.
       const assigneeNames = getPeopleNames(props)
-      const relationIds = getRelationPageIds(props)
+      const relationIds = peopleRel
+        ? getNamedRelationPageIds(props, peopleRel.propertyName)
+        : getRelationPageIds(props)
       const matched = new Map<string, PersonRow>()
       let userIsAssignee = false
       for (const n of assigneeNames) {
@@ -635,7 +800,7 @@ export async function syncNotionTasks(
         }
       }
 
-      // Keep task if it's the user's or belongs to at least one directory person.
+      // Keep task if it's the user's or belongs to at least one known person.
       if (!userIsAssignee && matched.size === 0) {
         result.tasksSkipped++
         continue
@@ -643,6 +808,10 @@ export async function syncNotionTasks(
 
       const matchedIds = [...matched.keys()]
       const assigneeId = userIsAssignee ? userPerson.id : (matchedIds[0] ?? null)
+      const projectId =
+        getProjectRelationPageIds(props)
+          .map((rid) => projectByNotionId.get(rid))
+          .find(Boolean) ?? null
       const dueDate = getDueDate(props)
       const priority = getPriority(props)
       const notionStatusRaw = getStatusRaw(props)
@@ -663,6 +832,7 @@ export async function syncNotionTasks(
               done,
               notionStatusRaw: notionStatusRaw || null,
               assigneeId,
+              projectId,
               workspaceId,
               notionAccount: database.accountLabel,
               notionDb: database.name,
@@ -682,7 +852,7 @@ export async function syncNotionTasks(
             id,
             title,
             meetingId: null,
-            projectId: null,
+            projectId,
             workspaceId,
             assigneeId,
             dueDate,
