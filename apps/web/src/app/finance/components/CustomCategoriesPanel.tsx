@@ -5,7 +5,7 @@ import { trpc } from '@/lib/trpc'
 
 const COLOR_PRESETS = ['#f59e0b', '#e879f9', '#86efac', '#fcd34d', '#fca5a5', '#93c5fd'] as const
 
-export function CustomCategoriesPanel() {
+export function CustomCategoriesPanel({ embedded = false }: { embedded?: boolean }) {
   const [label, setLabel] = useState('')
   const [kind, setKind] = useState<'expense' | 'income'>('expense')
   const [color, setColor] = useState<string>(COLOR_PRESETS[0])
@@ -34,11 +34,15 @@ export function CustomCategoriesPanel() {
   })
 
   return (
-    <section className="mt-6 pt-4 border-t border-[#1d2b46]">
-      <h3 className="text-sm font-semibold mb-1">קטגוריות מותאמות</h3>
-      <p className="text-xs text-[#647399] mb-3">
-        הוסף קטגוריות שלא מופיעות ברשימה המובנית — יופיעו בכל תפריטי הסיווג.
-      </p>
+    <section className={embedded ? undefined : 'mt-6 pt-4 border-t border-[#1d2b46]'}>
+      {!embedded && (
+        <>
+          <h3 className="text-sm font-semibold mb-1">קטגוריות מותאמות</h3>
+          <p className="text-xs text-[#647399] mb-3">
+            הוסף קטגוריות שלא מופיעות ברשימה המובנית — יופיעו בכל תפריטי הסיווג.
+          </p>
+        </>
+      )}
 
       <div className="flex flex-col gap-2 mb-3">
         <input

@@ -25,6 +25,7 @@ export default function InsightsTab() {
   const [month, setMonth] = useState(currentMonthKey())
   const [window, setWindow] = useState<Window>(12)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerSection, setDrawerSection] = useState<'categorize' | 'categories'>('categorize')
   const [compositionOpen, setCompositionOpen] = useState(false)
   const [showAllInsights, setShowAllInsights] = useState(false)
 
@@ -96,11 +97,14 @@ export default function InsightsTab() {
             יש {coverage.data?.uncategorizedCount} תנועות שממתינות לסיווג. אחרי הסיווג תראה כאן
             פילוח הוצאות, מגמה חודשית, חיובים קבועים ותובנות איפה אפשר לצמצם.
           </p>
-          <button className="btn btn-primary" onClick={() => setDrawerOpen(true)}>
+          <button className="btn btn-primary" onClick={() => { setDrawerSection('categorize'); setDrawerOpen(true) }}>
             סווג אוטומטית
           </button>
+          <button className="btn btn-ghost" onClick={() => { setDrawerSection('categories'); setDrawerOpen(true) }}>
+            קטגוריות מותאמות
+          </button>
         </div>
-        <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} initialSection={drawerSection} />
       </>
     )
   }
@@ -125,7 +129,7 @@ export default function InsightsTab() {
             ל-{coverage.data!.uncategorizedCount} תנועות אין קטגוריה ({coverage.data!.uncategorizedShare}%
             מההוצאות). הפילוח חלקי עד שיסווגו.
           </span>
-          <button className="btn btn-ghost" onClick={() => setDrawerOpen(true)}>
+          <button className="btn btn-ghost" onClick={() => { setDrawerSection('categorize'); setDrawerOpen(true) }}>
             סווג אוטומטית
           </button>
         </div>
@@ -158,7 +162,7 @@ export default function InsightsTab() {
       ))}
 
       {/* Month selector */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <button
           className="btn btn-ghost"
           style={{ minWidth: 44, minHeight: 44 }}
@@ -182,6 +186,26 @@ export default function InsightsTab() {
         {partialData && (
           <span className="text-[11px] text-[#fbbf24] ms-2">מבוסס על נתונים חלקיים</span>
         )}
+        <div className="ms-auto flex flex-wrap gap-2">
+          <button
+            className="btn btn-secondary text-xs"
+            onClick={() => {
+              setDrawerSection('categories')
+              setDrawerOpen(true)
+            }}
+          >
+            קטגוריות מותאמות
+          </button>
+          <button
+            className="btn btn-ghost text-xs"
+            onClick={() => {
+              setDrawerSection('categorize')
+              setDrawerOpen(true)
+            }}
+          >
+            סיווג תנועות
+          </button>
+        </div>
       </div>
 
       <OverviewStrip data={overview.data} isLoading={overview.isLoading} />
@@ -336,7 +360,7 @@ export default function InsightsTab() {
       <div className="card">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="text-sm font-semibold">חיובים קבועים</h3>
-          <button className="btn btn-ghost" onClick={() => setDrawerOpen(true)}>
+          <button className="btn btn-ghost" onClick={() => { setDrawerSection('categorize'); setDrawerOpen(true) }}>
             סיווג תנועות
           </button>
         </div>
@@ -359,7 +383,7 @@ export default function InsightsTab() {
         הסכום» או טאב תנועות.
       </p>
 
-      <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <CategorizeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} initialSection={drawerSection} />
       <MonthCompositionPanel
         open={compositionOpen}
         onClose={() => setCompositionOpen(false)}

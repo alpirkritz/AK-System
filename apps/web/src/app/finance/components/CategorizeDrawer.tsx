@@ -26,7 +26,17 @@ interface UncategorizedRow {
  * per-row save button would triple the work for no added safety, since every change is
  * reversible by picking again.
  */
-export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CategorizeDrawer({
+  open,
+  onClose,
+  initialSection = 'categorize',
+}: {
+  open: boolean
+  onClose: () => void
+  /** Which panel to show when the drawer opens. */
+  initialSection?: 'categorize' | 'categories'
+}) {
+  const [section, setSection] = useState<'categorize' | 'categories'>(initialSection)
   const [applyToSimilar, setApplyToSimilar] = useState(true)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -89,6 +99,10 @@ export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: ()
     return () => clearTimeout(t)
   }, [note])
 
+  useEffect(() => {
+    if (open) setSection(initialSection)
+  }, [open, initialSection])
+
   if (!open) return null
 
   const rows = (uncategorized.data ?? []) as UncategorizedRow[]
@@ -108,6 +122,39 @@ export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: ()
             סיווג התנועות הוא מה שמאפשר לפילוח ולתובנות להיות מדויקים.
           </p>
 
+          <div
+            className="flex gap-1 mb-4 border-b border-[#1d2b46]"
+            role="tablist"
+            aria-label="סיווג וקטגוריות"
+          >
+            {(
+              [
+                ['categorize', 'סיווג תנועות'],
+                ['categories', 'קטגוריות מותאמות'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={section === id}
+                className="btn btn-ghost text-sm px-3 py-2 rounded-b-none"
+                style={{
+                  borderBottom:
+                    section === id ? '2px solid #2dd4bf' : '2px solid transparent',
+                  color: section === id ? '#2dd4bf' : '#647399',
+                }}
+                onClick={() => setSection(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {section === 'categories' ? (
+            <CustomCategoriesPanel embedded />
+          ) : (
+            <>
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <button
               className="btn btn-primary"
@@ -237,8 +284,8 @@ export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: ()
               ))}
             </ul>
           )}
-
-          <CustomCategoriesPanel />
+            </>
+          )}
         </div>
       </aside>
     </>
