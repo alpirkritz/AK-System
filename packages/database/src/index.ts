@@ -384,6 +384,17 @@ const FINANCE_CATEGORY_RULES_TABLE = [
   `CREATE INDEX IF NOT EXISTS idx_finance_category_rules_pattern ON finance_category_rules(pattern)`,
 ]
 
+const FINANCE_CUSTOM_CATEGORIES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_custom_categories (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#647399',
+    kind TEXT NOT NULL DEFAULT 'expense',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_finance_custom_categories_label ON finance_custom_categories(label)`,
+]
+
 const FINANCE_INSIGHT_NARRATIVES_TABLE = [
   `CREATE TABLE IF NOT EXISTS finance_insight_narratives (
     id TEXT PRIMARY KEY,
@@ -843,6 +854,9 @@ export function getDb() {
   for (const sql of FINANCE_CATEGORY_RULES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of FINANCE_CUSTOM_CATEGORIES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of FINANCE_INSIGHT_NARRATIVES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -939,6 +953,7 @@ export const financeTransactions = schema.financeTransactions
 export const bankConnections = schema.bankConnections
 export const bankAccounts = schema.bankAccounts
 export const financeCategoryRules = schema.financeCategoryRules
+export const financeCustomCategories = schema.financeCustomCategories
 export const financeInsightNarratives = schema.financeInsightNarratives
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
@@ -1027,6 +1042,8 @@ export type BankAccount = typeof schemaPg.bankAccounts.$inferSelect
 export type NewBankAccount = typeof schemaPg.bankAccounts.$inferInsert
 export type FinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferSelect
 export type NewFinanceCategoryRule = typeof schemaPg.financeCategoryRules.$inferInsert
+export type FinanceCustomCategory = typeof schemaPg.financeCustomCategories.$inferSelect
+export type NewFinanceCustomCategory = typeof schemaPg.financeCustomCategories.$inferInsert
 export type FinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferSelect
 export type NewFinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferInsert
 export const BANK_PROVIDERS = schemaPg.BANK_PROVIDERS

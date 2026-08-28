@@ -399,6 +399,17 @@ export const financeCategoryRules = pgTable('finance_category_rules', {
   patternIdx: index('idx_finance_category_rules_pattern').on(table.pattern),
 }))
 
+/** User-defined cashflow category labels beyond the built-in list in @ak-system/types. */
+export const financeCustomCategories = pgTable('finance_custom_categories', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  color: text('color').notNull().default('#647399'),
+  kind: text('kind').notNull().default('expense'), // 'expense' | 'income'
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  labelUq: uniqueIndex('uq_finance_custom_categories_label').on(table.label),
+}))
+
 /**
  * Cache of LLM-written finance narratives. Keyed by the facts that produced them, so the
  * same deterministic inputs never pay for a second Gemini call.

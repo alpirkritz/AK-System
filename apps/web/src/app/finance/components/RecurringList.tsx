@@ -1,7 +1,7 @@
 'use client'
 
-import { categoryColor } from '@ak-system/types'
 import { fmt, fmtDate, fmtShort } from '../lib/format'
+import { useFinanceCategoryColor } from '../lib/use-finance-category-color'
 
 export interface RecurringRow {
   label: string
@@ -26,6 +26,7 @@ export function RecurringList({
   items: readonly RecurringRow[]
   monthlyFixedTotal: number
 }) {
+  const categoryColor = useFinanceCategoryColor()
   if (items.length === 0) {
     return (
       <div className="text-sm text-[#647399]">

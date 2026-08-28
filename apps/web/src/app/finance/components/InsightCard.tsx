@@ -1,6 +1,6 @@
 'use client'
 
-import { categoryColor } from '@ak-system/types'
+import { useFinanceCategoryColor } from '../lib/use-finance-category-color'
 
 export interface InsightItem {
   id: string
@@ -20,6 +20,7 @@ const SEVERITY: Record<InsightItem['severity'], { accent: string; icon: string; 
 }
 
 export function InsightCard({ insight }: { insight: InsightItem }) {
+  const categoryColor = useFinanceCategoryColor()
   const tone = SEVERITY[insight.severity]
 
   return (

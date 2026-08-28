@@ -2,8 +2,8 @@
 
 import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { CASHFLOW_CATEGORY_LABELS } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
+import { CategorySelect } from './components/CategorySelect'
 import { SummaryCard } from './SummaryCard'
 import { fmt, fmtDate } from './lib/format'
 
@@ -25,8 +25,6 @@ const TABS = [
   'vat',
 ] as const
 type Tab = (typeof TABS)[number]
-
-const CATEGORIES = CASHFLOW_CATEGORY_LABELS
 
 /** useSearchParams needs a Suspense boundary above it, same as the settings page. */
 export default function FinancePage() {
@@ -531,25 +529,19 @@ function FinancePageContent() {
                       <td className="px-4 py-3 text-[#647399] whitespace-nowrap">{fmtDate(t.transactionDate)}</td>
                       <td className="px-4 py-3 max-w-[200px] truncate">{t.description}</td>
                       <td className="px-4 py-3">
-                        <select
+                        <CategorySelect
                           className="input text-xs py-1 min-w-[7rem]"
                           value={t.category ?? 'אחר'}
                           disabled={setTxnCategoryMutation.isPending}
                           aria-label="שנה קטגוריה"
-                          onChange={(e) =>
+                          onChange={(category) =>
                             setTxnCategoryMutation.mutate({
                               id: t.id,
-                              category: e.target.value,
+                              category,
                               applyToSimilar: false,
                             })
                           }
-                        >
-                          {CATEGORIES.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </td>
                       <td
                         className="px-4 py-3 font-semibold"
@@ -853,15 +845,12 @@ function FinancePageContent() {
 
               <div>
                 <label className="label">קטגוריה</label>
-                <select
+                <CategorySelect
                   className="select"
                   value={manualForm.category}
-                  onChange={(e) => setManualForm((f) => ({ ...f, category: e.target.value }))}
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                  kind={manualForm.direction}
+                  onChange={(category) => setManualForm((f) => ({ ...f, category }))}
+                />
               </div>
 
               <div>

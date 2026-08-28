@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CASHFLOW_CATEGORY_LABELS } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
+import { CategorySelect } from './CategorySelect'
 import { fmt, fmtDate } from '../lib/format'
 
 /**
@@ -161,19 +161,13 @@ function Section({
                 </span>
               </div>
               <div className="text-[#97a4c2] mb-2 break-words">{r.description || '—'}</div>
-              <select
+              <CategorySelect
                 className="input text-xs w-full"
                 value={r.category ?? 'אחר'}
                 disabled={pending}
                 aria-label="שנה קטגוריה"
-                onChange={(e) => onChangeCategory(r.id, e.target.value)}
-              >
-                {CASHFLOW_CATEGORY_LABELS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                onChange={(category) => onChangeCategory(r.id, category)}
+              />
             </li>
           ))}
         </ul>

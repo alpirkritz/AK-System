@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CASHFLOW_CATEGORY_LABELS } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
 import { fmt, fmtDate } from '../lib/format'
+import { CategorySelect } from './CategorySelect'
+import { CustomCategoriesPanel } from './CustomCategoriesPanel'
 
 /**
  * Row shape stated explicitly: tRPC's inference for this query collapses to `any` because
@@ -169,29 +170,20 @@ export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: ()
                     <span className="text-[11px] text-[#647399] shrink-0">
                       {fmtDate(row.transactionDate)}
                     </span>
-                    <select
-                      className="select"
+                    <CategorySelect
                       style={{ padding: '6px 10px', fontSize: 13 }}
                       defaultValue=""
                       disabled={pendingId === row.id}
                       aria-label={`קטגוריה עבור ${row.description || 'תנועה'}`}
-                      onChange={(e) => {
-                        if (!e.target.value) return
+                      onChange={(category) => {
                         setPendingId(row.id)
                         setCategory.mutate({
                           id: row.id,
-                          category: e.target.value,
+                          category,
                           applyToSimilar,
                         })
                       }}
-                    >
-                      <option value="">בחר קטגוריה</option>
-                      {CASHFLOW_CATEGORY_LABELS.map((label) => (
-                        <option key={label} value={label}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 </li>
               ))}
@@ -245,6 +237,8 @@ export function CategorizeDrawer({ open, onClose }: { open: boolean; onClose: ()
               ))}
             </ul>
           )}
+
+          <CustomCategoriesPanel />
         </div>
       </aside>
     </>

@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
-import { CATEGORY_SMALL_SLICE, categoryColor } from '@ak-system/types'
+import { CATEGORY_SMALL_SLICE } from '@ak-system/types'
 import { describeArc, poolSmallSlices } from '../lib/chart-scale'
 import { fmtShort } from '../lib/format'
+import { useFinanceCategoryColor } from '../lib/use-finance-category-color'
 
 export interface DonutSlice {
   category: string
@@ -32,6 +33,7 @@ export function CategoryDonut({
   total: number
   emptyLabel?: string
 }) {
+  const categoryColor = useFinanceCategoryColor()
   const segments = useMemo(() => {
     const sorted = [...slices].filter((s) => s.total > 0).sort((a, b) => b.total - a.total)
     const { visible, pooled, pooledTotal } = poolSmallSlices(sorted, MIN_SHARE_PCT)
@@ -54,7 +56,7 @@ export function CategoryDonut({
       angle += sweep
       return seg
     })
-  }, [slices])
+  }, [slices, categoryColor])
 
   if (segments.length === 0) {
     return (

@@ -1,7 +1,8 @@
 'use client'
 
-import { CATEGORY_UNCATEGORIZED, categoryColor } from '@ak-system/types'
+import { CATEGORY_UNCATEGORIZED } from '@ak-system/types'
 import { fmt, fmtShort } from '../lib/format'
+import { useFinanceCategoryColor } from '../lib/use-finance-category-color'
 
 export interface BreakdownItem {
   category: string
@@ -24,6 +25,7 @@ export function CategoryBreakdownList({
   items: readonly BreakdownItem[]
   onSelectCategory?: (category: string) => void
 }) {
+  const categoryColor = useFinanceCategoryColor()
   if (items.length === 0) {
     return <div className="text-sm text-[#647399]">אין תנועות בחודש הזה.</div>
   }

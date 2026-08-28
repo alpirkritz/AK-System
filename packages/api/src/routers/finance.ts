@@ -9,10 +9,12 @@ import {
   bankConnections,
   bankAccounts,
   financeCategoryRules,
+  financeCustomCategories,
   queryRows,
   type BankConnection,
   type BankAccount,
   type FinanceCategoryRule,
+  type FinanceCustomCategory,
 } from '@ak-system/database'
 import { eq, desc, gte, and, like, sql, count, sum, isNull, or } from 'drizzle-orm'
 import { listIBKREmails } from '../services/ibkr-parser'
@@ -53,6 +55,13 @@ import {
   type CategoryRule,
 } from '../services/transaction-categorizer'
 import { CATEGORY_FALLBACK, isInternalCategory } from '@ak-system/types'
+import {
+  isDuplicateCategoryLabel,
+  mergeFinanceCategories,
+  normalizeCategoryLabel,
+  pickDefaultCustomColor,
+  resolveCustomCategoryColor,
+} from '../services/finance-categories'
 
 type JournalPeriod = 'today' | 'week' | 'month' | 'quarter' | 'all'
 
@@ -1135,6 +1144,56 @@ export const financeRouter = router({
 
       return { updated, ruleCreated: true }
     }),
+
+  // ─── Cashflow categories (built-in + user custom) ─────────────────────────
+
+  listCategories: protectedProcedure.query(async ({ ctx }) => {
+    const custom = (await queryRows(
+      ctx.db
+        .select()
+        .from(financeCustomCategories)
+        .orderBy(financeCustomCategories.label),
+    )) as FinanceCustomCategory[]
+    return { categories: mergeFinanceCategories(custom) }
+  }),
+
+  createCustomCategory: protectedProcedure
+    .input(
+      z.object({
+        label: z.string().min(1).max(40),
+        color: z.string().optional(),
+        kind: z.enum(['expense', 'income']).default('expense'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const label = normalizeCategoryLabel(input.label)
+      if (!label) throw new TRPCError({ code: 'BAD_REQUEST', message: 'שם קטגוריה ריק' })
+
+      const existing = (await queryRows(
+        ctx.db.select().from(financeCustomCategories),
+      )) as FinanceCustomCategory[]
+      if (isDuplicateCategoryLabel(label, existing)) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'קטגוריה בשם הזה כבר קיימת' })
+      }
+
+      const now = new Date().toISOString()
+      const row: FinanceCustomCategory = {
+        id: 'fcc' + Date.now() + Math.random().toString(36).slice(2, 7),
+        label,
+        color: resolveCustomCategoryColor(input.color ?? pickDefaultCustomColor(existing.length)),
+        kind: input.kind,
+        createdAt: now,
+      }
+      await ctx.db.insert(financeCustomCategories).values(row)
+      return {
+        category: mergeFinanceCategories([row]).find((c) => c.id === row.id)!,
+      }
+    }),
+
+  deleteCustomCategory: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await ctx.db.delete(financeCustomCategories).where(eq(financeCustomCategories.id, input.id))
+    return { ok: true as const }
+  }),
 
   // ─── Summary ─────────────────────────────────────────────────────────────
 
