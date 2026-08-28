@@ -118,6 +118,9 @@ describe('bank-sync-service', () => {
       expect(transactionDedupeKey('acc1', { ...txn, chargedAmount: -101 })).not.toBe(
         transactionDedupeKey('acc1', txn),
       )
+      expect(
+        transactionDedupeKey('acc1', { ...txn, date: '2026-07-20T08:00:00.000Z' }),
+      ).toBe(transactionDedupeKey('acc1', { ...txn, date: '2026-07-20T18:00:00.000Z' }))
     })
 
     it('computeStartDate: 1 year back on first sync, 45 days after', () => {
@@ -180,6 +183,142 @@ describe('bank-sync-service', () => {
       expect(txns).toHaveLength(2)
       const accounts = await queryRows(db.select().from(bankAccounts))
       expect(accounts).toHaveLength(1)
+    })
+
+    it('pending then completed for the same purchase inserts one row', async () => {
+      const db = getTestDb()
+      const connection = await insertConnection('visaCal')
+      const pendingScrape: ScrapeFn = async () => ({
+        success: true,
+        accounts: [
+          {
+            accountNumber: '4018',
+            txns: [
+              {
+                type: 'normal',
+                date: '2026-08-14T06:40:12.000Z',
+                processedDate: '2026-08-14T06:40:12.000Z',
+                originalAmount: -277.8,
+                originalCurrency: 'ILS',
+                chargedAmount: -277.8,
+                description: 'דקאתלון',
+                status: 'pending',
+              },
+            ],
+          },
+        ],
+      })
+      const completedScrape: ScrapeFn = async () => ({
+        success: true,
+        accounts: [
+          {
+            accountNumber: '4018',
+            txns: [
+              {
+                type: 'normal',
+                date: '2026-08-14T06:40:14.000Z',
+                processedDate: '2026-08-14T06:40:14.000Z',
+                originalAmount: -277.8,
+                originalCurrency: 'ILS',
+                chargedAmount: -277.8,
+                description: 'דקאתלון',
+                status: 'completed',
+              },
+            ],
+          },
+        ],
+      })
+
+      const first = await syncConnection(db, connection, pendingScrape)
+      expect(first.transactionsInserted).toBe(1)
+      const second = await syncConnection(db, connection, completedScrape)
+      expect(second.transactionsInserted).toBe(0)
+
+      const txns = await queryRows(db.select().from(financeTransactions))
+      expect(txns).toHaveLength(1)
+      expect(txns[0].description).toBe('דקאתלון')
+      expect(txns[0].txnStatus).toBe('completed')
+    })
+
+    it('reconcile removes pending shadow when completed already exists', async () => {
+      const db = getTestDb()
+      const connection = await insertConnection('visaCal')
+      const scrape: ScrapeFn = async () => ({
+        success: true,
+        accounts: [
+          {
+            accountNumber: '4018',
+            txns: [
+              {
+                type: 'normal',
+                date: '2026-08-14T06:40:12.000Z',
+                processedDate: '2026-08-14T06:40:12.000Z',
+                originalAmount: -110.98,
+                originalCurrency: 'ILS',
+                chargedAmount: -110.98,
+                description: 'חלום יעקב רמת גן',
+                status: 'pending',
+              },
+              {
+                type: 'normal',
+                date: '2026-08-14T06:40:14.000Z',
+                processedDate: '2026-08-14T06:40:14.000Z',
+                originalAmount: -110.98,
+                originalCurrency: 'ILS',
+                chargedAmount: -110.98,
+                description: 'חלום יעקב רמת גן',
+                status: 'completed',
+              },
+            ],
+          },
+        ],
+      })
+
+      await syncConnection(db, connection, scrape)
+      const txns = await queryRows(db.select().from(financeTransactions))
+      expect(txns).toHaveLength(1)
+      expect(txns[0].txnStatus).toBe('completed')
+    })
+
+    it('same merchant and day with different amounts stays as separate rows', async () => {
+      const db = getTestDb()
+      const connection = await insertConnection('visaCal')
+      const scrape: ScrapeFn = async () => ({
+        success: true,
+        accounts: [
+          {
+            accountNumber: '4018',
+            txns: [
+              {
+                type: 'normal',
+                date: '2026-08-14T10:00:00.000Z',
+                processedDate: '2026-08-14T10:00:00.000Z',
+                originalAmount: -10,
+                originalCurrency: 'ILS',
+                chargedAmount: -10,
+                description: 'סופר פארם',
+                status: 'completed',
+              },
+              {
+                type: 'normal',
+                date: '2026-08-14T18:00:00.000Z',
+                processedDate: '2026-08-14T18:00:00.000Z',
+                originalAmount: -5,
+                originalCurrency: 'ILS',
+                chargedAmount: -5,
+                description: 'סופר פארם',
+                status: 'completed',
+              },
+            ],
+          },
+        ],
+      })
+
+      const result = await syncConnection(db, connection, scrape)
+      expect(result.transactionsInserted).toBe(2)
+      const txns = await queryRows(db.select().from(financeTransactions))
+      expect(txns).toHaveLength(2)
+      expect(txns.map((t) => t.amount).sort()).toEqual(['10', '5'])
     })
 
     it('records scraper failure on the connection', async () => {

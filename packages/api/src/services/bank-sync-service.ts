@@ -1,5 +1,4 @@
 /// <reference path="../types/israeli-bank-scrapers.d.ts" />
-import { createHash } from 'crypto'
 import { eq, and } from 'drizzle-orm'
 import {
   getDb,
@@ -32,6 +31,13 @@ import {
 } from './bank-chrome-launch'
 import { cancelOtpWait, getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
 import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
+import {
+  findFuzzyDuplicateTxn,
+  reconcilePendingCompletedDuplicates,
+  transactionDedupeKey,
+} from './bank-transaction-dedupe'
+
+export { transactionDedupeKey } from './bank-transaction-dedupe'
 
 export {
   CHROMIUM_LAUNCH_ARGS,
@@ -99,16 +105,6 @@ export type ScrapeFn = (
 /** bank vs credit card, derived from provider */
 export function accountTypeForProvider(provider: BankProvider): 'bank' | 'credit_card' {
   return provider === 'hapoalim' || provider === 'otsarHahayal' ? 'bank' : 'credit_card'
-}
-
-/** Stable dedupe key so repeat syncs skip already-imported transactions */
-export function transactionDedupeKey(
-  accountNumber: string,
-  txn: Pick<ScrapedTransaction, 'date' | 'chargedAmount' | 'description'>,
-): string {
-  return createHash('sha256')
-    .update(`${accountNumber}|${txn.date}|${txn.chargedAmount}|${txn.description}`)
-    .digest('hex')
 }
 
 /** Strip HeadlessChrome from UA so bank bot-gates (e.g. Otsar/Radware) still serve the login form. */
@@ -406,20 +402,55 @@ export async function syncConnection(
       })
     }
 
-    for (const txn of account.txns) {
-      const dedupeKey = transactionDedupeKey(account.accountNumber, txn)
-      const dupes = (await queryRows(
-        db
-          .select({ id: financeTransactions.id })
-          .from(financeTransactions)
-          .where(eq(financeTransactions.dedupeKey, dedupeKey)),
-      )) as Array<{ id: string }>
-      if (dupes.length > 0) continue
+    await reconcilePendingCompletedDuplicates(db, accountId)
 
+    for (const txn of account.txns) {
       const amount = Math.abs(txn.chargedAmount)
       if (!amount) continue
       const direction = txn.chargedAmount >= 0 ? 'income' : 'expense'
       const description = txn.description + (txn.memo ? ` — ${txn.memo}` : '')
+      const txnStatus = txn.status === 'pending' ? 'pending' : 'completed'
+      const dedupeKey = transactionDedupeKey(account.accountNumber, txn)
+
+      const dupes = (await queryRows(
+        db
+          .select({ id: financeTransactions.id, txnStatus: financeTransactions.txnStatus })
+          .from(financeTransactions)
+          .where(eq(financeTransactions.dedupeKey, dedupeKey)),
+      )) as Array<{ id: string; txnStatus: string | null }>
+      if (dupes.length > 0) {
+        const existing = dupes[0]
+        if (existing.txnStatus === 'pending' && txnStatus === 'completed') {
+          await db
+            .update(financeTransactions)
+            .set({
+              txnStatus: 'completed',
+              transactionDate: txn.date,
+            })
+            .where(eq(financeTransactions.id, existing.id))
+        }
+        continue
+      }
+
+      const fuzzy = await findFuzzyDuplicateTxn(db, accountId, {
+        description,
+        amount,
+        date: txn.date,
+      })
+      if (fuzzy) {
+        if (fuzzy.txnStatus === 'pending' && txnStatus === 'completed') {
+          await db
+            .update(financeTransactions)
+            .set({
+              txnStatus: 'completed',
+              transactionDate: txn.date,
+              dedupeKey,
+            })
+            .where(eq(financeTransactions.id, fuzzy.id))
+        }
+        continue
+      }
+
       await db.insert(financeTransactions).values({
         id: 'fx' + Date.now() + Math.random().toString(36).slice(2, 7),
         amount: String(amount),
@@ -433,7 +464,7 @@ export async function syncConnection(
         bankAccountId: accountId,
         dedupeKey,
         installmentInfo: txn.installments ? JSON.stringify(txn.installments) : null,
-        txnStatus: txn.status === 'pending' ? 'pending' : 'completed',
+        txnStatus,
         createdAt: nowIso(),
       })
       transactionsInserted++
