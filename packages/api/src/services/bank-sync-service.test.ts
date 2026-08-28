@@ -12,6 +12,7 @@ import {
   computeStartDate,
   CHROMIUM_LAUNCH_ARGS,
   maskHeadlessUserAgent,
+  BROWSER_LAUNCH_HEBREW_ERROR,
   type ScrapeFn,
   type ScrapeOutcome,
 } from './bank-sync-service'
@@ -87,6 +88,7 @@ describe('bank-sync-service', () => {
       expect(CHROMIUM_LAUNCH_ARGS).toContain('--no-sandbox')
       expect(CHROMIUM_LAUNCH_ARGS).toContain('--disable-setuid-sandbox')
       expect(CHROMIUM_LAUNCH_ARGS).toContain('--disable-dev-shm-usage')
+      expect(CHROMIUM_LAUNCH_ARGS).toContain('--no-zygote')
     })
 
     it('maskHeadlessUserAgent replaces HeadlessChrome in UA', async () => {
@@ -213,6 +215,41 @@ describe('bank-sync-service', () => {
         db.select().from(bankConnections).where(eq(bankConnections.id, connection.id)),
       )
       expect(rows[0].status).toBe('error')
+    })
+
+    it('humanizes Puppeteer spawn EAGAIN instead of storing the raw path', async () => {
+      const db = getTestDb()
+      const connection = await insertConnection()
+      const scrape: ScrapeFn = async () => {
+        throw new Error(
+          'Failed to launch the browser process: spawn /root/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome EAGAIN',
+        )
+      }
+      const result = await syncConnection(db, connection, scrape)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe(BROWSER_LAUNCH_HEBREW_ERROR)
+      const rows = await queryRows(
+        db.select().from(bankConnections).where(eq(bankConnections.id, connection.id)),
+      )
+      expect(rows[0].lastError).toBe(BROWSER_LAUNCH_HEBREW_ERROR)
+      expect(rows[0].lastErrorType).toBe('GENERIC')
+    })
+
+    it('queues overlapping syncConnection calls so only one scrape runs at a time', async () => {
+      const db = getTestDb()
+      const a = await insertConnection('hapoalim')
+      const b = await insertConnection('visaCal')
+      let inFlight = 0
+      let maxInFlight = 0
+      const scrape: ScrapeFn = async () => {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await new Promise((r) => setTimeout(r, 30))
+        inFlight--
+        return { success: true, accounts: [] }
+      }
+      await Promise.all([syncConnection(db, a, scrape), syncConnection(db, b, scrape)])
+      expect(maxInFlight).toBe(1)
     })
 
     it('credit card providers store credit_card account type + expense direction', async () => {

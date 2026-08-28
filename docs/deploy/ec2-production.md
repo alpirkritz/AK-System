@@ -100,6 +100,10 @@ Bank account sync (`israeli-bank-scrapers` / Puppeteer) needs Chromium system li
 Those are installed in `deploy/Dockerfile.runtime` (and the root `Dockerfile`). After changing
 that layer, redeploy so the image rebuilds; otherwise sync fails with missing `libglib-2.0.so.0`.
 
+The `web` service in `deploy/docker-compose.production.yml` sets `init: true` (reaps zombie
+Chrome processes that otherwise exhaust PIDs and surface as `spawn chrome EAGAIN`) and
+`shm_size: '256mb'`. Compose changes need `docker compose up -d` (a code-only rsync is not enough).
+
 Chromium profiles for trusted devices are stored under `/data/bank-browser-profiles/<connectionId>`
 (on the `web-data` volume). Override with `BANK_BROWSER_PROFILE_ROOT` if needed. The first
 Hapoalim sync may show **ממתין לקוד אימות** in Finance → Accounts; enter the SMS code once so

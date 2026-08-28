@@ -22,6 +22,9 @@ services:
       WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
       WS_NO_BUFFER_UTIL: '1'
       WS_NO_UTF_8_VALIDATE: '1'
+    # Reap zombie Chromium after bank scrape; larger shm for Puppeteer (also pass --disable-dev-shm-usage).
+    init: true
+    shm_size: '256mb'
     restart: unless-stopped
 
   whatsapp-bridge:

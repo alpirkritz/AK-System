@@ -16,8 +16,30 @@ import { normalizeCurrencyCode } from '@ak-system/types'
 import { decryptCredentials } from '../lib/bank-credentials-crypto'
 import { categorizeTransaction, type CategoryRule } from './transaction-categorizer'
 import { ensureBrowserProfileDir } from './bank-browser-profile'
+import {
+  patchBeinleumiWaitForPostLogin,
+  usesBeinleumiPostLogin,
+} from './bank-beinleumi-post-login'
+import {
+  CHROMIUM_LAUNCH_ARGS,
+  humanizeScrapeError,
+  isBrowserLaunchFailure,
+  isOtpTimeoutError,
+  isPostLoginSelectorTimeout,
+  killStrayPuppeteerChrome,
+  scrapeWithBrowserLaunchRetry,
+  withScrapeLock,
+} from './bank-chrome-launch'
 import { cancelOtpWait, getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
 import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
+
+export {
+  CHROMIUM_LAUNCH_ARGS,
+  BROWSER_LAUNCH_HEBREW_ERROR,
+  BROWSER_PROFILE_LOCK_HEBREW_ERROR,
+  humanizeScrapeError,
+  isBrowserLaunchFailure,
+} from './bank-chrome-launch'
 
 /**
  * Bank/credit-card account sync via israeli-bank-scrapers.
@@ -88,18 +110,6 @@ export function transactionDedupeKey(
     .update(`${accountNumber}|${txn.date}|${txn.chargedAmount}|${txn.description}`)
     .digest('hex')
 }
-
-/**
- * Chromium flags required inside Docker (root + small /dev/shm on EC2).
- * Harmless on macOS local runs — always pass them.
- */
-export const CHROMIUM_LAUNCH_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--disable-blink-features=AutomationControlled',
-] as const
 
 /** Strip HeadlessChrome from UA so bank bot-gates (e.g. Otsar/Radware) still serve the login form. */
 export async function maskHeadlessUserAgent(page: {
@@ -213,21 +223,36 @@ export const realScrape: ScrapeFn = async (provider, credentials, startDate, opt
     args.push(`--user-data-dir=${profileDir}`)
   }
 
-  return withExtendedRedirectWait(async () => {
-    const scraper = createScraper({
-      companyId,
-      startDate,
-      combineInstallments: false,
-      showBrowser: false,
-      timeout: getOtpWaitMs() + 60_000,
-      defaultTimeout: getOtpWaitMs() + 60_000,
-      args,
-      preparePage: createPreparePage(options),
-    })
-    // READ-ONLY: scrape() is the only operation ever invoked on the scraper.
-    const result = await scraper.scrape(credentials as never)
-    return result as unknown as ScrapeOutcome
-  })
+  return scrapeWithBrowserLaunchRetry(
+    () =>
+      withExtendedRedirectWait(async () => {
+        const restorePostLogin =
+          usesBeinleumiPostLogin(provider) && options?.connectionId
+            ? patchBeinleumiWaitForPostLogin({
+                connectionId: options.connectionId,
+                onAwaitingOtp: options.onAwaitingOtp,
+              })
+            : () => {}
+        try {
+          const scraper = createScraper({
+            companyId,
+            startDate,
+            combineInstallments: false,
+            showBrowser: false,
+            timeout: getOtpWaitMs() + 60_000,
+            defaultTimeout: getOtpWaitMs() + 60_000,
+            args,
+            preparePage: createPreparePage(options),
+          })
+          // READ-ONLY: scrape() is the only operation ever invoked on the scraper.
+          const result = await scraper.scrape(credentials as never)
+          return result as unknown as ScrapeOutcome
+        } finally {
+          restorePostLogin()
+        }
+      }),
+    (outcome) => isBrowserLaunchFailure(outcome.errorMessage ?? ''),
+  )
 }
 
 export interface SyncResult {
@@ -243,6 +268,12 @@ export function computeStartDate(hasExistingAccounts: boolean, now = new Date())
   if (hasExistingAccounts) d.setDate(d.getDate() - 45)
   else d.setFullYear(d.getFullYear() - 1)
   return d
+}
+
+function scrapeErrorType(raw: string, fallback?: string): string {
+  if (isBrowserLaunchFailure(raw)) return 'GENERIC'
+  if (isOtpTimeoutError(raw) || isPostLoginSelectorTimeout(raw)) return 'OTP_REQUIRED'
+  return fallback ?? 'GENERIC'
 }
 
 export async function syncConnection(
@@ -273,26 +304,35 @@ export async function syncConnection(
 
   let outcome: ScrapeOutcome
   try {
-    outcome = await scrape(connection.provider as BankProvider, credentials, startDate, {
-      connectionId: connection.id,
-      onAwaitingOtp: async () => {
-        await db
-          .update(bankConnections)
-          .set({
-            status: 'awaiting_otp',
-            lastError: 'ממתין לקוד אימות מהבנק',
-            lastErrorType: 'OTP_REQUIRED',
-            updatedAt: nowIso(),
-          })
-          .where(eq(bankConnections.id, connection.id))
-      },
+    outcome = await withScrapeLock(async () => {
+      killStrayPuppeteerChrome()
+      return scrape(connection.provider as BankProvider, credentials, startDate, {
+        connectionId: connection.id,
+        onAwaitingOtp: async () => {
+          await db
+            .update(bankConnections)
+            .set({
+              status: 'awaiting_otp',
+              lastError: 'ממתין לקוד אימות מהבנק',
+              lastErrorType: 'OTP_REQUIRED',
+              updatedAt: nowIso(),
+            })
+            .where(eq(bankConnections.id, connection.id))
+        },
+      })
     })
   } catch (err) {
     cancelOtpWait(connection.id)
-    const msg = err instanceof Error ? err.message : 'Scrape failed'
+    const raw = err instanceof Error ? err.message : 'Scrape failed'
+    const msg = humanizeScrapeError(raw)
     await db
       .update(bankConnections)
-      .set({ status: 'error', lastError: msg, lastErrorType: 'UNKNOWN_ERROR', updatedAt: nowIso() })
+      .set({
+        status: 'error',
+        lastError: msg,
+        lastErrorType: scrapeErrorType(raw),
+        updatedAt: nowIso(),
+      })
       .where(eq(bankConnections.id, connection.id))
     return { success: false, accountsSynced: 0, transactionsInserted: 0, error: msg }
   }
@@ -300,13 +340,14 @@ export async function syncConnection(
   cancelOtpWait(connection.id)
 
   if (!outcome.success) {
-    const msg = outcome.errorMessage || outcome.errorType || 'Scrape failed'
+    const raw = outcome.errorMessage || outcome.errorType || 'Scrape failed'
+    const msg = humanizeScrapeError(raw)
     await db
       .update(bankConnections)
       .set({
         status: 'error',
         lastError: msg,
-        lastErrorType: outcome.errorType ?? 'GENERIC',
+        lastErrorType: scrapeErrorType(raw, outcome.errorType),
         updatedAt: nowIso(),
       })
       .where(eq(bankConnections.id, connection.id))

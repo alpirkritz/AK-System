@@ -12,6 +12,13 @@ export function bodyLooksLikeHapoalimOtpModal(bodyText: string): boolean {
   return /כניסה חדשה ממחשב|קוד האימות|מחשב חדש/.test(bodyText) && /SMS|קוד/.test(bodyText)
 }
 
+/** Pure helper for tests: Fibi/Mataf (Otsar) SMS step after password login. */
+export function bodyLooksLikeFibiOtpStep(bodyText: string): boolean {
+  return /קוד אבטחה|סיסמה זמנית|קוד שנשלח|אימות זהות|הזן את הקוד|קוד חד.?פעמי/i.test(
+    bodyText,
+  )
+}
+
 /** True when the page looks like an OTP challenge. */
 export async function pageLooksLikeOtp(page: OtpPageLike): Promise<boolean> {
   return page.evaluate(() => {
@@ -21,6 +28,21 @@ export async function pageLooksLikeOtp(page: OtpPageLike): Promise<boolean> {
       /כניסה חדשה ממחשב|קוד האימות|מחשב חדש/.test(body) &&
       /SMS|קוד/.test(body)
     ) {
+      return true
+    }
+
+    // Fibi/Mataf (Otsar): OTP step may appear while login fields stay in the DOM.
+    if (
+      /קוד אבטחה|סיסמה זמנית|קוד שנשלח|אימות זהות|הזן את הקוד/i.test(body) &&
+      /SMS|קוד|טלפון|מסרון/i.test(body)
+    ) {
+      return true
+    }
+
+    const fibiOtpInput = document.querySelector(
+      '#otp, #smsPassword, #smsCode, input[name="sms"], input[name="otp"], input[id*="otp" i], input[id*="OTP"]',
+    ) as HTMLInputElement | null
+    if (fibiOtpInput && !fibiOtpInput.disabled && fibiOtpInput.type !== 'hidden') {
       return true
     }
 
