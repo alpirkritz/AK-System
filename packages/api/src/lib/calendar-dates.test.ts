@@ -1,11 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { localDateRangeToUtc, localMidnightToUtc, localTodayIso } from './calendar-dates'
+import { localDateRangeToUtc, localMidnightToUtc, localTodayIso, localTomorrowIso, resolveLocalDayArg } from './calendar-dates'
 
 const TZ = 'Asia/Jerusalem'
 
 describe('localTodayIso', () => {
   it('returns YYYY-MM-DD format', () => {
     expect(localTodayIso(TZ)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+describe('localTomorrowIso', () => {
+  it('is one calendar day after today', () => {
+    const today = localTodayIso(TZ)
+    const tomorrow = localTomorrowIso(TZ)
+    expect(tomorrow).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(tomorrow > today).toBe(true)
+  })
+})
+
+describe('resolveLocalDayArg', () => {
+  it('maps tomorrow / מחר to localTomorrowIso', () => {
+    expect(resolveLocalDayArg('tomorrow', TZ)).toBe(localTomorrowIso(TZ))
+    expect(resolveLocalDayArg('מחר', TZ)).toBe(localTomorrowIso(TZ))
+    expect(resolveLocalDayArg('today', TZ)).toBe(localTodayIso(TZ))
+    expect(resolveLocalDayArg('2026-09-01', TZ)).toBe('2026-09-01')
   })
 })
 

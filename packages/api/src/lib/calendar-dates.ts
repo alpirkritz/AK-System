@@ -10,6 +10,20 @@ function addCalendarDay(iso: string): string {
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
 }
 
+/** YYYY-MM-DD for "tomorrow" in the given IANA timezone. */
+export function localTomorrowIso(timeZone = DEFAULT_TIMEZONE): string {
+  return addCalendarDay(localTodayIso(timeZone))
+}
+
+/** Resolve tool date arg: today | tomorrow | מחר | היום | YYYY-MM-DD → local ISO date. */
+export function resolveLocalDayArg(raw: string, timeZone = DEFAULT_TIMEZONE): string {
+  const v = raw.trim().toLowerCase()
+  if (v === 'tomorrow' || v === 'מחר') return localTomorrowIso(timeZone)
+  if (v === 'today' || v === 'היום' || v === '') return localTodayIso(timeZone)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  return localTodayIso(timeZone)
+}
+
 function localDateIsoInZone(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(instant)
 }

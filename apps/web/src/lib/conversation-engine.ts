@@ -7,7 +7,7 @@ import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
 import { getGeminiModelOptions } from './gemini-config'
 import { getNotionEntries, getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
-import { filterEventsByCalendarScope, getAgentCalendarIds, localTodayIso } from '@ak-system/api'
+import { filterEventsByCalendarScope, getAgentCalendarIds, localTodayIso, localTomorrowIso, resolveLocalDayArg } from '@ak-system/api'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -78,13 +78,28 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_today_schedule',
     description:
-      "Get today's calendar events and tasks due today. Use for: 'מה יש לי היום', 'what do I have today', 'דשבורד'. NOT for WhatsApp summaries.",
+      "Get TODAY's calendar events and tasks due today (Israel time). Use for 'היום' / today only. For מחר / tomorrow use get_day_schedule with date 'tomorrow'.",
     parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_day_schedule',
+    description:
+      "Get calendar events and AK tasks due on a specific local day (Asia/Jerusalem). REQUIRED for מחר / tomorrow / a named date. Pass date 'tomorrow' or 'today' or YYYY-MM-DD. Never invent an empty day — if calendarErrors is non-empty, say calendars failed; do not claim zero meetings.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        date: {
+          type: SchemaType.STRING,
+          description: "'today' | 'tomorrow' | YYYY-MM-DD (Israel local). Required for מחר.",
+        },
+      },
+      required: ['date'],
+    },
   },
   {
     name: 'get_week_schedule',
     description:
-      "Get this week's calendar events and tasks due this week. Use for: 'מה יש לי השבוע', 'this week'.",
+      "Get this week's calendar events and tasks due this week. Use for: 'מה יש לי השבוע', 'this week'. For a single day (מחר) prefer get_day_schedule.",
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
@@ -225,15 +240,16 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_tasks',
     description:
-      "Read the user's tasks from Notion (across ALL connected Notion accounts). Use for: 'מה המשימות שלי בנושן', 'Notion tasks', 'משימות פתוחות בנושן', and as part of daily prep / 'תכין אותי ליום'. Notion is the primary source for the user's tasks.",
+      "Read the user's tasks from Notion (across ALL connected Notion accounts). Use for: 'מה המשימות שלי בנושן', 'Notion tasks', 'משימות פתוחות בנושן', and as part of daily prep / 'תכין אותי ליום'. For מחר use filter 'tomorrow'. Notion is the primary source for the user's tasks.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         filter: {
           type: SchemaType.STRING,
           format: 'enum',
-          description: "Which tasks to return: 'overdue', 'today', 'soon' (next 3 days), or 'all' (default: all)",
-          enum: ['overdue', 'today', 'soon', 'all'],
+          description:
+            "Which tasks to return: 'overdue', 'today', 'tomorrow', 'soon' (next 3 days), or 'all' (default: all)",
+          enum: ['overdue', 'today', 'tomorrow', 'soon', 'all'],
         },
       },
     },
@@ -241,15 +257,15 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meetings',
     description:
-      "Read the user's meetings from Notion (across ALL connected Notion accounts). Use for: 'הפגישות שלי בנושן', 'Notion meetings', and as part of daily prep / 'תכין אותי ליום' / 'מה יש לי היום'. Notion is a primary source for meetings.",
+      "Read the user's meetings from Notion (across ALL connected Notion accounts). For מחר / tomorrow MUST use range 'tomorrow'. Also: 'today', 'upcoming' (next 7 days). Default today — do not use default when the user asked about tomorrow.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         range: {
           type: SchemaType.STRING,
           format: 'enum',
-          description: "'today' for today's meetings, 'upcoming' for the next 7 days (default: today)",
-          enum: ['today', 'upcoming'],
+          description: "'today' | 'tomorrow' | 'upcoming' (next 7 days). Use tomorrow for מחר.",
+          enum: ['today', 'tomorrow', 'upcoming'],
         },
       },
     },
@@ -624,16 +640,21 @@ export async function executeTool(
   const todayStr = todayIso()
 
   switch (name) {
-    case 'get_today_schedule': {
+    case 'get_today_schedule':
+    case 'get_day_schedule': {
       const scopeIds = await getAgentCalendarIds()
+      const rawDate =
+        name === 'get_day_schedule' ? String(args.date ?? '').trim() : 'today'
+      const dayStr = resolveLocalDayArg(rawDate)
       const [calResult, allTasks] = await Promise.all([
-        caller.calendar.events({ startDate: todayStr, endDate: todayStr }),
+        caller.calendar.events({ startDate: dayStr, endDate: dayStr }),
         caller.tasks.list(),
       ])
       const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
-      const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === todayStr)
+      const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === dayStr)
       return {
-        date: todayStr,
+        date: dayStr,
+        requested: rawDate || 'today',
         events: scopedEvents,
         dueTasks,
         calendarErrors: calResult.googleErrors,
@@ -824,8 +845,22 @@ export async function executeTool(
     }
 
     case 'get_notion_tasks': {
-      const filter = (args.filter as 'overdue' | 'today' | 'soon' | 'all' | undefined) ?? 'all'
+      const filter =
+        (args.filter as 'overdue' | 'today' | 'tomorrow' | 'soon' | 'all' | undefined) ?? 'all'
       const t = await getNotionTasks()
+      if (filter === 'tomorrow') {
+        const tomorrow = localTomorrowIso()
+        const pooled = [...t.today, ...t.soon, ...t.highPriority]
+        const seen = new Set<string>()
+        const tasks = pooled.filter((task) => {
+          if (task.due !== tomorrow) return false
+          const key = `${task.account}:${task.db}:${task.title}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        return { filter, date: tomorrow, tasks, errors: t.errors }
+      }
       const base =
         filter === 'overdue'
           ? { overdue: t.overdue }
@@ -838,8 +873,13 @@ export async function executeTool(
     }
 
     case 'get_notion_meetings': {
-      const range = (args.range as 'today' | 'upcoming' | undefined) ?? 'today'
+      const range = (args.range as 'today' | 'tomorrow' | 'upcoming' | undefined) ?? 'today'
       const m = await getNotionMeetings()
+      if (range === 'tomorrow') {
+        const tomorrow = localTomorrowIso()
+        const meetings = [...m.today, ...m.upcoming].filter((x) => x.date === tomorrow)
+        return { range, date: tomorrow, meetings, errors: m.errors }
+      }
       return {
         range,
         meetings: range === 'upcoming' ? m.upcoming : m.today,

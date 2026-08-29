@@ -111,11 +111,12 @@ On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar
 - Call **at least two** own tools from **different domains** before answering
 - Do **not** call `run_abc_agent` as the first action
 - **Notion depth (mandatory when day/prep/people/מצב):**
-  1. `get_notion_meetings` — upcoming/today across all connected accounts
-  2. `get_notion_meeting_notes` — AI Meeting Notes `body_text` (today and/or yesterday, or `meetingId` when known); primary source for what was discussed; empty body → `לא נמצא בנתונים`
-  3. Related people/context — for people who appear in those meetings or notes, call `get_notion_people`; when a company or project is named, also `get_notion_projects` / `get_notion_companies` / `search_notion`
-- Also: calendar tools / prefetched calendar, `get_open_tasks` / `get_notion_tasks`
-- When money or overall "מצב" fits: `get_cashflow_insights` / `get_trading_insights` / `get_finance_overview` (warn-level only in the recommendation)
+  1. `get_notion_meetings` — correct day (`tomorrow` for מחר, not default today)
+  2. `get_notion_meeting_notes` — AI Meeting Notes `body_text`; empty → `לא נמצא בנתונים`
+  3. Related people/context — `get_notion_people` (+ projects/companies/`search_notion` when named)
+- **מחר / tomorrow (CRITICAL):** call `get_day_schedule({ date: "tomorrow" })` + `get_notion_meetings({ range: "tomorrow" })` (+ Notion tasks `tomorrow`) before answering. Never use today's tools for a tomorrow question. Prefetched calendar is TODAY only. Never claim empty day if `calendarErrors` is set or without those tool results for that date.
+- Also: `get_open_tasks` / `get_notion_tasks` as needed
+- When money or overall "מצב" fits: finance insight tools (warn-level only in the recommendation)
 - Never invent discussion points or relationships; never dump full Notion property lists
 
 ### Operating principles

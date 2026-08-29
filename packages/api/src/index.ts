@@ -36,7 +36,7 @@ export {
   filterEventsByCalendarScope,
   getAgentCalendarScopePromptBlock,
 } from './services/agent-calendar-scope'
-export { localTodayIso, localDateRangeToUtc, getDefaultTimezone } from './lib/calendar-dates'
+export { localTodayIso, localTomorrowIso, resolveLocalDayArg, localDateRangeToUtc, getDefaultTimezone } from './lib/calendar-dates'
 export {
   WHATSAPP_WINDOWS,
   isWhatsappWindow,
