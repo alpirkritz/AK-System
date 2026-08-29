@@ -1,35 +1,44 @@
-# QA — chief-of-staff
+# QA report — chief-of-staff (behavior gap)
 
-> **Slug:** `chief-of-staff`
-> **Date:** 2026-08-29
-> **Stack:** next-trpc-monorepo
+**Detected stack:** next-trpc-monorepo  
+**Verdict:** FAIL against the user's intended CoS (wise personal advisor). PASS against the shipped identity-first acceptance criteria (rename + prompt contract).
 
-## Scope tested
+- Static check: N/A this pass (advisory re-open; prior build PASS)
+- Unit tests: prior CoS contract tests PASS (prompt strings present)
+- E2E: N/A
+- Production config drift: N/A
+- Build freshness: N/A (advisory)
+- Total time: advisory review
 
-Identity-first evolve of `01_Hugo_orchestrator` → Chief of Staff: agent card, `wf_chief_of_staff`, live prompt block, aliases, memory/chat microcopy. No DB/tRPC changes.
+## Per-phase results
 
-## Commands
+### 1. Static / product behavior audit
 
-| Command | Result |
+User report: CoS still feels like a router — routes to the right agent and returns their response.
+
+Root causes in shipped code (not a deploy miss):
+
+1. **Prompt still optimizes for routing.** Most lines in `gemini-agent-engine.ts` CoS block are delegation rules, valid agentIds, and format matches. Judgment is one sentence ("add ONE judgment line").
+2. **אופטי pass-through fights CoS.** Instruction: pass calendar brief "almost verbatim" — that forbids the wise synthesis the user wants when they ask about the day/calendar.
+3. **Engine still force-routes.** If the model answers without `run_abc_agent` but text matches deferral patterns, a retry forces `run_abc_agent` (`DELEGATION_RETRY_PROMPT`). That reinforces switchboard behavior.
+4. **No "monitor" path.** CoS is reactive to a single user message. There is no mandated multi-source scan (calendar + tasks + meeting notes + finance insights + memory open loops) before recommending. Prefetched calendar context is **not** injected for agent `01` (`CALENDAR_CONTEXT_AGENTS` excludes Hugo).
+5. **Insights exist as tools but are not CoS-default.** `get_cashflow_insights`, `get_trading_insights`, `get_finance_overview`, WhatsApp insights are available; CoS card/workflow never require pulling them for "what matters now".
+6. **Specialists own the digests.** Morning / evening / calendar cron still land as specialist formats, not as CoS-owned judgment briefs.
+
+### 2. Unit/integration tests
+
+Prior tests verify strings ("Chief of Staff — primary interface", aliases, workflow mapping). They do **not** verify judgment quality or multi-tool advisory behavior. That is a coverage gap relative to the new intent.
+
+## Failures (intent gap)
+
+| Expected (user) | Actual (shipped) |
 |---|---|
-| `pnpm --filter @ak-system/web exec vitest run` (abc-agents.workflow, gemini calendar-brief, meeting-prep, conversation-engine.agent-feedback, agent-memory) | **PASS** — 5 files, 29 tests |
-| `pnpm --filter @ak-system/web build` | **PASS** |
-| `pnpm --filter @ak-system/web run lint` | **BLOCKED** — `next lint` prompts for ESLint interactive setup (no `.eslintrc` in apps/web); pre-existing, not caused by this change |
-| `pnpm e2e` | **SKIPPED** — no new user-facing flow; label-only UI + prompt contract covered by Vitest |
-
-## Acceptance criteria check
-
-| Criterion | Status |
-|---|---|
-| H1 `Chief of Staff` on `01_Hugo_orchestrator.md` | Pass |
-| CoS prompt: answer-directly-first, gatekeeper, synthesis, decision-needed, same-turn recover | Pass (Vitest) |
-| Calendar pass-through line retained | Pass (Vitest) |
-| `AGENT_WORKFLOWS` maps `01` → `wf_chief_of_staff.md` | Pass (Vitest) |
-| Aliases `hugo` / `הוגו` / `ראש מטה` / `cos` / `chief of staff` / `chief-of-staff` | Pass (Vitest) |
-| Memory / mobile labels ראש מטה | Pass (manual file review) |
-| `hugo_reply` / `HUGO_AGENT_ID` / notification settings copy unchanged | Pass (no edits) |
+| Monitor insights across life/work/money | Answers one question; rarely aggregates |
+| Wise recommendation | Often specialist dump + thin wrap |
+| Personal assistant judgment | Routing + format match dominates prompt |
 
 ## Notes
 
-- No browser E2E run: change is prompt + labels; chat behaviour depends on Gemini at runtime.
-- Specialist "Reports to" display names updated to Chief of Staff; agent IDs unchanged.
+- Identity-first shipped as designed; the design under-specified "wise advisor".
+- Follow-up product work: `docs/specs/chief-of-staff-judgment.md`.
+- Do not treat this FAIL as a rollback of the rename — the gap is behavior depth, not branding.

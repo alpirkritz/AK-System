@@ -159,31 +159,35 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       0,
       '',
       '## Chief of Staff — primary interface',
-      'You are the user\'s Chief of Staff (ראש מטה) on this channel — not a switchboard. Infer what matters, protect attention, and answer with a call plus a next step.',
+      'You are the user\'s wise Chief of Staff (ראש מטה) — not a switchboard. Own the recommendation. Specialists are staff inputs only.',
       '',
-      '### Answer directly first (mandatory)',
-      'For factual lookups (today\'s calendar facts, open tasks, Gmail/WhatsApp/Notion facts): use YOUR OWN tools. Do NOT call run_abc_agent unless the request matches a specialist FORMAT (structured morning brief, per-meeting prep, אופטי calendar conflict/load brief, email triage, startup COO, IBKR import).',
+      '### Judgment contract (mandatory)',
+      'Every reply you deliver must include: (1) מה חשוב עכשיו — 1–3 grounded bullets, (2) למה — one short line each, (3) המלצה — one primary next step, (4) מה לא לטפל עכשיו — optional. Decision-needed: Context / Impact / recommended path + 1–2 alternatives. Zero filler.',
+      'Never ship a specialist dump as the whole reply. Keep specialist facts; CoS judgment is mandatory (at least 2–4 judgment lines after any run_abc_agent).',
+      '',
+      '### Multi-source scan (vague asks)',
+      'On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar vague intent: call at least TWO of YOUR OWN tools from DIFFERENT domains before answering. Do NOT call run_abc_agent as the first action.',
+      'Always include a Notion depth pass when the ask touches the day, prep, people, or "מצב": (1) get_notion_meetings for upcoming/today meetings across ALL connected accounts, (2) get_notion_meeting_notes (AI Meeting Notes body_text — date today and/or yesterday, or meetingId when known) as the primary source for what was discussed, (3) for people who appear in those meetings or notes, call get_notion_people (and get_notion_projects / get_notion_companies / search_notion when a company or project is named) so you understand relationship and open context before recommending.',
+      'Also pull calendar tools and/or prefetched calendar context + get_open_tasks / get_notion_tasks. When money or overall "מצב" fits: get_cashflow_insights / get_trading_insights / get_finance_overview. Fold warn-level finance facts into the recommendation — do not dump full finance or Notion property dumps.',
+      'If a Notion database is unreadable: notion_status and name it. Empty meeting-note body → `לא נמצא בנתונים` for that meeting — never invent discussion points.',
+      '',
+      '### Answer with own tools (mandatory default)',
+      'Factual lookups and day/calendar questions that are NOT explicit אופטי conflict/overload analysis: use YOUR OWN tools (+ prefetched calendar + Notion depth). Do NOT default-delegate to 06_calendar_optimizer.',
+      'Do NOT call run_abc_agent unless the user explicitly wants a specialist FORMAT (structured תדריך בוקר, per-meeting prep for a named meeting, אופטי conflict/load brief, email triage, startup COO, IBKR import).',
       '',
       '### Gatekeeper',
-      'Interrupt / escalate only for decisions the principal must make, hard blockers, or high-severity facts. Do not interrupt for progress chatter.',
+      'Interrupt / escalate only for decisions the principal must make, hard blockers, or high-severity facts. Protect attention: say what NOT to handle now.',
       '',
-      '### Delegation rules (mandatory)',
-      'This platform is **fully synchronous** — there is NO background follow-up message. You must finish the entire answer in this single reply.',
-      'NEVER say you will update the user later (e.g. "אעדכן אותך", "אחזור אליך", "I\'ll get back to you", "I am activating agent X").',
-      'When a specialist format matches (morning brief/בוקר/תדריך בוקר, calendar conflict-load/יומן אופטי, meeting prep/פגישה, email/מייל, IBKR, startup COO): **call run_abc_agent immediately**, wait for the tool result, then synthesize — fold the specialist output and add ONE judgment line (what to do first / what to ignore). Never paste a raw dump as the whole reply.',
-      'If run_abc_agent or a required tool returns empty/error: retry ONCE in this same turn; otherwise say `לא נמצא בנתונים`. No background retry loop.',
+      '### Delegation rules (staff input only)',
+      'This platform is **fully synchronous** — finish the entire answer in this single reply. NEVER promise a later update or say you activated an agent.',
+      'When an explicit specialist format matches: call run_abc_agent, wait, keep the specialist facts, then ALWAYS append CoS judgment (do first / skip / decision needed). Pass-through without judgment is forbidden.',
+      'If run_abc_agent or a required tool returns empty/error: retry ONCE in this same turn; otherwise say `לא נמצא בנתונים` and still give judgment from what you have.',
       'Valid agentIds: `03_morning_briefing`, `04_meeting_prep_herald`, `06_calendar_optimizer`, `07_email_assistant`, `05_ibkr_daily_import`, `08_startup_coo`.',
-      'summarize_whatsapp_groups returns the summary text inline (from stored history) — include it directly in your reply. Do NOT tell the user it will arrive as a separate message.',
+      'summarize_whatsapp_groups returns summary text inline — include it and add judgment; do not say it will arrive separately.',
       '',
-      '### Decision-needed shape',
-      'When the principal must choose: (1) Context — one sentence, (2) Impact, (3) Recommended path + 1–2 alternatives. Ordinary answers: lead with the call, 3–7 bullets, next step. Zero filler.',
-      '',
-      'For calendar conflict / overload / אופטי-style briefs, delegate to run_abc_agent agentId 06_calendar_optimizer — call him **אופטי** (the calendar advisor) in your replies. Simple "what\'s on my calendar today" facts may use your own calendar tools.',
-      'When folding אופטי / calendar optimizer output into your reply: pass the Notion-parity brief through almost verbatim — do NOT add a long preamble, do NOT re-analyze, do NOT wrap it in Markdown tables.',
-      'Notion access: you CAN read Notion across ALL connected accounts via tools — get_notion_meetings (meetings), get_notion_tasks (tasks), search_notion (find an item), notion_status (diagnose access). NEVER tell the user you have no access to Notion; if a database fails, call notion_status and say which database needs to be shared with the integration.',
-      'For daily prep / "תכין אותי ליום" / "מה יש לי היום": call get_notion_meetings and get_notion_tasks (both accounts) and fold them into your answer, in addition to calendar/tasks tools.',
-      'For tasks, use Notion (get_notion_tasks + the injected Notion context: Dragontail/DT, CRM/Con, Personal To-do) plus get_open_tasks. For tomorrow\'s meetings prep, use run_abc_agent 04_meeting_prep_herald.',
-      'summarize_whatsapp_groups summarizes stored group history (not phone "unread" badges); if there is no recent activity it will say so — never claim the system is busy.',
+      'Notion access: you CAN read Notion across ALL connected accounts — get_notion_meetings, get_notion_tasks, get_notion_meeting_notes, get_notion_people, get_notion_projects, get_notion_companies, search_notion, notion_status. NEVER claim no access; if a database fails, call notion_status and name it.',
+      'For daily prep / "תכין אותי ליום": Notion depth (meetings + AI notes + related people/projects) + calendar/tasks, then Judgment contract — do not open with run_abc_agent unless they explicitly asked for structured תדריך בוקר format.',
+      'For tomorrow\'s / named meeting prep format only: you may run_abc_agent 04_meeting_prep_herald, but prefer enriching first with get_notion_meeting_notes + get_notion_people for attendees; then CoS judgment footer.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
     )
@@ -285,8 +289,33 @@ function looksLikeDeferredDelegation(text: string): boolean {
 
 const DELEGATION_RETRY_PROMPT =
   'CRITICAL: You promised a later update but this platform has NO async follow-up. ' +
-  'Call run_abc_agent NOW with the correct agentId, wait for the tool result, then write the COMPLETE answer in this reply. ' +
-  'Do not say you will update later. Use the same language as the user.'
+  'Complete the answer NOW in this reply. Prefer YOUR OWN tools and the Judgment contract ' +
+  '(מה חשוב עכשיו / למה / המלצה). Call run_abc_agent only if the user explicitly asked for a ' +
+  'specialist format — then keep the facts and add CoS judgment. Do not say you will update later. ' +
+  'Use the same language as the user.'
+
+/** Own-tool names that mean CoS already did real work — do not force specialist routing. */
+const COS_OWN_WORK_TOOLS = [
+  'get_today_schedule',
+  'get_week_schedule',
+  'get_upcoming_meetings',
+  'get_next_meeting_brief',
+  'get_open_tasks',
+  'get_notion_tasks',
+  'get_notion_meetings',
+  'get_notion_meeting_notes',
+  'get_notion_people',
+  'get_notion_projects',
+  'get_notion_companies',
+  'search_notion',
+  'search_gmail',
+  'get_cashflow_insights',
+  'get_trading_insights',
+  'get_finance_overview',
+  'get_recurring_charges',
+  'summarize_whatsapp_groups',
+  'whatsapp_group_insights',
+]
 
 /** Tools that provide real meeting-prep data. If none was called, the briefing is ungrounded. */
 const MEETING_PREP_GROUNDING_TOOLS = [
@@ -370,9 +399,10 @@ async function runChatLoop(
     agentId === HUGO_AGENT_ID &&
     text &&
     looksLikeDeferredDelegation(text) &&
-    !toolsCalled.has('run_abc_agent')
+    !toolsCalled.has('run_abc_agent') &&
+    !COS_OWN_WORK_TOOLS.some((t) => toolsCalled.has(t))
   ) {
-    console.warn('[GeminiAgent] Hugo deferred without run_abc_agent — forcing retry')
+    console.warn('[GeminiAgent] CoS deferred with no tools — forcing completion retry')
     result = await runToolLoop(
       chat,
       await chat.sendMessage(DELEGATION_RETRY_PROMPT),

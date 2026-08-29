@@ -1491,3 +1491,59 @@ For end-of-day rollups, Hugo may append a summary entry:
 
 ### Performance Improvements
 - Same agent ID avoids migration; behaviour change is prompt-driven
+
+---
+
+## 2026-08-29 — PM + QA — chief-of-staff-judgment
+
+**Workflow:** pm-agent + qa-agent (advisory)
+**Status:** Completed (spec + QA gap; no code)
+
+### Stand-up
+- **Goal:** Advise after user reported CoS still feels like a router
+- **Context:** Identity-first shipped; user wants wise personal advisor that monitors insights
+
+### Actions Taken
+1. QA behavior audit of live CoS prompt/engine vs intended advisor
+2. Wrote follow-up spec `docs/specs/chief-of-staff-judgment.md`
+3. Updated `reports/qa-chief-of-staff.md` with FAIL-on-intent verdict
+
+### Outputs
+- `docs/specs/chief-of-staff-judgment.md`
+- `reports/qa-chief-of-staff.md`
+
+### Compliance
+- [x] Spec only / report only — no production code this turn
+- [x] No PII exposed
+
+### Performance Improvements
+- Separated "identity shipped" from "judgment still missing" so we do not confuse branding with behavior
+
+---
+
+## 2026-08-29 — Dev Pipeline — chief-of-staff-judgment
+
+**Workflow:** Dev → Tests → QA → Reviewer
+**Status:** Completed (pending deploy)
+
+### Stand-up
+- **Goal:** Make CoS judgment-first (multi-source scan + recommendation spine; specialists as staff)
+- **Context:** User approved `docs/specs/chief-of-staff-judgment.md`
+
+### Actions Taken
+1. Rewrote CoS card + `wf_chief_of_staff` for Judgment contract and Scan stage
+2. Retargeted live prompt; removed verbatim pass-through; advertised finance insights
+3. Prefetch calendar for `01`; soften deferral retry when own tools already ran
+4. Memory page hint for `[עדיפות]` / `[לולאה פתוחה]`; Vitest 18/18
+
+### Outputs
+- `docs/specs/chief-of-staff-judgment.md`
+- `reports/qa-chief-of-staff-judgment.md`
+- `reports/chief-of-staff-judgment.md`
+
+### Compliance
+- [x] Grounding / recommendations-only preserved
+- [x] No PII exposed
+
+### Performance Improvements
+- CoS no longer force-routed to specialists after own-tool work

@@ -76,23 +76,29 @@ describe('calendar optimizer Notion-parity brief', () => {
     }
   })
 
-  it('tells Hugo to pass calendar brief through without re-wrapping', async () => {
+  it('tells CoS to keep אופטי facts but require judgment (no verbatim-only pass-through)', async () => {
     const prompt = await buildAgentSystemInstruction('01_Hugo_orchestrator', 'whatsapp')
-    expect(prompt).toContain('pass the Notion-parity brief through almost verbatim')
+    expect(prompt).toContain('Keep specialist facts; CoS judgment is mandatory')
+    expect(prompt).toContain('Pass-through without judgment is forbidden')
+    expect(prompt).not.toContain('almost verbatim')
     expect(prompt).not.toContain('Calendar Optimizer — Notion-parity brief (MANDATORY')
   })
 })
 
 describe('Chief of Staff primary interface', () => {
-  it('injects CoS operating contract for agent 01', async () => {
+  it('injects judgment-first CoS operating contract for agent 01', async () => {
     const prompt = await buildAgentSystemInstruction('01_Hugo_orchestrator', 'whatsapp')
     expect(prompt).toContain('## Chief of Staff — primary interface')
-    expect(prompt).toContain('Answer directly first')
-    expect(prompt).toContain('### Gatekeeper')
-    expect(prompt).toContain('synthesize — fold the specialist output')
-    expect(prompt).toContain('### Decision-needed shape')
-    expect(prompt).toContain('retry ONCE in this same turn')
-    expect(prompt).toContain('pass the Notion-parity brief through almost verbatim')
+    expect(prompt).toContain('### Judgment contract (mandatory)')
+    expect(prompt).toContain('### Multi-source scan (vague asks)')
+    expect(prompt).toContain('at least TWO of YOUR OWN tools')
+    expect(prompt).toContain('Notion depth pass')
+    expect(prompt).toContain('get_notion_meeting_notes')
+    expect(prompt).toContain('get_notion_people')
+    expect(prompt).toContain('מה חשוב עכשיו')
+    expect(prompt).toContain('Do NOT default-delegate to 06_calendar_optimizer')
+    expect(prompt).toContain('get_cashflow_insights')
+    expect(prompt).not.toContain('almost verbatim')
     expect(prompt).not.toContain('## Hugo orchestrator — primary interface')
   })
 })

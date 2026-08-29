@@ -74,6 +74,7 @@ const NOTION_CONTEXT_AGENTS = new Set([
 
 /** Agents that receive pre-fetched Google Calendar events in the system prompt. */
 const CALENDAR_CONTEXT_AGENTS = new Set([
+  HUGO_AGENT_ID,
   '03_morning_briefing',
   '04_meeting_prep_herald',
   '06_calendar_optimizer',

@@ -29,7 +29,7 @@ beforeEach(() => {
   )
   fs.writeFileSync(
     path.join(tmpRoot, 'S_Skills', 'wf_chief_of_staff.md'),
-    '# Workflow: Chief of Staff\n\n## Stage 1: Intake\n\n## Stage 2: Context\n\n## Stage 3: Judgment\n\n## Stage 4: Act or delegate\n\n## Stage 5: Recover\n\n## Stage 6: Remember\n\n## Stage 7: Reply\n',
+    '# Workflow: Chief of Staff\n\n## Stage 1: Intake\n\n## Stage 2: Scan\n\n## Stage 3: Judgment\n\n## Stage 4: Act\n\n## Stage 5: Recover\n\n## Stage 6: Remember\n\n## Stage 7: Reply\n',
     'utf-8',
   )
   fs.writeFileSync(
@@ -60,6 +60,7 @@ describe('abc-agents workflow get/save', () => {
     const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
     expect(getAgentWorkflowFile('01_Hugo_orchestrator')).toBe('wf_chief_of_staff.md')
     expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 1: Intake')
+    expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 2: Scan')
     expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 5: Recover')
     expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 7: Reply')
   })
