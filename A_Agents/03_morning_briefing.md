@@ -55,7 +55,7 @@ Daily morning summary agent. Produces the brief of today's schedule, due tasks, 
 
 | Agent ID | Name | Delegation Trigger |
 |---|---|---|
-| `01_Hugo_orchestrator` | Hugo | Escalation, scheduling conflicts, or multi-agent coordination |
+| `01_Hugo_orchestrator` | Chief of Staff | Escalation, scheduling conflicts, or multi-agent coordination |
 
 > Morning Briefing operates as a leaf specialist for standard daily runs.
 

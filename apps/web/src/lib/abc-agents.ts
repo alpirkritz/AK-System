@@ -15,6 +15,10 @@ export const AGENT_ALIASES: Record<string, string> = {
   orchestrator: '01_Hugo_orchestrator',
   הוגו: '01_Hugo_orchestrator',
   אורקסטרטור: '01_Hugo_orchestrator',
+  'ראש מטה': '01_Hugo_orchestrator',
+  cos: '01_Hugo_orchestrator',
+  'chief of staff': '01_Hugo_orchestrator',
+  'chief-of-staff': '01_Hugo_orchestrator',
   trainer: '02_agent_trainer',
   מאמן: '02_agent_trainer',
   'מאמן סוכנים': '02_agent_trainer',
@@ -88,6 +92,7 @@ const NOTION_NOTIFY_AGENTS = new Set([
 ])
 
 const AGENT_WORKFLOWS: Record<string, string> = {
+  '01_Hugo_orchestrator': 'wf_chief_of_staff.md',
   '03_morning_briefing': 'wf_morning_brief.md',
   '04_meeting_prep_herald': 'wf_meeting_prep.md',
   '05_ibkr_daily_import': 'wf_ibkr_daily_import.md',
@@ -280,7 +285,7 @@ export function getDefaultTriggerMessage(agentId: string): string {
     '07_email_assistant': 'הרץ עוזר מייל יומי לפי ה-workflow',
     '08_startup_coo': 'הרץ לפי בקשת המייסד — נתח את הבעיה והצע תוכנית',
     '02_agent_trainer': 'הרץ סקירת אימון סוכנים לפי ה-workflow',
-    '01_Hugo_orchestrator': 'סכם מצב המערכת והמלץ על פעולות',
+    '01_Hugo_orchestrator': 'סכם מה חשוב עכשיו, למה, ומה הצעד הבא',
   }
   return messages[agentId] ?? 'הרץ workflow לפי ההוראות'
 }

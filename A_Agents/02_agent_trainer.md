@@ -59,7 +59,7 @@ Specialist agent responsible for authoring, reviewing, and improving agent cards
 
 | Agent ID | Name | Delegation Trigger |
 |---|---|---|
-| `01_Hugo_orchestrator` | Hugo | Escalation for agent deployment approval |
+| `01_Hugo_orchestrator` | Chief of Staff | Escalation for agent deployment approval |
 | `[TBD]` | Compliance Reviewer | When new agent access rights need validation |
 
 > Agent Trainer operates as a leaf specialist — it does not delegate to further sub-agents unless escalated.

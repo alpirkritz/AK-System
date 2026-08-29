@@ -29,7 +29,7 @@ export const DEFAULT_TRIGGER_MESSAGES: Record<string, string> = {
   '07_email_assistant': 'הרץ עוזר מייל יומי לפי ה-workflow',
   '08_startup_coo': 'הרץ לפי בקשת המייסד — נתח את הבעיה והצע תוכנית',
   '02_agent_trainer': 'הרץ סקירת אימון סוכנים לפי ה-workflow',
-  '01_Hugo_orchestrator': 'סכם מצב המערכת והמלץ על פעולות',
+  '01_Hugo_orchestrator': 'סכם מה חשוב עכשיו, למה, ומה הצעד הבא',
 }
 
 function getAbcRoot(): string {

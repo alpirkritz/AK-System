@@ -58,7 +58,7 @@ Runs once per day to keep the AK System trading database (`finance_trades`) up t
 
 | Agent ID | Name | Delegation Trigger |
 |---|---|---|
-| `01_Hugo_orchestrator` | Hugo | Escalation or multi-agent coordination |
+| `01_Hugo_orchestrator` | Chief of Staff | Escalation or multi-agent coordination |
 
 > Leaf specialist for IBKR email import.
 

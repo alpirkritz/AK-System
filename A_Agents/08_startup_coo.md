@@ -55,7 +55,7 @@ An operational and strategic Chief Operating Officer persona for founders. Helps
 
 | Agent ID | Name | Delegation Trigger |
 |---|---|---|
-| `01_Hugo_orchestrator` | Hugo | Escalation or multi-agent coordination |
+| `01_Hugo_orchestrator` | Chief of Staff | Escalation or multi-agent coordination |
 
 > Strategic advisory specialist for founders.
 

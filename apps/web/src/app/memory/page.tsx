@@ -87,7 +87,7 @@ export default function MemoryPage() {
         <Link href="/settings" className="text-xs text-[#5a688c] hover:text-[#7a89ab]">
           ← חזרה להגדרות
         </Link>
-        <h1 className="text-xl font-bold mt-2">זיכרון והוראות להוגו 🧠</h1>
+        <h1 className="text-xl font-bold mt-2">זיכרון והוראות לראש מטה</h1>
         <p className="text-xs text-[#5a688c] mt-1">
           הוראות קבועות, זיכרונות וידע — נשמרים תמיד ומוזרקים אוטומטית לכל שיחה עם הסוכנים
         </p>
@@ -104,7 +104,7 @@ export default function MemoryPage() {
         <div>
           <div className="text-sm font-semibold text-[#cdd7ea]">הוראות קבועות</div>
           <div className="text-xs text-[#5a688c] mt-0.5">
-            איך הוגו והסוכנים צריכים לעבוד תמיד. לדוגמה: "תמיד תענה בקצרה", "אל תציע לפתוח Notion".
+            איך ראש מטה והסוכנים צריכים לעבוד תמיד. לדוגמה: "תמיד תענה בקצרה", "אל תציע לפתוח Notion".
           </div>
         </div>
         <textarea

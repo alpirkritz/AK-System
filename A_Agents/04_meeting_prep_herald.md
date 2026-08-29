@@ -58,7 +58,7 @@ Prepares the user for meetings by pulling together open action items to push for
 
 | Agent ID | Name | Delegation Trigger |
 |---|---|---|
-| `01_Hugo_orchestrator` | Hugo | Escalation or multi-agent coordination |
+| `01_Hugo_orchestrator` | Chief of Staff | Escalation or multi-agent coordination |
 
 > Leaf specialist for meeting preparation.
 

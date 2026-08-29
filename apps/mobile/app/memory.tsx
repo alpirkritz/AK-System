@@ -181,12 +181,12 @@ export default function MemoryScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerBlock}>
-            <SectionHeader title="הנחיות קבועות ל-Hugo" style={styles.section} />
+            <SectionHeader title="הנחיות קבועות לראש מטה" style={styles.section} />
             <Card>
               <TextInput
                 value={instructions}
                 onChangeText={setInstructions}
-                placeholder="מה Hugo צריך לדעת תמיד עליך?"
+                placeholder="מה ראש מטה צריך לדעת תמיד עליך?"
                 placeholderTextColor={colors.textMuted}
                 style={styles.instructionsInput}
                 multiline

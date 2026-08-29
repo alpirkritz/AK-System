@@ -1407,3 +1407,87 @@ For end-of-day rollups, Hugo may append a summary entry:
 
 ### Performance Improvements
 - Parallel subagents for feature waves after Phase 0 foundation
+
+---
+
+## 2026-08-28 — Dev Pipeline — bank-scraper-chrome-eagain
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — PM → UI → Dev → Tests → QA → Reviewer
+**Status:** Completed (pending production deploy)
+
+### Stand-up
+- **Goal:** Fix Finance account connect/sync failing with Puppeteer `spawn chrome EAGAIN` on EC2
+- **Context:** User reported English launch error when connecting accounts under פיננסים
+
+### Actions Taken
+1. Wrote spec `docs/specs/bank-scraper-chrome-eagain.md`
+2. Added scrape mutex, launch retry, Linux stray-Chrome cleanup, low-process Chromium flags, Hebrew error mapping
+3. Set compose `init: true` + `shm_size: 256mb`; documented in `docs/deploy/ec2-production.md`
+4. Vitest for helpers + overlapping sync; full `pnpm test` green
+
+### Outputs
+- `docs/specs/bank-scraper-chrome-eagain.md`
+- `reports/qa-bank-scraper-chrome-eagain.md`
+- `reports/bank-scraper-chrome-eagain.md`
+
+### Compliance
+- [x] Engineering work under apps/packages — C_Core N/A for product code
+- [x] No PII exposed
+
+### Performance Improvements
+- One Chromium at a time including OTP wait; zombie reaping via Docker `init`
+
+---
+
+## 2026-08-28 — PM Agent — chief-of-staff
+
+**Workflow:** `.cursor/skills/pm-agent/SKILL.md` — spec only
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Write the Chief of Staff identity spec (evolve Hugo `01`, no new agent/tables)
+- **Context:** User could not find the spec; plan mode had only a Cursor plan file, never `docs/specs/`. User approved writing the spec.
+
+### Actions Taken
+1. Confirmed stack `next-trpc-monorepo`
+2. Wrote `docs/specs/chief-of-staff.md` from the approved plan (gatekeeper/synthesis in; JSON bus/state engine/P0-P2 out)
+
+### Outputs
+- `docs/specs/chief-of-staff.md`
+
+### Compliance
+- [x] C_Core/ pre-flight: identity rewrite, recommendations-only, no PII
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- Spec lives in `docs/specs/` (repo), not only `~/.cursor/plans/`
+
+---
+
+## 2026-08-29 — Dev Pipeline — chief-of-staff
+
+**Workflow:** `.cursor/rules/dev-pipeline.mdc` — Dev → Tests → QA → Reviewer (spec already written)
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Evolve Hugo (`01_Hugo_orchestrator`) into Chief of Staff identity (prompt + workflow + labels)
+- **Context:** Approved plan + `docs/specs/chief-of-staff.md`
+
+### Actions Taken
+1. Rewrote `A_Agents/01_Hugo_orchestrator.md` as Chief of Staff
+2. Added `S_Skills/wf_chief_of_staff.md` and mapped in `AGENT_WORKFLOWS`
+3. Retargeted live prompt block in `gemini-agent-engine.ts`; aliases; default trigger; C_Core escalation wording
+4. Updated memory/chat Hebrew labels (web + mobile); specialist "Reports to" display names
+5. Vitest for workflow mapping, aliases, CoS prompt contract; build green
+
+### Outputs
+- `docs/specs/chief-of-staff.md`
+- `reports/qa-chief-of-staff.md`
+- `reports/chief-of-staff.md`
+
+### Compliance
+- [x] C_Core/ pre-flight: recommendations-only, no PII, identity rewrite only
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- Same agent ID avoids migration; behaviour change is prompt-driven

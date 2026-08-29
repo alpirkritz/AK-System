@@ -24,7 +24,17 @@ beforeEach(() => {
   )
   fs.writeFileSync(
     path.join(tmpRoot, 'A_Agents', '01_Hugo_orchestrator.md'),
-    '# Hugo\n\n## Role\n\nOrchestrate.\n',
+    '# Chief of Staff\n\n## Role\n\nPartner for the principal.\n',
+    'utf-8',
+  )
+  fs.writeFileSync(
+    path.join(tmpRoot, 'S_Skills', 'wf_chief_of_staff.md'),
+    '# Workflow: Chief of Staff\n\n## Stage 1: Intake\n\n## Stage 2: Context\n\n## Stage 3: Judgment\n\n## Stage 4: Act or delegate\n\n## Stage 5: Recover\n\n## Stage 6: Remember\n\n## Stage 7: Reply\n',
+    'utf-8',
+  )
+  fs.writeFileSync(
+    path.join(tmpRoot, 'A_Agents', '02_agent_trainer.md'),
+    '# Agent Trainer\n\n## Role\n\nTrain agents.\n',
     'utf-8',
   )
   vi.resetModules()
@@ -46,10 +56,18 @@ describe('abc-agents workflow get/save', () => {
     expect(getAgentWorkflowContent('04_meeting_prep_herald')).toContain('Workflow: Meeting Prep')
   })
 
+  it('maps Chief of Staff (01) to wf_chief_of_staff', async () => {
+    const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
+    expect(getAgentWorkflowFile('01_Hugo_orchestrator')).toBe('wf_chief_of_staff.md')
+    expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 1: Intake')
+    expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 5: Recover')
+    expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 7: Reply')
+  })
+
   it('returns null workflow for agents without a mapping', async () => {
     const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
-    expect(getAgentWorkflowFile('01_Hugo_orchestrator')).toBeNull()
-    expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toBeNull()
+    expect(getAgentWorkflowFile('02_agent_trainer')).toBeNull()
+    expect(getAgentWorkflowContent('02_agent_trainer')).toBeNull()
   })
 
   it('saves workflow content to S_Skills without touching the agent card', async () => {
@@ -67,6 +85,18 @@ describe('abc-agents workflow get/save', () => {
 
   it('rejects save when agent has no workflow mapping', async () => {
     const { saveAgentWorkflowContent } = await loadAbc()
-    expect(() => saveAgentWorkflowContent('01_Hugo_orchestrator', '# x')).toThrow(/No workflow/i)
+    expect(() => saveAgentWorkflowContent('02_agent_trainer', '# x')).toThrow(/No workflow/i)
+  })
+})
+
+describe('Chief of Staff aliases', () => {
+  it('resolves hugo, ראש מטה, cos, and chief of staff to 01', async () => {
+    const { resolveAgentId } = await loadAbc()
+    expect(resolveAgentId('hugo')).toBe('01_Hugo_orchestrator')
+    expect(resolveAgentId('הוגו')).toBe('01_Hugo_orchestrator')
+    expect(resolveAgentId('ראש מטה')).toBe('01_Hugo_orchestrator')
+    expect(resolveAgentId('cos')).toBe('01_Hugo_orchestrator')
+    expect(resolveAgentId('chief of staff')).toBe('01_Hugo_orchestrator')
+    expect(resolveAgentId('chief-of-staff')).toBe('01_Hugo_orchestrator')
   })
 })

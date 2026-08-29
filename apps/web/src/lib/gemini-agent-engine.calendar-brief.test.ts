@@ -83,6 +83,20 @@ describe('calendar optimizer Notion-parity brief', () => {
   })
 })
 
+describe('Chief of Staff primary interface', () => {
+  it('injects CoS operating contract for agent 01', async () => {
+    const prompt = await buildAgentSystemInstruction('01_Hugo_orchestrator', 'whatsapp')
+    expect(prompt).toContain('## Chief of Staff — primary interface')
+    expect(prompt).toContain('Answer directly first')
+    expect(prompt).toContain('### Gatekeeper')
+    expect(prompt).toContain('synthesize — fold the specialist output')
+    expect(prompt).toContain('### Decision-needed shape')
+    expect(prompt).toContain('retry ONCE in this same turn')
+    expect(prompt).toContain('pass the Notion-parity brief through almost verbatim')
+    expect(prompt).not.toContain('## Hugo orchestrator — primary interface')
+  })
+})
+
 describe('meeting prep related tasks only', () => {
   it('override forbids full backlog dump', () => {
     const override = getMeetingPrepRelatedTasksOverride()

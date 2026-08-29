@@ -62,7 +62,7 @@ This document defines the non-negotiable standards that govern all agent behavio
 |---|---|---|---|
 | Raw client transcripts | `B_Brain/client_transcripts/` | Per org policy | Read-only for agents; redact on use |
 | Processed summaries | `O_Output/` | Per org policy | Human-reviewed before external sharing |
-| Agent run logs | `M_Memory/` | Permanent (append-only) | All agents (append); Hugo (read) |
+| Agent run logs | `M_Memory/` | Permanent (append-only) | All agents (append); Chief of Staff (read) |
 
 ### Disclaimers & Limitations
 - Generated content is **draft quality** until human-reviewed
@@ -101,7 +101,7 @@ If any item cannot be confirmed, **stop and ask the user**.
 |---|---|
 | Task conflicts with a Core Value | Stop; report conflict to user |
 | PII detected in input without clearance | Redact; notify user |
-| Agent lacks required Data Access Rights | Escalate to Hugo orchestrator |
+| Agent lacks required Data Access Rights | Escalate to Chief of Staff (`01_Hugo_orchestrator`) |
 | Legal/compliance uncertainty | Defer to human review; do not guess |
 | Formatting standard unclear | Default to this document; ask if still ambiguous |
 

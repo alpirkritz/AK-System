@@ -37,7 +37,7 @@ export function AgentPickerSheet({
         <AgentRow
           selected={selectedId === GENERAL_AGENT_ID}
           name="עוזר כללי"
-          role="הוגו — שיחה חופשית"
+          role="ראש מטה — שיחה חופשית"
           onPress={() => pick(GENERAL_AGENT_ID)}
         />
         {agents.length > 0 ? (
