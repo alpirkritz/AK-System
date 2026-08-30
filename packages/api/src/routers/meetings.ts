@@ -137,6 +137,7 @@ export const meetingsRouter = router({
           snippet: meetingNotes.snippet,
           bodyText: meetingNotes.bodyText,
           notionUrl: meetingNotes.notionUrl,
+          sourceKind: meetingNotes.sourceKind,
         })
         .from(meetingNotes)
         .where(eq(meetingNotes.meetingId, input.id))

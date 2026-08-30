@@ -70,4 +70,13 @@ describe('executeTool — get_notion_meeting_notes', () => {
     await executeTool('get_notion_meeting_notes', { meetingId: 'm99' }, caller)
     expect(meetingNotes).toHaveBeenCalledWith({ meetingId: 'm99' })
   })
+
+  it('passes notionUrl to insights.meetingNotes', async () => {
+    const meetingNotes = vi.fn().mockResolvedValue({ notes: [], count: 0 })
+    const caller = { insights: { meetingNotes } } as unknown as AnyCaller
+    const url =
+      'https://app.notion.com/p/alpir/3cce7d50cb8e809c8f7cda639bce5478#fb2e7d50cb8e82a193b601601b869cae'
+    await executeTool('get_notion_meeting_notes', { notionUrl: url }, caller)
+    expect(meetingNotes).toHaveBeenCalledWith({ notionUrl: url })
+  })
 })

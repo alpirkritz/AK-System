@@ -291,7 +291,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meeting_notes',
     description:
-      "Read locally synced AI Meeting Notes (full stored body_text from Notion recordings), most recent first. Use for what was discussed/decided. Optional date ('today' or YYYY-MM-DD) or meetingId to filter. Default: 15 most recent notes with body text. Prefer this over inventing meeting content.",
+      "Read AI Meeting Notes body_text. Notes live ON the Notion meeting page (in-page AI Meeting Notes block), synced locally. Use for what was discussed/decided. Optional date ('today' or YYYY-MM-DD), meetingId, or notionUrl/notionPageId (paste a Notion meeting link — fetches that page if local body is missing). Default: 15 most recent. Empty body → לא נמצא בנתונים. Never invent meeting content.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -302,6 +302,14 @@ const baseToolDeclarations: FunctionDeclaration[] = [
         meetingId: {
           type: SchemaType.STRING,
           description: 'Local meeting id to return notes linked to that meeting',
+        },
+        notionUrl: {
+          type: SchemaType.STRING,
+          description: 'Notion meeting page URL (app.notion.com or notion.so). Fetches in-page AI notes if not yet synced.',
+        },
+        notionPageId: {
+          type: SchemaType.STRING,
+          description: 'Notion meeting page id (32-char hex or dashed UUID)',
         },
       },
     },
@@ -905,9 +913,13 @@ export async function executeTool(
     case 'get_notion_meeting_notes': {
       const date = (args.date as string | undefined)?.trim()
       const meetingId = (args.meetingId as string | undefined)?.trim()
+      const notionUrl = (args.notionUrl as string | undefined)?.trim()
+      const notionPageId = (args.notionPageId as string | undefined)?.trim()
       const result = await caller.insights.meetingNotes({
         ...(date ? { date } : {}),
         ...(meetingId ? { meetingId } : {}),
+        ...(notionUrl ? { notionUrl } : {}),
+        ...(notionPageId ? { notionPageId } : {}),
       })
       return {
         meetingNotes: result.notes.map((n) => ({
@@ -919,6 +931,7 @@ export async function executeTool(
           meetingId: n.meetingId,
           meetingTitle: n.meetingTitle,
           notionUrl: n.notionUrl,
+          sourceKind: 'sourceKind' in n ? n.sourceKind : null,
         })),
         count: result.count,
         source: 'local_db',

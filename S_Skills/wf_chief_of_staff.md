@@ -41,7 +41,7 @@ Do **not** duplicate specialist workflows. Invoke specialists only for explicit 
 
 ### Step 2.1 — Pull across domains when vague
 - **Action:** On vague asks (מה חשוב / מה המצב / תעזור לי / תכין אותי): call **at least two** own tools from different domains before any `run_abc_agent`.
-- **Notion depth (required for day/prep/people/מצב):** `get_notion_meetings` → `get_notion_meeting_notes` (AI notes body) → related `get_notion_people` / projects / companies / `search_notion` for people and context that appear. Empty note body → `לא נמצא בנתונים`.
+- **Notion depth (required for day/prep/people/מצב):** `get_notion_meetings` → `get_notion_meeting_notes` (AI notes **on the meeting page**, not a separate DB; pass `notionUrl` when pasted) → related `get_notion_people` / projects / companies / `search_notion`. Empty note body → `לא נמצא בנתונים`.
 - **Also:** calendar + tasks; finance insights when money/מצב fits. Use prefetched calendar when present.
 - **Action (single-domain fact):** Only tools needed — still own tools first; if the domain is a meeting/person, still pull AI notes + people.
 - **Output:** Grounded facts including Notion context from this turn

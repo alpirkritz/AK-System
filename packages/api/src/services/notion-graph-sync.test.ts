@@ -89,6 +89,17 @@ describe('shouldFetchNoteBody', () => {
     ).toBe(false)
   })
 
+  it('skips re-fetch when body is empty but already synced and page was not edited', () => {
+    expect(
+      shouldFetchNoteBody({
+        bodyText: null,
+        bodySyncedAt: '2026-08-13T12:00:00.000Z',
+        notionLastEditedAt: '2026-08-13T11:00:00.000Z',
+        pageLastEdited: '2026-08-13T11:00:00.000Z',
+      }),
+    ).toBe(false)
+  })
+
   it('fetches when page was edited after bodySyncedAt', () => {
     expect(
       shouldFetchNoteBody({
@@ -119,5 +130,29 @@ describe('flattenNotionBlocksToText', () => {
       MEETING_NOTE_BODY_CAP,
     )
     expect(text.length).toBe(MEETING_NOTE_BODY_CAP)
+  })
+
+  it('walks nested children on unsupported / child_page instead of skipping them', () => {
+    const text = flattenNotionBlocksToText([
+      {
+        type: 'unsupported',
+        has_children: true,
+        children: [
+          { type: 'heading_2', heading_2: { rich_text: [{ plain_text: 'Summary' }] } },
+          { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'Ship on Tuesday' }] } },
+        ],
+      },
+      {
+        type: 'child_page',
+        child_page: { title: 'AI Meeting Notes' },
+        children: [
+          { type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ plain_text: 'Follow up Dana' }] } },
+        ],
+      },
+    ])
+    expect(text).toContain('Summary')
+    expect(text).toContain('Ship on Tuesday')
+    expect(text).toContain('AI Meeting Notes')
+    expect(text).toContain('Follow up Dana')
   })
 })

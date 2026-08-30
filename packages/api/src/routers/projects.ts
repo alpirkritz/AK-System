@@ -97,6 +97,7 @@ export const projectsRouter = router({
         bodyText: meetingNotes.bodyText,
         notionUrl: meetingNotes.notionUrl,
         meetingId: meetingNotes.meetingId,
+        sourceKind: meetingNotes.sourceKind,
       })
       .from(meetingNoteProjects)
       .innerJoin(meetingNotes, eq(meetingNoteProjects.meetingNoteId, meetingNotes.id))

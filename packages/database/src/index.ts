@@ -131,6 +131,8 @@ const CONTACT_GRAPH_TABLES = [
   'ALTER TABLE meeting_notes ADD COLUMN body_text TEXT',
   'ALTER TABLE meeting_notes ADD COLUMN body_synced_at TEXT',
   'ALTER TABLE meeting_notes ADD COLUMN notion_last_edited_at TEXT',
+  'ALTER TABLE meeting_notes ADD COLUMN source_kind TEXT',
+  'ALTER TABLE meeting_notes ADD COLUMN source_block_id TEXT',
   `CREATE TABLE IF NOT EXISTS meeting_note_people (
     meeting_note_id TEXT NOT NULL REFERENCES meeting_notes(id) ON DELETE CASCADE,
     person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE

@@ -343,15 +343,16 @@ export default function MeetingDetailPage() {
           </div>
 
           {/* Notion meeting summaries linked to this calendar meeting */}
-          {Array.isArray((meeting as { meetingNotes?: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null }> }).meetingNotes) &&
-            ((meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null }> }).meetingNotes.length > 0) && (
+          {Array.isArray((meeting as { meetingNotes?: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes) &&
+            ((meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes.length > 0) && (
             <div className="card mt-4">
               <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
-                סיכומי Notion
+                סיכום AI (Notion)
               </div>
               <div className="space-y-2">
-                {(meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null }> }).meetingNotes.map((n) => {
+                {(meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes.map((n) => {
                   const excerpt = (n.bodyText?.trim() || n.snippet?.trim() || '')
+                  const isPageNotes = n.sourceKind === 'meeting_page'
                   return (
                   <div key={n.id} className="py-1.5 border-b border-[#223052] last:border-0">
                     {n.notionUrl ? (
@@ -360,6 +361,9 @@ export default function MeetingDetailPage() {
                       </a>
                     ) : (
                       <div className="text-sm font-medium">{n.title}</div>
+                    )}
+                    {isPageNotes && (
+                      <div className="text-[10px] text-[#5a688c] mt-0.5">מדף הפגישה ב-Notion</div>
                     )}
                     {excerpt && (
                       <p className="text-xs text-[#647399] mt-0.5 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>

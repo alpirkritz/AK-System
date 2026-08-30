@@ -1547,3 +1547,32 @@ For end-of-day rollups, Hugo may append a summary entry:
 
 ### Performance Improvements
 - CoS no longer force-routed to specialists after own-tool work
+
+---
+
+## 2026-08-30 — Dev Pipeline — notion-in-page-ai-meeting-notes
+
+**Workflow:** PM → UI → Dev → Tests → QA → Reviewer
+**Status:** Completed (needs Notion graph sync on live DB)
+
+### Stand-up
+- **Goal:** Ingest Notion AI Meeting Notes from the meeting page (in-page `transcription` block) so the whole system — not only Hugo — has meeting context.
+- **Context:** User pasted a meeting URL + hash; notes were never in a separate `meeting_notes` database.
+
+### Actions Taken
+1. Wrote spec `docs/specs/notion-in-page-ai-meeting-notes.md`
+2. Synced meeting-page blocks (recursive, including `transcription`) into local `meeting_notes`
+3. Wired insights tool, meeting/person/project UI, Settings copy, Hugo / morning brief / meeting-prep cards
+
+### Outputs
+- `docs/specs/notion-in-page-ai-meeting-notes.md`
+- `reports/qa-notion-in-page-ai-meeting-notes.md`
+- `reports/notion-in-page-ai-meeting-notes.md`
+
+### Compliance
+- [x] Engineering task in apps/packages; ABC cards updated to match data source
+- [x] No meeting transcript body copied into reports
+
+### Performance Improvements
+- Probe confirmed the public API returns nested summary+transcript under `transcription`; flatten walks that tree instead of skipping `unsupported`/`child_page`
+

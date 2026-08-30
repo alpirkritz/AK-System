@@ -11,8 +11,9 @@ import {
   projects,
   projectPeople,
 } from '@ak-system/database'
-import { eq, desc, inArray, and, SQL } from 'drizzle-orm'
+import { eq, desc, inArray, and, or, SQL } from 'drizzle-orm'
 import { localTodayIso } from '../lib/calendar-dates'
+import { ensureMeetingPageNote, parseNotionIdFromInput } from '../services/notion-meeting-note-body'
 
 const meetingNotesInput = z
   .object({
@@ -20,6 +21,8 @@ const meetingNotesInput = z
     meetingId: z.string().min(1).optional(),
     personId: z.string().min(1).optional(),
     projectId: z.string().min(1).optional(),
+    notionPageId: z.string().min(1).optional(),
+    notionUrl: z.string().min(1).optional(),
   })
   .refine(
     (v) => {
@@ -44,6 +47,21 @@ export const insightsRouter = router({
     const conditions: SQL[] = []
     if (dateFilter) conditions.push(eq(meetingNotes.date, dateFilter))
     if (filters.meetingId) conditions.push(eq(meetingNotes.meetingId, filters.meetingId))
+
+    const parsedPage = parseNotionIdFromInput(filters.notionUrl || filters.notionPageId || '')
+    if (parsedPage) {
+      const compact = parsedPage.pageId.replace(/-/g, '')
+      const already = await ctx.db
+        .select({ id: meetingNotes.id, bodyText: meetingNotes.bodyText })
+        .from(meetingNotes)
+        .where(or(eq(meetingNotes.notionPageId, parsedPage.pageId), eq(meetingNotes.notionPageId, compact)))
+      if (!already.some((r) => r.bodyText?.trim())) {
+        await ensureMeetingPageNote(ctx.db, parsedPage.pageId, parsedPage.blockId)
+      }
+      conditions.push(
+        or(eq(meetingNotes.notionPageId, parsedPage.pageId), eq(meetingNotes.notionPageId, compact))!,
+      )
+    }
 
     let noteIdsFromEdge: string[] | null = null
     if (filters.personId) {
@@ -75,6 +93,7 @@ export const insightsRouter = router({
         bodyText: meetingNotes.bodyText,
         notionUrl: meetingNotes.notionUrl,
         meetingId: meetingNotes.meetingId,
+        sourceKind: meetingNotes.sourceKind,
       })
       .from(meetingNotes)
       .where(whereClause)
@@ -100,6 +119,7 @@ export const insightsRouter = router({
       notionUrl: r.notionUrl,
       meetingId: r.meetingId,
       meetingTitle: r.meetingId ? meetingTitleById.get(r.meetingId) ?? null : null,
+      sourceKind: r.sourceKind ?? null,
     }))
 
     return { notes, count: notes.length }

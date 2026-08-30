@@ -87,7 +87,7 @@ Every morning, you create @Alpir Kritzler a brief in helping me start my day inf
   - DAZ workspace: all tasks assigned to @Alpir Kritzler
 - Do not include tasks with Status Done in the brief (including Today's Priorities).
 - Look for my top priorities today, including meetings, emails, tasks, decisions, and deadlines.
-- Pull recent meeting insights via `get_notion_meeting_notes` (local synced `body_text` from Notion AI Meeting Notes). Call with `date: today` and again for yesterday (YYYY-MM-DD) when checking "things I missed." Do not open Notion pages live; use the tool. Empty body → `לא נמצא בנתונים`.
+- Pull recent meeting insights via `get_notion_meeting_notes` (local `body_text` from AI Meeting Notes **on the Notion meeting page**). Call with `date: today` and again for yesterday when checking "things I missed." If the user names a meeting or pastes a Notion URL, pass `meetingId` or `notionUrl`. Empty body → `לא נמצא בנתונים`.
 - Look for any important things I may have missed yesterday.
 
 #### Brief writing instructions

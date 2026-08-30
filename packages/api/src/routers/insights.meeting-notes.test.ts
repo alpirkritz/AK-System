@@ -27,9 +27,10 @@ describe('insights.meetingNotes', () => {
         snippet: 'short',
         bodyText: 'Full standup body with decisions',
         notionUrl: null,
-        notionPageId: 'np1',
+        notionPageId: '3cce7d50-cb8e-809c-8f7c-da639bce5478',
         meetingId: 'm_today',
         source: 'notion',
+        sourceKind: 'meeting_page',
         createdAt: now,
         updatedAt: now,
       },
@@ -75,5 +76,23 @@ describe('insights.meetingNotes', () => {
     expect(result.count).toBe(2)
     expect(result.notes.map((n) => n.id)).toContain('mn_today')
     expect(result.notes.map((n) => n.id)).toContain('mn_old')
+  })
+
+  it('filters by notionPageId / notionUrl and returns sourceKind', async () => {
+    await seedNotes()
+    const caller = await createTestCaller()
+    const byId = await caller.insights.meetingNotes({
+      notionPageId: '3cce7d50cb8e809c8f7cda639bce5478',
+    })
+    expect(byId.count).toBe(1)
+    expect(byId.notes[0]!.id).toBe('mn_today')
+    expect(byId.notes[0]!.sourceKind).toBe('meeting_page')
+
+    const byUrl = await caller.insights.meetingNotes({
+      notionUrl:
+        'https://app.notion.com/p/alpir/3cce7d50cb8e809c8f7cda639bce5478#fb2e7d50cb8e82a193b601601b869cae',
+    })
+    expect(byUrl.count).toBe(1)
+    expect(byUrl.notes[0]!.bodyText).toBe('Full standup body with decisions')
   })
 })

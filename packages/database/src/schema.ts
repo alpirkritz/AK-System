@@ -247,6 +247,10 @@ export const meetingNotes = sqliteTable('meeting_notes', {
   notionAccount: text('notion_account'),
   notionDb: text('notion_db'),
   source: text('source').notNull().default('notion'),
+  /** `meeting_page` = AI notes on the Meetings DB page; `notes_db` = separate meeting_notes database. */
+  sourceKind: text('source_kind'),
+  /** Notion block id of the in-page AI Meeting Notes widget when known. */
+  sourceBlockId: text('source_block_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

@@ -340,8 +340,12 @@ interface NotionStatusData {
 
 const NOTION_DB_TYPE_LABELS: Record<string, string> = {
   tasks: 'משימות',
-  meetings: 'פגישות',
+  meetings: 'פגישות + סיכומי AI בדף',
   assistant: 'Inbox',
+  people: 'אנשים',
+  projects: 'פרויקטים',
+  companies: 'חברות',
+  meeting_notes: 'סיכומי ישיבות (מסד נפרד)',
 }
 
 function NotionCard() {
@@ -377,7 +381,7 @@ function NotionCard() {
     <Section
       icon={<span className="text-base">🗂️</span>}
       title="Notion"
-      description="חשבונות ובסיסי נתונים שהוגו קורא מהם — פגישות ומשימות"
+      description="חשבונות ובסיסי נתונים — משימות, פגישות, וסיכומי AI שיושבים על דף הפגישה ב-Notion"
     >
       {!data && !error && (
         <div className="px-5 py-3 text-xs text-[#5a688c]">{loading ? 'בודק חיבור…' : 'טוען…'}</div>
@@ -416,6 +420,11 @@ function NotionCard() {
                 </span>
               </div>
             ))}
+            {acc.databases.some((db) => db.type === 'meetings' && db.ok) && (
+              <div className="px-5 pb-3 text-[11px] text-[#5a688c] leading-relaxed">
+                סיכומי AI נקראים מדף הפגישה ב-Notion (בלוק AI Meeting Notes), לא ממסד נפרד.
+              </div>
+            )}
           </div>
         ))}
       <Row label="בדיקת חיבור" description="בדוק שכל בסיס נתונים משותף עם האינטגרציה">

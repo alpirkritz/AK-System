@@ -170,6 +170,7 @@ export default function ProjectDetailPage() {
                 )}
                 <div className="text-xs text-[#647399]">
                   {n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('he-IL') : ''}
+                  {'sourceKind' in n && n.sourceKind === 'meeting_page' ? ' · מדף הפגישה ב-Notion' : ''}
                 </div>
                 {excerpt && (
                   <p className="text-xs text-[#647399] mt-1 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>

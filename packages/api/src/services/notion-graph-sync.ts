@@ -24,10 +24,18 @@ import {
 } from '@ak-system/database'
 import { resolveDatabases } from './notion-tasks-sync'
 import { findPersonIdByNotionPageId, upsertPersonExternalId } from './person-external-ids'
+import {
+  MEETING_NOTE_BODY_CAP,
+  fetchMeetingNoteBodyText,
+  flattenNotionBlocksToText,
+  shouldFetchNoteBody,
+  upsertInPageMeetingNote,
+  type ExistingNoteMeta,
+} from './notion-meeting-note-body'
+
+export { MEETING_NOTE_BODY_CAP, flattenNotionBlocksToText, shouldFetchNoteBody, fetchMeetingNoteBodyText }
 
 const NOTION_VERSION = '2022-06-28'
-/** Max plain-text chars stored per meeting note body. */
-export const MEETING_NOTE_BODY_CAP = 8000
 
 type Db = ReturnType<typeof getDb>
 type NotionProp = Record<string, unknown>
@@ -93,102 +101,6 @@ async function queryDatabase(
     cursor = data.has_more ? data.next_cursor ?? undefined : undefined
   } while (cursor)
   return pages
-}
-
-const SKIP_BLOCK_TYPES = new Set([
-  'table',
-  'image',
-  'video',
-  'audio',
-  'file',
-  'pdf',
-  'embed',
-  'bookmark',
-  'unsupported',
-  'child_page',
-  'child_database',
-  'link_preview',
-  'synced_block',
-])
-
-/** Whether we should pull Notion blocks for a note (missing body or page edited since last sync). */
-export function shouldFetchNoteBody(args: {
-  bodyText: string | null | undefined
-  bodySyncedAt: string | null | undefined
-  notionLastEditedAt: string | null | undefined
-  pageLastEdited: string | null | undefined
-}): boolean {
-  if (!args.bodyText?.trim() || !args.bodySyncedAt) return true
-  if (!args.pageLastEdited) return false
-  const pageEdited = Date.parse(args.pageLastEdited)
-  const synced = Date.parse(args.bodySyncedAt)
-  if (Number.isNaN(pageEdited)) return false
-  if (Number.isNaN(synced)) return true
-  return pageEdited > synced
-}
-
-/** Flatten Notion block rich_text into plain lines; skip media/table blocks. Cap chars. */
-export function flattenNotionBlocksToText(
-  blocks: Array<Record<string, unknown>>,
-  cap = MEETING_NOTE_BODY_CAP,
-): string {
-  const lines: string[] = []
-  let used = 0
-  for (const block of blocks) {
-    if (used >= cap) break
-    const type = block.type as string | undefined
-    if (!type || SKIP_BLOCK_TYPES.has(type)) continue
-    const payload = block[type] as { rich_text?: Array<{ plain_text?: string }> } | undefined
-    const rt = payload?.rich_text ?? []
-    const txt = rt.map((x) => x.plain_text ?? '').join('').trim()
-    if (!txt) continue
-    const room = cap - used
-    const chunk = txt.length > room ? txt.slice(0, room) : txt
-    lines.push(chunk)
-    used += chunk.length + 1
-  }
-  return lines.join('\n').slice(0, cap)
-}
-
-async function fetchPageBlocks(
-  token: string,
-  pageId: string,
-): Promise<Array<Record<string, unknown>>> {
-  const blocks: Array<Record<string, unknown>> = []
-  let cursor: string | undefined
-  do {
-    const qs = new URLSearchParams({ page_size: '100' })
-    if (cursor) qs.set('start_cursor', cursor)
-    const res = await fetch(`https://api.notion.com/v1/blocks/${pageId}/children?${qs}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Notion-Version': NOTION_VERSION,
-      },
-    })
-    if (!res.ok) {
-      const err = await res.text()
-      throw new Error(`Notion blocks ${res.status}: ${err.slice(0, 200)}`)
-    }
-    const data = (await res.json()) as {
-      results: Array<Record<string, unknown>>
-      has_more: boolean
-      next_cursor: string | null
-    }
-    blocks.push(...data.results)
-    cursor = data.has_more ? data.next_cursor ?? undefined : undefined
-  } while (cursor)
-  return blocks
-}
-
-/** Fetch and flatten page body text. Exported for tests. */
-export async function fetchMeetingNoteBodyText(
-  token: string,
-  pageId: string,
-  cap = MEETING_NOTE_BODY_CAP,
-): Promise<string> {
-  const blocks = await fetchPageBlocks(token, pageId)
-  return flattenNotionBlocksToText(blocks, cap)
 }
 
 function recentActivityFilter(windowDays: number): Record<string, unknown> {
@@ -513,9 +425,21 @@ export async function syncNotionGraph(
     if (m.notionPageId) meetingIdByNotion.set(m.notionPageId, m.id)
   }
 
+  const meetingPagesForNotes: Array<{
+    pageId: string
+    url: string | null
+    lastEdited: string | null
+    title: string
+    date: string
+    meetingId: string
+    token: string
+    accountLabel: string
+    dbName: string
+  }> = []
+
   const meetingsFilter = recentActivityFilter(Math.max(windowDays, 180))
   for (const database of resolveDatabases('meetings')) {
-    let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
+    let pages: NotionPageRow[]
     try {
       pages = await queryDatabase(database.token, database.databaseId, meetingsFilter)
     } catch (err) {
@@ -608,6 +532,17 @@ export async function syncNotionGraph(
       }
       meetingIdByNotion.set(page.id, id)
       result.meetingsUpserted++
+      meetingPagesForNotes.push({
+        pageId: page.id,
+        url: page.url ?? null,
+        lastEdited: page.last_edited_time ?? null,
+        title,
+        date,
+        meetingId: id,
+        token: database.token,
+        accountLabel: database.accountLabel,
+        dbName: database.name,
+      })
 
       if (!dryRun && id) {
         // Merge Notion people onto the meeting (do not wipe calendar attendees).
@@ -642,6 +577,62 @@ export async function syncNotionGraph(
           .where(eq(meetings.id, localMeetingId))
         result.linksRewritten++
       }
+    }
+  }
+
+  // ── In-page AI Meeting Notes (blocks on the Meetings DB page) ──
+  const noteIdByPage = new Map<string, string>()
+  const existingNoteMeta = new Map<string, ExistingNoteMeta>()
+  const existingNotes = await db
+    .select({
+      id: meetingNotes.id,
+      notionPageId: meetingNotes.notionPageId,
+      bodyText: meetingNotes.bodyText,
+      bodySyncedAt: meetingNotes.bodySyncedAt,
+      notionLastEditedAt: meetingNotes.notionLastEditedAt,
+    })
+    .from(meetingNotes)
+    .where(eq(meetingNotes.source, 'notion'))
+  for (const n of existingNotes) {
+    if (n.notionPageId) {
+      noteIdByPage.set(n.notionPageId, n.id)
+      existingNoteMeta.set(n.notionPageId, {
+        id: n.id,
+        bodyText: n.bodyText,
+        bodySyncedAt: n.bodySyncedAt,
+        notionLastEditedAt: n.notionLastEditedAt,
+      })
+    }
+  }
+
+  for (const page of meetingPagesForNotes) {
+    const upserted = await upsertInPageMeetingNote(
+      db,
+      {
+        pageId: page.pageId,
+        url: page.url,
+        lastEdited: page.lastEdited,
+        title: page.title,
+        date: page.date,
+        meetingId: page.meetingId,
+        token: page.token,
+        accountLabel: page.accountLabel,
+        dbName: page.dbName,
+        now,
+        dryRun,
+      },
+      existingNoteMeta.get(page.pageId),
+    )
+    if (upserted.notesUpserted) result.notesUpserted++
+    if (upserted.error) result.errors.push(upserted.error)
+    if (upserted.id) {
+      noteIdByPage.set(page.pageId, upserted.id)
+      existingNoteMeta.set(page.pageId, {
+        id: upserted.id,
+        bodyText: upserted.bodyText,
+        bodySyncedAt: upserted.bodySyncedAt,
+        notionLastEditedAt: page.lastEdited,
+      })
     }
   }
 
@@ -694,41 +685,11 @@ export async function syncNotionGraph(
     }
   }
 
-  // ── Meeting notes ──
+  // ── Meeting notes database (optional; in-page notes already synced above) ──
   const localMeetings = await db
     .select({ id: meetings.id, title: meetings.title, date: meetings.date })
     .from(meetings)
-  const noteIdByPage = new Map<string, string>()
-  const existingNoteMeta = new Map<
-    string,
-    {
-      id: string
-      bodyText: string | null
-      bodySyncedAt: string | null
-      notionLastEditedAt: string | null
-    }
-  >()
-  const existingNotes = await db
-    .select({
-      id: meetingNotes.id,
-      notionPageId: meetingNotes.notionPageId,
-      bodyText: meetingNotes.bodyText,
-      bodySyncedAt: meetingNotes.bodySyncedAt,
-      notionLastEditedAt: meetingNotes.notionLastEditedAt,
-    })
-    .from(meetingNotes)
-    .where(eq(meetingNotes.source, 'notion'))
-  for (const n of existingNotes) {
-    if (n.notionPageId) {
-      noteIdByPage.set(n.notionPageId, n.id)
-      existingNoteMeta.set(n.notionPageId, {
-        id: n.id,
-        bodyText: n.bodyText,
-        bodySyncedAt: n.bodySyncedAt,
-        notionLastEditedAt: n.notionLastEditedAt,
-      })
-    }
-  }
+  const meetingPageIds = new Set(meetingPagesForNotes.map((p) => p.pageId))
 
   const fetchedNotePages = new Set<string>()
   const keptNotePages = new Set<string>()
@@ -745,6 +706,7 @@ export async function syncNotionGraph(
 
     for (const page of pages) {
       fetchedNotePages.add(page.id)
+      if (meetingPageIds.has(page.id)) continue
       const title = getTitle(page.properties)
       if (!title) continue
       keptNotePages.add(page.id)
@@ -814,6 +776,7 @@ export async function syncNotionGraph(
               meetingId,
               notionAccount: database.accountLabel,
               notionDb: database.name,
+              sourceKind: 'notes_db',
               updatedAt: now,
             })
             .where(eq(meetingNotes.id, id))
@@ -835,6 +798,7 @@ export async function syncNotionGraph(
             notionAccount: database.accountLabel,
             notionDb: database.name,
             source: 'notion',
+            sourceKind: 'notes_db',
             createdAt: now,
             updatedAt: now,
           })

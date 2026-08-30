@@ -9,6 +9,7 @@
  *       {"id":"181e7d50-...","name":"Personal To-do","type":"tasks"},
  *       {"id":"a1b2c3d4-...","name":"Meetings","type":"meetings"}
  *     ]},
+ * AI Meeting Notes are ingested from each Meetings page body (in-page block).
  *     {"label":"DAZ","token":"ntn_yyy","databases":[ ... ]}
  *   ]'
  *
