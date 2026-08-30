@@ -49,7 +49,7 @@ export function getCalendarOptimizerBriefOverride(): string {
 export function getMeetingPrepRelatedTasksOverride(): string {
   return [
     '## Meeting Prep — related tasks only (MANDATORY)',
-    'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link).',
+    'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link). Eligible sources: Personal To-do, DT - Action items, Con Action items, DAZ Tasks — same brief shape for all.',
     'If none relate: on WhatsApp/cron/Telegram OMIT the related-actions section entirely; on web you may write "לא נמצאו משימות קשורות לפגישה זו".',
     'NEVER dump the user\'s full open-task backlog as filler or "for context".',
     'Keep WhatsApp / Telegram / ARO briefs short and purposeful — no Markdown tables, no unrelated task lists.',
@@ -172,8 +172,8 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       'NEVER use get_today_schedule or Notion range "today" for a tomorrow question. NEVER claim "אין פגישות מחר" / empty day unless those tool results for THAT date returned empty events/meetings AND calendarErrors is empty. If calendarErrors is present, say which calendars failed — do not invent an empty day.',
       'Prefetched calendar context is for TODAY only — it is NOT proof about tomorrow.',
       '',
-      'Always include a Notion depth pass when the ask touches the day, prep, people, or "מצב": (1) get_notion_meetings for the correct day (tomorrow vs today), (2) get_notion_meeting_notes — AI Meeting Notes live ON the Notion meeting page (in-page block), not a separate DB; pass date / meetingId / notionUrl when the user pasted a link; empty body → לא נמצא בנתונים, (3) for people who appear, get_notion_people (+ projects/companies/search_notion when named).',
-      'Also pull calendar via get_day_schedule / get_today_schedule as appropriate + get_open_tasks / get_notion_tasks. When money or overall "מצב" fits: get_cashflow_insights / get_trading_insights / get_finance_overview.',
+      'Always include a Notion depth pass when the ask touches the day, prep, people, or "מצב": (1) get_notion_meetings for the correct day (tomorrow vs today) across DT Meetings, Con Meetings, and DAZ Internal Meetings / Meetings & Interactions, (2) get_notion_meeting_notes — Notion AI SUMMARY only. For day prep / מחר / כולם / תכין אותי: pass prepDate (tomorrow or today) and do NOT pass a leftover person query — brief EVERY person/meeting that day from prior summaries, not only שני/Shani. Named person → query with that CRM name (Hebrew aliases included). If the tool returns a note, that meeting happened; empty body → לא נמצא בנתונים, (3) for people who appear, get_notion_people (+ projects/companies/search_notion when named).',
+      'Also pull calendar via get_day_schedule / get_today_schedule as appropriate + get_open_tasks / get_notion_tasks (Personal To-do, DT - Action items, Con Action items, DAZ Tasks — related items only, never the full backlog). When money or overall "מצב" fits: get_cashflow_insights / get_trading_insights / get_finance_overview.',
       'If a Notion database is unreadable: notion_status and name it. Empty meeting-note body → `לא נמצא בנתונים` — never invent discussion points.',
       '',
       '### Answer with own tools (mandatory default)',
@@ -192,7 +192,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       '',
       'Notion access: you CAN read Notion across ALL connected accounts — get_notion_meetings, get_notion_tasks, get_notion_meeting_notes, get_notion_people, get_notion_projects, get_notion_companies, search_notion, notion_status. NEVER claim no access; if a database fails, call notion_status and name it.',
       'For daily prep / "תכין אותי ליום": Notion depth (meetings + AI notes + related people/projects) + calendar/tasks, then Judgment contract — do not open with run_abc_agent unless they explicitly asked for structured תדריך בוקר format.',
-      'For tomorrow\'s / named meeting prep format only: you may run_abc_agent 04_meeting_prep_herald, but prefer enriching first with get_notion_meeting_notes + get_notion_people for attendees; then CoS judgment footer.',
+      'For tomorrow\'s / named meeting prep format only: you may run_abc_agent 04_meeting_prep_herald, but prefer enriching first with get_notion_meeting_notes (prepDate for the day; query only if one person is named) + get_notion_people for attendees + get_notion_tasks related to each meeting; then CoS judgment footer.',
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
     )
@@ -339,8 +339,8 @@ const MEETING_PREP_GROUNDING_RETRY_PROMPT =
   'STOP — do not invent meeting-prep content. You have not called any data tool yet. ' +
   'Call get_notion_tasks and get_notion_meeting_notes now (and get_notion_people / ' +
   'get_notion_projects / get_notion_companies for a focused meeting), then brief ONLY from ' +
-  'those tool results and the injected context. Never infer participants from the meeting ' +
-  'title. For any missing datum write "לא נמצא בנתונים" instead of guessing. ' +
+  'those tool results and the injected context. Known CRM names in calendar titles may be used to look up notes/tasks; do not invent unknown attendees. ' +
+  'For any missing datum write "לא נמצא בנתונים" instead of guessing. ' +
   'For tasks: include ONLY items related to that meeting; if none, write ' +
   '"לא נמצאו משימות קשורות לפגישה זו" — NEVER dump the full open backlog. ' +
   'Reply in the same language as the user.'

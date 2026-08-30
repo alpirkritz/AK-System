@@ -24,6 +24,7 @@ import {
 } from '@ak-system/database'
 import { resolveDatabases } from './notion-tasks-sync'
 import { findPersonIdByNotionPageId, upsertPersonExternalId } from './person-external-ids'
+import { titlesShareKnownPerson } from '../lib/person-name-match'
 import {
   MEETING_NOTE_BODY_CAP,
   fetchMeetingNoteBodyText,
@@ -62,6 +63,16 @@ export interface NotionGraphSyncResult {
 export interface NotionGraphSyncOptions {
   windowDays?: number
   dryRun?: boolean
+  /** `meetings` skips companies/projects/people and uses the requested window (not a 180-day floor). */
+  scope?: 'full' | 'meetings'
+}
+
+/** Full graph keeps a 180-day meetings floor so old pages still link; meetings-only uses the asked window. */
+export function meetingsActivityWindowDays(
+  windowDays: number,
+  scope: 'full' | 'meetings' = 'full',
+): number {
+  return scope === 'meetings' ? windowDays : Math.max(windowDays, 180)
 }
 
 function newId(prefix: string): string {
@@ -271,6 +282,7 @@ export async function syncNotionGraph(
 ): Promise<NotionGraphSyncResult> {
   const windowDays = opts.windowDays ?? 90
   const dryRun = opts.dryRun ?? false
+  const scope = opts.scope ?? 'full'
   const result: NotionGraphSyncResult = {
     companiesUpserted: 0,
     projectsUpserted: 0,
@@ -287,10 +299,13 @@ export async function syncNotionGraph(
     throw new Error('לא הוגדרו מסדי Notion לגרף קשר (people/projects/companies/meeting_notes)')
   }
 
-  // Refresh people identities first (every people DB → person_external_ids).
-  await syncPeopleIdentitiesOnly(db, dryRun, result)
-
   const now = new Date().toISOString()
+
+  // Refresh people identities first (every people DB → person_external_ids).
+  if (scope === 'full') {
+    await syncPeopleIdentitiesOnly(db, dryRun, result)
+  }
+
   const companyIdByNotion = new Map<string, string>()
   const projectIdByNotion = new Map<string, string>()
 
@@ -309,7 +324,7 @@ export async function syncNotionGraph(
   }
 
   // ── Companies ──
-  for (const database of resolveDatabases('companies')) {
+  if (scope === 'full') for (const database of resolveDatabases('companies')) {
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
     try {
       pages = await queryDatabase(database.token, database.databaseId)
@@ -354,7 +369,7 @@ export async function syncNotionGraph(
   const projectDirectPeople = new Map<string, string[]>() // localProjectId → notion people page ids
 
   // ── Projects ──
-  for (const database of resolveDatabases('projects')) {
+  if (scope === 'full') for (const database of resolveDatabases('projects')) {
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
     try {
       pages = await queryDatabase(database.token, database.databaseId)
@@ -425,6 +440,8 @@ export async function syncNotionGraph(
     if (m.notionPageId) meetingIdByNotion.set(m.notionPageId, m.id)
   }
 
+  const knownPersonNames = (await db.select({ name: people.name }).from(people)).map((p) => p.name)
+
   const meetingPagesForNotes: Array<{
     pageId: string
     url: string | null
@@ -437,7 +454,7 @@ export async function syncNotionGraph(
     dbName: string
   }> = []
 
-  const meetingsFilter = recentActivityFilter(Math.max(windowDays, 180))
+  const meetingsFilter = recentActivityFilter(meetingsActivityWindowDays(windowDays, scope))
   for (const database of resolveDatabases('meetings')) {
     let pages: NotionPageRow[]
     try {
@@ -470,11 +487,15 @@ export async function syncNotionGraph(
       if (!id) {
         // Attach to an existing calendar meeting on the same day with a similar title
         const candidates = existingMeetings.filter(
-          (m) => m.date === date && titlesFuzzyMatch(m.title, title),
+          (m) =>
+            m.date === date &&
+            (titlesFuzzyMatch(m.title, title) || titlesShareKnownPerson(m.title, title, knownPersonNames)),
         )
         if (candidates.length === 1) id = candidates[0]!.id
         else if (candidates.length > 1) {
-          id = candidates.sort((a, b) => b.title.length - a.title.length)[0]!.id
+          const unlinked = candidates.filter((m) => !m.notionPageId)
+          const pool = unlinked.length > 0 ? unlinked : candidates
+          id = pool.sort((a, b) => b.title.length - a.title.length)[0]!.id
         }
       }
 
@@ -590,6 +611,7 @@ export async function syncNotionGraph(
       bodyText: meetingNotes.bodyText,
       bodySyncedAt: meetingNotes.bodySyncedAt,
       notionLastEditedAt: meetingNotes.notionLastEditedAt,
+      sourceKind: meetingNotes.sourceKind,
     })
     .from(meetingNotes)
     .where(eq(meetingNotes.source, 'notion'))
@@ -601,6 +623,7 @@ export async function syncNotionGraph(
         bodyText: n.bodyText,
         bodySyncedAt: n.bodySyncedAt,
         notionLastEditedAt: n.notionLastEditedAt,
+        sourceKind: n.sourceKind,
       })
     }
   }
@@ -635,6 +658,8 @@ export async function syncNotionGraph(
       })
     }
   }
+
+  if (scope === 'meetings') return result
 
   // Apply project → tasks relations
   if (!dryRun) {

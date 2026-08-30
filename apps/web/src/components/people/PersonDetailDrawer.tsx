@@ -618,7 +618,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                           {format(new Date(note.date + 'T00:00:00'), 'dd/MM/yy')}
                         </span>
                       )}
-                      {'sourceKind' in note && note.sourceKind === 'meeting_page' && (
+                      {'sourceKind' in note && String(note.sourceKind ?? '').startsWith('meeting_page') && (
                         <span className="text-[10px] text-[#5a688c] shrink-0">AI</span>
                       )}
                       {note.meetingId ? (

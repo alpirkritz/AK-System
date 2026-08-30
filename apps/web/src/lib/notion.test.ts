@@ -14,9 +14,10 @@ import {
 const ORIGINAL = { ...process.env }
 
 function isoDaysFromNow(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
-  return d.toISOString().split('T')[0]!
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date())
+  if (n === 0) return today
+  const [y, m, d] = today.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
 }
 
 function titleProp(text: string) {

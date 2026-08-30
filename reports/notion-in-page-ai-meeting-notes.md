@@ -25,7 +25,7 @@ In-page AI Meeting Notes are ingested from the Meetings DB page (`transcription`
 
 ### Should-fix
 
-- None blocking. Full `pnpm e2e` was not re-run (only the new spec). Cron `notion-sync` must run (or Projects → סנכרן מ-Notion) before existing meetings get bodies in a live DB.
+- None blocking. After deploy, `/meetings` has **סנכרן סיכומי Notion** (`scope: meetings`, 7 days). Agents auto-refresh 3-day meeting notes when local bodies are empty. Do not send users to Projects for meeting notes.
 
 ### Nits
 

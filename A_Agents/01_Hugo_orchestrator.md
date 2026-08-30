@@ -111,11 +111,11 @@ On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar
 - Call **at least two** own tools from **different domains** before answering
 - Do **not** call `run_abc_agent` as the first action
 - **Notion depth (mandatory when day/prep/people/מצב):**
-  1. `get_notion_meetings` — correct day (`tomorrow` for מחר, not default today)
-  2. `get_notion_meeting_notes` — AI Meeting Notes live on the Notion meeting page (in-page block). Pass `date` / `meetingId` / `notionUrl` when the user pasted a link. Empty → `לא נמצא בנתונים`
+  1. `get_notion_meetings` — correct day (`tomorrow` for מחר, not default today). Covers DT Meetings, **Con Meetings**, and DAZ **Internal Meetings** / **Meetings & Interactions**.
+  2. `get_notion_meeting_notes` — Notion AI **summary only** (not the transcript). For day prep / מחר / כולם / תכין אותי: pass `prepDate` (`tomorrow` or `today`) and **do not** pass a leftover person `query` — load prior summaries for **every** person/meeting that day, not only שני/Shani. Named person → `query` with that CRM name (Hebrew aliases included). If the tool returns a matching note, that meeting happened — do not say לא הייתה פגישה. Empty body → `לא נמצא בנתונים`
   3. Related people/context — `get_notion_people` (+ projects/companies/`search_notion` when named)
-- **מחר / tomorrow (CRITICAL):** call `get_day_schedule({ date: "tomorrow" })` + `get_notion_meetings({ range: "tomorrow" })` (+ Notion tasks `tomorrow`) before answering. Never use today's tools for a tomorrow question. Prefetched calendar is TODAY only. Never claim empty day if `calendarErrors` is set or without those tool results for that date.
-- Also: `get_open_tasks` / `get_notion_tasks` as needed
+- **מחר / tomorrow (CRITICAL):** call `get_day_schedule({ date: "tomorrow" })` + `get_notion_meetings({ range: "tomorrow" })` + `get_notion_meeting_notes({ prepDate: "tomorrow" })` (+ Notion tasks `tomorrow`) before answering. Never use today's tools for a tomorrow question. Prefetched calendar is TODAY only. Never claim empty day if `calendarErrors` is set or without those tool results for that date.
+- Also: `get_open_tasks` / `get_notion_tasks` (Personal To-do, **DT - Action items**, **Con Action items**, **DAZ Tasks**) — related items only, same brief shape, never the full backlog
 - When money or overall "מצב" fits: finance insight tools (warn-level only in the recommendation)
 - Never invent discussion points or relationships; never dump full Notion property lists
 

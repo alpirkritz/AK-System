@@ -68,12 +68,12 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 > `לא נמצא בנתונים`, never a plausible guess.
 
 ### Step 2.1 — Pull Open Action Items
-- **Input:** `get_notion_tasks` (mandatory)
+- **Input:** `get_notion_tasks` (mandatory — Personal To-do, DT - Action items, Con Action items, DAZ Tasks)
 - **Action:** Prefer items not in Complete/Done; prefer items assigned to me; **keep only tasks clearly related** to this meeting (person/company/project/topic/explicit link). Weak matches → drop. If the related set is empty → output `לא נמצאו משימות קשורות לפגישה זו` — **never** dump the full open backlog.
 - **Output:** Related open action items only (or the empty-related marker)
 
 ### Step 2.2 — Pull Recent Meeting Notes
-- **Input:** `get_notion_meeting_notes` (mandatory — pass `meetingId`, `date`, or `notionUrl`; returns local `bodyText` from the **meeting page** AI notes block), `get_next_meeting_brief` for the next event's local notes
+- **Input:** `get_notion_meeting_notes` (mandatory — for a day pass `prepDate`; for one person pass `query`; also `meetingId` / `notionUrl`; returns local `bodyText` from the **meeting page** AI notes block), `get_next_meeting_brief` for the next event's local notes
 - **Action:** Find what was discussed recently and what was decided / committed — grounded in `bodyText` only. Do not invent from titles.
 - **Output:** Recent context per meeting; if no note / empty body for a meeting, output `לא נמצא בנתונים`
 

@@ -104,7 +104,9 @@ function getUserName(): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().split('T')[0]!
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TIMEZONE || 'Asia/Jerusalem',
+  }).format(new Date())
 }
 
 function soonIso(): string {

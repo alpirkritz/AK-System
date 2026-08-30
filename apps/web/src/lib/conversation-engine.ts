@@ -240,7 +240,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_tasks',
     description:
-      "Read the user's tasks from Notion (across ALL connected Notion accounts). Use for: 'מה המשימות שלי בנושן', 'Notion tasks', 'משימות פתוחות בנושן', and as part of daily prep / 'תכין אותי ליום'. For מחר use filter 'tomorrow'. Notion is the primary source for the user's tasks.",
+      "Read the user's tasks from Notion across ALL connected accounts and task databases: Personal To-do, DT - Action items, Con Action items, and DAZ Tasks. Use for daily/meeting prep. Include ONLY tasks related to the meeting's people/project/topic — never dump the full backlog. For מחר use filter 'tomorrow'.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -257,7 +257,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meetings',
     description:
-      "Read the user's meetings from Notion (across ALL connected Notion accounts). For מחר / tomorrow MUST use range 'tomorrow'. Also: 'today', 'upcoming' (next 7 days). Default today — do not use default when the user asked about tomorrow.",
+      "Read the user's meetings from Notion across ALL connected accounts: DT - Meetings, Con Meetings, DAZ Internal Meetings, DAZ Meetings & Interactions. For מחר / tomorrow MUST use range 'tomorrow'. Also: 'today', 'upcoming' (next 7 days). Default today — do not use default when the user asked about tomorrow.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -291,13 +291,18 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meeting_notes',
     description:
-      "Read AI Meeting Notes body_text. Notes live ON the Notion meeting page (in-page AI Meeting Notes block), synced locally. Use for what was discussed/decided. Optional date ('today' or YYYY-MM-DD), meetingId, or notionUrl/notionPageId (paste a Notion meeting link — fetches that page if local body is missing). Default: 15 most recent. Empty body → לא נמצא בנתונים. Never invent meeting content.",
+      "Read Notion AI meeting SUMMARY only (decisions, action items, perspectives) — never the raw transcript. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT a leftover person query so every meeting that day gets prior notes. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         date: {
           type: SchemaType.STRING,
-          description: "'today' or YYYY-MM-DD to filter notes by meeting/note date",
+          description: "'today' or YYYY-MM-DD to filter notes by meeting/note date (notes from that day). Prefer prepDate for tomorrow/day briefing.",
+        },
+        prepDate: {
+          type: SchemaType.STRING,
+          description:
+            "Day to prepare for: 'today' | 'tomorrow' | 'היום' | 'מחר' | YYYY-MM-DD. Returns last-60-days summaries matching that day's calendar people/titles. Do not also pass query unless the user named one person.",
         },
         meetingId: {
           type: SchemaType.STRING,
@@ -310,6 +315,11 @@ const baseToolDeclarations: FunctionDeclaration[] = [
         notionPageId: {
           type: SchemaType.STRING,
           description: 'Notion meeting page id (32-char hex or dashed UUID)',
+        },
+        query: {
+          type: SchemaType.STRING,
+          description:
+            'Person or meeting name (any CRM person, not only שני/Shani). Use with date when asking about one named conversation. Omit for day-wide prep.',
         },
       },
     },
@@ -912,14 +922,18 @@ export async function executeTool(
 
     case 'get_notion_meeting_notes': {
       const date = (args.date as string | undefined)?.trim()
+      const prepDate = (args.prepDate as string | undefined)?.trim()
       const meetingId = (args.meetingId as string | undefined)?.trim()
       const notionUrl = (args.notionUrl as string | undefined)?.trim()
       const notionPageId = (args.notionPageId as string | undefined)?.trim()
+      const query = (args.query as string | undefined)?.trim()
       const result = await caller.insights.meetingNotes({
         ...(date ? { date } : {}),
+        ...(prepDate ? { prepDate } : {}),
         ...(meetingId ? { meetingId } : {}),
         ...(notionUrl ? { notionUrl } : {}),
         ...(notionPageId ? { notionPageId } : {}),
+        ...(query ? { query } : {}),
       })
       return {
         meetingNotes: result.notes.map((n) => ({
@@ -935,6 +949,7 @@ export async function executeTool(
         })),
         count: result.count,
         source: 'local_db',
+        ...('prepFor' in result && result.prepFor ? { prepFor: result.prepFor } : {}),
       }
     }
 
@@ -1308,7 +1323,7 @@ export async function resolveIntent(
     'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
     'For WhatsApp group summaries (סיכום וואטסאפ / סיכום קבוצות), call summarize_whatsapp_groups and include the returned summary text directly in this reply.',
     'For time-anchored WhatsApp questions, always pass the time arguments instead of accepting the default rolling window: "היום"/"today" → window="today"; "אתמול"/"yesterday" → window="yesterday"; "בין 14 ל-16"/"מ-9 עד 12" → sinceHour/untilHour (24h clock, Israel time); "מהבוקר" → window="today" with sinceHour=6. Every WhatsApp tool result includes rangeLabel — state that covered range in your reply and never imply a wider range than it.',
-    'Notion (all connected accounts) IS accessible to you: use get_notion_meetings and get_notion_tasks for the user\'s meetings and tasks, and search_notion to find specific items. For daily prep ("תכין אותי ליום"/"מה יש לי היום") pull Notion meetings + tasks. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
+    'Notion (all connected accounts) IS accessible to you: use get_notion_meetings, get_notion_tasks (Personal To-do, DT - Action items, Con Action items, DAZ Tasks), get_notion_meeting_notes. For daily/tomorrow prep ("תכין אותי ליום"/"מחר"/"כולם") call get_notion_meeting_notes with prepDate (tomorrow/today) and do NOT pass a leftover person query — brief EVERY meeting that day from prior AI summaries. Named person → query. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
     'Never redirect the user to Notion as the only place to see agent results.',
     'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
   ].join('\n')

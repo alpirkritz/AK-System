@@ -6,6 +6,7 @@ import {
   shouldFetchNoteBody,
   flattenNotionBlocksToText,
   MEETING_NOTE_BODY_CAP,
+  meetingsActivityWindowDays,
 } from './notion-graph-sync'
 
 describe('cleanMeetingTitle', () => {
@@ -66,6 +67,18 @@ describe('isNotionGraphConfigured', () => {
   })
 })
 
+describe('meetingsActivityWindowDays', () => {
+  it('keeps the 180-day floor for full graph sync', () => {
+    expect(meetingsActivityWindowDays(7, 'full')).toBe(180)
+    expect(meetingsActivityWindowDays(90, 'full')).toBe(180)
+  })
+
+  it('uses the requested window for meetings-only sync', () => {
+    expect(meetingsActivityWindowDays(3, 'meetings')).toBe(3)
+    expect(meetingsActivityWindowDays(7, 'meetings')).toBe(7)
+  })
+})
+
 describe('shouldFetchNoteBody', () => {
   it('fetches when body is missing', () => {
     expect(
@@ -107,6 +120,18 @@ describe('shouldFetchNoteBody', () => {
         bodySyncedAt: '2026-08-13T10:00:00.000Z',
         notionLastEditedAt: '2026-08-13T10:00:00.000Z',
         pageLastEdited: '2026-08-13T14:00:00.000Z',
+      }),
+    ).toBe(true)
+  })
+
+  it('re-fetches legacy meeting_page transcript dumps', () => {
+    expect(
+      shouldFetchNoteBody({
+        bodyText: 'Well, so what happened?\nTell me first',
+        bodySyncedAt: '2026-08-13T12:00:00.000Z',
+        notionLastEditedAt: '2026-08-13T11:00:00.000Z',
+        pageLastEdited: '2026-08-13T11:00:00.000Z',
+        sourceKind: 'meeting_page',
       }),
     ).toBe(true)
   })

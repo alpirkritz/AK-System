@@ -53,4 +53,14 @@ test.describe('In-page AI Meeting Notes', () => {
     await expect(page.getByText('מדף הפגישה ב-Notion')).toBeVisible()
     await expect(page.getByText(body)).toBeVisible()
   })
+
+  test('meetings list has calendar sync; Notion notes sync is optional when configured', async ({ page }) => {
+    await page.goto('/meetings')
+    await expect(page.getByRole('heading', { name: 'פגישות' })).toBeVisible({ timeout: 20000 })
+    await expect(page.getByRole('button', { name: /סנכרן מיומן/ })).toBeVisible()
+    const notionBtn = page.getByTestId('sync-notion-meeting-notes')
+    if (await notionBtn.count()) {
+      await expect(notionBtn).toHaveText(/סנכרן סיכומי Notion/)
+    }
+  })
 })

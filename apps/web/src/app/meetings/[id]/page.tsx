@@ -352,7 +352,7 @@ export default function MeetingDetailPage() {
               <div className="space-y-2">
                 {(meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes.map((n) => {
                   const excerpt = (n.bodyText?.trim() || n.snippet?.trim() || '')
-                  const isPageNotes = n.sourceKind === 'meeting_page'
+                  const isPageNotes = Boolean(n.sourceKind?.startsWith('meeting_page'))
                   return (
                   <div key={n.id} className="py-1.5 border-b border-[#223052] last:border-0">
                     {n.notionUrl ? (

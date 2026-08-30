@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dashNotionId,
+  extractAiMeetingSummary,
   flattenNotionBlocksToText,
   parseNotionIdFromInput,
   pickSourceBlockId,
@@ -94,6 +95,45 @@ describe('flatten nested meeting-notes widget', () => {
     expect(text).toContain('Velocity Review')
     expect(text).toContain('Summary')
     expect(text).toContain('Ship the notes ingest')
+  })
+
+  it('keeps the AI summary and drops the transcript sibling', () => {
+    const text = extractAiMeetingSummary([
+      { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'page chrome' }] } },
+      {
+        type: 'transcription',
+        transcription: { title: [{ plain_text: 'Kickoff summary' }] },
+        children: [
+          {
+            type: 'paragraph',
+            has_children: true,
+            children: [
+              { type: 'heading_3', heading_3: { rich_text: [{ plain_text: 'Action Items' }] } },
+              {
+                type: 'to_do',
+                to_do: { rich_text: [{ plain_text: 'Meet next week' }] },
+              },
+            ],
+          },
+          {
+            type: 'paragraph',
+            has_children: true,
+            children: [
+              { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'Well, so what happened?' }] } },
+              { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'Tell me first about the trip' }] } },
+              { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'How long did you work there?' }] } },
+              { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'We were in Munich' }] } },
+              { type: 'paragraph', paragraph: { rich_text: [{ plain_text: 'Yes, Legoland is in Germany' }] } },
+            ],
+          },
+        ],
+      },
+    ])
+    expect(text).toContain('Kickoff summary')
+    expect(text).toContain('Action Items')
+    expect(text).toContain('Meet next week')
+    expect(text).not.toContain('Legoland')
+    expect(text).not.toContain('Well, so what happened')
   })
 })
 

@@ -79,4 +79,27 @@ describe('executeTool — get_notion_meeting_notes', () => {
     await executeTool('get_notion_meeting_notes', { notionUrl: url }, caller)
     expect(meetingNotes).toHaveBeenCalledWith({ notionUrl: url })
   })
+
+  it('passes query + date to insights.meetingNotes', async () => {
+    const meetingNotes = vi.fn().mockResolvedValue({ notes: [], count: 0 })
+    const caller = { insights: { meetingNotes } } as unknown as AnyCaller
+    await executeTool('get_notion_meeting_notes', { date: 'today', query: 'שני' }, caller)
+    expect(meetingNotes).toHaveBeenCalledWith({ date: 'today', query: 'שני' })
+  })
+
+  it('passes prepDate without leftover query', async () => {
+    const meetingNotes = vi.fn().mockResolvedValue({
+      notes: [],
+      count: 0,
+      prepFor: { date: '2026-08-31', meetingTitles: ['Shani & Alpir 1:1'] },
+    })
+    const caller = { insights: { meetingNotes } } as unknown as AnyCaller
+    const result = (await executeTool(
+      'get_notion_meeting_notes',
+      { prepDate: 'tomorrow' },
+      caller,
+    )) as { prepFor?: { date: string } }
+    expect(meetingNotes).toHaveBeenCalledWith({ prepDate: 'tomorrow' })
+    expect(result.prepFor?.date).toBe('2026-08-31')
+  })
 })

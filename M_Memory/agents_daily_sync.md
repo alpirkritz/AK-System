@@ -1576,3 +1576,31 @@ For end-of-day rollups, Hugo may append a summary entry:
 ### Performance Improvements
 - Probe confirmed the public API returns nested summary+transcript under `transcription`; flatten walks that tree instead of skipping `unsupported`/`child_page`
 
+---
+
+## 2026-08-30 — Hugo / 04 — meeting-prep-from-summaries
+
+**Workflow:** `S_Skills/wf_meeting_prep.md` + `S_Skills/wf_chief_of_staff.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Day-wide meeting prep from AI summaries for everyone, not only שני; same brief shape for Con Action items and DAZ Tasks
+- **Context:** Hugo overfit to Shani (`query: שני`) and had no `prepDate` to load prior notes for tomorrow's full calendar
+
+### Actions Taken
+1. Added `insights.meetingNotes` `prepDate` (last 60 days, match by people/titles)
+2. Day-prep ignores leftover person `query` so other meetings are not dropped
+3. Updated Hugo, 04, tool descriptions, and related-task prompt to name Con/DAZ DBs and all people
+
+### Outputs
+- `docs/specs/meeting-prep-from-summaries.md`
+- `reports/meeting-prep-from-summaries.md`
+
+### Compliance
+- [x] C_Core/ pre-flight: integrity (grounded notes only), no PII in reports
+- [x] No meeting transcript body copied into reports
+
+### Performance Improvements
+- Backend ignores leftover `query` when `prepDate` is set so prompt drift cannot collapse the day to one person
+
+

@@ -20,8 +20,10 @@ const NOTION_VERSION = '2022-06-28'
 const NOTES_NOTION_VERSION = '2025-09-03'
 
 export const MEETING_NOTE_BODY_CAP = 8000
+export const MEETING_NOTE_SUMMARY_CAP = 8000
 export const MEETING_NOTE_MAX_DEPTH = 3
 export const MEETING_NOTE_MAX_BLOCKS = 200
+export const MEETING_PAGE_SUMMARY_KIND = 'meeting_page_summary'
 
 type Db = ReturnType<typeof getDb>
 
@@ -57,7 +59,9 @@ export function shouldFetchNoteBody(args: {
   bodySyncedAt: string | null | undefined
   notionLastEditedAt: string | null | undefined
   pageLastEdited: string | null | undefined
+  sourceKind?: string | null
 }): boolean {
+  if (args.sourceKind === 'meeting_page') return true
   if (!args.bodySyncedAt) return true
   if (!args.pageLastEdited) return !args.bodyText?.trim()
   const pageEdited = Date.parse(args.pageLastEdited)
@@ -120,6 +124,72 @@ export function flattenNotionBlocksToText(
 
   for (const block of blocks) walk(block)
   return lines.join('\n').slice(0, cap)
+}
+
+function collectNoteShape(block: Record<string, unknown>): { paragraphs: number; structured: number } {
+  let paragraphs = 0
+  let structured = 0
+  function walk(b: Record<string, unknown>) {
+    const t = String(b.type ?? '')
+    if (t === 'paragraph') paragraphs++
+    if (
+      t.startsWith('heading') ||
+      t === 'to_do' ||
+      t === 'bulleted_list_item' ||
+      t === 'numbered_list_item'
+    ) {
+      structured++
+    }
+    if (Array.isArray(b.children)) {
+      for (const c of b.children) walk(c as Record<string, unknown>)
+    }
+  }
+  walk(block)
+  return { paragraphs, structured }
+}
+
+/** Dialogue dump: many paragraphs, no headings/bullets/todos. */
+export function isTranscriptishBlock(block: Record<string, unknown>): boolean {
+  const { paragraphs, structured } = collectNoteShape(block)
+  return paragraphs >= 5 && structured === 0
+}
+
+function findAiNotesWidget(blocks: Array<Record<string, unknown>>): Record<string, unknown> | null {
+  for (const block of blocks) {
+    const type = String(block.type ?? '')
+    if (type === 'transcription' || type === 'meeting_notes') return block
+    if (Array.isArray(block.children)) {
+      const inner = findAiNotesWidget(block.children as Array<Record<string, unknown>>)
+      if (inner) return inner
+    }
+  }
+  return null
+}
+
+/**
+ * Notion AI Meeting Notes: keep the structured summary under `transcription`,
+ * drop the raw transcript sibling and the rest of the meeting page.
+ */
+export function extractAiMeetingSummary(
+  blocks: Array<Record<string, unknown>>,
+  cap = MEETING_NOTE_SUMMARY_CAP,
+): string {
+  const widget = findAiNotesWidget(blocks)
+  if (!widget) return flattenNotionBlocksToText(blocks, cap)
+
+  const parts: string[] = []
+  const type = String(widget.type ?? '')
+  const title = type ? richTextFromPayload(widget[type]) : ''
+  if (title) parts.push(title)
+
+  const children = Array.isArray(widget.children) ? (widget.children as Array<Record<string, unknown>>) : []
+  for (const child of children) {
+    if (isTranscriptishBlock(child)) continue
+    const chunk = flattenNotionBlocksToText([child], cap)
+    if (chunk.trim()) parts.push(chunk)
+  }
+
+  return parts.join('\n').trim().slice(0, cap)
 }
 
 export function listTopLevelBlockTypes(blocks: Array<Record<string, unknown>>): string {
@@ -292,13 +362,13 @@ async function expandBlocks(
 export async function fetchMeetingNoteBody(
   token: string,
   pageId: string,
-  cap = MEETING_NOTE_BODY_CAP,
+  _cap = MEETING_NOTE_SUMMARY_CAP,
 ): Promise<FetchMeetingNoteBodyResult> {
   const budget = { remaining: MEETING_NOTE_MAX_BLOCKS }
   const blocks = await expandBlocks(token, pageId, 0, budget)
   const used = MEETING_NOTE_MAX_BLOCKS - budget.remaining
   return {
-    bodyText: flattenNotionBlocksToText(blocks, cap),
+    bodyText: extractAiMeetingSummary(blocks, MEETING_NOTE_SUMMARY_CAP),
     sourceBlockId: pickSourceBlockId(blocks),
     topLevelTypes: listTopLevelBlockTypes(blocks),
     blockCount: used,
@@ -338,6 +408,7 @@ export interface ExistingNoteMeta {
   bodyText: string | null
   bodySyncedAt: string | null
   notionLastEditedAt: string | null
+  sourceKind?: string | null
 }
 
 /**
@@ -366,6 +437,7 @@ export async function upsertInPageMeetingNote(
     bodySyncedAt: prev?.bodySyncedAt,
     notionLastEditedAt: prev?.notionLastEditedAt,
     pageLastEdited: args.lastEdited,
+    sourceKind: prev?.sourceKind,
   })
 
   if (!args.dryRun && needsFetch) {
@@ -405,7 +477,7 @@ export async function upsertInPageMeetingNote(
         meetingId: args.meetingId,
         notionAccount: args.accountLabel,
         notionDb: args.dbName,
-        sourceKind: 'meeting_page',
+        sourceKind: MEETING_PAGE_SUMMARY_KIND,
         sourceBlockId,
         updatedAt: args.now,
       })
@@ -426,7 +498,7 @@ export async function upsertInPageMeetingNote(
       notionAccount: args.accountLabel,
       notionDb: args.dbName,
       source: 'notion',
-      sourceKind: 'meeting_page',
+      sourceKind: MEETING_PAGE_SUMMARY_KIND,
       sourceBlockId,
       createdAt: args.now,
       updatedAt: args.now,
@@ -487,6 +559,7 @@ export async function ensureMeetingPageNote(
       bodySyncedAt: meetingNotes.bodySyncedAt,
       notionLastEditedAt: meetingNotes.notionLastEditedAt,
       notionPageId: meetingNotes.notionPageId,
+      sourceKind: meetingNotes.sourceKind,
     })
     .from(meetingNotes)
     .where(or(eq(meetingNotes.notionPageId, dashed), eq(meetingNotes.notionPageId, compact)))
@@ -533,6 +606,7 @@ export async function ensureMeetingPageNote(
                 bodyText: existing.bodyText,
                 bodySyncedAt: existing.bodySyncedAt,
                 notionLastEditedAt: existing.notionLastEditedAt,
+                sourceKind: existing.sourceKind,
               }
             : undefined,
         )
@@ -551,7 +625,7 @@ export async function ensureMeetingPageNote(
             bodySyncedAt: now,
             notionLastEditedAt: now,
             notionPageId: dashed,
-            sourceKind: 'meeting_page',
+            sourceKind: MEETING_PAGE_SUMMARY_KIND,
             sourceBlockId: fetched.sourceBlockId,
             updatedAt: now,
           })
@@ -569,7 +643,7 @@ export async function ensureMeetingPageNote(
           notionPageId: dashed,
           meetingId: null,
           source: 'notion',
-          sourceKind: 'meeting_page',
+          sourceKind: MEETING_PAGE_SUMMARY_KIND,
           sourceBlockId: fetched.sourceBlockId,
           createdAt: now,
           updatedAt: now,

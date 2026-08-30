@@ -95,6 +95,10 @@ describe('Chief of Staff primary interface', () => {
     expect(prompt).toContain('range "tomorrow"')
     expect(prompt).toContain('Notion depth pass')
     expect(prompt).toContain('get_notion_meeting_notes')
+    expect(prompt).toContain('prepDate')
+    expect(prompt).toContain('Con Meetings')
+    expect(prompt).toContain('Con Action items')
+    expect(prompt).toContain('DAZ Tasks')
     expect(prompt).toContain('get_notion_people')
     expect(prompt).toContain('מה חשוב עכשיו')
     expect(prompt).toContain('Do NOT default-delegate to 06_calendar_optimizer')
@@ -109,6 +113,8 @@ describe('meeting prep related tasks only', () => {
     const override = getMeetingPrepRelatedTasksOverride()
     expect(override).toContain('NEVER dump')
     expect(override).toContain('ONLY open tasks that clearly relate')
+    expect(override).toContain('Con Action items')
+    expect(override).toContain('DAZ Tasks')
   })
 
   it('injects related-tasks override into 04 system instruction', async () => {

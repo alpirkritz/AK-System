@@ -41,6 +41,23 @@ export default function MeetingsPage() {
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
   const { data: seriesList = [] } = trpc.meetings.listSeries.useQuery()
   const utils = trpc.useUtils()
+  const { data: notionGraph } = trpc.notionGraph.configured.useQuery()
+  const [notionSyncMessage, setNotionSyncMessage] = useState<string | null>(null)
+  const syncNotion = trpc.notionGraph.sync.useMutation({
+    onSuccess: (res) => {
+      const parts = [
+        `${res.meetingsUpserted ?? 0} פגישות`,
+        `${res.notesUpserted ?? 0} סיכומי AI`,
+      ]
+      setNotionSyncMessage(
+        res.errors.length > 0
+          ? `סונכרנו ${parts.join(' · ')} · ${res.errors.length} שגיאות`
+          : `סונכרנו ${parts.join(' · ')} מ-Notion`,
+      )
+      utils.meetings.list.invalidate()
+    },
+    onError: (err) => setNotionSyncMessage(err.message || 'סנכרון Notion נכשל'),
+  })
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -359,6 +376,25 @@ export default function MeetingsPage() {
       <div className="flex justify-between items-center mb-7">
         <h1 className="text-2xl font-bold tracking-tight">פגישות</h1>
         <div className="flex gap-2 items-center">
+          {notionSyncMessage && (
+            <span className="text-xs text-[#97a4c2] max-w-[220px] truncate" title={notionSyncMessage}>
+              {notionSyncMessage}
+            </span>
+          )}
+          {notionGraph?.configured && (
+            <button
+              className="btn btn-secondary"
+              data-testid="sync-notion-meeting-notes"
+              disabled={syncNotion.isPending}
+              onClick={() => {
+                setNotionSyncMessage(null)
+                syncNotion.mutate({ windowDays: 7, dryRun: false, scope: 'meetings' })
+              }}
+              title="סנכרן סיכומי AI מדפי הפגישות ב-Notion"
+            >
+              {syncNotion.isPending ? 'מסנכרן Notion…' : 'סנכרן סיכומי Notion'}
+            </button>
+          )}
           {/* Sync result feedback */}
           {syncStatus === 'done' && syncResult !== null && (
             <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#34d39922', color: '#34d399', border: '1px solid #34d39944' }}>
