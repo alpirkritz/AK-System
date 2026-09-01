@@ -63,3 +63,23 @@
 
 1. Helm calendar connect cannot be confirmed until a new APK is installed.
 2. `next lint` remains unconfigured in `apps/web` (pre-existing).
+
+## Post-merge regression — `maxURLLength: 1` (commit 4e38f57, reverted in aeb9d6d)
+
+A follow-up commit set `maxURLLength: 1` on the Helm `httpBatchLink` on the
+theory that GET batches drop the `Authorization` header through ngrok. That
+theory was never verified and the option does not do what the commit claimed:
+in `@trpc/client` 10.45.4 `maxURLLength` only splits a batch by URL length and
+never changes the HTTP method. With a limit of 1 no single operation fits, so
+the link rejected every call with `Input is too big for a single dispatch` and
+every data-backed screen in the app failed.
+
+Verified against production with the real client options and a signed JWT:
+`maxURLLength: 1` fails as above, while the reverted config returns both
+connected Google accounts, `calendar.startGoogleOAuth` returns a Google auth
+URL carrying `returnTo=mobile`, and `calendar.googleHealth` reports both
+accounts `ok`. The original refresh-login symptom came from a stale server and
+was already fixed by deploying, so no client change was needed.
+
+Lesson: do not ship a client transport change without reproducing the failure
+it claims to fix.
