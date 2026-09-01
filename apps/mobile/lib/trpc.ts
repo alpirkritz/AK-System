@@ -17,9 +17,6 @@ export function createTrpcClient(token: string): any {
     links: [
       httpBatchLink({
         url: `${API_URL}/api/trpc`,
-        // Always POST. GET batches can drop the Authorization header on Android
-        // through ngrok, which surfaces as «נדרשת התחברות» on pull-to-refresh.
-        maxURLLength: 1,
         headers() {
           return {
             Authorization: `Bearer ${token}`,
