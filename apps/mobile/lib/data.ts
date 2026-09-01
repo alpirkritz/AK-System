@@ -413,6 +413,48 @@ export async function fetchCalendarConflicts(
   return Array.isArray(res) ? res : (res.conflicts ?? [])
 }
 
+export type GoogleAccountStatus = {
+  email: string
+  status: 'ok' | 'error' | 'unknown'
+  error?: string
+}
+
+export async function fetchGoogleCalendarAccounts(token: string): Promise<GoogleAccountStatus[]> {
+  const client = createTrpcClient(token)
+  type HealthRow = { email: string; status: string; error?: string }
+  const [accountsRes, healthRes] = await Promise.all([
+    client.calendar.googleAccounts.query() as Promise<{
+      accounts?: Array<{ email: string; isActive?: boolean }>
+    }>,
+    client.calendar.googleHealth.query().catch(() => ({ accounts: [] as HealthRow[] })) as Promise<{
+      accounts?: HealthRow[]
+    }>,
+  ])
+  const healthByEmail = new Map(
+    (healthRes.accounts ?? []).map((row: HealthRow) => [row.email.toLowerCase(), row]),
+  )
+  return (accountsRes.accounts ?? []).map((account) => {
+    const health = healthByEmail.get(account.email.toLowerCase())
+    if (!health) return { email: account.email, status: 'unknown' as const }
+    return {
+      email: account.email,
+      status: health.status === 'ok' ? ('ok' as const) : ('error' as const),
+      error: health.error,
+    }
+  })
+}
+
+export async function startGoogleCalendarOAuth(
+  token: string,
+  hint?: string,
+): Promise<{ authUrl: string }> {
+  const client = createTrpcClient(token)
+  return client.calendar.startGoogleOAuth.mutate({
+    returnTo: 'mobile',
+    hint,
+  }) as Promise<{ authUrl: string }>
+}
+
 // ─── People ──────────────────────────────────────────────────────────────────
 
 export async function fetchPeoplePaginated(

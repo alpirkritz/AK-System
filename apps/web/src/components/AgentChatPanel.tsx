@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { scrollElementToBottom } from '@/lib/chat-layout'
 
 interface ChatMessage {
   id: string
@@ -25,11 +26,12 @@ export function AgentChatPanel({ agentId, agentName, engine = 'gemini' }: AgentC
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesListRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const list = messagesListRef.current
+    if (list) scrollElementToBottom(list)
   }, [])
 
   const loadHistory = useCallback(async () => {
@@ -124,12 +126,16 @@ export function AgentChatPanel({ agentId, agentName, engine = 'gemini' }: AgentC
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 py-2 border-b border-[#1d2b46] text-xs text-[#647399]">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="shrink-0 px-4 py-2 border-b border-[#1d2b46] text-xs text-[#647399]">
         מדבר עם <span className="text-[#2dd4bf]">{agentName}</span> · {ENGINE_LABELS[engine] ?? engine}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div
+        ref={messagesListRef}
+        data-testid="agent-chat-messages"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-3"
+      >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-3xl opacity-30">🤖</div>
@@ -176,10 +182,12 @@ export function AgentChatPanel({ agentId, agentName, engine = 'gemini' }: AgentC
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-[#1d2b46] px-4 py-3">
+      <div
+        data-testid="agent-chat-composer"
+        className="shrink-0 sticky bottom-0 z-10 border-t border-[#1d2b46] px-4 py-3 bg-[#0e1626] md:static"
+      >
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -187,15 +195,21 @@ export function AgentChatPanel({ agentId, agentName, engine = 'gemini' }: AgentC
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={() => {
+              scrollToBottom()
+              window.scrollTo(0, 0)
+            }}
             placeholder="כתוב הודעה לסוכן..."
             disabled={loading}
-            className="flex-1 bg-[#111b30] border border-[#29395d] rounded-lg px-4 py-2.5 text-sm text-[#eef3fb] placeholder:text-[#4d659c] focus:outline-none focus:border-[#2dd4bf]/50 transition-colors disabled:opacity-50"
+            className="flex-1 min-w-0 min-h-[44px] bg-[#111b30] border border-[#29395d] rounded-lg px-4 py-2.5 text-sm text-[#eef3fb] placeholder:text-[#4d659c] focus:outline-none focus:border-[#2dd4bf]/50 transition-colors disabled:opacity-50"
             dir="auto"
+            aria-label="הודעה לסוכן"
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            className="bg-[#2dd4bf] text-[#0a1120] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#14b8a6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="btn btn-primary min-h-[44px] min-w-[44px] bg-[#2dd4bf] text-[#0a1120] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#14b8a6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             שלח
           </button>

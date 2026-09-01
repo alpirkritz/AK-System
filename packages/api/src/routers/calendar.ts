@@ -11,6 +11,10 @@ import {
   hasGoogleCalendarConnections,
   listAllGoogleCalendars,
 } from '../services/google-calendar'
+import {
+  encodeGoogleCalendarOAuthState,
+  getGoogleCalendarAuthUrl,
+} from '../google-calendar-auth'
 import { probeGoogleCalendarHealth } from '../services/google-calendar-health'
 import {
   fetchAppleCalendarEvents,
@@ -115,6 +119,28 @@ export const calendarRouter = router({
     const accounts = await probeGoogleCalendarHealth()
     return { accounts }
   }),
+
+  startGoogleOAuth: protectedProcedure
+    .input(
+      z.object({
+        hint: z.string().email().optional(),
+        returnTo: z.enum(['web', 'mobile']).default('web'),
+      }),
+    )
+    .mutation(({ ctx, input }) => {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const callbackUrl = `${appUrl.replace(/\/$/, '')}/api/auth/google-calendar/callback`
+      const state = encodeGoogleCalendarOAuthState({
+        userId: ctx.session.user.id || 'default',
+        returnTo: input.returnTo,
+      })
+      return {
+        authUrl: getGoogleCalendarAuthUrl(callbackUrl, {
+          loginHint: input.hint,
+          state,
+        }),
+      }
+    }),
 
   isConnected: protectedProcedure.query(async () => {
     if (!cacheWarmed && isAppleCalendarAvailable()) {

@@ -1603,4 +1603,34 @@ For end-of-day rollups, Hugo may append a summary entry:
 ### Performance Improvements
 - Backend ignores leftover `query` when `prepDate` is set so prompt drift cannot collapse the day to one person
 
+---
+
+## 2026-08-31 — Dev / QA-UI — mobile-calendar-connect-keyboard
+
+**Workflow:** apps/packages engineering (dev-pipeline), not ABC agent cards
+**Status:** Partial — code + automated QA done; Helm APK not installed/run
+
+### Stand-up
+- **Goal:** Explain missing calendar connect in the APK; fix עוזר keyboard covering the composer; verify via qa-ui-agent before claiming fixed
+- **Context:** Connect existed only on web Settings. Chat padded 0 when the window shrank >80px (tab bar hide)
+
+### Actions Taken
+1. Added `calendar.startGoogleOAuth` + mobile OAuth return to `helm://calendar`
+2. Helm יומן: חבר יומן Google / status list
+3. Replaced chat keyboard heuristic with `composerLiftPx` (no KeyboardAvoidingView on chat)
+
+### Outputs
+- `docs/specs/mobile-calendar-connect-keyboard.md`
+- `reports/qa-ui-mobile-calendar-connect-keyboard.md`
+- `reports/qa-mobile-calendar-connect-keyboard.md`
+- `reports/mobile-calendar-connect-keyboard.md`
+
+### Compliance
+- [x] Apps/packages engineering — C_Core ABC pre-flight N/A
+- [x] QA-UI did not certify the physical APK
+
+### Performance Improvements
+- One lift formula instead of resize + tab-bar hide + boolean skip fighting each other
+
+
 

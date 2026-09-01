@@ -64,8 +64,8 @@ export function AssistantWorkspace() {
   const selected = agents.find((a) => a.id === selectedId)
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] md:h-[calc(100dvh-4rem)]">
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-3 shrink-0">
         <div className="flex items-center gap-2">
           <Sparkles size={22} className="text-[#2dd4bf]" strokeWidth={2} />
           <h1 className="text-2xl font-bold tracking-tight">עוזר</h1>
@@ -106,17 +106,19 @@ export function AssistantWorkspace() {
       </div>
 
       {isGeneral ? (
-        <div className="flex-1 border border-[#2f4368] rounded-xl overflow-hidden">
+        <div className="flex-1 min-h-0 border border-[#2f4368] rounded-xl overflow-hidden">
           <ChatPanel />
         </div>
       ) : selected ? (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="mb-2 text-xs text-[#647399]">
+          <div className="mb-2 text-xs text-[#647399] shrink-0">
             מדבר עם <span className="text-[#2dd4bf]">{selected.name}</span> ·{' '}
             {ENGINE_LABELS[engine] ?? engine}
           </div>
-          <AgentTriggersPanel agentId={selected.id} agentName={selected.name} />
-          <div className="flex-1 border border-[#2f4368] rounded-xl overflow-hidden min-h-[360px]">
+          <div className="shrink-0">
+            <AgentTriggersPanel agentId={selected.id} agentName={selected.name} />
+          </div>
+          <div className="flex-1 min-h-0 border border-[#2f4368] rounded-xl overflow-hidden">
             <AgentChatPanel
               key={selected.id}
               agentId={selected.id}

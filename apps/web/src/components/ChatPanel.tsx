@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { scrollChildIntoList, scrollElementToBottom } from '@/lib/chat-layout'
 
 interface ChatMessage {
   id: string
@@ -15,7 +16,7 @@ export function ChatPanel() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesListRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Notification deep link: /chat?message=<id>. Read from the URL rather than
   // useSearchParams so this stays a client-only concern and /chat keeps its
@@ -26,7 +27,8 @@ export function ChatPanel() {
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const list = messagesListRef.current
+    if (list) scrollElementToBottom(list)
   }, [])
 
   useEffect(() => {
@@ -64,9 +66,10 @@ export function ChatPanel() {
   useEffect(() => {
     if (messages.length > 0 && linkedId && !linkedHandled.current) {
       const target = messageRefs.current.get(linkedId)
-      if (target) {
+      const list = messagesListRef.current
+      if (target && list) {
         linkedHandled.current = true
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        scrollChildIntoList(list, target)
         return
       }
       // Referenced message is not in the loaded history — fall back to the bottom.
@@ -178,9 +181,13 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 w-full max-w-3xl mx-auto">
+    <div className="flex flex-col h-full min-h-0">
+      {/* Messages area — this element is the only scroller; do not use scrollIntoView. */}
+      <div
+        ref={messagesListRef}
+        data-testid="chat-messages"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-3 w-full max-w-3xl mx-auto"
+      >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-3xl opacity-30">💬</div>
@@ -237,11 +244,13 @@ export function ChatPanel() {
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input bar */}
-      <div className="border-t border-[#1d2b46] px-4 py-3">
+      <div
+        data-testid="chat-composer"
+        className="shrink-0 sticky bottom-0 z-10 border-t border-[#1d2b46] px-4 py-3 bg-[#0e1626] md:static"
+      >
         <div className="flex items-center gap-2 w-full max-w-3xl mx-auto">
           <input
             ref={inputRef}
@@ -249,15 +258,22 @@ export function ChatPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={() => {
+              scrollToBottom()
+              window.scrollTo(0, 0)
+            }}
             placeholder="כתוב הודעה..."
             disabled={loading}
-            className="flex-1 bg-[#111b30] border border-[#29395d] rounded-lg px-4 py-2.5 text-sm text-[#eef3fb] placeholder:text-[#4d659c] focus:outline-none focus:border-[#2dd4bf]/50 transition-colors disabled:opacity-50"
+            className="flex-1 min-w-0 min-h-[44px] bg-[#111b30] border border-[#29395d] rounded-lg px-4 py-2.5 text-sm text-[#eef3fb] placeholder:text-[#4d659c] focus:outline-none focus:border-[#2dd4bf]/50 transition-colors disabled:opacity-50"
             dir="auto"
+            aria-label="הודעה לעוזר"
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            className="bg-[#2dd4bf] text-[#0a1120] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#14b8a6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            data-testid="chat-send"
+            className="btn btn-primary min-h-[44px] min-w-[44px] bg-[#2dd4bf] text-[#0a1120] rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-[#14b8a6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             שלח
           </button>

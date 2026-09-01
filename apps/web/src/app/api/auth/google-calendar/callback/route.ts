@@ -1,31 +1,47 @@
 // Google OAuth: token exchange lives in @ak-system/api (do not import googleapis here)
 import { NextRequest, NextResponse } from 'next/server'
-import { exchangeGoogleCalendarCode, upsertGoogleCalendarConnection } from '@ak-system/api'
+import {
+  exchangeGoogleCalendarCode,
+  googleCalendarOAuthFinishUrl,
+  googleCalendarOAuthLandingHtml,
+  parseGoogleCalendarOAuthState,
+  upsertGoogleCalendarConnection,
+} from '@ak-system/api'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 const callbackUrl = `${APP_URL}/api/auth/google-calendar/callback`
 
-function parseUserIdFromState(state: string | null): string {
-  if (!state) return 'default'
-  try {
-    const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf8')) as { userId?: string }
-    return parsed.userId?.trim() || 'default'
-  } catch {
-    return 'default'
+function finishResponse(opts: {
+  returnTo: 'web' | 'mobile'
+  email?: string
+  error?: string
+}): NextResponse {
+  const target = googleCalendarOAuthFinishUrl({
+    returnTo: opts.returnTo,
+    appUrl: APP_URL,
+    email: opts.email,
+    error: opts.error,
+  })
+  if (opts.returnTo === 'mobile') {
+    return new NextResponse(googleCalendarOAuthLandingHtml(target, opts.error), {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
   }
+  return NextResponse.redirect(target)
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const code = searchParams.get('code')
   const error = searchParams.get('error')
-  const state = searchParams.get('state')
+  const { userId, returnTo } = parseGoogleCalendarOAuthState(searchParams.get('state'))
 
   if (error) {
-    return NextResponse.redirect(`${APP_URL}/settings?google_error=${encodeURIComponent(error)}`)
+    return finishResponse({ returnTo, error })
   }
   if (!code) {
-    return NextResponse.redirect(`${APP_URL}/settings?google_error=no_code`)
+    return finishResponse({ returnTo, error: 'no_code' })
   }
 
   try {
@@ -33,7 +49,7 @@ export async function GET(request: NextRequest) {
       await exchangeGoogleCalendarCode(code, callbackUrl)
 
     const result = await upsertGoogleCalendarConnection({
-      userId: parseUserIdFromState(state),
+      userId,
       calendarEmail,
       accessToken: access_token,
       refreshToken: refresh_token || undefined,
@@ -41,14 +57,12 @@ export async function GET(request: NextRequest) {
     })
 
     if (!result.ok) {
-      return NextResponse.redirect(`${APP_URL}/settings?google_error=${result.error}`)
+      return finishResponse({ returnTo, error: result.error })
     }
 
-    return NextResponse.redirect(
-      `${APP_URL}/settings?google_connected=1&email=${encodeURIComponent(calendarEmail)}`,
-    )
+    return finishResponse({ returnTo, email: calendarEmail })
   } catch (err) {
     console.error('[Google OAuth callback]', err)
-    return NextResponse.redirect(`${APP_URL}/settings?google_error=oauth_failed`)
+    return finishResponse({ returnTo, error: 'oauth_failed' })
   }
 }

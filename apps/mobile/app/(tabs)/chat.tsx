@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../../lib/auth'
 import { syncPushToken } from '../../lib/notifications'
 import { SELECTED_AGENT_KEY, storage } from '../../lib/storage'
+import { composerLiftPx } from '../../lib/composer-keyboard'
 import { colors, layout } from '../../lib/theme'
 
 type Row = ChatMessage | { id: string; role: 'typing'; content: string; createdAt: string }
@@ -37,7 +38,8 @@ export default function ChatScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
-  const { width } = useWindowDimensions()
+  const { width, height: windowHeight } = useWindowDimensions()
+  const restingWindowHeight = useRef(windowHeight)
   const listRef = useRef<FlatList<Row>>(null)
   const { message: messageParam, agent: agentParam } = useLocalSearchParams<{
     message?: string
@@ -55,9 +57,11 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pushNotice, setPushNotice] = useState<string | null>(null)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
 
   const contentWidth = Math.min(width - 24, layout.maxContentWidth)
   const isGeneral = selectedId === GENERAL_AGENT_ID
+  const listData = useMemo(() => [...messages].reverse(), [messages])
 
   const selectedName = isGeneral
     ? 'עוזר כללי'
@@ -135,6 +139,19 @@ export default function ChatScreen() {
   }, [loadHistory])
 
   useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const shown = Keyboard.addListener(show, (e) => {
+      setKeyboardHeight(e.endCoordinates.height)
+    })
+    const hidden = Keyboard.addListener(hide, () => setKeyboardHeight(0))
+    return () => {
+      shown.remove()
+      hidden.remove()
+    }
+  }, [])
+
+  useEffect(() => {
     if (!token) return
     syncPushToken(token)
       .then((registered) => {
@@ -148,21 +165,18 @@ export default function ChatScreen() {
 
   const pendingDeepLinkIndex = (() => {
     if (!messageParam || deepLinkHandled.current === messageParam) return null
-    const index = messages.findIndex((m) => m.id === messageParam)
+    const index = listData.findIndex((m) => m.id === messageParam)
     return index >= 0 ? index : null
   })()
 
-  const settleScroll = useCallback(() => {
-    if (pendingDeepLinkIndex != null && messageParam) {
-      deepLinkHandled.current = messageParam
-      listRef.current?.scrollToIndex({
-        index: pendingDeepLinkIndex,
-        animated: true,
-        viewPosition: 0.5,
-      })
-      return
-    }
-    listRef.current?.scrollToEnd({ animated: true })
+  const settleDeepLink = useCallback(() => {
+    if (pendingDeepLinkIndex == null || !messageParam) return
+    deepLinkHandled.current = messageParam
+    listRef.current?.scrollToIndex({
+      index: pendingDeepLinkIndex,
+      animated: true,
+      viewPosition: 0.5,
+    })
   }, [messageParam, pendingDeepLinkIndex])
 
   const onSend = async () => {
@@ -243,12 +257,16 @@ export default function ChatScreen() {
     )
   }
 
+  useEffect(() => {
+    if (keyboardHeight === 0) restingWindowHeight.current = windowHeight
+  }, [windowHeight, keyboardHeight])
+
+  const windowShrink = Math.max(0, restingWindowHeight.current - windowHeight)
+  const liftForKeyboard = composerLiftPx(keyboardHeight, windowShrink)
+  const composerPad = keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 8)
+
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior="padding"
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
-    >
+    <View style={[styles.flex, liftForKeyboard > 0 ? { paddingBottom: liftForKeyboard } : null]}>
       <Pressable
         style={styles.agentBar}
         onPress={() => setPickerOpen(true)}
@@ -269,14 +287,15 @@ export default function ChatScreen() {
         <FlatList
           key={selectedId}
           ref={listRef}
-          data={messages}
+          inverted
+          data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 8 }]}
+          contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          onContentSizeChange={settleScroll}
-          onLayout={settleScroll}
+          onContentSizeChange={settleDeepLink}
+          onLayout={settleDeepLink}
           onScrollToIndexFailed={({ index }) => {
             listRef.current?.scrollToOffset({ offset: index * 96, animated: false })
             setTimeout(() => {
@@ -294,12 +313,12 @@ export default function ChatScreen() {
         </Pressable>
       ) : null}
 
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View style={[styles.composer, { paddingBottom: composerPad }]}>
         <TextInput
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder={isGeneral ? 'כתוב להוגו...' : 'כתוב לסוכן...'}
+          placeholder={isGeneral ? 'כתוב לראש מטה...' : 'כתוב לסוכן...'}
           placeholderTextColor={colors.textMuted}
           multiline
           textAlign="right"
@@ -321,7 +340,7 @@ export default function ChatScreen() {
         selectedId={selectedId}
         onSelect={(id) => void onSelectAgent(id)}
       />
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
@@ -352,7 +371,7 @@ const styles = StyleSheet.create({
   agentBarChevron: { color: colors.textMuted, fontSize: 14, paddingHorizontal: 4 },
   list: {
     paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingVertical: 12,
     flexGrow: 1,
   },
   row: {

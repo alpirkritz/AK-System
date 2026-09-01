@@ -23,6 +23,8 @@ import {
   Plus,
   type LucideIcon,
 } from 'lucide-react'
+import { isKeyboardOpen, mobileAssistantShellStyle } from '@/lib/chat-layout'
+import { useIsNarrowPhone, useVisualViewportFrame } from '@/lib/use-keyboard-overlap'
 import { NotificationBell } from './NotificationBell'
 
 const QuickAddTaskModal = dynamic(
@@ -95,12 +97,35 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [taskAddedMessage, setTaskAddedMessage] = useState<string | null>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
+  const isNarrow = useIsNarrowPhone()
+  const viewportFrame = useVisualViewportFrame()
+  const keyboardOpen = isNarrow && isKeyboardOpen(viewportFrame.overlap)
+  const isAssistant =
+    pathname.startsWith('/chat') || pathname.startsWith('/agents')
+  const mobileChatShell = isAssistant
+    ? mobileAssistantShellStyle(isNarrow, viewportFrame.height, viewportFrame.offsetTop)
+    : undefined
 
   useEffect(() => {
     if (!taskAddedMessage) return
     const timer = setTimeout(() => setTaskAddedMessage(null), 2500)
     return () => clearTimeout(timer)
   }, [taskAddedMessage])
+
+  // Stop iOS from scrolling the document under the fixed mobile chat shell.
+  useEffect(() => {
+    if (!isAssistant || !isNarrow) return
+    const html = document.documentElement
+    const body = document.body
+    const prevHtml = html.style.overflow
+    const prevBody = body.style.overflow
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    return () => {
+      html.style.overflow = prevHtml
+      body.style.overflow = prevBody
+    }
+  }, [isAssistant, isNarrow])
 
   // Auth screen and printable documents: render bare, no app chrome.
   if (pathname === '/login' || pathname.endsWith('/print')) {
@@ -116,7 +141,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const isMoreActive = MORE_ITEMS.some((item) => isActive(item.href))
 
   return (
-    <div className="flex min-h-screen overflow-x-hidden">
+    <div
+      className={`flex overflow-x-hidden ${
+        isAssistant ? 'overflow-hidden max-md:h-dvh md:h-dvh' : 'min-h-screen'
+      }`}
+      style={mobileChatShell}
+    >
       {/* Desktop / tablet sidebar */}
       <aside className="w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-6 gap-1 sticky top-0 h-screen hidden md:flex">
         <div className="px-3 pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
@@ -172,16 +202,35 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       {/* Main content with responsive padding and bottom nav spacing.
           min-w-0 is required so flex children can shrink; without it long
           unbroken strings (e.g. task titles) force horizontal page scroll. */}
-      <main className="flex-1 min-w-0 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-y-auto overflow-x-hidden">
-        <div className="flex justify-end mb-4 md:mb-6">
+      <main
+        className={
+          isAssistant
+            ? `flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden p-3 md:p-6 lg:p-8 ${
+                keyboardOpen
+                  ? 'pb-2'
+                  : 'pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-8'
+              }`
+            : 'flex-1 min-w-0 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-y-auto overflow-x-hidden'
+        }
+        style={
+          isAssistant && !isNarrow && viewportFrame.overlap > 0
+            ? { paddingBottom: viewportFrame.overlap }
+            : undefined
+        }
+      >
+        <div className={`flex justify-end shrink-0 ${isAssistant ? 'mb-2' : 'mb-4 md:mb-6'}`}>
           <NotificationBell />
         </div>
-        {children}
+        <div className={isAssistant ? 'flex-1 min-h-0 flex flex-col' : undefined}>
+          {children}
+        </div>
       </main>
 
       {/* Mobile bottom navigation */}
       <nav
-        className="fixed bottom-0 inset-x-0 z-50 md:hidden border-t border-[#22314f]"
+        className={`fixed bottom-0 inset-x-0 z-50 md:hidden border-t border-[#22314f] ${
+          keyboardOpen ? 'hidden' : ''
+        }`}
         style={{
           background: '#16233b',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -194,6 +243,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={tab.href}
                 href={tab.href}
+                data-testid={`nav-tab-${tab.href === '/' ? 'home' : tab.href.slice(1)}`}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] transition-colors ${
                   isActive(tab.href) ? 'text-[#2dd4bf]' : 'text-[#647399]'
                 }`}
@@ -265,12 +315,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Global quick-add — hidden while the mobile "more" drawer is open */}
-      {!moreOpen && (
+      {!moreOpen && !isAssistant && (
         <button
           ref={fabRef}
           type="button"
           className="fab"
           aria-label="הוסף משימה"
+          data-testid="quick-add-fab"
           onClick={() => setQuickAddOpen(true)}
         >
           <Plus size={24} strokeWidth={2.5} />

@@ -23,6 +23,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   themeColor: '#0e1626',
+  // Shrink the layout viewport with the on-screen keyboard so the עוזר
+  // composer is not left under it on mobile Chrome / Safari.
+  interactiveWidget: 'resizes-content',
 }
 
 export const metadata: Metadata = {
