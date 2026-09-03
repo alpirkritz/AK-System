@@ -117,6 +117,7 @@ export {
 export {
   ensureMeetingForNote,
   linkOrphanedNotes,
+  triggerAnalysisIfNeeded,
   type EnsureMeetingResult,
 } from './services/notion-meeting-sync'
 

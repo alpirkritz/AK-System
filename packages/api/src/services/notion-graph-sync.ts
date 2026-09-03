@@ -812,6 +812,12 @@ export async function syncNotionGraph(
             const result = await ensureMeetingForNote(id, title, date)
             meetingId = result.meetingId
           }
+
+          // Trigger analysis if we have a transcript
+          if (meetingId && bodyText && bodyText.length >= 100) {
+            const { triggerAnalysisIfNeeded } = await import('./notion-meeting-sync')
+            void triggerAnalysisIfNeeded(meetingId, id, bodyText)
+          }
         }
       } else {
         id = newId('mn_')
@@ -840,6 +846,12 @@ export async function syncNotionGraph(
             const { ensureMeetingForNote } = await import('./notion-meeting-sync')
             const result = await ensureMeetingForNote(id, title, date)
             meetingId = result.meetingId
+          }
+
+          // Trigger analysis if we have a transcript
+          if (meetingId && bodyText && bodyText.length >= 100) {
+            const { triggerAnalysisIfNeeded } = await import('./notion-meeting-sync')
+            void triggerAnalysisIfNeeded(meetingId, id, bodyText)
           }
         }
         noteIdByPage.set(page.id, id)

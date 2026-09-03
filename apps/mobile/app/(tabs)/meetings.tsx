@@ -47,6 +47,7 @@ export default function MeetingsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
   const [recurringOnly, setRecurringOnly] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
@@ -83,6 +84,19 @@ export default function MeetingsScreen() {
           new Date(b.date + 'T' + (b.time || '00:00')).getTime(),
       )
   }, [meetings, recurringOnly])
+
+  const past = useMemo(() => {
+    return meetings
+      .filter((m) => isPast(m.date, m.time))
+      .filter((m) => (recurringOnly ? m.recurring : true))
+      .sort(
+        (a, b) =>
+          new Date(b.date + 'T' + (b.time || '00:00')).getTime() -
+          new Date(a.date + 'T' + (a.time || '00:00')).getTime(),
+      )
+  }, [meetings, recurringOnly])
+
+  const displayedMeetings = activeTab === 'upcoming' ? upcoming : past
 
   useEffect(() => {
     if (!focus || upcoming.length === 0) return
@@ -153,6 +167,32 @@ export default function MeetingsScreen() {
 
       {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
 
+      {/* Tab switcher */}
+      <View style={styles.tabRow}>
+        <Pressable 
+          style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
+          onPress={() => setActiveTab('upcoming')}
+          accessibilityRole="button"
+          accessibilityLabel="הצג פגישות קרובות"
+          accessibilityState={{ selected: activeTab === 'upcoming' }}
+        >
+          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
+            קרובות {upcoming.length > 0 && `(${upcoming.length})`}
+          </Text>
+        </Pressable>
+        <Pressable 
+          style={[styles.tab, activeTab === 'past' && styles.tabActive]}
+          onPress={() => setActiveTab('past')}
+          accessibilityRole="button"
+          accessibilityLabel="הצג פגישות שעברו"
+          accessibilityState={{ selected: activeTab === 'past' }}
+        >
+          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>
+            עברו {past.length > 0 && `(${past.length})`}
+          </Text>
+        </Pressable>
+      </View>
+
       <FilterChips
         items={[
           { key: 'all', label: 'הכל' },
@@ -166,7 +206,7 @@ export default function MeetingsScreen() {
 
       <FlatList
         ref={listRef}
-        data={upcoming}
+        data={displayedMeetings}
         keyExtractor={(m) => m.id}
         contentContainerStyle={[styles.list, { paddingBottom: 88 + insets.bottom }]}
         refreshControl={
@@ -180,7 +220,10 @@ export default function MeetingsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="📅"
-            text={recurringOnly ? 'אין פגישות חוזרות' : 'אין פגישות קרובות'}
+            text={activeTab === 'upcoming' 
+              ? (recurringOnly ? 'אין פגישות חוזרות קרובות' : 'אין פגישות קרובות')
+              : (recurringOnly ? 'אין פגישות חוזרות קודמות' : 'אין פגישות קודמות')
+            }
           />
         }
         renderItem={({ item }) => {
@@ -247,6 +290,37 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  tabRow: {
+    flexDirection: 'row-reverse',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  tab: {
+    flex: 1,
+    maxWidth: 180,
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabActive: {
+    backgroundColor: colors.accent,
+  },
+  tabText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '500',
+    writingDirection: 'rtl',
+  },
+  tabTextActive: {
+    color: colors.bg,
+    fontWeight: '600',
   },
   list: { paddingHorizontal: 16, flexGrow: 1 },
   card: { padding: 16, marginBottom: 10 },

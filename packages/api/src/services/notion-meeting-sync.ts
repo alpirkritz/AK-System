@@ -121,3 +121,107 @@ export async function linkOrphanedNotes(): Promise<{ linked: number; created: nu
 
   return { linked, created }
 }
+
+/**
+ * Trigger conversation analysis immediately after Notion sync detects a new transcript.
+ * Runs async (fire-and-forget) to not block Notion sync.
+ * 
+ * @param meetingId - The meeting ID to analyze
+ * @param noteId - The note ID containing the transcript
+ * @param transcriptText - The transcript text to analyze
+ */
+export async function triggerAnalysisIfNeeded(
+  meetingId: string,
+  noteId: string,
+  transcriptText: string,
+): Promise<void> {
+  // Dynamic imports to avoid circular dependencies
+  const { getDb, meetingAnalyses, meetings, eq, desc } = await import('@ak-system/database')
+  const { analyzeTranscript } = await import('./meeting-analysis')
+  const { formatAnalysisMessage } = await import('../../../apps/web/src/lib/analysis-message-formatter')
+  const { pushAssistantMessage } = await import('../../../apps/web/src/lib/push-notifications')
+
+  const db = getDb()
+  const now = new Date()
+
+  // Check existing analysis
+  const [existing] = await db
+    .select({ id: meetingAnalyses.id, status: meetingAnalyses.status, createdAt: meetingAnalyses.createdAt })
+    .from(meetingAnalyses)
+    .where(eq(meetingAnalyses.meetingId, meetingId))
+    .orderBy(desc(meetingAnalyses.createdAt))
+    .limit(1)
+
+  // Skip if completed or pending
+  if (existing && (existing.status === 'completed' || existing.status === 'pending')) return
+
+  // Skip if failed but recent (< 1 hour)
+  if (existing?.status === 'failed' && existing.createdAt) {
+    const failedAt = new Date(existing.createdAt).getTime()
+    if (now.getTime() - failedAt < 60 * 60 * 1000) return
+  }
+
+  // Trigger analysis (async, don't block sync)
+  void (async () => {
+    try {
+      const analysisId = 'ma_' + Date.now()
+      await db.insert(meetingAnalyses).values({
+        id: analysisId,
+        meetingId,
+        meetingNoteId: noteId,
+        source: 'notion_sync',
+        transcriptText,
+        status: 'pending',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      })
+
+      const [meeting] = await db.select({ title: meetings.title, date: meetings.date })
+        .from(meetings)
+        .where(eq(meetings.id, meetingId))
+        .limit(1)
+
+      const result = await analyzeTranscript({
+        transcriptText,
+        meetingTitle: meeting?.title ?? 'פגישה',
+        meetingDate: meeting?.date ?? now.toISOString().split('T')[0],
+      })
+
+      await db.update(meetingAnalyses)
+        .set({
+          ...result,
+          participantsJson: JSON.stringify(result.participants),
+          actionItemsJson: JSON.stringify(result.actionItems),
+          model: 'gemini-2.5-flash',
+          status: 'completed',
+          updatedAt: now.toISOString(),
+        })
+        .where(eq(meetingAnalyses.id, analysisId))
+
+      const message = formatAnalysisMessage(result, meeting?.title ?? 'פגישה', meeting?.date ?? now.toISOString().split('T')[0])
+      await pushAssistantMessage(message, 'cron', { typeId: 'meeting_analysis' })
+    } catch (err) {
+      console.error('[notion-sync] Auto-analysis failed:', err)
+      // Try to mark as failed in DB
+      try {
+        const failedAnalysisId = 'ma_' + Date.now() + '_err'
+        await db.insert(meetingAnalyses).values({
+          id: failedAnalysisId,
+          meetingId,
+          meetingNoteId: noteId,
+          source: 'notion_sync',
+          transcriptText,
+          status: 'failed',
+          error: err instanceof Error ? err.message : 'Unknown error',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        }).catch(() => {
+          // Ignore insert error if already exists
+        })
+      } catch {
+        // Ignore error logging failure
+      }
+    }
+  })()
+}
+

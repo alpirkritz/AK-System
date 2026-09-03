@@ -12,6 +12,7 @@ import {
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
+import { ConversationAnalysis } from '../../components/ConversationAnalysis'
 import { useAuth } from '../../lib/auth'
 import {
   deleteMeeting,
@@ -272,6 +273,9 @@ export default function MeetingDetailScreen() {
           />
         </>
       ) : null}
+
+      {/* Conversation Analysis */}
+      {id && <ConversationAnalysis meetingId={id} />}
 
       <Pressable
         onPress={onDelete}
