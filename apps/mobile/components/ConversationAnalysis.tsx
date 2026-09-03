@@ -69,6 +69,7 @@ export function ConversationAnalysis({ meetingId }: Props) {
 
   const loadAnalysis = async () => {
     if (!token) return
+    setLoading(true)
     try {
       const client = createTrpcClient(token)
       const [analysisResult, meetingResult] = await Promise.all([
@@ -79,6 +80,11 @@ export function ConversationAnalysis({ meetingId }: Props) {
       setMeeting(meetingResult)
     } catch (err) {
       console.error('[ConversationAnalysis] Load failed:', err)
+      const errorMessage = err instanceof Error ? err.message : 'שגיאת רשת'
+      Alert.alert('שגיאה בטעינת ניתוח', `לא הצלחנו לטעון את הניתוח: ${errorMessage}`, [
+        { text: 'ביטול', style: 'cancel' },
+        { text: 'נסה שוב', onPress: () => void loadAnalysis() },
+      ])
     } finally {
       setLoading(false)
     }
@@ -210,15 +216,26 @@ export function ConversationAnalysis({ meetingId }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Header with hat badge */}
+      {/* Header with hat badge and refresh */}
       <View style={styles.card}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>ניתוח שיחה</Text>
-          {analysis.hatName && (
-            <View style={styles.hatBadge}>
-              <Text style={styles.hatText}>{analysis.hatName}</Text>
-            </View>
-          )}
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>ניתוח שיחה</Text>
+            {analysis.hatName && (
+              <View style={styles.hatBadge}>
+                <Text style={styles.hatText}>{analysis.hatName}</Text>
+              </View>
+            )}
+          </View>
+          <Pressable
+            onPress={() => void loadAnalysis()}
+            disabled={loading}
+            style={styles.refreshButton}
+            accessibilityRole="button"
+            accessibilityLabel="רענן ניתוח"
+          >
+            <Text style={styles.refreshIcon}>🔄</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -412,6 +429,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  headerLeft: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  refreshIcon: {
+    fontSize: 18,
   },
   title: {
     color: colors.text,

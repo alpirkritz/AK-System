@@ -101,7 +101,7 @@ export function FormSheetScaffold({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 20, gap: 8, paddingBottom: 40 },
+  content: { padding: 20, gap: 8, paddingBottom: 120 },
   headerAction: { color: colors.accent, fontSize: 16, fontWeight: '600', paddingHorizontal: 8 },
   headerActionDisabled: { color: colors.textMuted },
 })
