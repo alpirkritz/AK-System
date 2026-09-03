@@ -256,11 +256,13 @@ export function titlesFuzzyMatch(a: string, b: string): boolean {
 }
 
 export function isNotionGraphConfigured(): boolean {
+  // Accept any of: meetings, meeting_notes, projects, companies, or people
+  // meetings DB alone is enough — it holds the core relationship graph
   return (
+    resolveDatabases('meetings').length > 0 ||
+    resolveDatabases('meeting_notes').length > 0 ||
     resolveDatabases('projects').length > 0 ||
     resolveDatabases('companies').length > 0 ||
-    resolveDatabases('meeting_notes').length > 0 ||
-    resolveDatabases('meetings').length > 0 ||
     resolveDatabases('people').length > 0
   )
 }
@@ -296,7 +298,7 @@ export async function syncNotionGraph(
   }
 
   if (!isNotionGraphConfigured()) {
-    throw new Error('לא הוגדרו מסדי Notion לגרף קשר (people/projects/companies/meeting_notes)')
+    throw new Error('לא הוגדרו מסדי Notion לגרף קשר (meetings/meeting_notes/people/projects/companies)')
   }
 
   const now = new Date().toISOString()

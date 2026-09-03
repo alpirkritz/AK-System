@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "bash scripts/dev.sh",
+    "sync:notion": "tsx scripts/test-notion-meetings-sync.ts",
     "dev:raw": "pnpm --filter @ak-system/web dev",
     "build": "pnpm --filter @ak-system/web build",
     "start": "pnpm --filter @ak-system/web start",
