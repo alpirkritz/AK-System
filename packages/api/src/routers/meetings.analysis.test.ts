@@ -57,8 +57,7 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
       meetingId: meeting.id,
     })
 
-    expect(result.status).toBe('completed')
-    expect(result.hatName).toBe('White Hat (עובדות וניתוח אובייקטיבי)')
+    expect(result.analysisId).toBeDefined()
 
     // Verify analysis can be fetched
     const analysis = await caller.meetings.getAnalysis({
@@ -66,8 +65,8 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
     })
 
     expect(analysis).not.toBeNull()
-    expect(analysis!.meetingId).toBe(meeting.id)
     expect(analysis!.status).toBe('completed')
+    expect(analysis!.hatName).toBe('White Hat (עובדות וניתוח אובייקטיבי)')
     expect(analysis!.topic).toBe('תכנון ספרינט Q2')
     expect(analysis!.score).toBe(7)
     expect(analysis!.actionItems).toHaveLength(2)
@@ -111,7 +110,7 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
 
     await expect(
       caller.meetings.analyzeTranscript({ meetingId: meeting.id })
-    ).rejects.toThrow('Transcript too short')
+    ).rejects.toThrow('No transcript available or transcript too short')
   })
 
   it('creates tasks from action items', async () => {
@@ -152,9 +151,9 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
 
     // Verify analysis was updated with task ID
     const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
-    const actionItems = JSON.parse(analysis!.actionItemsJson!)
-    expect(actionItems[0].taskId).toBeDefined()
-    expect(actionItems[1].taskId).toBeUndefined()
+    expect(analysis).not.toBeNull()
+    expect(analysis!.actionItems[0].taskId).toBeDefined()
+    expect(analysis!.actionItems[1].taskId).toBeUndefined()
   })
 
   it('creates all tasks when indices not specified', async () => {

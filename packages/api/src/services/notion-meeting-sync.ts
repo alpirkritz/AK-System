@@ -3,7 +3,7 @@
  * Ensures every note has a meeting to enable conversation analysis and full meeting features.
  */
 
-import { getDb, meetings, meetingNotes, eq, and } from '@ak-system/database'
+import { getDb, meetings, meetingNotes, eq, and, isNull } from '@ak-system/database'
 
 export interface EnsureMeetingResult {
   meetingId: string
@@ -106,7 +106,7 @@ export async function linkOrphanedNotes(): Promise<{ linked: number; created: nu
       date: meetingNotes.date,
     })
     .from(meetingNotes)
-    .where(eq(meetingNotes.meetingId, null))
+    .where(isNull(meetingNotes.meetingId))
 
   let linked = 0
   let created = 0
