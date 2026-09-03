@@ -206,7 +206,7 @@ export default function MeetingsPage() {
     })
   }
 
-  const [pastExpanded, setPastExpanded] = useState(false)
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
   const [recurringOnly, setRecurringOnly] = useState(false)
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [expandedSeries, setExpandedSeries] = useState<Set<string>>(new Set())
@@ -596,89 +596,77 @@ export default function MeetingsPage() {
         </div>
       )}
 
-      {/* Upcoming meetings */}
-      {upcomingMeetings.length === 0 && pastMeetings.length === 0 && (
-        <p className="text-[#5a688c] text-sm mt-4">
-          {recurringOnly ? 'אין פגישות חוזרות עדיין' : 'אין פגישות עדיין'}
-        </p>
+      {/* Upcoming tab */}
+      {activeTab === 'upcoming' && (
+        <>
+          {upcomingMeetings.length === 0 && (
+            <p className="text-[#5a688c] text-sm mt-4">
+              {recurringOnly ? 'אין פגישות חוזרות קרובות' : 'אין פגישות קרובות'}
+            </p>
+          )}
+
+          {/* Series groups — collapsible, shared people + cadence */}
+          {seriesGroups.map(({ id, meetings: ms }) => {
+            const series = seriesMap.get(id)
+            const expanded = expandedSeries.has(id)
+            const sharedPeopleIds = series?.peopleIds ?? [...new Set(ms.flatMap((m) => m.peopleIds ?? []))]
+            return (
+              <div key={id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid #29395d' }}>
+                <button
+                  onClick={() => toggleSeries(id)}
+                  className="w-full flex items-center justify-between gap-3 px-5 py-3 text-right hover:bg-[#141f36] transition-colors"
+                  aria-expanded={expanded}
+                >
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="font-semibold text-[15px] truncate">{series?.title ?? ms[0].title}</span>
+                    <span className="pill">↻ {series?.cadence === 'weekly' ? 'שבועי' : 'סדרה'}</span>
+                    <span className="text-xs text-[#647399]">{ms.length} מפגשים</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex gap-1">
+                      {sharedPeopleIds.slice(0, 4).map((pid) => {
+                        const p = getPerson(pid)
+                        return p ? (
+                          <div
+                            key={pid}
+                            className="avatar border-[1.5px]"
+                            style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
+                          >
+                            {p.name[0]}
+                          </div>
+                        ) : null
+                      })}
+                    </div>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[#4d659c]"
+                      style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                      <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                </button>
+                {expanded && (
+                  <div className="px-2 pb-2 pt-1">
+                    {ms.map((m) => renderMeetingCard(m, false))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {standaloneUpcoming.map((m) => renderMeetingCard(m, false))}
+        </>
       )}
-      {upcomingMeetings.length === 0 && pastMeetings.length > 0 && (
-        <p className="text-[#5a688c] text-sm mt-4 mb-4">אין פגישות קרובות</p>
-      )}
 
-      {/* Series groups — collapsible, shared people + cadence */}
-      {seriesGroups.map(({ id, meetings: ms }) => {
-        const series = seriesMap.get(id)
-        const expanded = expandedSeries.has(id)
-        const sharedPeopleIds = series?.peopleIds ?? [...new Set(ms.flatMap((m) => m.peopleIds ?? []))]
-        return (
-          <div key={id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid #29395d' }}>
-            <button
-              onClick={() => toggleSeries(id)}
-              className="w-full flex items-center justify-between gap-3 px-5 py-3 text-right hover:bg-[#141f36] transition-colors"
-              aria-expanded={expanded}
-            >
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <span className="font-semibold text-[15px] truncate">{series?.title ?? ms[0].title}</span>
-                <span className="pill">↻ {series?.cadence === 'weekly' ? 'שבועי' : 'סדרה'}</span>
-                <span className="text-xs text-[#647399]">{ms.length} מפגשים</span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex gap-1">
-                  {sharedPeopleIds.slice(0, 4).map((pid) => {
-                    const p = getPerson(pid)
-                    return p ? (
-                      <div
-                        key={pid}
-                        className="avatar border-[1.5px]"
-                        style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
-                      >
-                        {p.name[0]}
-                      </div>
-                    ) : null
-                  })}
-                </div>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[#4d659c]"
-                  style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                  <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-            </button>
-            {expanded && (
-              <div className="px-2 pb-2 pt-1">
-                {ms.map((m) => renderMeetingCard(m, false))}
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {standaloneUpcoming.map((m) => renderMeetingCard(m, false))}
-
-      {/* Past meetings — collapsible section */}
-      {pastMeetings.length > 0 && (
-        <div className="mt-6">
-          <button
-            onClick={() => setPastExpanded((v) => !v)}
-            className="flex items-center gap-2 mb-3 group/past cursor-pointer"
-          >
-            <span className="text-xs font-semibold text-[#4d659c] uppercase tracking-wider group-hover/past:text-[#647399] transition-colors">
-              עברו · {pastMeetings.length}
-            </span>
-            <svg
-              width="12" height="12" viewBox="0 0 12 12" fill="none"
-              className="text-[#4d659c] group-hover/past:text-[#647399] transition-all"
-              style={{ transform: pastExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
-            >
-              <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          {pastExpanded && (
+      {/* Past tab */}
+      {activeTab === 'past' && (
+        <>
+          {pastMeetings.length === 0 ? (
+            <p className="text-[#5a688c] text-sm mt-4">אין פגישות קודמות</p>
+          ) : (
             <div>
               {pastMeetings.map((m) => renderMeetingCard(m, true))}
             </div>
           )}
-        </div>
+        </>
       )}
 
       <MeetingModal
