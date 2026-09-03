@@ -114,6 +114,11 @@ export {
   type AnalysisParticipant,
   type AnalysisActionItem,
 } from './services/meeting-analysis'
+export {
+  ensureMeetingForNote,
+  linkOrphanedNotes,
+  type EnsureMeetingResult,
+} from './services/notion-meeting-sync'
 
 export const appRouter = router({
   people: peopleRouter,

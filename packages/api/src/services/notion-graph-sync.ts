@@ -805,6 +805,13 @@ export async function syncNotionGraph(
               updatedAt: now,
             })
             .where(eq(meetingNotes.id, id))
+
+          // Auto-create meeting for orphaned notes (in case meetingId is now null)
+          if (!meetingId) {
+            const { ensureMeetingForNote } = await import('./notion-meeting-sync')
+            const result = await ensureMeetingForNote(id, title, date)
+            meetingId = result.meetingId
+          }
         }
       } else {
         id = newId('mn_')
@@ -827,6 +834,13 @@ export async function syncNotionGraph(
             createdAt: now,
             updatedAt: now,
           })
+
+          // Auto-create meeting for orphaned notes
+          if (!meetingId) {
+            const { ensureMeetingForNote } = await import('./notion-meeting-sync')
+            const result = await ensureMeetingForNote(id, title, date)
+            meetingId = result.meetingId
+          }
         }
         noteIdByPage.set(page.id, id)
       }

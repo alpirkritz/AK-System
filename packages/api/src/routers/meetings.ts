@@ -799,4 +799,10 @@ export const meetingsRouter = router({
 
       return { createdTaskIds }
     }),
+
+  linkOrphanedNotes: protectedProcedure.mutation(async () => {
+    const { linkOrphanedNotes } = await import('../services/notion-meeting-sync')
+    const result = await linkOrphanedNotes()
+    return result
+  }),
 })

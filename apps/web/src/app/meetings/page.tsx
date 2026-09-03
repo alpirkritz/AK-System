@@ -20,12 +20,25 @@ type MeetingRow = {
   seriesId?: string | null
   calendarEventId?: string | null
   calendarSource?: string | null
+  source?: string | null
   peopleIds?: string[]
   taskIds?: string[]
 }
 
 const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
 const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
+
+const MEETING_SOURCE_ICONS: Record<string, string> = {
+  calendar: '🗓️',
+  notion_note: '📝',
+  manual: '✏️',
+}
+
+const MEETING_SOURCE_LABELS: Record<string, string> = {
+  calendar: 'Calendar',
+  notion_note: 'Notion',
+  manual: 'Manual',
+}
 
 function isPastMeeting(date: string, time: string): boolean {
   const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
@@ -314,6 +327,19 @@ export default function MeetingsPage() {
                       }}
                     >
                       {SOURCE_LABEL[m.calendarSource] ?? m.calendarSource}
+                    </span>
+                  )}
+                  {m.source && m.source !== 'calendar' && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                      style={{
+                        background: '#8b5cf6' + '22',
+                        color: '#8b5cf6',
+                        border: '1px solid #8b5cf633',
+                      }}
+                      title={`Source: ${m.source}`}
+                    >
+                      {MEETING_SOURCE_ICONS[m.source] || ''} {MEETING_SOURCE_LABELS[m.source] || m.source}
                     </span>
                   )}
                 </div>

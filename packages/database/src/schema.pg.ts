@@ -198,6 +198,10 @@ export const meetings = pgTable('meetings', {
   calendarSource: text('calendar_source'),
   /** Notion Meetings page id when synced from a Notion meetings database */
   notionPageId: text('notion_page_id'),
+  /** Source of this meeting: 'calendar' | 'notion_note' | 'manual' */
+  source: text('source').notNull().default('calendar'),
+  /** When source='notion_note', this is the first note that created the meeting */
+  sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -207,6 +211,8 @@ export const meetings = pgTable('meetings', {
   typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
   calendarEventIdIdx: index('idx_meetings_calendar_event_id').on(table.calendarEventId),
   notionPageIdIdx: index('idx_meetings_notion_page_id').on(table.notionPageId),
+  sourceIdx: index('idx_meetings_source').on(table.source),
+  sourceNoteIdIdx: index('idx_meetings_source_note_id').on(table.sourceNoteId),
 }))
 
 export const meetingPeople = pgTable('meeting_people', {

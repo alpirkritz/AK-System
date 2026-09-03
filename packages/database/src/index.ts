@@ -33,6 +33,10 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN type_id TEXT',
   'ALTER TABLE meetings ADD COLUMN notion_page_id TEXT',
   'CREATE INDEX IF NOT EXISTS idx_meetings_notion_page_id ON meetings(notion_page_id)',
+  "ALTER TABLE meetings ADD COLUMN source TEXT NOT NULL DEFAULT 'calendar'",
+  'ALTER TABLE meetings ADD COLUMN source_note_id TEXT REFERENCES meeting_notes(id) ON DELETE SET NULL',
+  'CREATE INDEX IF NOT EXISTS idx_meetings_source ON meetings(source)',
+  'CREATE INDEX IF NOT EXISTS idx_meetings_source_note_id ON meetings(source_note_id)',
 ]
 
 const MEETING_STRUCTURE_TABLES = [

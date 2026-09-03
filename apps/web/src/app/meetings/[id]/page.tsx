@@ -34,6 +34,7 @@ export default function MeetingDetailPage() {
     endTime?: string | null
     calendarSource?: string | null
     calendarEventId?: string | null
+    source?: string | null
     peopleIds?: string[]
   }
   const mx = meeting as MeetingExtended
@@ -282,18 +283,36 @@ export default function MeetingDetailPage() {
             {SOURCE_LABEL[mx.calendarSource] ?? mx.calendarSource}
           </span>
         )}
+        {mx.source && mx.source !== 'calendar' && (
+          <span
+            className="text-[11px] px-2 py-0.5 rounded-full"
+            style={{
+              background: '#8b5cf6' + '22',
+              color: '#8b5cf6',
+              border: '1px solid #8b5cf633',
+            }}
+            title={`Source: ${mx.source}`}
+          >
+            {mx.source === 'notion_note' ? '📝 Notion' : mx.source === 'manual' ? '✏️ Manual' : mx.source}
+          </span>
+        )}
       </div>
 
       {/* ── Metadata row ───────────────────────────────────────────────────── */}
       <div className="text-[#647399] text-sm mb-7 flex items-center gap-3 flex-wrap">
-        📅 {new Date(meeting.date + 'T00:00:00').toLocaleDateString('he-IL')} · {meeting.time}
-        {mx.endTime && (
-          <span className="text-[#5a688c]">
-            · {formatDuration(`${meeting.date}T${meeting.time}`, mx.endTime)}
-          </span>
-        )}
-        {mx.location && (
-          <span className="flex items-center gap-1 text-[#5a688c]">📍 {mx.location}</span>
+        📅 {new Date(meeting.date + 'T00:00:00').toLocaleDateString('he-IL')}
+        {(!mx.source || mx.source === 'calendar') && (
+          <>
+            {' · '}{meeting.time}
+            {mx.endTime && (
+              <span className="text-[#5a688c]">
+                · {formatDuration(`${meeting.date}T${meeting.time}`, mx.endTime)}
+              </span>
+            )}
+            {mx.location && (
+              <span className="flex items-center gap-1 text-[#5a688c]">📍 {mx.location}</span>
+            )}
+          </>
         )}
 
         {/* Project pill — or actionable CTA when missing */}
