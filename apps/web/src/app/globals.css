@@ -370,6 +370,9 @@ body {
   max-height: 90vh;
   overflow-y: auto;
 }
+.modal-large {
+  width: 720px;
+}
 
 /* ── Primitives ──────────────────────────────────────────────── */
 

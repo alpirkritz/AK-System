@@ -7,6 +7,9 @@
 
 import { useState } from 'react'
 import { trpc } from '@/lib/trpc'
+import { TaskModal } from '@/components/Modals/TaskModal'
+import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
+import { derivePriorityFromContext } from '@ak-system/api/src/services/meeting-analysis'
 
 interface ConversationAnalysisProps {
   meetingId: string
@@ -14,16 +17,18 @@ interface ConversationAnalysisProps {
 
 export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
   const [showTranscript, setShowTranscript] = useState(false)
+  const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [batchModalOpen, setBatchModalOpen] = useState(false)
+  const [selectedActionIndex, setSelectedActionIndex] = useState<number | null>(null)
 
   const { data: analysis, isLoading, refetch } = trpc.meetings.getAnalysis.useQuery({ meetingId })
+  const { data: meeting } = trpc.meetings.getById.useQuery({ id: meetingId })
+  const { data: people = [] } = trpc.people.list.useQuery()
+  const { data: meetings = [] } = trpc.meetings.list.useQuery()
+  const { data: projects = [] } = trpc.projects.list.useQuery()
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   
   const analyzeMutation = trpc.meetings.analyzeTranscript.useMutation({
-    onSuccess: () => {
-      refetch()
-    },
-  })
-
-  const createTasksMutation = trpc.meetings.createTasksFromAnalysis.useMutation({
     onSuccess: () => {
       refetch()
     },
@@ -33,19 +38,31 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     analyzeMutation.mutate({ meetingId, force: false })
   }
 
-  const handleCreateTask = (index: number) => {
-    if (!analysis) return
-    createTasksMutation.mutate({
-      analysisId: analysis.id,
-      indices: [index],
-    })
+  const openTaskModal = (index: number) => {
+    setSelectedActionIndex(index)
+    setTaskModalOpen(true)
   }
 
-  const handleCreateAllTasks = () => {
-    if (!analysis) return
-    createTasksMutation.mutate({
-      analysisId: analysis.id,
-    })
+  const closeTaskModal = () => {
+    setTaskModalOpen(false)
+    setSelectedActionIndex(null)
+  }
+
+  const handleTaskCreated = () => {
+    refetch()
+    closeTaskModal()
+  }
+
+  const handleBatchSaved = () => {
+    refetch()
+    setBatchModalOpen(false)
+  }
+
+  function matchPersonByName(ownerName: string | undefined): string {
+    if (!ownerName) return ''
+    const normalized = ownerName.trim().toLowerCase()
+    const match = people.find((p) => p.name.toLowerCase() === normalized)
+    return match?.id ?? ''
   }
 
   if (isLoading) {
@@ -267,9 +284,8 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
               </h4>
               {hasUnassignedTasks && (
                 <button
-                  onClick={handleCreateAllTasks}
-                  disabled={createTasksMutation.isPending}
-                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  onClick={() => setBatchModalOpen(true)}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium transition-colors"
                 >
                   צור הכל
                 </button>
@@ -296,9 +312,8 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                   </div>
                   {!item.taskId ? (
                     <button
-                      onClick={() => handleCreateTask(index)}
-                      disabled={createTasksMutation.isPending}
-                      className="px-3 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0"
+                      onClick={() => openTaskModal(index)}
+                      className="px-3 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-xs font-medium transition-colors flex-shrink-0"
                     >
                       צור משימה
                     </button>
@@ -331,6 +346,43 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
           )}
         </div>
       </div>
+
+      {/* Task Creation Modals */}
+      {selectedActionIndex !== null && analysis && (
+        <TaskModal
+          open={taskModalOpen}
+          onClose={closeTaskModal}
+          meetingId={meetingId}
+          projectId={meeting?.projectId ?? null}
+          workspaceId={null}
+          initialValues={{
+            title: analysis.actionItems[selectedActionIndex]?.content,
+            priority: derivePriorityFromContext(analysis.actionItems[selectedActionIndex]?.content ?? ''),
+            dueDate: meeting?.date,
+            assigneeId: matchPersonByName(analysis.actionItems[selectedActionIndex]?.owner),
+          }}
+          people={people}
+          meetings={meetings}
+          projects={projects}
+          workspaces={workspaces}
+          onCreated={handleTaskCreated}
+        />
+      )}
+
+      {analysis && (
+        <BatchTaskModal
+          open={batchModalOpen}
+          onClose={() => setBatchModalOpen(false)}
+          analysisId={analysis.id}
+          actionItems={analysis.actionItems}
+          meetingId={meetingId}
+          meetingDate={meeting?.date}
+          projectId={meeting?.projectId ?? null}
+          people={people}
+          workspaces={workspaces}
+          onSaved={handleBatchSaved}
+        />
+      )}
     </div>
   )
 }

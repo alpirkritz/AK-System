@@ -47,6 +47,8 @@ export type TaskInput = {
   workspaceId?: string | null
   /** Omit to let the server default to the owner; `null` means nobody. */
   assigneeId?: string | null
+  meetingId?: string | null
+  projectId?: string | null
 }
 
 /** Counters returned by a manual Notion tasks sync. */

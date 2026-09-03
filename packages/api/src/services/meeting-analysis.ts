@@ -254,3 +254,24 @@ export async function analyzeTranscript(options: AnalyzeTranscriptOptions): Prom
     throw new Error('Analysis failed with unknown error')
   }
 }
+
+/**
+ * Derives task priority from action item content based on urgency keywords.
+ * Used to pre-fill task creation forms with intelligent priority defaults.
+ */
+export function derivePriorityFromContext(content: string): 'high' | 'medium' | 'low' {
+  const lower = content.toLowerCase()
+  const urgentKeywords = [
+    'דחוף',
+    'urgent',
+    'asap',
+    'היום',
+    'עכשיו',
+    'מיידי',
+    'critical',
+    'today',
+    'now',
+    'immediately',
+  ]
+  return urgentKeywords.some((kw) => lower.includes(kw)) ? 'high' : 'medium'
+}

@@ -3,6 +3,26 @@ import { colors } from '../lib/theme'
 import { createTrpcClient } from '../lib/trpc'
 import { useAuth } from '../lib/auth'
 import { useState, useEffect } from 'react'
+import { useRouter } from 'expo-router'
+import { BatchTaskModal } from './BatchTaskModal'
+
+// Copy of the helper from packages/api - keep in sync
+function derivePriorityFromContext(content: string): 'high' | 'medium' | 'low' {
+  const lower = content.toLowerCase()
+  const urgentKeywords = [
+    'דחוף',
+    'urgent',
+    'asap',
+    'היום',
+    'עכשיו',
+    'מיידי',
+    'critical',
+    'today',
+    'now',
+    'immediately',
+  ]
+  return urgentKeywords.some((kw) => lower.includes(kw)) ? 'high' : 'medium'
+}
 
 type AnalysisParticipant = {
   name: string
@@ -40,17 +60,23 @@ type Props = {
 
 export function ConversationAnalysis({ meetingId }: Props) {
   const { token } = useAuth()
+  const router = useRouter()
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
+  const [meeting, setMeeting] = useState<{ date?: string; projectId?: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
-  const [creatingTasks, setCreatingTasks] = useState<Set<number>>(new Set())
+  const [batchModalVisible, setBatchModalVisible] = useState(false)
 
   const loadAnalysis = async () => {
     if (!token) return
     try {
       const client = createTrpcClient(token)
-      const result = await client.meetings.getAnalysis.query({ meetingId })
-      setAnalysis(result)
+      const [analysisResult, meetingResult] = await Promise.all([
+        client.meetings.getAnalysis.query({ meetingId }),
+        client.meetings.getById.query({ id: meetingId }).catch(() => null),
+      ])
+      setAnalysis(analysisResult)
+      setMeeting(meetingResult)
     } catch (err) {
       console.error('[ConversationAnalysis] Load failed:', err)
     } finally {
@@ -78,56 +104,36 @@ export function ConversationAnalysis({ meetingId }: Props) {
   }
 
   const handleCreateTask = async (index: number) => {
-    if (!token || !analysis || creatingTasks.has(index)) return
-    setCreatingTasks(prev => new Set(prev).add(index))
-    try {
-      const client = createTrpcClient(token)
-      await client.meetings.createTasksFromAnalysis.mutate({
-        analysisId: analysis.id,
-        indices: [index],
-      })
-      await loadAnalysis()
-    } catch (err) {
-      console.error('[ConversationAnalysis] Create task failed:', err)
-    } finally {
-      setCreatingTasks(prev => {
-        const next = new Set(prev)
-        next.delete(index)
-        return next
-      })
+    if (!analysis) return
+    const item = analysis.actionItems[index]
+    const priority = derivePriorityFromContext(item.content)
+
+    // Match person by name (simple client-side matching)
+    // In a production app, this could be done via a tRPC query
+    const params: Record<string, string> = {
+      title: item.content,
+      priority,
+      meetingId,
     }
+    
+    if (meeting?.date) params.dueDate = meeting.date
+    if (meeting?.projectId) params.projectId = meeting.projectId
+    // assigneeId would require fetching people list; skip for now
+
+    router.push({
+      pathname: '/task/new' as any,
+      params,
+    })
   }
 
-  const handleCreateAllTasks = async () => {
-    if (!token || !analysis) return
-    
-    const unassignedCount = analysis.actionItems.filter(item => !item.taskId).length
-    
-    if (unassignedCount > 5) {
-      Alert.alert(
-        'יצירת משימות',
-        `ליצור ${unassignedCount} משימות מאקשן אייטמס?`,
-        [
-          { text: 'ביטול', style: 'cancel' },
-          { text: 'צור', onPress: () => void doCreateAllTasks() },
-        ]
-      )
-    } else {
-      await doCreateAllTasks()
-    }
+  const handleCreateAllTasks = () => {
+    if (!analysis) return
+    setBatchModalVisible(true)
   }
 
-  const doCreateAllTasks = async () => {
-    if (!token || !analysis) return
-    try {
-      const client = createTrpcClient(token)
-      await client.meetings.createTasksFromAnalysis.mutate({
-        analysisId: analysis.id,
-      })
-      await loadAnalysis()
-    } catch (err) {
-      console.error('[ConversationAnalysis] Create all tasks failed:', err)
-    }
+  const handleBatchSaved = async () => {
+    setBatchModalVisible(false)
+    await loadAnalysis()
   }
 
   // Loading state
@@ -343,21 +349,30 @@ export function ConversationAnalysis({ meetingId }: Props) {
               ) : (
                 <Pressable
                   onPress={() => void handleCreateTask(index)}
-                  disabled={creatingTasks.has(index)}
                   style={styles.createTaskButton}
                   accessibilityRole="button"
                   accessibilityLabel={`צור משימה: ${item.content}`}
                 >
-                  {creatingTasks.has(index) ? (
-                    <ActivityIndicator size="small" color={colors.accent} />
-                  ) : (
-                    <Text style={styles.createTaskText}>צור משימה</Text>
-                  )}
+                  <Text style={styles.createTaskText}>צור משימה</Text>
                 </Pressable>
               )}
             </View>
           ))}
         </View>
+      )}
+
+      {/* Batch Task Modal */}
+      {analysis && (
+        <BatchTaskModal
+          visible={batchModalVisible}
+          onClose={() => setBatchModalVisible(false)}
+          analysisId={analysis.id}
+          actionItems={analysis.actionItems}
+          meetingId={meetingId}
+          meetingDate={meeting?.date}
+          projectId={meeting?.projectId ?? null}
+          onSaved={handleBatchSaved}
+        />
       )}
     </View>
   )

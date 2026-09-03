@@ -66,7 +66,25 @@ function formatDateLabel(value: string): string {
 }
 
 export default function TaskDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { 
+    id, 
+    title: titleParam, 
+    priority: priorityParam, 
+    dueDate: dueDateParam, 
+    assigneeId: assigneeIdParam, 
+    meetingId: meetingIdParam, 
+    projectId: projectIdParam, 
+    workspaceId: workspaceIdParam 
+  } = useLocalSearchParams<{ 
+    id: string 
+    title?: string
+    priority?: string
+    dueDate?: string
+    assigneeId?: string
+    meetingId?: string
+    projectId?: string
+    workspaceId?: string
+  }>()
   const isNew = !id || id === 'new'
   const { token } = useAuth()
   const router = useRouter()
@@ -88,6 +106,8 @@ export default function TaskDetailScreen() {
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
   const [assigneeSearch, setAssigneeSearch] = useState('')
+  const [meetingId, setMeetingId] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
 
   const selectedWorkspace = workspaces.find((w) => w.id === workspaceId)
   const willCreateInNotion = isNew && (selectedWorkspace?.notionDatabases?.length ?? 0) > 0
@@ -106,7 +126,17 @@ export default function TaskDetailScreen() {
       setPeople(contacts.some((p) => p.id === self.id) ? contacts : [self, ...contacts])
       setSelfPersonId(self.id)
       if (isNew) {
-        setAssigneeId(self.id)
+        // Apply pre-fill from query params
+        if (titleParam) setTitle(titleParam)
+        if (priorityParam && ['high', 'medium', 'low'].includes(priorityParam)) {
+          setPriority(priorityParam as 'high' | 'medium' | 'low')
+        }
+        if (dueDateParam) setDueDate(dueDateParam)
+        if (assigneeIdParam) setAssigneeId(assigneeIdParam)
+        else setAssigneeId(self.id) // Default to self if no assignee specified
+        if (meetingIdParam) setMeetingId(meetingIdParam)
+        if (projectIdParam) setProjectId(projectIdParam)
+        if (workspaceIdParam) setWorkspaceId(workspaceIdParam)
       } else if (id) {
         setLoading(true)
         const task = await fetchTask(token, id)
@@ -127,7 +157,7 @@ export default function TaskDetailScreen() {
     } finally {
       setLoading(false)
     }
-  }, [token, id, isNew])
+  }, [token, id, isNew, titleParam, priorityParam, dueDateParam, assigneeIdParam, meetingIdParam, projectIdParam, workspaceIdParam])
 
   const visiblePeople = useMemo(() => {
     const ordered = selfPersonId
@@ -184,6 +214,8 @@ export default function TaskDetailScreen() {
         priority,
         dueDate: dueDate.trim() || null,
         workspaceId,
+        meetingId,
+        projectId,
       }
       // Only send an assignee once the picker actually has state. If loading the
       // owner failed, omitting the key lets the server apply its own default

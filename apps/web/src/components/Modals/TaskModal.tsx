@@ -23,6 +23,7 @@ export function TaskModal({
   meetings,
   projects,
   workspaces = [],
+  initialValues,
   onCreated,
   onPeopleSync,
 }: {
@@ -36,6 +37,13 @@ export function TaskModal({
   meetings: MeetingOption[]
   projects: ProjectOption[]
   workspaces?: WorkspaceOption[]
+  /** Pre-fill form fields when creating a new task (ignored when editing). */
+  initialValues?: {
+    title?: string
+    priority?: 'high' | 'medium' | 'low'
+    dueDate?: string
+    assigneeId?: string
+  }
   /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
   onCreated?: (notionSync: { ok: boolean } | null) => void
   /** Fired after the related people are saved, with the outcome of pushing them to the Notion relation. */
@@ -79,19 +87,19 @@ export function TaskModal({
       }))
     } else if (!editingTaskId) {
       setForm((f) => ({
-        title: '',
+        title: initialValues?.title ?? '',
         meetingId: meetingId ?? '',
         projectId: projectIdProp ?? (meeting as { projectId?: string } | null)?.projectId ?? f.projectId,
         workspaceId: workspaceIdProp ?? f.workspaceId,
-        assigneeId: '',
-        dueDate: '',
-        priority: 'medium',
+        assigneeId: initialValues?.assigneeId ?? '',
+        dueDate: initialValues?.dueDate ?? '',
+        priority: initialValues?.priority ?? 'medium',
         status: 'not_started',
         relatedPersonIds: [],
       }))
       setRelatedPeopleFilter('')
     }
-  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, workspaceIdProp, meeting, taskPeopleIds])
+  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, workspaceIdProp, meeting, taskPeopleIds, initialValues])
 
   // New tasks default to the owner. Applied once per open so a deliberate
   // "ללא אחראי" is not undone when the query refetches.
