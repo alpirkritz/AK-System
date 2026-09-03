@@ -551,6 +551,30 @@ export default function MeetingsPage() {
         </div>
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex gap-2 items-center mb-6">
+        <button
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'upcoming'
+              ? 'bg-[#2dd4bf] text-[#0a0a0a]'
+              : 'bg-[#1e2a3f] text-[#647399] hover:text-[#97a4c2]'
+          }`}
+          onClick={() => setActiveTab('upcoming')}
+        >
+          קרובות {upcomingMeetings.length > 0 && `(${upcomingMeetings.length})`}
+        </button>
+        <button
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'past'
+              ? 'bg-[#2dd4bf] text-[#0a0a0a]'
+              : 'bg-[#1e2a3f] text-[#647399] hover:text-[#97a4c2]'
+          }`}
+          onClick={() => setActiveTab('past')}
+        >
+          עברו {pastMeetings.length > 0 && `(${pastMeetings.length})`}
+        </button>
+      </div>
+
       {/* Filter chips */}
       <div className="flex gap-1.5 mb-5">
         <button
