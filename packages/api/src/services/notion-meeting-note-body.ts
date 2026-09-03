@@ -21,6 +21,7 @@ const NOTES_NOTION_VERSION = '2025-09-03'
 
 export const MEETING_NOTE_BODY_CAP = 8000
 export const MEETING_NOTE_SUMMARY_CAP = 8000
+export const MEETING_TRANSCRIPT_CAP = 50000
 export const MEETING_NOTE_MAX_DEPTH = 3
 export const MEETING_NOTE_MAX_BLOCKS = 200
 export const MEETING_PAGE_SUMMARY_KIND = 'meeting_page_summary'
@@ -48,6 +49,7 @@ export type NotionBlock = Record<string, unknown> & {
 
 export interface FetchMeetingNoteBodyResult {
   bodyText: string
+  transcriptText: string
   sourceBlockId: string | null
   topLevelTypes: string
   blockCount: number
@@ -190,6 +192,29 @@ export function extractAiMeetingSummary(
   }
 
   return parts.join('\n').trim().slice(0, cap)
+}
+
+/**
+ * Extract raw transcript blocks from Notion AI Meeting Notes.
+ * Opposite of extractAiMeetingSummary - keeps dialogue dumps, skips structured summary.
+ */
+export function extractRawTranscript(
+  blocks: Array<Record<string, unknown>>,
+  cap = MEETING_TRANSCRIPT_CAP,
+): string {
+  const widget = findAiNotesWidget(blocks)
+  if (!widget) return ''
+
+  const parts: string[] = []
+  const children = Array.isArray(widget.children) ? (widget.children as Array<Record<string, unknown>>) : []
+  
+  for (const child of children) {
+    if (!isTranscriptishBlock(child)) continue
+    const chunk = flattenNotionBlocksToText([child], cap)
+    if (chunk.trim()) parts.push(chunk)
+  }
+
+  return parts.join('\n\n').trim().slice(0, cap)
 }
 
 export function listTopLevelBlockTypes(blocks: Array<Record<string, unknown>>): string {
@@ -369,6 +394,7 @@ export async function fetchMeetingNoteBody(
   const used = MEETING_NOTE_MAX_BLOCKS - budget.remaining
   return {
     bodyText: extractAiMeetingSummary(blocks, MEETING_NOTE_SUMMARY_CAP),
+    transcriptText: extractRawTranscript(blocks, MEETING_TRANSCRIPT_CAP),
     sourceBlockId: pickSourceBlockId(blocks),
     topLevelTypes: listTopLevelBlockTypes(blocks),
     blockCount: used,

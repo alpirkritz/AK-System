@@ -265,6 +265,38 @@ export const meetingNoteProjects = pgTable('meeting_note_projects', {
   pairUq: uniqueIndex('uq_meeting_note_projects_pair').on(table.meetingNoteId, table.projectId),
 }))
 
+/** Deep qualitative analysis of meeting conversations (from Notion transcripts or recordings). */
+export const meetingAnalyses = pgTable('meeting_analyses', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  meetingNoteId: text('meeting_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
+  source: text('source').notNull(),
+  transcriptText: text('transcript_text'),
+  audioPath: text('audio_path'),
+  hatName: text('hat_name'),
+  topic: text('topic'),
+  mood: text('mood'),
+  subtext: text('subtext'),
+  keyInsight: text('key_insight'),
+  score: integer('score'),
+  scoreRationale: text('score_rationale'),
+  kaizenKeep: text('kaizen_keep'),
+  kaizenImprove: text('kaizen_improve'),
+  openQuestion: text('open_question'),
+  participantsJson: text('participants_json'),
+  actionItemsJson: text('action_items_json'),
+  model: text('model'),
+  status: text('status').notNull().default('pending'),
+  error: text('error'),
+  consentConfirmedAt: text('consent_confirmed_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  meetingIdIdx: index('idx_meeting_analyses_meeting_id').on(table.meetingId),
+  statusIdx: index('idx_meeting_analyses_status').on(table.status),
+  sourceIdx: index('idx_meeting_analyses_source').on(table.source),
+}))
+
 export const tasks = pgTable('tasks', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -696,6 +728,8 @@ export const userSettings = pgTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
   /** JSON DashboardPrefs — meetingWindow / taskWindow for mobile (and future web) */
   dashboardPrefs: text('dashboard_prefs'),
+  /** Auto-create tasks from meeting analysis action items */
+  autoCreateActionItemTasks: boolean('auto_create_action_item_tasks').notNull().default(false),
   updatedAt: text('updated_at').notNull(),
 })
 

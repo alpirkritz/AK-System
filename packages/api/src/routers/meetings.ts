@@ -565,4 +565,238 @@ export const meetingsRouter = router({
     await ctx.db.delete(meetings).where(eq(meetings.id, input.id))
     return { ok: true }
   }),
+
+  analyzeTranscript: protectedProcedure
+    .input(
+      z.object({
+        meetingId: z.string().min(1),
+        force: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { analyzeTranscript } = await import('../services/meeting-analysis')
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      // Check if analysis already exists
+      const existing = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.meetingId, input.meetingId))
+        .limit(1)
+
+      if (existing.length > 0 && !input.force) {
+        return { analysisId: existing[0].id }
+      }
+
+      // Fetch meeting and transcript
+      const [meeting] = await ctx.db
+        .select()
+        .from(meetings)
+        .where(eq(meetings.id, input.meetingId))
+        .limit(1)
+
+      if (!meeting) {
+        throw new Error('Meeting not found')
+      }
+
+      const [note] = await ctx.db
+        .select()
+        .from(meetingNotes)
+        .where(eq(meetingNotes.meetingId, input.meetingId))
+        .limit(1)
+
+      const transcriptText = note?.bodyText || ''
+      if (!transcriptText || transcriptText.trim().length < 100) {
+        throw new Error('No transcript available or transcript too short')
+      }
+
+      // Fetch participants
+      const participantRows = await ctx.db
+        .select({ name: people.name })
+        .from(meetingPeople)
+        .leftJoin(people, eq(people.id, meetingPeople.personId))
+        .where(eq(meetingPeople.meetingId, input.meetingId))
+
+      const participantNames = participantRows
+        .map((p) => p.name)
+        .filter(Boolean) as string[]
+
+      // Create analysis record
+      const now = new Date().toISOString()
+      const analysisId = 'ma_' + Date.now()
+
+      await ctx.db.insert(meetingAnalyses).values({
+        id: analysisId,
+        meetingId: input.meetingId,
+        meetingNoteId: note?.id || null,
+        source: 'notion_transcript',
+        transcriptText,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      // Run analysis
+      try {
+        const result = await analyzeTranscript({
+          transcriptText,
+          meetingTitle: meeting.title,
+          meetingDate: meeting.date,
+          participantNames,
+        })
+
+        await ctx.db
+          .update(meetingAnalyses)
+          .set({
+            hatName: result.hatName,
+            topic: result.topic,
+            mood: result.mood,
+            subtext: result.subtext,
+            keyInsight: result.keyInsight,
+            score: result.score,
+            scoreRationale: result.scoreRationale,
+            kaizenKeep: result.kaizenKeep,
+            kaizenImprove: result.kaizenImprove,
+            openQuestion: result.openQuestion,
+            participantsJson: JSON.stringify(result.participants),
+            actionItemsJson: JSON.stringify(result.actionItems),
+            model: 'gemini-2.5-flash',
+            status: 'completed',
+            updatedAt: now,
+          })
+          .where(eq(meetingAnalyses.id, analysisId))
+
+        return { analysisId }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        await ctx.db
+          .update(meetingAnalyses)
+          .set({
+            status: 'failed',
+            error: errorMessage,
+            updatedAt: now,
+          })
+          .where(eq(meetingAnalyses.id, analysisId))
+
+        throw new Error(`Analysis failed: ${errorMessage}`)
+      }
+    }),
+
+  getAnalysis: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      const [analysis] = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.meetingId, input.meetingId))
+        .orderBy(desc(meetingAnalyses.createdAt))
+        .limit(1)
+
+      if (!analysis) {
+        return null
+      }
+
+      return {
+        id: analysis.id,
+        hatName: analysis.hatName,
+        topic: analysis.topic,
+        mood: analysis.mood,
+        subtext: analysis.subtext,
+        keyInsight: analysis.keyInsight,
+        score: analysis.score,
+        scoreRationale: analysis.scoreRationale,
+        kaizenKeep: analysis.kaizenKeep,
+        kaizenImprove: analysis.kaizenImprove,
+        openQuestion: analysis.openQuestion,
+        participants: analysis.participantsJson
+          ? JSON.parse(analysis.participantsJson)
+          : [],
+        actionItems: analysis.actionItemsJson
+          ? JSON.parse(analysis.actionItemsJson)
+          : [],
+        status: analysis.status,
+        error: analysis.error,
+        createdAt: analysis.createdAt,
+      }
+    }),
+
+  createTasksFromAnalysis: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        indices: z.array(z.number()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      const [analysis] = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.id, input.analysisId))
+        .limit(1)
+
+      if (!analysis) {
+        throw new Error('Analysis not found')
+      }
+
+      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+        analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
+
+      const itemsToCreate = input.indices
+        ? input.indices.map((i) => actionItems[i]).filter(Boolean)
+        : actionItems
+
+      const createdTaskIds: string[] = []
+      const now = new Date().toISOString()
+
+      for (const item of itemsToCreate) {
+        if (item.taskId) continue // Already created
+
+        // Try to match owner to existing person
+        let assigneeId: string | null = null
+        if (item.owner) {
+          const [match] = await ctx.db
+            .select({ id: people.id })
+            .from(people)
+            .where(eq(people.name, item.owner))
+            .limit(1)
+          assigneeId = match?.id || null
+        }
+
+        const taskId = 't' + Date.now() + Math.random().toString(36).slice(2, 7)
+
+        await ctx.db.insert(tasks).values({
+          id: taskId,
+          title: item.content,
+          meetingId: analysis.meetingId,
+          assigneeId,
+          projectId: null,
+          workspaceId: null,
+          dueDate: null,
+          done: false,
+          status: 'not_started',
+          priority: 'medium',
+          source: 'meeting_analysis',
+          createdAt: now,
+          updatedAt: now,
+        })
+
+        item.taskId = taskId
+        createdTaskIds.push(taskId)
+      }
+
+      // Update analysis with task IDs
+      await ctx.db
+        .update(meetingAnalyses)
+        .set({
+          actionItemsJson: JSON.stringify(actionItems),
+          updatedAt: now,
+        })
+        .where(eq(meetingAnalyses.id, input.analysisId))
+
+      return { createdTaskIds }
+    }),
 })

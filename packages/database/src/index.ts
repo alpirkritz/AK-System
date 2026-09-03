@@ -56,6 +56,37 @@ const MEETING_STRUCTURE_TABLES = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_meetings_series_id ON meetings(series_id)`,
   `CREATE INDEX IF NOT EXISTS idx_meetings_type_id ON meetings(type_id)`,
+  `CREATE TABLE IF NOT EXISTS meeting_analyses (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
+    meeting_note_id TEXT,
+    source TEXT NOT NULL,
+    transcript_text TEXT,
+    audio_path TEXT,
+    hat_name TEXT,
+    topic TEXT,
+    mood TEXT,
+    subtext TEXT,
+    key_insight TEXT,
+    score INTEGER,
+    score_rationale TEXT,
+    kaizen_keep TEXT,
+    kaizen_improve TEXT,
+    open_question TEXT,
+    participants_json TEXT,
+    action_items_json TEXT,
+    model TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    consent_confirmed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+    FOREIGN KEY (meeting_note_id) REFERENCES meeting_notes(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_meeting_id ON meeting_analyses(meeting_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_status ON meeting_analyses(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_source ON meeting_analyses(source)`,
 ]
 
 const PEOPLE_COLUMNS = [
@@ -591,6 +622,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
   'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
+  'ALTER TABLE user_settings ADD COLUMN auto_create_action_item_tasks INTEGER NOT NULL DEFAULT 0',
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [
@@ -948,6 +980,7 @@ export const meetingPeople = schema.meetingPeople
 export const meetingNotes = schema.meetingNotes
 export const meetingNotePeople = schema.meetingNotePeople
 export const meetingNoteProjects = schema.meetingNoteProjects
+export const meetingAnalyses = schema.meetingAnalyses
 export const tasks = schema.tasks
 export const taskPeople = schema.taskPeople
 export const financeTrades = schema.financeTrades
@@ -1032,6 +1065,8 @@ export type ProjectSource = (typeof schemaPg.PROJECT_SOURCES)[number]
 export type PersonExternalProvider = (typeof schemaPg.PERSON_EXTERNAL_PROVIDERS)[number]
 export type PersonExternalId = typeof schemaPg.personExternalIds.$inferSelect
 export type MeetingNote = typeof schemaPg.meetingNotes.$inferSelect
+export type MeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferSelect
+export type NewMeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferInsert
 export type Task = typeof schemaPg.tasks.$inferSelect
 export type NewTask = typeof schemaPg.tasks.$inferInsert
 export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect

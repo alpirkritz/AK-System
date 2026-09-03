@@ -107,6 +107,13 @@ export {
   formatImportReport,
   type IbkrImportResult,
 } from './services/ibkr-import-service'
+export {
+  analyzeTranscript,
+  type AnalyzeTranscriptOptions,
+  type AnalysisResult,
+  type AnalysisParticipant,
+  type AnalysisActionItem,
+} from './services/meeting-analysis'
 
 export const appRouter = router({
   people: peopleRouter,

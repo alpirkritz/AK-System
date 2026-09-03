@@ -8,6 +8,7 @@ import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
+import { ConversationAnalysis } from '../components/ConversationAnalysis'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -374,6 +375,11 @@ export default function MeetingDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Conversation Analysis */}
+          <div className="mt-4">
+            <ConversationAnalysis meetingId={id} />
+          </div>
 
           {/* Notes card — inline editing */}
           <div className="card mt-4">
