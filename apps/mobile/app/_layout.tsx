@@ -17,6 +17,17 @@ const formSheet = {
   sheetCornerRadius: 20,
 }
 
+/**
+ * Sheets whose body is a ScrollView must NOT use `fitToContents`: the sheet
+ * sizes itself to the content, so the scroll viewport equals the content height
+ * and the list can never overflow — scrolling is dead and the tail is clipped.
+ * A fixed detent bounds the sheet so the ScrollView can actually scroll.
+ */
+const scrollableFormSheet = {
+  ...formSheet,
+  sheetAllowedDetents: [0.92],
+}
+
 function navigateFromNotificationUrl(router: ReturnType<typeof useRouter>, url: string) {
   const target = mobileRouteForNotificationUrl(url)
   const params: Record<string, string> = {}
@@ -86,11 +97,11 @@ function RootNavigator() {
         <Stack.Screen name="reading-list" options={{ title: 'רשימת קריאה' }} />
         <Stack.Screen name="account" options={{ title: 'החשבון שלי', ...formSheet }} />
         <Stack.Screen name="agents" options={{ title: 'סוכנים' }} />
-        <Stack.Screen name="agent/[id]" options={{ title: 'הגדרות סוכן', ...formSheet }} />
+        <Stack.Screen name="agent/[id]" options={{ title: 'הגדרות סוכן', ...scrollableFormSheet }} />
         <Stack.Screen name="projects" options={{ title: 'פרויקטים' }} />
-        <Stack.Screen name="project/[id]" options={{ title: 'פרויקט', ...formSheet }} />
-        <Stack.Screen name="person/[id]" options={{ title: 'איש קשר', ...formSheet }} />
-        <Stack.Screen name="meeting/[id]" options={{ title: 'פגישה', ...formSheet }} />
+        <Stack.Screen name="project/[id]" options={{ title: 'פרויקט', ...scrollableFormSheet }} />
+        <Stack.Screen name="person/[id]" options={{ title: 'איש קשר', ...scrollableFormSheet }} />
+        <Stack.Screen name="meeting/[id]" options={{ title: 'פגישה', ...scrollableFormSheet }} />
         <Stack.Screen name="calendar" options={{ title: 'יומן' }} />
         <Stack.Screen name="finance" options={{ title: 'פיננסים' }} />
         <Stack.Screen name="memory" options={{ title: 'זיכרון' }} />
@@ -103,7 +114,7 @@ function RootNavigator() {
         <Stack.Screen
           name="task/[id]"
           options={{
-            ...formSheet,
+            ...scrollableFormSheet,
             headerShown: true,
             title: 'משימה',
           }}

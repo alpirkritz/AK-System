@@ -92,7 +92,7 @@ export function ConversationAnalysis({ meetingId }: Props) {
 
   useEffect(() => {
     void loadAnalysis()
-  }, [meetingId, token])
+  }, [loadAnalysis])
 
   const handleAnalyze = useCallback(async () => {
     if (!token || analyzing) return
@@ -406,7 +406,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: 16,
-    marginBottom: 32,
   },
   errorCard: {
     borderColor: colors.coral + '66',
@@ -456,7 +455,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     writingDirection: 'rtl',
     flexShrink: 1,
-    flexWrap: 'wrap',
   },
   description: {
     color: colors.textMuted,
@@ -472,6 +470,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#8b5cf6' + '33',
+    flexShrink: 1,
   },
   hatText: {
     color: '#8b5cf6',
@@ -496,7 +495,6 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
     lineHeight: 22,
     flexShrink: 1,
-    flexWrap: 'wrap',
   },
   italic: {
     fontStyle: 'italic',
@@ -590,6 +588,7 @@ const styles = StyleSheet.create({
   },
   actionContent: {
     flex: 1,
+    minWidth: 0,
   },
   actionText: {
     color: colors.text,
@@ -640,6 +639,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.accent,
+    flexShrink: 0,
   },
   createTaskText: {
     color: colors.accent,
@@ -656,6 +656,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.success + '33',
+    flexShrink: 0,
   },
   createdText: {
     color: colors.success,

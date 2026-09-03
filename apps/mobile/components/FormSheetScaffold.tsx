@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack, useRouter } from 'expo-router'
 import { colors } from '../lib/theme'
 
@@ -43,6 +44,7 @@ export function FormSheetScaffold({
   children,
 }: Props) {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const cancel = onCancel ?? (() => router.back())
 
   return (
@@ -88,12 +90,10 @@ export function FormSheetScaffold({
       >
         <ScrollView
           style={styles.flex}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: 32 + insets.bottom }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          nestedScrollEnabled={true}
-          showsVerticalScrollIndicator={true}
-          scrollEventThrottle={16}
+          showsVerticalScrollIndicator
         >
           {children}
         </ScrollView>
@@ -104,7 +104,7 @@ export function FormSheetScaffold({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 20, gap: 8, paddingBottom: 500 },
+  content: { padding: 20, gap: 8 },
   headerAction: { color: colors.accent, fontSize: 16, fontWeight: '600', paddingHorizontal: 8 },
   headerActionDisabled: { color: colors.textMuted },
 })
