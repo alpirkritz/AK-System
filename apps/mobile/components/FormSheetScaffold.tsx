@@ -91,6 +91,9 @@ export function FormSheetScaffold({
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          nestedScrollEnabled={true}
+          showsVerticalScrollIndicator={true}
+          scrollEventThrottle={16}
         >
           {children}
         </ScrollView>

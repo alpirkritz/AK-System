@@ -2,7 +2,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { colors } from '../lib/theme'
 import { createTrpcClient } from '../lib/trpc'
 import { useAuth } from '../lib/auth'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, memo } from 'react'
 import { useRouter } from 'expo-router'
 import { BatchTaskModal } from './BatchTaskModal'
 
@@ -67,7 +67,7 @@ export function ConversationAnalysis({ meetingId }: Props) {
   const [analyzing, setAnalyzing] = useState(false)
   const [batchModalVisible, setBatchModalVisible] = useState(false)
 
-  const loadAnalysis = async () => {
+  const loadAnalysis = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
@@ -88,13 +88,13 @@ export function ConversationAnalysis({ meetingId }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [token, meetingId])
 
   useEffect(() => {
     void loadAnalysis()
   }, [meetingId, token])
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
     if (!token || analyzing) return
     setAnalyzing(true)
     try {
@@ -107,9 +107,9 @@ export function ConversationAnalysis({ meetingId }: Props) {
     } finally {
       setAnalyzing(false)
     }
-  }
+  }, [token, analyzing, meetingId, loadAnalysis])
 
-  const handleCreateTask = async (index: number) => {
+  const handleCreateTask = useCallback(async (index: number) => {
     if (!analysis) return
     const item = analysis.actionItems[index]
     const priority = derivePriorityFromContext(item.content)
@@ -130,17 +130,17 @@ export function ConversationAnalysis({ meetingId }: Props) {
       pathname: '/task/new' as any,
       params,
     })
-  }
+  }, [analysis, meetingId, meeting, router])
 
-  const handleCreateAllTasks = () => {
+  const handleCreateAllTasks = useCallback(() => {
     if (!analysis) return
     setBatchModalVisible(true)
-  }
+  }, [analysis])
 
-  const handleBatchSaved = async () => {
+  const handleBatchSaved = useCallback(async () => {
     setBatchModalVisible(false)
     await loadAnalysis()
-  }
+  }, [loadAnalysis])
 
   // Loading state
   if (loading) {
@@ -455,6 +455,8 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     writingDirection: 'rtl',
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   description: {
     color: colors.textMuted,
@@ -493,6 +495,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     writingDirection: 'rtl',
     lineHeight: 22,
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   italic: {
     fontStyle: 'italic',
@@ -516,12 +520,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     writingDirection: 'rtl',
+    flexShrink: 1,
   },
   calloutText: {
     color: colors.text,
     fontSize: 14,
     writingDirection: 'rtl',
     lineHeight: 20,
+    flexShrink: 1,
   },
   scoreValue: {
     color: colors.accent,
