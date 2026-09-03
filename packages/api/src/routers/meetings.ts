@@ -722,6 +722,125 @@ export const meetingsRouter = router({
       }
     }),
 
+  linkAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+        personId: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      // 1. Fetch the analysis
+      const [analysis] = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.id, input.analysisId))
+        .limit(1)
+
+      if (!analysis) {
+        throw new Error('Analysis not found')
+      }
+
+      // 2. Parse participants JSON
+      const participants = analysis.participantsJson
+        ? JSON.parse(analysis.participantsJson)
+        : []
+
+      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
+        throw new Error('Invalid participant index')
+      }
+
+      // 3. Update the participant
+      participants[input.participantIndex] = {
+        ...participants[input.participantIndex],
+        personId: input.personId,
+        confirmed: true,
+      }
+
+      // 4. Update the analysis record
+      await ctx.db
+        .update(meetingAnalyses)
+        .set({
+          participantsJson: JSON.stringify(participants),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(meetingAnalyses.id, input.analysisId))
+
+      // 5. Auto-add person to meeting if not already present
+      const [meeting] = await ctx.db
+        .select()
+        .from(meetings)
+        .where(eq(meetings.id, analysis.meetingId))
+        .limit(1)
+
+      if (meeting) {
+        const currentPeopleIds = meeting.peopleIds ? JSON.parse(meeting.peopleIds) : []
+        if (!currentPeopleIds.includes(input.personId)) {
+          currentPeopleIds.push(input.personId)
+          await ctx.db
+            .update(meetings)
+            .set({
+              peopleIds: JSON.stringify(currentPeopleIds),
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(meetings.id, analysis.meetingId))
+        }
+      }
+
+      return { success: true }
+    }),
+
+  confirmAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      // 1. Fetch the analysis
+      const [analysis] = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.id, input.analysisId))
+        .limit(1)
+
+      if (!analysis) {
+        throw new Error('Analysis not found')
+      }
+
+      // 2. Parse participants JSON
+      const participants = analysis.participantsJson
+        ? JSON.parse(analysis.participantsJson)
+        : []
+
+      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
+        throw new Error('Invalid participant index')
+      }
+
+      // 3. Mark participant as confirmed
+      participants[input.participantIndex] = {
+        ...participants[input.participantIndex],
+        confirmed: true,
+      }
+
+      // 4. Update the analysis record
+      await ctx.db
+        .update(meetingAnalyses)
+        .set({
+          participantsJson: JSON.stringify(participants),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(meetingAnalyses.id, input.analysisId))
+
+      return { success: true }
+    }),
+
   createTasksFromAnalysis: protectedProcedure
     .input(
       z.object({

@@ -339,6 +339,70 @@ export default function MeetingDetailPage() {
         <div>
           <div className="card">
             <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">משתתפים</div>
+            
+            {/* Quick Add Tags */}
+            {(() => {
+              // Extract unique tags from all people
+              const allTags = new Set<string>()
+              people.forEach((p) => {
+                if (p.tags) {
+                  p.tags.split(',').forEach((tag) => {
+                    const trimmed = tag.trim()
+                    if (trimmed) allTags.add(trimmed)
+                  })
+                }
+              })
+              
+              if (allTags.size > 0) {
+                return (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {[...allTags].map((tag) => {
+                      // Count people with this tag
+                      const taggedPeople = people.filter((p) =>
+                        p.tags?.split(',').some((t) => t.trim() === tag)
+                      )
+                      const count = taggedPeople.length
+                      
+                      return (
+                        <button
+                          key={tag}
+                          onClick={() => {
+                            // Add all people with this tag to the meeting
+                            const newPeopleIds = [...peopleIds]
+                            taggedPeople.forEach((p) => {
+                              if (!newPeopleIds.includes(p.id)) {
+                                newPeopleIds.push(p.id)
+                              }
+                            })
+                            if (newPeopleIds.length > peopleIds.length) {
+                              updateMeeting.mutate({
+                                id,
+                                title: meeting.title,
+                                date: meeting.date,
+                                time: meeting.time ?? '',
+                                category: meeting.category,
+                                recurring: meeting.recurring,
+                                recurrenceDay: meeting.recurrenceDay,
+                                notes: meeting.notes ?? '',
+                                projectId: meeting.projectId,
+                                typeId: meeting.typeId,
+                                peopleIds: JSON.stringify(newPeopleIds),
+                              })
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:border-teal-500/50 rounded-lg text-xs font-medium transition-all"
+                        >
+                          + {tag}
+                          <span className="text-[10px] opacity-70">({count})</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              }
+              return null
+            })()}
+            
             {peopleIds.map((pid) => {
               const p = getPerson(pid)
               return p ? (
@@ -360,6 +424,11 @@ export default function MeetingDetailPage() {
                 </div>
               ) : null
             })}
+          </div>
+
+          {/* Conversation Analysis */}
+          <div className="mt-4">
+            <ConversationAnalysis meetingId={id} />
           </div>
 
           {/* Notion meeting summaries linked to this calendar meeting */}
@@ -394,11 +463,6 @@ export default function MeetingDetailPage() {
               </div>
             </div>
           )}
-
-          {/* Conversation Analysis */}
-          <div className="mt-4">
-            <ConversationAnalysis meetingId={id} />
-          </div>
 
           {/* Notes card — inline editing */}
           <div className="card mt-4">
