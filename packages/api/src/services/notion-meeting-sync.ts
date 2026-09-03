@@ -125,7 +125,7 @@ export async function linkOrphanedNotes(): Promise<{ linked: number; created: nu
 /**
  * Trigger conversation analysis immediately after Notion sync detects a new transcript.
  * Runs async (fire-and-forget) to not block Notion sync.
- * 
+ *
  * @param meetingId - The meeting ID to analyze
  * @param noteId - The note ID containing the transcript
  * @param transcriptText - The transcript text to analyze
@@ -138,8 +138,6 @@ export async function triggerAnalysisIfNeeded(
   // Dynamic imports to avoid circular dependencies
   const { getDb, meetingAnalyses, meetings, eq, desc } = await import('@ak-system/database')
   const { analyzeTranscript } = await import('./meeting-analysis')
-  const { formatAnalysisMessage } = await import('../../../apps/web/src/lib/analysis-message-formatter')
-  const { pushAssistantMessage } = await import('../../../apps/web/src/lib/push-notifications')
 
   const db = getDb()
   const now = new Date()
@@ -198,8 +196,8 @@ export async function triggerAnalysisIfNeeded(
         })
         .where(eq(meetingAnalyses.id, analysisId))
 
-      const message = formatAnalysisMessage(result, meeting?.title ?? 'פגישה', meeting?.date ?? now.toISOString().split('T')[0])
-      await pushAssistantMessage(message, 'cron', { typeId: 'meeting_analysis' })
+      // Note: WhatsApp notification is sent by the cron job that polls for new analyses
+      // (apps/web/src/app/api/cron/transcript-analysis/route.ts)
     } catch (err) {
       console.error('[notion-sync] Auto-analysis failed:', err)
       // Try to mark as failed in DB
@@ -212,14 +210,12 @@ export async function triggerAnalysisIfNeeded(
           source: 'notion_sync',
           transcriptText,
           status: 'failed',
-          error: err instanceof Error ? err.message : 'Unknown error',
+          error: err instanceof Error ? err.message : String(err),
           createdAt: now.toISOString(),
           updatedAt: now.toISOString(),
-        }).catch(() => {
-          // Ignore insert error if already exists
         })
-      } catch {
-        // Ignore error logging failure
+      } catch (dbErr) {
+        console.error('[notion-sync] Failed to save error state:', dbErr)
       }
     }
   })()

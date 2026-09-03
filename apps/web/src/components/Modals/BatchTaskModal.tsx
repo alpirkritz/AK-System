@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_LABELS, PRIORITY_COLORS } from '@ak-system/types'
 import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
-import { derivePriorityFromContext } from '@ak-system/api/src/services/meeting-analysis'
+import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
 import type { Person } from '@ak-system/database'
 
 type ActionItem = {

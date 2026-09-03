@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import { TaskModal } from '@/components/Modals/TaskModal'
 import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
-import { derivePriorityFromContext } from '@ak-system/api/src/services/meeting-analysis'
+import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
 
 interface ConversationAnalysisProps {
   meetingId: string

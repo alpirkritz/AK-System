@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./lib/expo-push": "./src/lib/expo-push.ts",
     "./lib/mobile-push": "./src/lib/mobile-push.ts",
-    "./lib/notification-store": "./src/lib/notification-store.ts"
+    "./lib/notification-store": "./src/lib/notification-store.ts",
+    "./lib/task-priority": "./src/lib/task-priority.ts"
   },
   "dependencies": {
     "@ak-system/database": "workspace:*",

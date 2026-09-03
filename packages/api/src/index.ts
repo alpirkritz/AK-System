@@ -109,6 +109,7 @@ export {
 } from './services/ibkr-import-service'
 export {
   analyzeTranscript,
+  derivePriorityFromContext,
   type AnalyzeTranscriptOptions,
   type AnalysisResult,
   type AnalysisParticipant,
