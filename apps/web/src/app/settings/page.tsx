@@ -12,6 +12,16 @@ import {
 
 // ── localStorage keys (shared with ConflictsWidget and dashboard) ─────────────
 import { LS } from '@/lib/ls-keys'
+import { ThenBySort } from '@/components/ThenBySort'
+import {
+  TASK_SORT_KEYS,
+  TASK_SORT_LABELS,
+  MEETING_SORT_KEYS,
+  MEETING_SORT_LABELS,
+  type TaskSortKey,
+  type MeetingSortKey,
+  type SortPref,
+} from '@/lib/sort-keys'
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Jerusalem',     label: 'ישראל (Asia/Jerusalem)' },
@@ -692,9 +702,23 @@ export default function SettingsPage() {
   const [timezone, setTimezone]                 = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
   const [savedFlash, setSavedFlash]             = useState(false)
   const [agentCals, setAgentCals]               = useState<string[] | null>(null)
+  const [sortMessage, setSortMessage]           = useState<string | null>(null)
 
   const { data: agentCalData } = trpc.settings.agentCalendars.get.useQuery(undefined, {
     enabled: hydrated,
+  })
+  const { data: sortPrefsData } = trpc.settings.listSort.get.useQuery()
+  const setSortPrefs = trpc.settings.listSort.set.useMutation({
+    onSuccess: () => {
+      setSortMessage('ברירת המחדל עודכנה')
+      setTimeout(() => setSortMessage(null), 2000)
+      // Clear localStorage overrides when saving new defaults
+      try {
+        localStorage.removeItem(LS.DASHBOARD_TASKS_SORT)
+        localStorage.removeItem(LS.TASKS_PAGE_SORT)
+        localStorage.removeItem(LS.MEETINGS_PAST_SORT)
+      } catch { /* ignore */ }
+    },
   })
   const { data: catalogData, isFetching: catalogLoading } = trpc.calendar.catalog.useQuery(undefined, {
     enabled: hydrated,
@@ -1148,6 +1172,72 @@ export default function SettingsPage() {
         >
 
           <TimezoneSelect value={timezone} onChange={(v) => set(LS.TIMEZONE, v, setTimezone)} />
+        </Row>
+      </Section>
+
+      {/* ── Section: Sort Preferences ─────────────────────────────────────────── */}
+      <Section
+        icon={
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
+            <path d="M4 7h12M4 13h8" stroke="#a78bfa" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M14 16l2-2 2 2M18 10l-2-2-2 2" stroke="#a78bfa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        }
+        title="מיון"
+        description="ברירת המחדל לכל רשימה. אפשר לשנות זמנית בדף עצמו."
+      >
+        {sortMessage && (
+          <div className="px-5 py-2 mb-2 text-sm text-[#2dd4bf] bg-[#2dd4bf15] border border-[#2dd4bf33] rounded-lg">
+            {sortMessage}
+          </div>
+        )}
+        
+        <Row
+          label="משימות בדשבורד"
+          description="מיון ברירת מחדל לרשימת המשימות בדף הבית"
+        >
+          {sortPrefsData?.prefs?.dashboardTasks && (
+            <div data-testid="dashboard-tasks-sort">
+              <ThenBySort
+                value={sortPrefsData.prefs.dashboardTasks}
+                onChange={(value) => setSortPrefs.mutate({ dashboardTasks: value })}
+                fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+                className="w-full max-w-xs"
+              />
+            </div>
+          )}
+        </Row>
+
+        <Row
+          label="דף משימות"
+          description="מיון ברירת מחדל ל-/tasks (כולל קיבוץ לפי המפתח הראשי)"
+        >
+          {sortPrefsData?.prefs?.tasksPage && (
+            <div data-testid="tasks-page-sort">
+              <ThenBySort
+                value={sortPrefsData.prefs.tasksPage}
+                onChange={(value) => setSortPrefs.mutate({ tasksPage: value })}
+                fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+                className="w-full max-w-xs"
+              />
+            </div>
+          )}
+        </Row>
+
+        <Row
+          label="פגישות עבר"
+          description="מיון ברירת מחדל לפגישות עבר ופגישות ללא תאריך"
+        >
+          {sortPrefsData?.prefs?.meetingsPast && (
+            <div data-testid="meetings-past-sort">
+              <ThenBySort
+                value={sortPrefsData.prefs.meetingsPast}
+                onChange={(value) => setSortPrefs.mutate({ meetingsPast: value })}
+                fields={MEETING_SORT_KEYS.map((k) => ({ value: k, label: MEETING_SORT_LABELS[k] }))}
+                className="w-full max-w-xs"
+              />
+            </div>
+          )}
         </Row>
       </Section>
 

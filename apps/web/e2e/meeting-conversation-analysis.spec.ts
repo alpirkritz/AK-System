@@ -165,10 +165,19 @@ test.describe('Meeting Conversation Analysis', () => {
     await expect(createTaskButtons.first()).toBeVisible()
     await createTaskButtons.first().click()
 
-    // Verify task was created (check for success feedback)
-    await expect(page.getByText('✓')).toBeVisible({ timeout: 10000 })
+    // Modal should open
+    await expect(page.getByRole('dialog', { name: /משימה חדשה/i })).toBeVisible({ timeout: 5000 })
 
-    // Navigate to tasks page to verify
+    // Fill out and save the task
+    await page.getByRole('button', { name: /שמור/i }).click()
+
+    // Wait for modal to close
+    await expect(page.getByRole('dialog', { name: /משימה חדשה/i })).not.toBeVisible({ timeout: 10000 })
+
+    // Verify button changed to "משימה נוצרה"
+    await expect(page.getByRole('button', { name: /משימה נוצרה/ })).toBeVisible({ timeout: 10000 })
+
+    // Navigate to tasks page to verify task was created
     await page.goto('/tasks')
     await expect(page.getByText('לעדכן את הרואדמאפ עד יום רביעי')).toBeVisible({ timeout: 10000 })
   })

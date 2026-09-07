@@ -10,12 +10,14 @@ const FeedWidget = dynamic(() => import('@/components/FeedWidget').then((m) => m
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 import { LS } from '@/lib/ls-keys'
 import {
-  DASHBOARD_TASK_SORT_OPTIONS,
-  DEFAULT_DASHBOARD_TASK_SORT,
-  isDashboardTaskSort,
-  sortDashboardTasks,
-  type DashboardTaskSort,
-} from '@/lib/sort-tasks'
+  sortTasksByKeys,
+  migrateLegacyDashboardSort,
+  TASK_SORT_KEYS,
+  TASK_SORT_LABELS,
+  type TaskSortKey,
+  type SortPref,
+} from '@/lib/sort-keys'
+import { ThenBySort } from '@/components/ThenBySort'
 
 function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
@@ -64,9 +66,13 @@ export default function DashboardPage() {
   const [selectedCalIds, setSelectedCalIds] = useState<string[] | null>(null)
   const [showPast, setShowPast] = useState(false)
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
-  const [taskSort, setTaskSort] = useState<DashboardTaskSort>(DEFAULT_DASHBOARD_TASK_SORT)
+  const [taskSort, setTaskSort] = useState<SortPref<TaskSortKey> | null>(null)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+
+  // Load server-side sort preferences
+  const { data: settingsData } = trpc.settings.listSort.get.useQuery()
+  const serverDefault = settingsData?.prefs?.dashboardTasks
 
   useEffect(() => {
     try {
@@ -76,10 +82,25 @@ export default function DashboardPage() {
       if (raw) setSelectedCalIds(JSON.parse(raw))
       const tz = localStorage.getItem(LS.TIMEZONE)
       if (tz) setTimezone(JSON.parse(tz))
+      
+      // Load localStorage override or migrate legacy
       const sortRaw = localStorage.getItem(LS.DASHBOARD_TASKS_SORT)
       if (sortRaw) {
-        const parsed = JSON.parse(sortRaw)
-        if (isDashboardTaskSort(parsed)) setTaskSort(parsed)
+        try {
+          const parsed = JSON.parse(sortRaw)
+          // If it's a new SortPref object, use it
+          if (parsed && typeof parsed === 'object' && 'primary' in parsed) {
+            setTaskSort(parsed)
+          } 
+          // If it's a legacy string, migrate it
+          else if (typeof parsed === 'string') {
+            const migrated = migrateLegacyDashboardSort(parsed)
+            if (migrated) {
+              setTaskSort(migrated)
+              localStorage.setItem(LS.DASHBOARD_TASKS_SORT, JSON.stringify(migrated))
+            }
+          }
+        } catch { /* ignore */ }
       }
     } catch { /* ignore */ }
   }, [])
@@ -103,15 +124,26 @@ export default function DashboardPage() {
     onSuccess: () => utils.tasks.list.invalidate(),
   })
 
+  // Use server default if no local override
+  const effectiveSort = taskSort ?? serverDefault ?? { primary: 'due_asc' as TaskSortKey, thenBy: 'priority_high' as TaskSortKey }
+  const hasOverride = taskSort !== null
+
   const openTasks = useMemo(() => {
     const open = tasksList.filter((t) => !t.done)
-    return sortDashboardTasks(open, taskSort)
-  }, [tasksList, taskSort])
+    return sortTasksByKeys(open, effectiveSort)
+  }, [tasksList, effectiveSort])
 
-  const setTaskSortAndPersist = (value: DashboardTaskSort) => {
+  const setTaskSortAndPersist = (value: SortPref<TaskSortKey>) => {
     setTaskSort(value)
     try {
       localStorage.setItem(LS.DASHBOARD_TASKS_SORT, JSON.stringify(value))
+    } catch { /* ignore */ }
+  }
+
+  const resetToDefault = () => {
+    setTaskSort(null)
+    try {
+      localStorage.removeItem(LS.DASHBOARD_TASKS_SORT)
     } catch { /* ignore */ }
   }
   const recurringMeetings = useMemo(() => meetings.filter((m) => m.recurring), [meetings])
@@ -311,21 +343,15 @@ export default function DashboardPage() {
               הכל
             </Link>
           </div>
-          <label className="block mb-3 min-w-0">
-            <span className="sr-only">מיון משימות</span>
-            <select
-              className="select w-full text-xs py-1.5 px-2 max-w-full"
-              aria-label="מיון משימות"
-              value={taskSort}
-              onChange={(e) => setTaskSortAndPersist(e.target.value as DashboardTaskSort)}
-            >
-              {DASHBOARD_TASK_SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="mb-3">
+            <ThenBySort
+              value={effectiveSort}
+              onChange={setTaskSortAndPersist}
+              fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+              showReset={hasOverride}
+              onReset={resetToDefault}
+            />
+          </div>
 
           {openTasks.length === 0 ? (
             <div className="card text-sm text-[#6f7ea0] py-4 px-5">

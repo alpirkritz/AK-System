@@ -734,6 +734,8 @@ export const userSettings = pgTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
   /** JSON DashboardPrefs — meetingWindow / taskWindow for mobile (and future web) */
   dashboardPrefs: text('dashboard_prefs'),
+  /** JSON ListSortPrefs — multi-level sort defaults for dashboard, /tasks, meetings past */
+  listSortPrefs: text('list_sort_prefs'),
   /** Auto-create tasks from meeting analysis action items */
   autoCreateActionItemTasks: boolean('auto_create_action_item_tasks').notNull().default(false),
   updatedAt: text('updated_at').notNull(),

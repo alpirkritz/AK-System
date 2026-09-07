@@ -16,6 +16,7 @@ import {
 } from '../services/agent-display-names'
 import { getBusinessProfile, setBusinessProfile } from '../services/business-profile'
 import { getDashboardPrefs, setDashboardPrefs } from '../services/dashboard-prefs'
+import { getListSortPrefs, setListSortPrefs } from '../services/list-sort-prefs'
 import { SALES_DOCUMENT_TYPES } from '@ak-system/types'
 
 const timeSchema = z.string().regex(/^\d{2}:\d{2}$/)
@@ -153,5 +154,78 @@ export const settingsRouter = router({
         }),
       )
       .mutation(async ({ input }) => setDashboardPrefs(input)),
+  }),
+
+  listSort: router({
+    get: protectedProcedure.query(async () => {
+      const prefs = await getListSortPrefs()
+      return { prefs }
+    }),
+
+    set: protectedProcedure
+      .input(
+        z.object({
+          dashboardTasks: z
+            .object({
+              primary: z.enum([
+                'priority_high',
+                'priority_low',
+                'due_asc',
+                'due_desc',
+                'status_workflow',
+                'status_reverse',
+                'created_desc',
+                'created_asc',
+              ]),
+              thenBy: z.enum([
+                'priority_high',
+                'priority_low',
+                'due_asc',
+                'due_desc',
+                'status_workflow',
+                'status_reverse',
+                'created_desc',
+                'created_asc',
+                'none',
+              ]),
+            })
+            .optional(),
+          tasksPage: z
+            .object({
+              primary: z.enum([
+                'priority_high',
+                'priority_low',
+                'due_asc',
+                'due_desc',
+                'status_workflow',
+                'status_reverse',
+                'created_desc',
+                'created_asc',
+              ]),
+              thenBy: z.enum([
+                'priority_high',
+                'priority_low',
+                'due_asc',
+                'due_desc',
+                'status_workflow',
+                'status_reverse',
+                'created_desc',
+                'created_asc',
+                'none',
+              ]),
+            })
+            .optional(),
+          meetingsPast: z
+            .object({
+              primary: z.enum(['date_desc', 'date_asc', 'title_asc', 'title_desc', 'project']),
+              thenBy: z.enum(['date_desc', 'date_asc', 'title_asc', 'title_desc', 'project', 'none']),
+            })
+            .optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const prefs = await setListSortPrefs(input)
+        return { prefs }
+      }),
   }),
 })

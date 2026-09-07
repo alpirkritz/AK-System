@@ -46,6 +46,8 @@ type NotionPageRow = {
   url?: string
   last_edited_time?: string
   properties: Record<string, NotionProp>
+  // Page title from Notion API (exists when querying pages, might be missing in some queries)
+  title?: Array<{ plain_text?: string }>
 }
 
 export interface NotionGraphSyncResult {
@@ -133,6 +135,24 @@ function richTextValue(prop: NotionProp): string {
     return ((prop.rich_text as Array<{ plain_text?: string }>) ?? []).map((x) => x.plain_text ?? '').join('')
   }
   return ''
+}
+
+/**
+ * Get page title - tries Subject field first (for Meetings DB), then title field
+ */
+function getPageTitle(page: NotionPageRow): string {
+  // Try "Subject" property first (used in Meetings database)
+  const subjectProp = page.properties['Subject'] || page.properties['subject']
+  if (subjectProp) {
+    const subject = richTextValue(subjectProp).trim()
+    if (subject) {
+      // Remove @timestamp suffix if present (e.g., "@Yesterday 11:34 AM")
+      return subject.replace(/\s*@[^@]+$/, '').trim()
+    }
+  }
+  
+  // Fallback to standard title property
+  return getTitle(page.properties)
 }
 
 function getTitle(props: Record<string, NotionProp>): string {
@@ -474,11 +494,12 @@ export async function syncNotionGraph(
     }
 
     for (const page of pages) {
-      const rawTitle = getTitle(page.properties)
+      const rawTitle = getPageTitle(page)
       if (!rawTitle) continue
       const title = cleanMeetingTitle(rawTitle) || rawTitle.trim()
       const dt = getDateTime(page.properties)
-      const date = dt?.date ?? now.slice(0, 10)
+      // If no date, use a far-future sentinel date (9999-12-31) to mark as "needs date"
+      const date = dt?.date ?? '9999-12-31'
       const time = dt?.time ?? '09:00'
       const peopleRels = getTypedRelationIds(page.properties, 'people')
       const projectRels = getTypedRelationIds(page.properties, 'projects')
@@ -734,7 +755,7 @@ export async function syncNotionGraph(
     for (const page of pages) {
       fetchedNotePages.add(page.id)
       if (meetingPageIds.has(page.id)) continue
-      const title = getTitle(page.properties)
+      const title = getPageTitle(page)
       if (!title) continue
       keptNotePages.add(page.id)
 

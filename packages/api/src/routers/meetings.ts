@@ -93,36 +93,97 @@ function dedupeSyncEvents(events: SyncCalendarEvent[]): SyncCalendarEvent[] {
 const idInput = z.object({ id: z.string().min(1) })
 
 export const meetingsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const list = await ctx.db.select().from(meetings).orderBy(meetings.date)
-    if (list.length === 0) return []
+  list: protectedProcedure
+    .input(
+      z.object({
+        timeRange: z.enum(['today', 'tomorrow', 'week', 'all']).optional(),
+        withTasks: z.boolean().optional(),
+        projectId: z.string().optional(),
+        personId: z.string().optional(),
+        status: z.enum(['scheduled', 'completed', 'cancelled']).optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      // Build WHERE conditions based on filters
+      const conditions = []
+      
+      if (input?.projectId) {
+        conditions.push(eq(meetings.projectId, input.projectId))
+      }
+      
+      if (input?.status) {
+        // Note: status field doesn't exist in schema yet, so we'll skip this for now
+        // This can be added when the status column is added to the schema
+      }
 
-    const ids = list.map((m) => m.id)
-    const [allLinks, allTasks] = await Promise.all([
-      ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, ids)),
-      ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
-    ])
+      // Base query
+      let list = await ctx.db
+        .select()
+        .from(meetings)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(meetings.date)
+      
+      if (list.length === 0) return []
 
-    const peopleByMeeting = new Map<string, string[]>()
-    for (const link of allLinks) {
-      const arr = peopleByMeeting.get(link.meetingId) ?? []
-      arr.push(link.personId)
-      peopleByMeeting.set(link.meetingId, arr)
-    }
-    const tasksByMeeting = new Map<string, string[]>()
-    for (const t of allTasks) {
-      if (!t.meetingId) continue
-      const arr = tasksByMeeting.get(t.meetingId) ?? []
-      arr.push(t.id)
-      tasksByMeeting.set(t.meetingId, arr)
-    }
+      // Filter by time range
+      if (input?.timeRange) {
+        const now = new Date()
+        const today = now.toISOString().split('T')[0]
+        const tomorrow = new Date(now.getTime() + 86400000).toISOString().split('T')[0]
+        const weekEnd = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0]
+        
+        switch (input.timeRange) {
+          case 'today':
+            list = list.filter(m => m.date === today)
+            break
+          case 'tomorrow':
+            list = list.filter(m => m.date === tomorrow)
+            break
+          case 'week':
+            list = list.filter(m => m.date >= today && m.date <= weekEnd)
+            break
+          // 'all' = no filter
+        }
+      }
 
-    return list.map((m) => ({
-      ...m,
-      peopleIds: peopleByMeeting.get(m.id) ?? [],
-      taskIds: tasksByMeeting.get(m.id) ?? [],
-    }))
-  }),
+      const ids = list.map((m) => m.id)
+      const [allLinks, allTasks] = await Promise.all([
+        ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, ids)),
+        ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
+      ])
+
+      const peopleByMeeting = new Map<string, string[]>()
+      for (const link of allLinks) {
+        const arr = peopleByMeeting.get(link.meetingId) ?? []
+        arr.push(link.personId)
+        peopleByMeeting.set(link.meetingId, arr)
+      }
+      const tasksByMeeting = new Map<string, string[]>()
+      for (const t of allTasks) {
+        if (!t.meetingId) continue
+        const arr = tasksByMeeting.get(t.meetingId) ?? []
+        arr.push(t.id)
+        tasksByMeeting.set(t.meetingId, arr)
+      }
+
+      let result = list.map((m) => ({
+        ...m,
+        peopleIds: peopleByMeeting.get(m.id) ?? [],
+        taskIds: tasksByMeeting.get(m.id) ?? [],
+      }))
+
+      // Filter by person if specified
+      if (input?.personId) {
+        result = result.filter(m => m.peopleIds.includes(input.personId))
+      }
+
+      // Filter by tasks if specified
+      if (input?.withTasks) {
+        result = result.filter(m => m.taskIds.length > 0)
+      }
+
+      return result
+    }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [[meeting], links, taskList, notes] = await Promise.all([
@@ -917,6 +978,62 @@ export const meetingsRouter = router({
         .where(eq(meetingAnalyses.id, input.analysisId))
 
       return { createdTaskIds }
+    }),
+
+  linkActionItemTasks: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        links: z.array(
+          z.object({
+            actionItemIndex: z.number(),
+            taskId: z.string().min(1),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { meetingAnalyses } = await import('@ak-system/database')
+
+      const [analysis] = await ctx.db
+        .select()
+        .from(meetingAnalyses)
+        .where(eq(meetingAnalyses.id, input.analysisId))
+        .limit(1)
+
+      if (!analysis) {
+        throw new Error('Analysis not found')
+      }
+
+      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+        analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
+
+      let linked = 0
+      for (const link of input.links) {
+        if (link.actionItemIndex < 0 || link.actionItemIndex >= actionItems.length) {
+          throw new Error(`Invalid action item index: ${link.actionItemIndex}`)
+        }
+
+        const item = actionItems[link.actionItemIndex]
+        // Skip if already set to the same ID
+        if (item.taskId === link.taskId) {
+          continue
+        }
+
+        item.taskId = link.taskId
+        linked++
+      }
+
+      // Update analysis with task IDs
+      await ctx.db
+        .update(meetingAnalyses)
+        .set({
+          actionItemsJson: JSON.stringify(actionItems),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(meetingAnalyses.id, input.analysisId))
+
+      return { linked }
     }),
 
   linkOrphanedNotes: protectedProcedure.mutation(async () => {

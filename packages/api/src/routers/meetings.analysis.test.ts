@@ -186,4 +186,146 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
     const tasks = await caller.tasks.list()
     expect(tasks).toHaveLength(2)
   })
+
+  it('links task IDs to action items', async () => {
+    const caller = await createTestCaller()
+
+    const meeting = await caller.meetings.create({
+      title: 'Test Meeting',
+      date: '2026-09-03',
+      time: '10:00',
+    })
+
+    const { getDb, meetingAnalyses } = await import('@ak-system/database')
+    const db = getDb()
+    const analysisId = 'ma_link_test'
+    await db.insert(meetingAnalyses).values({
+      id: analysisId,
+      meetingId: meeting.id,
+      source: 'notion_transcript',
+      status: 'completed',
+      actionItemsJson: JSON.stringify([
+        { content: 'פעולה ראשונה' },
+        { content: 'פעולה שנייה' },
+      ]),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    // Link first action item
+    const result = await caller.meetings.linkActionItemTasks({
+      analysisId,
+      links: [{ actionItemIndex: 0, taskId: 't_123' }],
+    })
+
+    expect(result.linked).toBe(1)
+
+    // Verify analysis was updated
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    expect(analysis).not.toBeNull()
+    expect(analysis!.actionItems[0].taskId).toBe('t_123')
+    expect(analysis!.actionItems[1].taskId).toBeUndefined()
+  })
+
+  it('links multiple task IDs at once', async () => {
+    const caller = await createTestCaller()
+
+    const meeting = await caller.meetings.create({
+      title: 'Test Meeting',
+      date: '2026-09-03',
+      time: '10:00',
+    })
+
+    const { getDb, meetingAnalyses } = await import('@ak-system/database')
+    const db = getDb()
+    const analysisId = 'ma_multi_link'
+    await db.insert(meetingAnalyses).values({
+      id: analysisId,
+      meetingId: meeting.id,
+      source: 'notion_transcript',
+      status: 'completed',
+      actionItemsJson: JSON.stringify([
+        { content: 'A' },
+        { content: 'B' },
+        { content: 'C' },
+      ]),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const result = await caller.meetings.linkActionItemTasks({
+      analysisId,
+      links: [
+        { actionItemIndex: 0, taskId: 't_a' },
+        { actionItemIndex: 2, taskId: 't_c' },
+      ],
+    })
+
+    expect(result.linked).toBe(2)
+
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    expect(analysis!.actionItems[0].taskId).toBe('t_a')
+    expect(analysis!.actionItems[1].taskId).toBeUndefined()
+    expect(analysis!.actionItems[2].taskId).toBe('t_c')
+  })
+
+  it('rejects invalid action item index', async () => {
+    const caller = await createTestCaller()
+
+    const meeting = await caller.meetings.create({
+      title: 'Test Meeting',
+      date: '2026-09-03',
+      time: '10:00',
+    })
+
+    const { getDb, meetingAnalyses } = await import('@ak-system/database')
+    const db = getDb()
+    const analysisId = 'ma_invalid_idx'
+    await db.insert(meetingAnalyses).values({
+      id: analysisId,
+      meetingId: meeting.id,
+      source: 'notion_transcript',
+      status: 'completed',
+      actionItemsJson: JSON.stringify([{ content: 'פעולה' }]),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      caller.meetings.linkActionItemTasks({
+        analysisId,
+        links: [{ actionItemIndex: 5, taskId: 't_bad' }],
+      })
+    ).rejects.toThrow('Invalid action item index')
+  })
+
+  it('skips linking when taskId already matches', async () => {
+    const caller = await createTestCaller()
+
+    const meeting = await caller.meetings.create({
+      title: 'Test Meeting',
+      date: '2026-09-03',
+      time: '10:00',
+    })
+
+    const { getDb, meetingAnalyses } = await import('@ak-system/database')
+    const db = getDb()
+    const analysisId = 'ma_skip_test'
+    await db.insert(meetingAnalyses).values({
+      id: analysisId,
+      meetingId: meeting.id,
+      source: 'notion_transcript',
+      status: 'completed',
+      actionItemsJson: JSON.stringify([{ content: 'פעולה', taskId: 't_existing' }]),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const result = await caller.meetings.linkActionItemTasks({
+      analysisId,
+      links: [{ actionItemIndex: 0, taskId: 't_existing' }],
+    })
+
+    expect(result.linked).toBe(0) // Nothing linked because already set
+  })
 })

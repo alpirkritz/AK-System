@@ -626,6 +626,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
   'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
+  'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN auto_create_action_item_tasks INTEGER NOT NULL DEFAULT 0',
 ]
 

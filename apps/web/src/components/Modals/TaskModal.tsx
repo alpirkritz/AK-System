@@ -45,7 +45,7 @@ export function TaskModal({
     assigneeId?: string
   }
   /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
-  onCreated?: (notionSync: { ok: boolean } | null) => void
+  onCreated?: (notionSync: { ok: boolean } | null, task?: { id: string }) => void
   /** Fired after the related people are saved, with the outcome of pushing them to the Notion relation. */
   onPeopleSync?: (notionSync: PeopleSyncResult | null) => void
 }) {
@@ -186,7 +186,7 @@ export function TaskModal({
         },
         {
           onSuccess: (task) => {
-            onCreated?.((task as { notionSync?: { ok: boolean } | null }).notionSync ?? null)
+            onCreated?.((task as { notionSync?: { ok: boolean } | null }).notionSync ?? null, task)
             if (relatedIds.length > 0) {
               setTaskPeople.mutate(
                 { taskId: task.id, personIds: relatedIds },

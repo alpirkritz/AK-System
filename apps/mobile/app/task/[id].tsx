@@ -320,9 +320,13 @@ export default function TaskDetailScreen() {
             onChangeText={setTitle}
             placeholder="מה צריך לעשות?"
             placeholderTextColor={colors.textMuted}
-            style={[styles.input, styles.inputRtl]}
+            style={[styles.input, styles.inputRtl, styles.titleInput]}
             autoFocus={isNew}
             textAlign="right"
+            textAlignVertical="top"
+            multiline
+            scrollEnabled={false}
+            accessibilityLabel="כותרת המשימה"
           />
 
           <Text style={styles.label}>אחראי</Text>
@@ -601,6 +605,11 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   inputRtl: { writingDirection: 'rtl' },
+  titleInput: {
+    minHeight: 72,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
   dateRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   dateField: { flex: 1, justifyContent: 'center' },
   assigneeField: {

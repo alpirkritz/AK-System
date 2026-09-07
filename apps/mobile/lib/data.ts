@@ -1,4 +1,13 @@
 import { createTrpcClient } from './trpc'
+import {
+  mapFeedDigest,
+  mapFeedItems,
+  type FeedCategory,
+  type FeedListCategory,
+  type FeedSyncResult,
+  type MobileFeedDigest,
+  type MobileFeedItem,
+} from './feed'
 
 export type MobilePerson = {
   id: string
@@ -692,26 +701,54 @@ export async function deleteMemory(token: string, id: string): Promise<void> {
   await client.memory.memories.delete.mutate({ id })
 }
 
-export type MobileFeedItem = {
-  id: string
-  title: string
-  url?: string | null
-  summary?: string | null
-  category?: string | null
-  publishedAt?: string | null
+export type {
+  FeedCategory,
+  FeedListCategory,
+  FeedSyncResult,
+  MobileFeedDigest,
+  MobileFeedItem,
+} from './feed'
+export { FEED_CATEGORIES } from './feed'
+
+export async function fetchFeedItems(
+  token: string,
+  opts: { category?: FeedListCategory; limit?: number } = {},
+): Promise<MobileFeedItem[]> {
+  const client = createTrpcClient(token)
+  const res = await client.feed.list.query({
+    category: opts.category,
+    limit: opts.limit ?? 80,
+  })
+  return mapFeedItems(res)
 }
 
-export async function fetchFeedItems(token: string): Promise<MobileFeedItem[]> {
+export async function fetchFeedDigest(
+  token: string,
+  category: FeedCategory,
+): Promise<MobileFeedDigest | null> {
   const client = createTrpcClient(token)
-  const res = (await client.feed.list.query({ limit: 50 })) as
-    | MobileFeedItem[]
-    | { items?: MobileFeedItem[] }
-  return Array.isArray(res) ? res : (res.items ?? [])
+  return mapFeedDigest(await client.feed.getDigest.query({ category }))
 }
 
-export async function syncFeed(token: string): Promise<void> {
+export async function generateFeedDigest(
+  token: string,
+  category: FeedCategory,
+): Promise<MobileFeedDigest> {
   const client = createTrpcClient(token)
-  await client.feed.sync.mutate()
+  const digest = mapFeedDigest(
+    await client.feed.generateDigest.mutate({ category, limit: 100 }),
+  )
+  if (!digest) throw new Error('לא הצלחתי ליצור תמצית. נסה שוב.')
+  return digest
+}
+
+export async function syncFeed(token: string): Promise<FeedSyncResult> {
+  const client = createTrpcClient(token)
+  const res = (await client.feed.sync.mutate()) as FeedSyncResult
+  return {
+    itemsInserted: Number(res.itemsInserted) || 0,
+    sourcesInserted: Number(res.sourcesInserted) || 0,
+  }
 }
 
 // ─── Settings notifications / workspaces / meeting types ─────────────────────

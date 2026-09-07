@@ -595,6 +595,7 @@ export const userSettings = sqliteTable('user_settings', {
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
+  listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
   updatedAt: text('updated_at').notNull(),
 })

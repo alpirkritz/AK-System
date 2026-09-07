@@ -51,6 +51,7 @@ export function BatchTaskModal({
   const [items, setItems] = useState<BatchTaskItem[]>([])
   const utils = trpc.useUtils()
   const createTask = trpc.tasks.create.useMutation()
+  const linkActionItems = trpc.meetings.linkActionItemTasks.useMutation()
   const [saving, setSaving] = useState(false)
 
   // Initialize items from action items (only unassigned ones)
@@ -116,6 +117,17 @@ export function BatchTaskModal({
         })
 
         createdTaskIds.push({ index: item.index, taskId: result.id })
+      }
+
+      // Link tasks to action items
+      if (createdTaskIds.length > 0) {
+        await linkActionItems.mutateAsync({
+          analysisId,
+          links: createdTaskIds.map(({ index, taskId }) => ({
+            actionItemIndex: index,
+            taskId,
+          })),
+        })
       }
 
       // Invalidate queries

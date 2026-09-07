@@ -53,6 +53,12 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     },
   })
 
+  const linkActionItemMutation = trpc.meetings.linkActionItemTasks.useMutation({
+    onSuccess: () => {
+      refetch()
+    },
+  })
+
   // Close popover when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -111,8 +117,13 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     setSelectedActionIndex(null)
   }
 
-  const handleTaskCreated = () => {
-    refetch()
+  const handleTaskCreated = (notionSync: { ok: boolean } | null, task?: { id: string }) => {
+    if (task && selectedActionIndex !== null && analysis) {
+      linkActionItemMutation.mutate({
+        analysisId: analysis.id,
+        links: [{ actionItemIndex: selectedActionIndex, taskId: task.id }],
+      })
+    }
     closeTaskModal()
   }
 
@@ -455,9 +466,12 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                       צור משימה
                     </button>
                   ) : (
-                    <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                      ✓ נוצר
-                    </span>
+                    <button
+                      disabled
+                      className="px-3 py-1 bg-teal-500/20 text-teal-600 dark:text-teal-400 rounded text-xs font-medium flex-shrink-0 cursor-not-allowed"
+                    >
+                      משימה נוצרה
+                    </button>
                   )}
                 </div>
               ))}

@@ -1,44 +1,23 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
-import { DAYS_HE } from '@ak-system/types'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 import { LS } from '@/lib/ls-keys'
 
-type MeetingRow = {
-  id: string
-  title: string
-  date: string
-  time: string
-  recurring: string | null
-  recurrenceDay: string | null
-  projectId?: string | null
-  typeId?: string | null
-  seriesId?: string | null
-  calendarEventId?: string | null
-  calendarSource?: string | null
-  source?: string | null
-  peopleIds?: string[]
-  taskIds?: string[]
-}
+// New components
+import { SearchInput } from './components/SearchInput'
+import { QuickFilterButton } from './components/QuickFilterButton'
+import { TimelineSection } from './components/TimelineSection'
+import { MeetingCard, type MeetingCardData } from './components/MeetingCard'
+import { AdvancedFiltersPanel } from './components/AdvancedFiltersPanel'
 
-const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
-const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
+// Helpers
+import { groupMeetingsByTime, getTodayMeetings, getThisWeekMeetings } from './lib/temporal-grouping'
+import { searchMeetings } from './lib/search'
 
-const MEETING_SOURCE_ICONS: Record<string, string> = {
-  calendar: '🗓️',
-  notion_note: '📝',
-  manual: '✏️',
-}
-
-const MEETING_SOURCE_LABELS: Record<string, string> = {
-  calendar: 'Calendar',
-  notion_note: 'Notion',
-  manual: 'Manual',
-}
+type MeetingRow = MeetingCardData
 
 function isPastMeeting(date: string, time: string): boolean {
   const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
@@ -48,12 +27,14 @@ function isPastMeeting(date: string, time: string): boolean {
 }
 
 export default function MeetingsPage() {
-  const { data: meetings = [] } = trpc.meetings.list.useQuery()
+  // Data queries
+  const { data: meetings = [], isLoading: meetingsLoading } = trpc.meetings.list.useQuery()
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
-  const { data: seriesList = [] } = trpc.meetings.listSeries.useQuery()
   const utils = trpc.useUtils()
+  
+  // Notion sync
   const { data: notionGraph } = trpc.notionGraph.configured.useQuery()
   const [notionSyncMessage, setNotionSyncMessage] = useState<string | null>(null)
   const syncNotion = trpc.notionGraph.sync.useMutation({
@@ -72,21 +53,19 @@ export default function MeetingsPage() {
     onError: (err) => setNotionSyncMessage(err.message || 'סנכרון Notion נכשל'),
   })
 
+  // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  // ── Sync panel state ──────────────────────────────────────────────────────
+  // ── Calendar Sync Panel ───────────────────────────────────────────────────
   const [panelOpen, setPanelOpen] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'done'>('idle')
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deleted: number } | null>(null)
-  // default calendar IDs from settings (null = all)
   const [settingsCals, setSettingsCals] = useState<string[] | null>(null)
-  // selection inside the panel (may include extra calendars)
   const [panelSelected, setPanelSelected] = useState<Set<string>>(new Set())
   const panelRef = useRef<HTMLDivElement>(null)
   const userSyncRef = useRef(false)
 
-  // Load settings-configured calendars from localStorage on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS.SYNC_CALENDARS)
@@ -95,16 +74,14 @@ export default function MeetingsPage() {
     } catch { /* ignore */ }
   }, [])
 
-  // Fetch all available calendars (next 14 days is enough to discover them)
   const today = new Date().toISOString().split('T')[0]
-  const in14  = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
+  const in14 = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
   const { data: calData, isFetching: calsLoading } = trpc.calendar.events.useQuery(
     { startDate: today, endDate: in14 },
     { enabled: panelOpen, staleTime: 60_000 }
   )
   const calEvents = calData?.events ?? []
 
-  // Derive unique calendars from events
   const allCalendars = useMemo(() => {
     const map = new Map<string, { id: string; name: string; color: string; source: string }>()
     for (const ev of calEvents) {
@@ -123,15 +100,12 @@ export default function MeetingsPage() {
     )
   }, [calEvents])
 
-  // When panel opens, initialise selection: settings calendars + default-check all if none configured
   useEffect(() => {
-    if (!panelOpen) return
-    if (allCalendars.length === 0) return
+    if (!panelOpen || allCalendars.length === 0) return
     const defaultIds = settingsCals ?? allCalendars.map((c) => c.id)
     setPanelSelected(new Set(defaultIds))
   }, [panelOpen, allCalendars.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close panel on outside click
   useEffect(() => {
     if (!panelOpen) return
     function onOutside(e: MouseEvent) {
@@ -151,7 +125,6 @@ export default function MeetingsPage() {
     onSuccess: () => utils.meetings.list.invalidate(),
   })
 
-  // Run once on mount to clean up old free/busy placeholder meetings
   useEffect(() => {
     purgeFreeBusy.mutate()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,7 +158,6 @@ export default function MeetingsPage() {
     syncMutation.mutate({ startDate: today, endDate: in60, calendarIds })
   }
 
-  // Sync from calendar on mount and every 15 minutes (full sync: updates, deletes, inserts)
   useEffect(() => {
     const SYNC_INTERVAL_MS = 15 * 60 * 1000
     const runSync = () => {
@@ -196,7 +168,7 @@ export default function MeetingsPage() {
     runSync()
     const id = setInterval(runSync, SYNC_INTERVAL_MS)
     return () => clearInterval(id)
-  }, []) // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleCal(id: string) {
     setPanelSelected((prev) => {
@@ -206,199 +178,99 @@ export default function MeetingsPage() {
     })
   }
 
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
-  const [recurringOnly, setRecurringOnly] = useState(false)
-  const [typeFilter, setTypeFilter] = useState<string>('all')
-  const [expandedSeries, setExpandedSeries] = useState<Set<string>>(new Set())
+  // ── New UX State ──────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<'timeline' | 'past' | 'needs-date'>('timeline')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [quickFilter, setQuickFilter] = useState<'all' | 'today' | 'week' | 'with-tasks'>('all')
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [advancedFilters, setAdvancedFilters] = useState<{
+    people: string[]
+    status?: 'scheduled' | 'completed' | 'cancelled'
+    project?: string
+  }>({ people: [] })
 
-  // Recurring meetings are now a filter here (replaces the old /recurring page).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    setRecurringOnly(params.get('filter') === 'recurring')
-  }, [])
-
+  // Helper maps
   const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
   const getPerson = (id: string) => peopleMap.get(id)
   const typesMap = useMemo(() => new Map(meetingTypes.map((t) => [t.id, t])), [meetingTypes])
-  const seriesMap = useMemo(() => new Map(seriesList.map((s) => [s.id, s])), [seriesList])
-  const meetingsWithIds = useMemo(() => {
-    let rows = meetings as MeetingRow[]
-    if (recurringOnly) rows = rows.filter((m) => m.recurring)
-    if (typeFilter !== 'all') rows = rows.filter((m) => m.typeId === typeFilter)
-    return rows
-  }, [meetings, recurringOnly, typeFilter])
 
-  const { upcomingMeetings, pastMeetings } = useMemo(() => {
-    const upcoming = meetingsWithIds
+  // Split meetings into upcoming/past/needsDate
+  const { upcomingMeetings, pastMeetings, needsDateMeetings } = useMemo(() => {
+    const needsDate = meetings.filter((m) => m.date === '9999-12-31')
+    const withDate = meetings.filter((m) => m.date !== '9999-12-31')
+    
+    const upcoming = withDate
       .filter((m) => !isPastMeeting(m.date, m.time))
       .sort((a, b) => {
         const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
         const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
         return da - db
       })
-    const past = meetingsWithIds
+    const past = withDate
       .filter((m) => isPastMeeting(m.date, m.time))
       .sort((a, b) => {
         const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
         const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
-        return db - da // most recent past first
+        return db - da // most recent first
       })
-    return { upcomingMeetings: upcoming, pastMeetings: past }
-  }, [meetingsWithIds])
+    return { upcomingMeetings: upcoming, pastMeetings: past, needsDateMeetings: needsDate }
+  }, [meetings])
 
-  // Group upcoming meetings that belong to the same series (2+ instances) under a header.
-  const { seriesGroups, standaloneUpcoming } = useMemo(() => {
-    const groups = new Map<string, MeetingRow[]>()
-    const standalone: MeetingRow[] = []
-    for (const m of upcomingMeetings) {
-      if (m.seriesId) {
-        const arr = groups.get(m.seriesId) ?? []
-        arr.push(m)
-        groups.set(m.seriesId, arr)
-      } else {
-        standalone.push(m)
-      }
-    }
-    const sg: { id: string; meetings: MeetingRow[] }[] = []
-    for (const [id, ms] of groups) {
-      if (ms.length >= 2) sg.push({ id, meetings: ms })
-      else standalone.push(...ms)
-    }
-    standalone.sort((a, b) => {
-      const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
-      const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
-      return da - db
-    })
-    return { seriesGroups: sg, standaloneUpcoming: standalone }
-  }, [upcomingMeetings])
+  // Apply search + filters
+  const filteredUpcoming = useMemo(() => {
+    let result = upcomingMeetings
 
-  const toggleSeries = useCallback((id: string) => {
-    setExpandedSeries((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+    // Search
+    if (searchQuery) {
+      result = searchMeetings(
+        result.map(m => ({
+          ...m,
+          people: m.peopleIds?.map(id => ({ name: getPerson(id)?.name || '' })),
+          project: m.projectId ? projects.find(p => p.id === m.projectId) : null
+        })),
+        searchQuery
+      )
+    }
+
+    // Quick filters
+    if (quickFilter === 'today') {
+      result = getTodayMeetings(result)
+    } else if (quickFilter === 'week') {
+      result = getThisWeekMeetings(result)
+    } else if (quickFilter === 'with-tasks') {
+      result = result.filter(m => (m.taskIds?.length ?? 0) > 0)
+    }
+
+    // Advanced filters
+    if (advancedFilters.people.length > 0) {
+      result = result.filter(m =>
+        advancedFilters.people.some(personId => m.peopleIds?.includes(personId))
+      )
+    }
+
+    if (advancedFilters.project) {
+      result = result.filter(m => m.projectId === advancedFilters.project)
+    }
+
+    return result
+  }, [upcomingMeetings, searchQuery, quickFilter, advancedFilters, people, projects, getPerson])
+
+  // Temporal grouping
+  const grouped = useMemo(() => groupMeetingsByTime(filteredUpcoming), [filteredUpcoming])
+
+  const handleApplyAdvancedFilters = useCallback((filters: typeof advancedFilters) => {
+    setAdvancedFilters(filters)
   }, [])
 
-  const renderMeetingCard = useCallback((m: MeetingRow, past = false) => {
-    const proj = m.projectId ? projects.find((p) => p.id === m.projectId) : null
-    const mtype = m.typeId ? typesMap.get(m.typeId) : null
-    return (
-      <div key={m.id} className={`group relative ${past ? 'opacity-50' : ''}`}>
-        <Link href={`/meetings/${m.id}`} className="block">
-          <div className="meeting-card py-4 px-5">
-            <div className="flex justify-between items-center">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className={`font-semibold text-[15px] ${past ? 'text-[#6f7ea0]' : ''}`}>{m.title}</span>
-                  {past && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
-                      style={{ background: '#ffffff08', color: '#5a688c', border: '1px solid #2f4368' }}>
-                      עבר
-                    </span>
-                  )}
-                  {proj && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{ background: '#2dd4bf22', color: '#2dd4bf', border: '1px solid #2dd4bf33' }}
-                    >
-                      📁 {proj.name}
-                    </span>
-                  )}
-                  {mtype && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{
-                        background: (mtype.color ?? '#8b5cf6') + '22',
-                        color: mtype.color ?? '#8b5cf6',
-                        border: `1px solid ${(mtype.color ?? '#8b5cf6')}33`,
-                      }}
-                    >
-                      {mtype.name}
-                    </span>
-                  )}
-                  {m.calendarSource && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{
-                        background: (SOURCE_COLOR[m.calendarSource] ?? '#7a89ab') + '22',
-                        color: SOURCE_COLOR[m.calendarSource] ?? '#7a89ab',
-                        border: `1px solid ${(SOURCE_COLOR[m.calendarSource] ?? '#7a89ab')}33`,
-                      }}
-                    >
-                      {SOURCE_LABEL[m.calendarSource] ?? m.calendarSource}
-                    </span>
-                  )}
-                  {m.source && m.source !== 'calendar' && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{
-                        background: '#8b5cf6' + '22',
-                        color: '#8b5cf6',
-                        border: '1px solid #8b5cf633',
-                      }}
-                      title={`Source: ${m.source}`}
-                    >
-                      {MEETING_SOURCE_ICONS[m.source] || ''} {MEETING_SOURCE_LABELS[m.source] || m.source}
-                    </span>
-                  )}
-                </div>
-                <div className="flex gap-3 items-center flex-wrap">
-                  <span className="text-xs text-[#647399]">
-                    📅 {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
-                  </span>
-                  {m.recurring && (
-                    <span className="pill">↻ {DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}</span>
-                  )}
-                  <span className="text-xs text-[#647399]">◻ {(m.taskIds ?? []).length} משימות</span>
-                </div>
-              </div>
-              <div className="flex gap-1 shrink-0 mr-3">
-                {(m.peopleIds ?? []).map((pid) => {
-                  const p = getPerson(pid)
-                  return p ? (
-                    <div
-                      key={pid}
-                      className="avatar border-[1.5px]"
-                      style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
-                    >
-                      {p.name[0]}
-                    </div>
-                  ) : null
-                })}
-              </div>
-            </div>
-          </div>
-        </Link>
-        <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={(e) => { e.preventDefault(); setEditingId(m.id); setModalOpen(true) }}
-            className="text-[#647399] hover:text-[#b8c4dc] transition-colors p-1.5 rounded-lg hover:bg-[#1e1e1e]"
-            title="ערוך"
-          >
-            ✏
-          </button>
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              if (window.confirm('למחוק את הפגישה?')) deleteMeeting.mutate({ id: m.id })
-            }}
-            className="p-1.5 rounded-lg hover:bg-[#1e1e1e] transition-colors"
-            style={{ color: '#647399' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#e57373')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#647399')}
-            title="מחק"
-          >
-            🗑
-          </button>
-        </div>
-      </div>
-    )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, people, typesMap, deleteMeeting])
+  const handleClearAdvancedFilters = useCallback(() => {
+    setAdvancedFilters({ people: [] })
+    setShowAdvancedFilters(false)
+  }, [])
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      {/* Header */}
       <div className="flex justify-between items-center mb-7">
         <h1 className="text-2xl font-bold tracking-tight">פגישות</h1>
         <div className="flex gap-2 items-center">
@@ -421,7 +293,6 @@ export default function MeetingsPage() {
               {syncNotion.isPending ? 'מסנכרן Notion…' : 'סנכרן סיכומי Notion'}
             </button>
           )}
-          {/* Sync result feedback */}
           {syncStatus === 'done' && syncResult !== null && (
             <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#34d39922', color: '#34d399', border: '1px solid #34d39944' }}>
               {syncResult.created === 0 && syncResult.updated === 0 && syncResult.deleted === 0
@@ -434,9 +305,8 @@ export default function MeetingsPage() {
             </span>
           )}
 
-          {/* Sync button + panel wrapper */}
+          {/* Calendar sync panel */}
           <div className="relative" ref={panelRef}>
-            {/* Sync button — signifier: calendar icon communicates origin; affordance: standard btn */}
             <button
               className="btn btn-ghost flex items-center gap-1.5"
               onClick={() => setPanelOpen((v) => !v)}
@@ -453,7 +323,6 @@ export default function MeetingsPage() {
                     <path d="M14 13l-2 2-2-2M12 15v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   סנכרן מיומן
-                  {/* Chevron — signifier: panel can be opened */}
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="opacity-40" style={{ transform: panelOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
                     <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -461,7 +330,6 @@ export default function MeetingsPage() {
               )}
             </button>
 
-            {/* Calendar selection panel */}
             {panelOpen && (
               <div
                 className="absolute left-0 top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl"
@@ -476,7 +344,6 @@ export default function MeetingsPage() {
                   </div>
                 </div>
 
-                {/* Calendar list */}
                 <div className="px-2 pb-2 max-h-56 overflow-y-auto">
                   {calsLoading ? (
                     <div className="px-3 py-3 text-xs text-[#4d659c]">טוען יומנים…</div>
@@ -491,7 +358,6 @@ export default function MeetingsPage() {
                         onClick={() => toggleCal(cal.id)}
                         className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg hover:bg-[#1e1e1e] transition-colors text-right"
                       >
-                        {/* Checkbox — affordance: clearly toggleable */}
                         <span
                           className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center transition-all"
                           style={{
@@ -508,7 +374,6 @@ export default function MeetingsPage() {
                         <span className={`text-xs flex-1 truncate text-right ${checked ? 'text-[#b8c4dc]' : 'text-[#5a688c]'}`}>
                           {cal.name}
                         </span>
-                        {/* Signifier: default-from-settings badge */}
                         {isDefault && settingsCals && (
                           <span className="text-[9px] px-1 py-0.5 rounded shrink-0" style={{ background: '#2dd4bf15', color: '#2dd4bf' }}>
                             ברירת מחדל
@@ -528,7 +393,6 @@ export default function MeetingsPage() {
                   })}
                 </div>
 
-                {/* Divider + action row */}
                 <div className="border-t border-[#1e1e1e] px-3 py-2.5 flex items-center justify-between gap-3">
                   <span className="text-[11px] text-[#4d659c]">
                     {panelSelected.size} יומנים · 60 ימים קדימה
@@ -551,143 +415,248 @@ export default function MeetingsPage() {
         </div>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex gap-2 items-center mb-6">
+      {/* Search + Quick Filters */}
+      <div className="flex gap-2 mb-4 items-center flex-wrap">
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="חיפוש פגישות..."
+          disabled={meetingsLoading}
+          className="flex-1 max-w-xs"
+        />
+        <QuickFilterButton
+          active={quickFilter === 'today'}
+          count={getTodayMeetings(upcomingMeetings).length}
+          onClick={() => setQuickFilter(quickFilter === 'today' ? 'all' : 'today')}
+        >
+          היום
+        </QuickFilterButton>
+        <QuickFilterButton
+          active={quickFilter === 'week'}
+          count={getThisWeekMeetings(upcomingMeetings).length}
+          onClick={() => setQuickFilter(quickFilter === 'week' ? 'all' : 'week')}
+        >
+          השבוע
+        </QuickFilterButton>
+        <QuickFilterButton
+          active={quickFilter === 'with-tasks'}
+          onClick={() => setQuickFilter(quickFilter === 'with-tasks' ? 'all' : 'with-tasks')}
+        >
+          עם משימות
+        </QuickFilterButton>
+        <button
+          onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+          className={`btn ${showAdvancedFilters || advancedFilters.people.length > 0 || advancedFilters.project ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          פילטרים מתקדמים {showAdvancedFilters ? '▴' : '▾'}
+        </button>
+      </div>
+
+      {/* Advanced Filters Panel */}
+      {showAdvancedFilters && (
+        <AdvancedFiltersPanel
+          allPeople={people}
+          allProjects={projects}
+          selectedFilters={advancedFilters}
+          onApply={handleApplyAdvancedFilters}
+          onClear={handleClearAdvancedFilters}
+        />
+      )}
+
+      {/* View Mode Toggle */}
+      <div className="flex gap-2 items-center mb-6 mt-6">
         <button
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'upcoming'
+            viewMode === 'timeline'
               ? 'bg-[#2dd4bf] text-[#0a0a0a]'
               : 'bg-[#1e2a3f] text-[#647399] hover:text-[#97a4c2]'
           }`}
-          onClick={() => setActiveTab('upcoming')}
+          onClick={() => setViewMode('timeline')}
         >
-          קרובות {upcomingMeetings.length > 0 && `(${upcomingMeetings.length})`}
+          קרובות {filteredUpcoming.length > 0 && `(${filteredUpcoming.length})`}
         </button>
         <button
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'past'
+            viewMode === 'past'
               ? 'bg-[#2dd4bf] text-[#0a0a0a]'
               : 'bg-[#1e2a3f] text-[#647399] hover:text-[#97a4c2]'
           }`}
-          onClick={() => setActiveTab('past')}
+          onClick={() => setViewMode('past')}
         >
           עברו {pastMeetings.length > 0 && `(${pastMeetings.length})`}
         </button>
-      </div>
-
-      {/* Filter chips */}
-      <div className="flex gap-1.5 mb-5">
-        <button
-          type="button"
-          className="filter-chip"
-          aria-pressed={!recurringOnly}
-          onClick={() => setRecurringOnly(false)}
-        >
-          כל הפגישות
-        </button>
-        <button
-          type="button"
-          className="filter-chip"
-          aria-pressed={recurringOnly}
-          onClick={() => setRecurringOnly(true)}
-        >
-          ↻ חוזרות
-        </button>
-      </div>
-
-      {/* Type filter chips */}
-      {meetingTypes.length > 0 && (
-        <div className="flex gap-1.5 mb-5 flex-wrap">
+        {needsDateMeetings.length > 0 && (
           <button
-            type="button"
-            className="filter-chip"
-            aria-pressed={typeFilter === 'all'}
-            onClick={() => setTypeFilter('all')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+              viewMode === 'needs-date'
+                ? 'bg-[#f59e0b] text-[#0a0a0a]'
+                : 'bg-[#1e2a3f] text-[#f59e0b] hover:text-[#fbbf24] border border-[#f59e0b]'
+            }`}
+            onClick={() => setViewMode('needs-date')}
           >
-            כל הסוגים
+            <span>⚠️</span>
+            חסר תאריך ({needsDateMeetings.length})
           </button>
-          {meetingTypes.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="filter-chip"
-              aria-pressed={typeFilter === t.id}
-              onClick={() => setTypeFilter(t.id)}
-            >
-              {t.name}
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Upcoming tab */}
-      {activeTab === 'upcoming' && (
+      {/* Timeline View */}
+      {viewMode === 'timeline' && (
         <>
-          {upcomingMeetings.length === 0 && (
-            <p className="text-[#5a688c] text-sm mt-4">
-              {recurringOnly ? 'אין פגישות חוזרות קרובות' : 'אין פגישות קרובות'}
-            </p>
+          {filteredUpcoming.length === 0 && (
+            <div className="text-center py-12" role="status">
+              <p className="text-[#5a688c] text-sm">
+                {searchQuery
+                  ? 'לא נמצאו פגישות התואמות לחיפוש'
+                  : quickFilter !== 'all'
+                  ? 'אין פגישות בפילטר זה'
+                  : 'אין פגישות קרובות'}
+              </p>
+            </div>
           )}
 
-          {/* Series groups — collapsible, shared people + cadence */}
-          {seriesGroups.map(({ id, meetings: ms }) => {
-            const series = seriesMap.get(id)
-            const expanded = expandedSeries.has(id)
-            const sharedPeopleIds = series?.peopleIds ?? [...new Set(ms.flatMap((m) => m.peopleIds ?? []))]
-            return (
-              <div key={id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid #29395d' }}>
-                <button
-                  onClick={() => toggleSeries(id)}
-                  className="w-full flex items-center justify-between gap-3 px-5 py-3 text-right hover:bg-[#141f36] transition-colors"
-                  aria-expanded={expanded}
-                >
-                  <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <span className="font-semibold text-[15px] truncate">{series?.title ?? ms[0].title}</span>
-                    <span className="pill">↻ {series?.cadence === 'weekly' ? 'שבועי' : 'סדרה'}</span>
-                    <span className="text-xs text-[#647399]">{ms.length} מפגשים</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex gap-1">
-                      {sharedPeopleIds.slice(0, 4).map((pid) => {
-                        const p = getPerson(pid)
-                        return p ? (
-                          <div
-                            key={pid}
-                            className="avatar border-[1.5px]"
-                            style={{ background: (p.color ?? '#2dd4bf') + '22', color: p.color ?? '#2dd4bf', borderColor: (p.color ?? '#2dd4bf') + '33' }}
-                          >
-                            {p.name[0]}
-                          </div>
-                        ) : null
-                      })}
-                    </div>
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[#4d659c]"
-                      style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                      <path d="M2 4.5l4 3 4-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                </button>
-                {expanded && (
-                  <div className="px-2 pb-2 pt-1">
-                    {ms.map((m) => renderMeetingCard(m, false))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          <TimelineSection title="היום" count={grouped.today.length} defaultExpanded={true}>
+            {grouped.today.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                importance="urgent"
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </TimelineSection>
 
-          {standaloneUpcoming.map((m) => renderMeetingCard(m, false))}
+          <TimelineSection title="מחר" count={grouped.tomorrow.length} defaultExpanded={true}>
+            {grouped.tomorrow.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                importance="normal"
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </TimelineSection>
+
+          <TimelineSection title="השבוע" count={grouped.thisWeek.length} defaultExpanded={grouped.thisWeek.length <= 5}>
+            {grouped.thisWeek.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                importance="normal"
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </TimelineSection>
+
+          <TimelineSection title="שבוע הבא" count={grouped.nextWeek.length} defaultExpanded={false}>
+            {grouped.nextWeek.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                importance="normal"
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </TimelineSection>
+
+          <TimelineSection title="מאוחר יותר" count={grouped.later.length} defaultExpanded={false}>
+            {grouped.later.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                importance="compact"
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </TimelineSection>
         </>
       )}
 
-      {/* Past tab */}
-      {activeTab === 'past' && (
+      {/* Past View */}
+      {viewMode === 'past' && (
         <>
           {pastMeetings.length === 0 ? (
-            <p className="text-[#5a688c] text-sm mt-4">אין פגישות קודמות</p>
+            <div className="text-center py-12" role="status">
+              <p className="text-[#5a688c] text-sm">אין פגישות קודמות</p>
+            </div>
           ) : (
-            <div>
-              {pastMeetings.map((m) => renderMeetingCard(m, true))}
+            <div className="space-y-3">
+              {pastMeetings.map((m) => (
+                <MeetingCard
+                  key={m.id}
+                  meeting={m}
+                  importance="normal"
+                  past={true}
+                  projects={projects}
+                  meetingTypes={typesMap}
+                  getPerson={getPerson}
+                  onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                  onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Needs Date View */}
+      {viewMode === 'needs-date' && (
+        <>
+          <div className="bg-[#1e2a3f] border border-[#f59e0b] rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <h3 className="text-[#f59e0b] font-medium mb-1">פגישות ללא תאריך</h3>
+                <p className="text-[#97a4c2] text-sm">
+                  הפגישות הבאות מסונכרנות מ-Notion אבל חסר להן תאריך. 
+                  לחץ על כל פגישה כדי לערוך ולהוסיף תאריך.
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          {needsDateMeetings.length === 0 ? (
+            <div className="text-center py-12" role="status">
+              <p className="text-[#5a688c] text-sm">אין פגישות ללא תאריך 🎉</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {needsDateMeetings.map((m) => (
+                <div key={m.id} className="relative">
+                  <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#f59e0b] rounded-full flex items-center justify-center text-xs">
+                    ⚠️
+                  </div>
+                  <MeetingCard
+                    meeting={m}
+                    importance="normal"
+                    projects={projects}
+                    meetingTypes={typesMap}
+                    getPerson={getPerson}
+                    onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                    onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                  />
+                </div>
+              ))}
             </div>
           )}
         </>
