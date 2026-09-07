@@ -164,7 +164,13 @@ export function TaskModal({
           status: form.status,
         },
         {
-          onSuccess: () => {
+          onSuccess: (task) => {
+            // Check for Notion sync failure
+            const notionSync = (task as { notionSync?: { ok: boolean } | null })?.notionSync
+            if (notionSync && !notionSync.ok) {
+              // Still proceed with setTaskPeople, but this shows the error was non-fatal
+              console.warn('Notion sync failed on task update:', notionSync)
+            }
             setTaskPeople.mutate(
               { taskId: editingTaskId, personIds: relatedIds },
               { onSuccess: invalidateAndClose }
@@ -354,7 +360,7 @@ export function TaskModal({
                   ?.source === 'notion' &&
                 (editingTask as { notionPageId?: string | null } | null)?.notionPageId ? (
                   <p className="mt-2 text-xs text-[#38bdf8]">
-                    מסונכרן עם Notion — שינוי סטטוס יעודכן גם שם
+                    מסונכרן עם Notion — שינוי כותרת, סטטוס, עדיפות או תאריך יעד יעודכן גם שם
                   </p>
                 ) : null}
               </div>

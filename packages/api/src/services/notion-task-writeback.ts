@@ -256,28 +256,79 @@ async function loadOverrides(): Promise<Map<string, CanonicalStatus>> {
 }
 
 /**
- * Push a canonical status to the Notion page a task was synced from. Never throws — callers
+ * Push task properties (title, priority, due date, status) to Notion. Never throws — callers
  * have already committed the local change and must not fail because Notion is unavailable.
+ * 
+ * Only properties provided in the input are written. Missing properties are silently skipped
+ * (e.g. if the database has no date property, due date is omitted but title/status still write).
  */
-export async function pushTaskStatus(input: {
+export async function pushTaskProperties(input: {
   notionPageId: string
   notionAccount: string | null | undefined
   notionDb: string | null | undefined
-  status: CanonicalStatus
+  title?: string
+  priority?: 'high' | 'medium' | 'low'
+  dueDate?: string | null  // null means clear the date
+  status?: CanonicalStatus
 }): Promise<WriteBackResult> {
   const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {
-    const schema = await fetchStatusSchema(target.token, target.databaseId)
-    if (!schema || schema.options.length === 0) return { ok: false, reason: 'no-status-property' }
+    const schema = await fetchDatabaseSchema(target.token, target.databaseId)
+    const properties: Record<string, unknown> = {}
+    let statusLabel: string | null = null
 
-    const overrides = await loadOverrides()
-    const label = pickNotionLabel(input.status, schema.options, overrides)
-    if (!label) return { ok: false, reason: 'no-matching-option' }
+    // Title
+    if (input.title !== undefined && schema.titlePropertyName && input.title.trim()) {
+      properties[schema.titlePropertyName] = { title: [{ text: { content: input.title } }] }
+    }
 
-    const value =
-      schema.propertyType === 'status' ? { status: { name: label } } : { select: { name: label } }
+    // Priority
+    if (input.priority !== undefined && schema.priority && schema.priority.options.length > 0) {
+      const priorityLabel = pickPriorityLabel(input.priority, schema.priority.options)
+      if (priorityLabel) {
+        properties[schema.priority.propertyName] =
+          schema.priority.propertyType === 'status'
+            ? { status: { name: priorityLabel } }
+            : { select: { name: priorityLabel } }
+      }
+    }
+
+    // Due date
+    if (input.dueDate !== undefined && schema.datePropertyName) {
+      properties[schema.datePropertyName] = input.dueDate ? { date: { start: input.dueDate } } : { date: null }
+    }
+
+    // Status
+    if (input.status !== undefined) {
+      if (!schema.status || schema.status.options.length === 0) {
+        // Only fail if status was the ONLY thing requested
+        if (!input.title && !input.priority && input.dueDate === undefined) {
+          return { ok: false, reason: 'no-status-property' }
+        }
+      } else {
+        const overrides = await loadOverrides()
+        statusLabel = pickNotionLabel(input.status, schema.status.options, overrides)
+        if (!statusLabel) {
+          // Only fail if status was the ONLY thing requested
+          if (!input.title && !input.priority && input.dueDate === undefined) {
+            return { ok: false, reason: 'no-matching-option' }
+          }
+        } else {
+          properties[schema.status.propertyName] =
+            schema.status.propertyType === 'status'
+              ? { status: { name: statusLabel } }
+              : { select: { name: statusLabel } }
+        }
+      }
+    }
+
+    // If no properties were built, nothing to write
+    if (Object.keys(properties).length === 0) {
+      return { ok: false, reason: 'no-status-property' }
+    }
+
     const res = await fetch(`https://api.notion.com/v1/pages/${input.notionPageId}`, {
       method: 'PATCH',
       headers: {
@@ -285,16 +336,36 @@ export async function pushTaskStatus(input: {
         'Notion-Version': NOTION_VERSION,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ properties: { [schema.propertyName]: value } }),
+      body: JSON.stringify({ properties }),
     })
     if (!res.ok) {
       const body = await res.text()
       return { ok: false, reason: 'api', message: `Notion API ${res.status}: ${body.slice(0, 200)}` }
     }
-    return { ok: true, label }
+    return { ok: true, label: statusLabel ?? '' }
   } catch (err) {
     return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * Push a canonical status to the Notion page a task was synced from. Never throws — callers
+ * have already committed the local change and must not fail because Notion is unavailable.
+ * 
+ * Thin wrapper around pushTaskProperties for backward compatibility.
+ */
+export async function pushTaskStatus(input: {
+  notionPageId: string
+  notionAccount: string | null | undefined
+  notionDb: string | null | undefined
+  status: CanonicalStatus
+}): Promise<WriteBackResult> {
+  return pushTaskProperties({
+    notionPageId: input.notionPageId,
+    notionAccount: input.notionAccount,
+    notionDb: input.notionDb,
+    status: input.status,
+  })
 }
 
 export type PeopleRelationResult =

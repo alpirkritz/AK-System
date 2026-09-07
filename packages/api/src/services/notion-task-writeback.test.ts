@@ -225,6 +225,23 @@ describe('tasks router write-back integration', () => {
     else process.env.NOTION_ACCOUNTS = originalAccounts
   })
 
+  /** Schema shaped like the real task databases: title, status, priority, date. */
+  function richSchemaResponse(priorityOptions = ['High', 'Medium', 'Low']) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        properties: {
+          'Task name': { type: 'title' },
+          Status: { type: 'status', status: { options: DAZ_OPTIONS.map((name) => ({ name })) } },
+          Priority: { type: 'select', select: { options: priorityOptions.map((name) => ({ name })) } },
+          'Due date': { type: 'date' },
+        },
+      }),
+      text: async () => '',
+    }
+  }
+
   it('toggleDone on a manual task performs no Notion call', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -310,14 +327,23 @@ describe('tasks router write-back integration', () => {
     expect(sync?.reason).toBe('api')
   })
 
-  it('update without a status change does not touch Notion', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
+  it('update with title change PATCHes the title property', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+        }
+        return richSchemaResponse()
+      }),
+    )
 
     const db = getDb()
     const now = new Date().toISOString()
     await db.insert(tasks).values({
-      id: 't_notion_title',
+      id: 't_title_change',
       title: 'Old title',
       done: false,
       status: 'not_started',
@@ -331,11 +357,257 @@ describe('tasks router write-back integration', () => {
     })
 
     const caller = await createTestCaller()
-    const updated = await caller.tasks.update({ id: 't_notion_title', title: 'New title' })
+    const updated = await caller.tasks.update({ id: 't_title_change', title: 'New title' })
 
     expect(updated!.title).toBe('New title')
+    const patch = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patch).toBeDefined()
+    const body = JSON.parse(patch!.init!.body as string)
+    expect(body.properties['Task name']).toEqual({ title: [{ text: { content: 'New title' } }] })
+  })
+
+  it('update with priority change PATCHes the priority property', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+        }
+        return richSchemaResponse()
+      }),
+    )
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_priority_change',
+      title: 'Task',
+      done: false,
+      status: 'not_started',
+      priority: 'low',
+      source: 'notion',
+      notionPageId: 'page-priority',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({ id: 't_priority_change', priority: 'high' })
+
+    expect(updated!.priority).toBe('high')
+    const patch = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patch).toBeDefined()
+    const body = JSON.parse(patch!.init!.body as string)
+    expect(body.properties.Priority).toEqual({ select: { name: 'High' } })
+  })
+
+  it('update with due date change PATCHes the date property', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+        }
+        return richSchemaResponse()
+      }),
+    )
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_date_change',
+      title: 'Task',
+      done: false,
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: '2026-08-01',
+      source: 'notion',
+      notionPageId: 'page-date',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({ id: 't_date_change', dueDate: '2026-09-01' })
+
+    expect(updated!.dueDate).toBe('2026-09-01')
+    const patch = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patch).toBeDefined()
+    const body = JSON.parse(patch!.init!.body as string)
+    expect(body.properties['Due date']).toEqual({ date: { start: '2026-09-01' } })
+  })
+
+  it('update clearing dueDate sends null', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+        }
+        return richSchemaResponse()
+      }),
+    )
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_date_clear',
+      title: 'Task',
+      done: false,
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: '2026-08-01',
+      source: 'notion',
+      notionPageId: 'page-clear',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({ id: 't_date_clear', dueDate: null })
+
+    expect(updated!.dueDate).toBeNull()
+    const patch = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patch).toBeDefined()
+    const body = JSON.parse(patch!.init!.body as string)
+    expect(body.properties['Due date']).toEqual({ date: null })
+  })
+
+  it('update with multiple field changes sends one PATCH with all fields', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+        }
+        return richSchemaResponse()
+      }),
+    )
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_multi_change',
+      title: 'Old',
+      done: false,
+      status: 'not_started',
+      priority: 'low',
+      dueDate: '2026-08-01',
+      source: 'notion',
+      notionPageId: 'page-multi',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({
+      id: 't_multi_change',
+      title: 'New',
+      status: 'in_progress',
+      priority: 'high',
+      dueDate: '2026-09-01',
+    })
+
+    expect(updated!.title).toBe('New')
+    const patches = calls.filter((c) => c.init?.method === 'PATCH')
+    expect(patches).toHaveLength(1)
+    const body = JSON.parse(patches[0].init!.body as string)
+    expect(body.properties['Task name']).toEqual({ title: [{ text: { content: 'New' } }] })
+    expect(body.properties.Status).toEqual({ status: { name: 'In Progress' } })
+    expect(body.properties.Priority).toEqual({ select: { name: 'High' } })
+    expect(body.properties['Due date']).toEqual({ date: { start: '2026-09-01' } })
+  })
+
+  it('update with no changes does not call Notion', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => '' }
+      }
+      return richSchemaResponse()
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_no_change',
+      title: 'Same',
+      done: false,
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: '2026-08-01',
+      source: 'notion',
+      notionPageId: 'page-same',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({
+      id: 't_no_change',
+      title: 'Same',
+      priority: 'medium',
+      dueDate: '2026-08-01',
+      status: 'not_started',
+    })
+
+    expect(updated!.title).toBe('Same')
     expect((updated as { notionSync?: unknown }).notionSync).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('local row updates even when Notion returns 500', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH') {
+          return { ok: false, status: 500, json: async () => ({}), text: async () => 'server error' }
+        }
+        return richSchemaResponse()
+      }),
+    )
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(tasks).values({
+      id: 't_notion_error',
+      title: 'Before',
+      done: false,
+      status: 'not_started',
+      priority: 'medium',
+      source: 'notion',
+      notionPageId: 'page-error',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const updated = await caller.tasks.update({ id: 't_notion_error', title: 'After' })
+
+    expect(updated!.title).toBe('After')
+    const sync = (updated as { notionSync?: { ok: boolean; reason?: string } }).notionSync
+    expect(sync?.ok).toBe(false)
+    expect(sync?.reason).toBe('api')
   })
 })
 

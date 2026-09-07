@@ -10,6 +10,7 @@ import {
 } from '../services/notion-tasks-sync'
 import {
   pushTaskStatus,
+  pushTaskProperties,
   pushTaskPeople,
   createNotionTask,
   type WriteBackResult,
@@ -177,6 +178,10 @@ export const tasksRouter = router({
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     const { id, ...rest } = input
+    
+    // Read old row for change detection
+    const [oldRow] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
+    
     const updates: Partial<typeof tasks.$inferInsert> = { updatedAt: new Date().toISOString() }
     if (rest.title !== undefined) updates.title = rest.title
     if (rest.meetingId !== undefined) updates.meetingId = rest.meetingId
@@ -195,18 +200,45 @@ export const tasksRouter = router({
     const [row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
     if (!row) return null
 
-    // Only a real status change is worth a round-trip to Notion.
+    // Write back changed fields to Notion
     let notionSync: WriteBackResult | null = null
-    if (rest.status !== undefined) {
-      notionSync = await syncStatusToNotion(row, rest.status)
-      if (notionSync?.ok) {
-        await ctx.db
-          .update(tasks)
-          .set({ notionStatusRaw: notionSync.label })
-          .where(eq(tasks.id, id))
-        row.notionStatusRaw = notionSync.label
+    if (row.source === 'notion' && row.notionPageId && oldRow) {
+      const changedFields: Parameters<typeof pushTaskProperties>[0] = {
+        notionPageId: row.notionPageId,
+        notionAccount: row.notionAccount,
+        notionDb: row.notionDb,
+      }
+      let hasChanges = false
+      
+      if (rest.title !== undefined && rest.title !== oldRow.title) {
+        changedFields.title = rest.title
+        hasChanges = true
+      }
+      if (rest.priority !== undefined && rest.priority !== oldRow.priority) {
+        changedFields.priority = rest.priority
+        hasChanges = true
+      }
+      if (rest.dueDate !== undefined && rest.dueDate !== oldRow.dueDate) {
+        changedFields.dueDate = rest.dueDate
+        hasChanges = true
+      }
+      if (rest.status !== undefined && rest.status !== oldRow.status) {
+        changedFields.status = rest.status as CanonicalStatus
+        hasChanges = true
+      }
+      
+      if (hasChanges) {
+        notionSync = await pushTaskProperties(changedFields)
+        if (notionSync?.ok && notionSync.label) {
+          await ctx.db
+            .update(tasks)
+            .set({ notionStatusRaw: notionSync.label })
+            .where(eq(tasks.id, id))
+          row.notionStatusRaw = notionSync.label
+        }
       }
     }
+    
     return { ...row, notionSync }
   }),
 

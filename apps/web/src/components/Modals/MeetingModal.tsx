@@ -92,6 +92,17 @@ export function MeetingModal({
         typeId: form.typeId || null,
         peopleIds: form.peopleIds,
         notes: form.notes,
+      }, {
+        onSuccess: (result) => {
+          // Check for Notion sync failure
+          const notionSync = (result as { notionSync?: { ok: boolean } | null })?.notionSync
+          if (notionSync && !notionSync.ok) {
+            console.warn('Notion sync failed on meeting update:', notionSync)
+          }
+          utils.meetings.list.invalidate()
+          utils.meetings.getById.invalidate()
+          onClose()
+        },
       })
     } else {
       create.mutate({
@@ -145,6 +156,11 @@ export function MeetingModal({
               />
             </div>
           </div>
+          {(meeting as { notionPageId?: string | null } | null)?.notionPageId && form.id ? (
+            <p className="text-xs text-[#38bdf8]">
+              מסונכרן עם Notion — שינוי כותרת או תאריך יעודכן גם שם
+            </p>
+          ) : null}
           <div>
             <label className="label">חוזרת?</label>
             <select

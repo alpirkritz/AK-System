@@ -23,6 +23,7 @@ import {
 } from '../services/apple-calendar'
 import { FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB } from '../lib/calendar-filters'
 import { localDateRangeToUtc } from '../lib/calendar-dates'
+import { pushMeetingProperties, type MeetingWriteBackResult } from '../services/notion-meeting-writeback'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -312,13 +313,16 @@ export const meetingsRouter = router({
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     const now = new Date().toISOString()
-    // Calendar-synced meetings keep the series assigned by sync; only manual meetings
-    // (re)compute their series from the recurring flag.
-    const [existing] = await ctx.db
-      .select({ calendarEventId: meetings.calendarEventId })
+    
+    // Read old row for change detection
+    const [oldRow] = await ctx.db
+      .select()
       .from(meetings)
       .where(eq(meetings.id, input.id))
-    const seriesId = existing?.calendarEventId
+    
+    // Calendar-synced meetings keep the series assigned by sync; only manual meetings
+    // (re)compute their series from the recurring flag.
+    const seriesId = oldRow?.calendarEventId
       ? undefined
       : await ensureManualSeries(ctx, {
           title: input.title,
@@ -350,7 +354,34 @@ export const meetingsRouter = router({
       }
     }
     const [row] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.id))
-    return row ?? null
+    
+    // Write back changed fields to Notion
+    let notionSync: MeetingWriteBackResult | null = null
+    if (row?.notionPageId && oldRow) {
+      const changedFields: Parameters<typeof pushMeetingProperties>[0] = {
+        notionPageId: row.notionPageId,
+      }
+      let hasChanges = false
+      
+      if (input.title !== oldRow.title) {
+        changedFields.title = input.title
+        hasChanges = true
+      }
+      if (input.date !== oldRow.date || (input.time ?? oldRow.time) !== oldRow.time) {
+        // Skip sentinel dates
+        if (input.date !== '9999-12-31' && input.date) {
+          changedFields.date = input.date
+          changedFields.time = input.time ?? '09:00'
+          hasChanges = true
+        }
+      }
+      
+      if (hasChanges) {
+        notionSync = await pushMeetingProperties(changedFields)
+      }
+    }
+    
+    return { ...row, notionSync }
   }),
 
   purgeFreeBusy: protectedProcedure.mutation(async ({ ctx }) => {

@@ -544,12 +544,21 @@ export async function syncNotionGraph(
               patch.title = title
             }
           } else {
+            // Notion meeting update
+            const notionHasNoDate = (date === '9999-12-31')
+            const localHasRealDate = existing && existing.date && existing.date !== '9999-12-31'
+            
             patch.title = title
-            patch.date = date
-            patch.time = time
+            
+            // Guard: do not wipe a real local date with Notion's empty sentinel
+            if (!(notionHasNoDate && localHasRealDate)) {
+              patch.date = date
+              patch.time = time
+            }
           }
           await db.update(meetings).set(patch).where(eq(meetings.id, id))
           if (patch.title && existing) existing.title = patch.title
+          if (patch.date && existing) existing.date = patch.date
           if (existing) existing.notionPageId = page.id
         }
       } else {
