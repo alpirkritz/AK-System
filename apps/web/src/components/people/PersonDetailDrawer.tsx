@@ -12,6 +12,7 @@ import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
+import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -605,40 +606,14 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 סיכומי ישיבות ({related.meetingNotes.length})
               </h3>
               <div className="space-y-2">
-                {related.meetingNotes.map((note) => {
-                  const excerpt =
-                    ('bodyText' in note && typeof note.bodyText === 'string' && note.bodyText.trim())
-                      ? note.bodyText.trim()
-                      : note.snippet?.trim() || ''
-                  return (
-                  <div key={note.id} className="py-2 border-b border-[#223052] last:border-0">
-                    <div className="flex items-center gap-2 text-xs">
-                      {note.date && (
-                        <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
-                          {format(new Date(note.date + 'T00:00:00'), 'dd/MM/yy')}
-                        </span>
-                      )}
-                      {'sourceKind' in note && String(note.sourceKind ?? '').startsWith('meeting_page') && (
-                        <span className="text-[10px] text-[#5a688c] shrink-0">AI</span>
-                      )}
-                      {note.meetingId ? (
-                        <a href={`/meetings/${note.meetingId}`} className="text-[#97a4c2] hover:text-[#eef3fb] truncate">
-                          {note.title}
-                        </a>
-                      ) : note.notionUrl ? (
-                        <a href={note.notionUrl} target="_blank" rel="noreferrer" className="text-[#97a4c2] hover:text-[#eef3fb] truncate">
-                          {note.title}
-                        </a>
-                      ) : (
-                        <span className="text-[#97a4c2] truncate">{note.title}</span>
-                      )}
-                    </div>
-                    {excerpt && (
-                      <p className="text-[11px] text-[#5a688c] mt-1 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>
-                    )}
-                  </div>
-                  )
-                })}
+                {related.meetingNotes.map((note) => (
+                  <NotionSummaryCard
+                    key={note.id}
+                    note={note}
+                    titleHref={note.meetingId ? `/meetings/${note.meetingId}` : null}
+                    compact
+                  />
+                ))}
               </div>
             </section>
           )}

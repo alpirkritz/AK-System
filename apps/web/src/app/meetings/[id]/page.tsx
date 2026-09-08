@@ -9,6 +9,7 @@ import { WorkspacePill } from '@/components/WorkspacePill'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
+import { NotionSummaryCard } from '../components/NotionSummaryCard'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -438,29 +439,9 @@ export default function MeetingDetailPage() {
               <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">
                 סיכום AI (Notion)
               </div>
-              <div className="space-y-2">
-                {(meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes.map((n) => {
-                  const excerpt = (n.bodyText?.trim() || n.snippet?.trim() || '')
-                  const isPageNotes = Boolean(n.sourceKind?.startsWith('meeting_page'))
-                  return (
-                  <div key={n.id} className="py-1.5 border-b border-[#223052] last:border-0">
-                    {n.notionUrl ? (
-                      <a href={n.notionUrl} target="_blank" rel="noreferrer" className="text-sm font-medium hover:text-white">
-                        {n.title}
-                      </a>
-                    ) : (
-                      <div className="text-sm font-medium">{n.title}</div>
-                    )}
-                    {isPageNotes && (
-                      <div className="text-[10px] text-[#5a688c] mt-0.5">מדף הפגישה ב-Notion</div>
-                    )}
-                    {excerpt && (
-                      <p className="text-xs text-[#647399] mt-0.5 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>
-                    )}
-                  </div>
-                  )
-                })}
-              </div>
+              {(meeting as { meetingNotes: Array<{ id: string; title: string; date: string | null; snippet: string | null; bodyText?: string | null; notionUrl: string | null; sourceKind?: string | null }> }).meetingNotes.map((n) => (
+                <NotionSummaryCard key={n.id} note={n} />
+              ))}
             </div>
           )}
 

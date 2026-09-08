@@ -10,6 +10,7 @@ import { SyncToast } from '@/components/SyncToast'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
+import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -150,34 +151,14 @@ export default function ProjectDetailPage() {
             סיכומי ישיבות ({meetingNotes.length})
           </div>
           <div className="card space-y-2">
-            {meetingNotes.map((n) => {
-              const excerpt =
-                ('bodyText' in n && typeof n.bodyText === 'string' && n.bodyText.trim())
-                  ? n.bodyText.trim()
-                  : n.snippet?.trim() || ''
-              return (
-              <div key={n.id} className="py-2 border-b border-[#223052] last:border-0">
-                {n.meetingId ? (
-                  <Link href={`/meetings/${n.meetingId}`} className="text-sm font-medium hover:text-white">
-                    {n.title}
-                  </Link>
-                ) : n.notionUrl ? (
-                  <a href={n.notionUrl} target="_blank" rel="noreferrer" className="text-sm font-medium hover:text-white">
-                    {n.title}
-                  </a>
-                ) : (
-                  <div className="text-sm font-medium">{n.title}</div>
-                )}
-                <div className="text-xs text-[#647399]">
-                  {n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('he-IL') : ''}
-                  {'sourceKind' in n && String(n.sourceKind ?? '').startsWith('meeting_page') ? ' · מדף הפגישה ב-Notion' : ''}
-                </div>
-                {excerpt && (
-                  <p className="text-xs text-[#647399] mt-1 line-clamp-8 whitespace-pre-wrap">{excerpt}</p>
-                )}
-              </div>
-              )
-            })}
+            {meetingNotes.map((n) => (
+              <NotionSummaryCard
+                key={n.id}
+                note={n}
+                titleHref={n.meetingId ? `/meetings/${n.meetingId}` : null}
+                compact
+              />
+            ))}
           </div>
         </div>
       )}
