@@ -10,7 +10,7 @@ import { resolveDatabases } from './notion-tasks-sync'
 const NOTION_VERSION = '2022-06-28'
 const SCHEMA_TTL_MS = 5 * 60 * 1000
 
-export type MeetingWriteBackFailure = 'account' | 'no-page' | 'no-title-property' | 'no-date-property' | 'api'
+export type MeetingWriteBackFailure = 'account' | 'no-page' | 'no-title-property' | 'no-date-property' | 'no-tasks-relation' | 'api'
 
 export type MeetingWriteBackResult =
   | { ok: true; wrote: string[] }  // field names successfully written
@@ -24,6 +24,13 @@ interface MeetingDatabaseSchema {
   titlePropertyName: string | null
   /** First date-type property, preferring names matching date|due|start|when|תאריך */
   datePropertyName: string | null
+  /** Relation pointing at a tasks database, where a meeting's linked tasks go. */
+  tasksRelation: TasksRelationInfo | null
+}
+
+interface TasksRelationInfo {
+  propertyName: string
+  targetDatabaseId: string
 }
 
 // Cache resolved token per page ID to avoid repeated page fetches
@@ -91,7 +98,7 @@ async function fetchMeetingDatabaseSchema(token: string, databaseId: string): Pr
     throw new Error(`Notion API ${res.status}: ${body.slice(0, 200)}`)
   }
   const data = (await res.json()) as {
-    properties?: Record<string, { type?: string }>
+    properties?: Record<string, { type?: string; relation?: { database_id?: string } }>
   }
   const properties = data.properties ?? {}
 
@@ -123,11 +130,25 @@ async function fetchMeetingDatabaseSchema(token: string, databaseId: string): Pr
     }
   }
 
+  // Tasks relation: prefer names matching task|todo|action|משימ
+  let tasksRelation: TasksRelationInfo | null = null
+  const taskPattern = /task|todo|action|משימ/i
+  for (const [name, prop] of Object.entries(properties)) {
+    if (prop?.type === 'relation') {
+      const targetDatabaseId = prop.relation?.database_id
+      if (targetDatabaseId && targetDatabaseId !== databaseId && taskPattern.test(name)) {
+        tasksRelation = { propertyName: name, targetDatabaseId }
+        break
+      }
+    }
+  }
+
   const schema: MeetingDatabaseSchema = {
     subjectPropertyName,
     subjectPropertyType,
     titlePropertyName,
     datePropertyName,
+    tasksRelation,
   }
   meetingSchemaCache.set(databaseId, { at: Date.now(), schema })
   return schema
@@ -238,6 +259,88 @@ export async function pushMeetingProperties(input: {
     }
     
     return { ok: true, wrote }
+  } catch (err) {
+    return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Add or remove a task page from a meeting's Tasks relation, preserving Notion-only links
+ * (task pages that are not synced locally). Merge, don't replace.
+ */
+export async function pushMeetingTaskLinks(input: {
+  meetingNotionPageId: string
+  taskNotionPageId: string
+  action: 'add' | 'remove'
+}): Promise<MeetingWriteBackResult> {
+  try {
+    const resolved = await resolvePageToken(input.meetingNotionPageId)
+    if (!resolved) return { ok: false, reason: 'no-page' }
+
+    const schema = await fetchMeetingDatabaseSchema(resolved.token, resolved.databaseId)
+    const relation = schema.tasksRelation
+    if (!relation) return { ok: false, reason: 'no-tasks-relation' }
+
+    // 1. GET current page to read existing Tasks relation
+    const getRes = await fetch(`https://api.notion.com/v1/pages/${input.meetingNotionPageId}`, {
+      headers: {
+        Authorization: `Bearer ${resolved.token}`,
+        'Notion-Version': NOTION_VERSION,
+      },
+    })
+    if (!getRes.ok) {
+      const body = await getRes.text()
+      return { ok: false, reason: 'api', message: `GET page ${getRes.status}: ${body.slice(0, 200)}` }
+    }
+    const page = (await getRes.json()) as {
+      properties?: Record<string, { relation?: Array<{ id?: string }> }>
+    }
+    const existingRel = page.properties?.[relation.propertyName]?.relation ?? []
+    const existingIds = existingRel.map((r: { id?: string }) => r.id).filter(Boolean) as string[]
+
+    // 2. Load all local task notionPageIds to identify which IDs are Notion-only
+    const { getDb, tasks, eq } = await import('@ak-system/database')
+    const db = getDb()
+    const localTaskPages = await db
+      .select({ notionPageId: tasks.notionPageId })
+      .from(tasks)
+      .where(eq(tasks.source, 'notion'))
+    const localPageIds = new Set(localTaskPages.map((t) => t.notionPageId).filter(Boolean))
+
+    // 3. Keep IDs that are NOT local (Notion-only), then add/remove the target task
+    const notionOnlyIds = existingIds.filter((id) => !localPageIds.has(id))
+    let merged: string[]
+    if (input.action === 'add') {
+      merged = [...new Set([...notionOnlyIds, input.taskNotionPageId])]
+    } else {
+      merged = notionOnlyIds.filter((id) => id !== input.taskNotionPageId)
+    }
+
+    // 4. Skip PATCH if unchanged
+    const unchanged =
+      merged.length === existingIds.length && merged.every((id) => existingIds.includes(id))
+    if (unchanged) {
+      return { ok: true, wrote: [] }
+    }
+
+    // 5. PATCH the relation
+    const patchRes = await fetch(`https://api.notion.com/v1/pages/${input.meetingNotionPageId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${resolved.token}`,
+        'Notion-Version': NOTION_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        properties: { [relation.propertyName]: { relation: merged.map((id) => ({ id })) } },
+      }),
+    })
+    if (!patchRes.ok) {
+      const body = await patchRes.text()
+      return { ok: false, reason: 'api', message: `PATCH page ${patchRes.status}: ${body.slice(0, 200)}` }
+    }
+
+    return { ok: true, wrote: [relation.propertyName] }
   } catch (err) {
     return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
   }

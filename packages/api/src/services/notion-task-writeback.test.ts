@@ -1410,3 +1410,169 @@ describe('tasks.setTaskPeople Notion relation push', () => {
     await expect(caller.tasks.getTaskPeople({ id: 't_rel' })).resolves.toEqual(['p_rel_dana'])
   })
 })
+
+describe('pushTaskMeeting', () => {
+  const originalAccounts = process.env.NOTION_ACCOUNTS
+
+  beforeEach(async () => {
+    await resetDb()
+    clearStatusSchemaCache()
+    process.env.NOTION_ACCOUNTS = accountsEnv()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (originalAccounts === undefined) delete process.env.NOTION_ACCOUNTS
+    else process.env.NOTION_ACCOUNTS = originalAccounts
+  })
+
+  it('writes the Meeting relation when provided', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        // Schema fetch
+        if (url.includes('/databases/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              properties: {
+                'Task name': { type: 'title' },
+                Meeting: { type: 'relation', relation: { database_id: 'meet000000000000000000000000' } },
+              },
+            }),
+          }
+        }
+        // PATCH
+        if (init?.method === 'PATCH') {
+          return { ok: true, json: async () => ({}) }
+        }
+        return { ok: false, status: 404 }
+      }),
+    )
+
+    const { pushTaskMeeting } = await import('./notion-task-writeback')
+    const result = await pushTaskMeeting({
+      notionPageId: 'task123',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      meetingNotionPageId: 'meet456',
+    })
+
+    expect(result.ok).toBe(true)
+    const patchCall = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patchCall).toBeDefined()
+    const body = JSON.parse(patchCall!.init!.body as string)
+    expect(body.properties.Meeting.relation).toEqual([{ id: 'meet456' }])
+  })
+
+  it('clears the Meeting relation when null is provided', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        // Schema fetch
+        if (url.includes('/databases/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              properties: {
+                'Task name': { type: 'title' },
+                Meeting: { type: 'relation', relation: { database_id: 'meet000000000000000000000000' } },
+              },
+            }),
+          }
+        }
+        // PATCH
+        if (init?.method === 'PATCH') {
+          return { ok: true, json: async () => ({}) }
+        }
+        return { ok: false, status: 404 }
+      }),
+    )
+
+    const { pushTaskMeeting } = await import('./notion-task-writeback')
+    const result = await pushTaskMeeting({
+      notionPageId: 'task123',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      meetingNotionPageId: null,
+    })
+
+    expect(result.ok).toBe(true)
+    const patchCall = calls.find((c) => c.init?.method === 'PATCH')
+    expect(patchCall).toBeDefined()
+    const body = JSON.parse(patchCall!.init!.body as string)
+    expect(body.properties.Meeting.relation).toEqual([])
+  })
+
+  it('returns no-meeting-relation when the property is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        // Schema fetch
+        if (url.includes('/databases/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              properties: {
+                'Task name': { type: 'title' },
+                // No Meeting relation
+              },
+            }),
+          }
+        }
+        return { ok: false, status: 404 }
+      }),
+    )
+
+    const { pushTaskMeeting } = await import('./notion-task-writeback')
+    const result = await pushTaskMeeting({
+      notionPageId: 'task123',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      meetingNotionPageId: 'meet456',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toBe('no-meeting-relation')
+  })
+
+  it('does not write People or Projects as Meeting', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        // Schema fetch
+        if (url.includes('/databases/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              properties: {
+                'Task name': { type: 'title' },
+                People: { type: 'relation', relation: { database_id: 'people00000000000000000000000' } },
+                Projects: { type: 'relation', relation: { database_id: 'proj000000000000000000000000' } },
+                // No Meeting relation
+              },
+            }),
+          }
+        }
+        return { ok: false, status: 404 }
+      }),
+    )
+
+    const { pushTaskMeeting } = await import('./notion-task-writeback')
+    const result = await pushTaskMeeting({
+      notionPageId: 'task123',
+      notionAccount: 'DAZ',
+      notionDb: 'DAZ Tasks',
+      meetingNotionPageId: 'meet456',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toBe('no-meeting-relation')
+  })
+})

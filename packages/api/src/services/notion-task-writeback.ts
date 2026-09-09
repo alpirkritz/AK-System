@@ -23,6 +23,7 @@ export type WriteBackFailure =
   | 'no-matching-option'
   | 'no-people-relation'
   | 'no-matching-people'
+  | 'no-meeting-relation'
   | 'api'
 
 export type WriteBackResult =
@@ -53,6 +54,13 @@ interface DatabaseSchema {
   priority: PrioritySchema | null
   /** Relation pointing at a people directory, where a task's related people go. */
   peopleRelation: PeopleRelationInfo | null
+  /** Relation pointing at a meetings database, where a task's linked meeting goes. */
+  meetingRelation: MeetingRelationInfo | null
+}
+
+interface MeetingRelationInfo {
+  propertyName: string
+  targetDatabaseId: string
 }
 
 const dbSchemaCache = new Map<string, { at: number; schema: DatabaseSchema }>()
@@ -68,6 +76,29 @@ export function clearStatusSchemaCache(): void {
 /** True for the property that holds a priority, which must never be mistaken for the status. */
 function isPriorityName(name: string): boolean {
   return name.toLowerCase().includes('priority') || name.includes('עדיפות')
+}
+
+/**
+ * Find the Meeting relation property: name-based match for /meeting|פגישה|ישיבה/i,
+ * skips self-refs. Future enhancement: prefer relations targeting configured meetings DBs.
+ */
+function findMeetingRelation(
+  properties: Record<string, { type?: string; relation?: { database_id?: string } }>,
+  taskDatabaseId: string,
+): MeetingRelationInfo | null {
+  let byName: MeetingRelationInfo | null = null
+  
+  for (const [propertyName, p] of Object.entries(properties)) {
+    if (p?.type !== 'relation') continue
+    const targetDatabaseId = p.relation?.database_id
+    if (!targetDatabaseId || targetDatabaseId === taskDatabaseId) continue
+
+    // Name-based matching
+    if (/meeting|פגישה|ישיבה/i.test(propertyName)) {
+      byName = { propertyName, targetDatabaseId }
+    }
+  }
+  return byName
 }
 
 async function fetchDatabaseSchema(token: string, databaseId: string): Promise<DatabaseSchema> {
@@ -133,6 +164,7 @@ async function fetchDatabaseSchema(token: string, databaseId: string): Promise<D
     peoplePropertyName,
     priority,
     peopleRelation: findPeopleRelation(properties, databaseId, listConfiguredPeopleDatabaseIds()),
+    meetingRelation: findMeetingRelation(properties, databaseId),
   }
   dbSchemaCache.set(databaseId, { at: Date.now(), schema })
   return schema
@@ -428,6 +460,48 @@ export async function pushTaskPeople(input: {
       return { ok: false, reason: 'api', message: `Notion API ${res.status}: ${body.slice(0, 200)}` }
     }
     return { ok: true, propertyName: relation.propertyName, matched, unmatched }
+  } catch (err) {
+    return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Write the Meeting relation on a task page. If `meetingNotionPageId` is `null`, clears the
+ * relation (user removed the meeting link). If no Meeting relation property is found, returns
+ * `no-meeting-relation` (silent, like `no-people-relation`).
+ */
+export async function pushTaskMeeting(input: {
+  notionPageId: string
+  notionAccount: string | null | undefined
+  notionDb: string | null | undefined
+  meetingNotionPageId: string | null
+}): Promise<WriteBackResult> {
+  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  if (!target) return { ok: false, reason: 'account' }
+
+  try {
+    const schema = await fetchDatabaseSchema(target.token, target.databaseId)
+    const relation = schema.meetingRelation
+    if (!relation) return { ok: false, reason: 'no-meeting-relation' }
+
+    const relationValue = input.meetingNotionPageId ? [{ id: input.meetingNotionPageId }] : []
+
+    const res = await fetch(`https://api.notion.com/v1/pages/${input.notionPageId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${target.token}`,
+        'Notion-Version': NOTION_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        properties: { [relation.propertyName]: { relation: relationValue } },
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      return { ok: false, reason: 'api', message: `Notion API ${res.status}: ${body.slice(0, 200)}` }
+    }
+    return { ok: true, label: relation.propertyName }
   } catch (err) {
     return { ok: false, reason: 'api', message: err instanceof Error ? err.message : String(err) }
   }

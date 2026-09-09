@@ -585,6 +585,22 @@ export async function syncNotionGraph(
       }
       meetingIdByNotion.set(page.id, id)
       result.meetingsUpserted++
+      
+      // Process Tasks relation: link Notion task pages to this meeting
+      if (!dryRun && id) {
+        const taskRelIds = getTypedRelationIds(page.properties, 'tasks')
+        for (const taskPageId of taskRelIds) {
+          const [taskRow] = await db
+            .select({ id: tasks.id, meetingId: tasks.meetingId })
+            .from(tasks)
+            .where(eq(tasks.notionPageId, taskPageId))
+          // Non-wipe rule: only set meetingId if not already set
+          if (taskRow && !taskRow.meetingId) {
+            await db.update(tasks).set({ meetingId: id, updatedAt: now }).where(eq(tasks.id, taskRow.id))
+          }
+        }
+      }
+      
       meetingPagesForNotes.push({
         pageId: page.id,
         url: page.url ?? null,

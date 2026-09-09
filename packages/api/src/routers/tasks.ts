@@ -12,11 +12,13 @@ import {
   pushTaskStatus,
   pushTaskProperties,
   pushTaskPeople,
+  pushTaskMeeting,
   createNotionTask,
   type WriteBackResult,
   type CreateResult,
   type PeopleRelationResult,
 } from '../services/notion-task-writeback'
+import { pushMeetingTaskLinks } from '../services/notion-meeting-writeback'
 import { ensureSelfPerson } from '../services/self-person'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
@@ -169,6 +171,37 @@ export const tasksRouter = router({
             })
             .where(eq(tasks.id, id))
           ;[row] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
+          
+          // If task was created with a meetingId, write the Meeting relation
+          if (input.meetingId && row) {
+            const [meeting] = await ctx.db
+              .select({ notionPageId: meetings.notionPageId })
+              .from(meetings)
+              .where(eq(meetings.id, input.meetingId))
+            const meetingNotionPageId = meeting?.notionPageId ?? null
+            
+            if (meetingNotionPageId) {
+              const meetingSync = await pushTaskMeeting({
+                notionPageId: notionSync.pageId,
+                notionAccount: notionSync.accountLabel,
+                notionDb: notionSync.name,
+                meetingNotionPageId,
+              })
+              if (!meetingSync.ok && meetingSync.reason !== 'no-meeting-relation') {
+                console.warn(`[tasks.create] Meeting writeback failed for task ${id}:`, meetingSync)
+              }
+              
+              // Also add this task to the meeting's Tasks relation
+              const meetingTasksSync = await pushMeetingTaskLinks({
+                meetingNotionPageId,
+                taskNotionPageId: notionSync.pageId,
+                action: 'add',
+              })
+              if (!meetingTasksSync.ok && meetingTasksSync.reason !== 'no-tasks-relation') {
+                console.warn(`[tasks.create] Meeting Tasks relation writeback failed:`, meetingTasksSync)
+              }
+            }
+          }
         }
       }
     }
@@ -235,6 +268,65 @@ export const tasksRouter = router({
             .set({ notionStatusRaw: notionSync.label })
             .where(eq(tasks.id, id))
           row.notionStatusRaw = notionSync.label
+        }
+      }
+      
+      // Meeting link changed: write to both Notion relations (task.Meeting + meeting.Tasks)
+      if (rest.meetingId !== undefined && rest.meetingId !== oldRow.meetingId) {
+        // Get new meeting's notionPageId
+        let newMeetingNotionPageId: string | null = null
+        if (rest.meetingId) {
+          const [meeting] = await ctx.db
+            .select({ notionPageId: meetings.notionPageId })
+            .from(meetings)
+            .where(eq(meetings.id, rest.meetingId))
+          newMeetingNotionPageId = meeting?.notionPageId ?? null
+        }
+        
+        // Get old meeting's notionPageId
+        let oldMeetingNotionPageId: string | null = null
+        if (oldRow.meetingId) {
+          const [oldMeeting] = await ctx.db
+            .select({ notionPageId: meetings.notionPageId })
+            .from(meetings)
+            .where(eq(meetings.id, oldRow.meetingId))
+          oldMeetingNotionPageId = oldMeeting?.notionPageId ?? null
+        }
+        
+        // Push task → meeting relation
+        if (newMeetingNotionPageId || rest.meetingId === null) {
+          const meetingSync = await pushTaskMeeting({
+            notionPageId: row.notionPageId,
+            notionAccount: row.notionAccount,
+            notionDb: row.notionDb,
+            meetingNotionPageId: newMeetingNotionPageId,
+          })
+          // Don't overwrite the main notionSync result, but log failures
+          if (!meetingSync.ok && meetingSync.reason !== 'no-meeting-relation') {
+            console.warn(`[tasks.update] Meeting writeback failed for task ${id}:`, meetingSync)
+          }
+        }
+        
+        // Update meeting Tasks relations: remove from old, add to new
+        if (oldMeetingNotionPageId) {
+          const removeSync = await pushMeetingTaskLinks({
+            meetingNotionPageId: oldMeetingNotionPageId,
+            taskNotionPageId: row.notionPageId,
+            action: 'remove',
+          })
+          if (!removeSync.ok && removeSync.reason !== 'no-tasks-relation') {
+            console.warn(`[tasks.update] Old meeting Tasks removal failed:`, removeSync)
+          }
+        }
+        if (newMeetingNotionPageId) {
+          const addSync = await pushMeetingTaskLinks({
+            meetingNotionPageId: newMeetingNotionPageId,
+            taskNotionPageId: row.notionPageId,
+            action: 'add',
+          })
+          if (!addSync.ok && addSync.reason !== 'no-tasks-relation') {
+            console.warn(`[tasks.update] New meeting Tasks addition failed:`, addSync)
+          }
         }
       }
     }

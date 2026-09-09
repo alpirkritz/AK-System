@@ -286,6 +286,14 @@ export function TaskModal({
                     <option key={m.id} value={m.id}>{m.title}</option>
                   ))}
                 </select>
+                {(editingTask as { source?: string | null; notionPageId?: string | null } | null)
+                  ?.source === 'notion' &&
+                (editingTask as { notionPageId?: string | null } | null)?.notionPageId &&
+                form.meetingId ? (
+                  <p className="mt-2 text-xs text-[#38bdf8]">
+                    מסונכרן עם Notion — קישור לפגישה יעודכן גם שם
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="label" id="task-assignee-label">אחראי</label>

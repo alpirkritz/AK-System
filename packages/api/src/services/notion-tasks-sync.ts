@@ -22,6 +22,7 @@ import {
   people,
   personExternalIds,
   projects,
+  meetings,
   tasks,
   taskPeople,
   workspaces,
@@ -421,6 +422,18 @@ function getProjectRelationPageIds(props: Record<string, NotionProp>): string[] 
   return ids
 }
 
+function getMeetingRelationPageIds(props: Record<string, NotionProp>): string[] {
+  const ids: string[] = []
+  for (const [name, v] of Object.entries(props)) {
+    if (v?.type !== 'relation' || !Array.isArray(v.relation)) continue
+    if (!/meeting|פגישה|ישיבה/i.test(name)) continue
+    for (const r of v.relation as Array<{ id?: string }>) {
+      if (r?.id) ids.push(r.id)
+    }
+  }
+  return ids
+}
+
 /** Email from an `email`-type property, if present. */
 function getEmail(props: Record<string, NotionProp>): string | null {
   for (const v of Object.values(props)) {
@@ -712,12 +725,16 @@ export async function syncNotionTasks(
 
   // Preload existing notion-sourced tasks for idempotent upsert.
   const existingNotionTasks = await db
-    .select({ id: tasks.id, notionPageId: tasks.notionPageId })
+    .select({ id: tasks.id, notionPageId: tasks.notionPageId, meetingId: tasks.meetingId })
     .from(tasks)
     .where(eq(tasks.source, 'notion'))
   const taskIdByPage = new Map<string, string>()
+  const existingTaskMeetingId = new Map<string, string | null>()
   for (const t of existingNotionTasks) {
-    if (t.notionPageId) taskIdByPage.set(t.notionPageId, t.id)
+    if (t.notionPageId) {
+      taskIdByPage.set(t.notionPageId, t.id)
+      existingTaskMeetingId.set(t.notionPageId, t.meetingId)
+    }
   }
 
   const projectRows = await db
@@ -726,6 +743,14 @@ export async function syncNotionTasks(
   const projectByNotionId = new Map<string, string>()
   for (const p of projectRows) {
     if (p.notionPageId) projectByNotionId.set(p.notionPageId, p.id)
+  }
+
+  const meetingRows = await db
+    .select({ id: meetings.id, notionPageId: meetings.notionPageId })
+    .from(meetings)
+  const meetingByNotionPageId = new Map<string, string>()
+  for (const m of meetingRows) {
+    if (m.notionPageId) meetingByNotionPageId.set(m.notionPageId, m.id)
   }
 
   const workspaceRows = await db
@@ -812,6 +837,10 @@ export async function syncNotionTasks(
         getProjectRelationPageIds(props)
           .map((rid) => projectByNotionId.get(rid))
           .find(Boolean) ?? null
+      const meetingId =
+        getMeetingRelationPageIds(props)
+          .map((rid) => meetingByNotionPageId.get(rid))
+          .find(Boolean) ?? null
       const dueDate = getDueDate(props)
       const priority = getPriority(props)
       const notionStatusRaw = getStatusRaw(props)
@@ -821,6 +850,9 @@ export async function syncNotionTasks(
 
       const existingTaskId = taskIdByPage.get(page.id)
       if (existingTaskId) {
+        const currentMeetingId = existingTaskMeetingId.get(page.id) ?? null
+        // Non-wipe rule: only set meetingId if Notion has one or if local doesn't have one
+        const shouldUpdateMeetingId = meetingId !== null || currentMeetingId === null
         if (!dryRun) {
           await db
             .update(tasks)
@@ -833,6 +865,7 @@ export async function syncNotionTasks(
               notionStatusRaw: notionStatusRaw || null,
               assigneeId,
               projectId,
+              ...(shouldUpdateMeetingId ? { meetingId } : {}),
               workspaceId,
               notionAccount: database.accountLabel,
               notionDb: database.name,
@@ -851,7 +884,7 @@ export async function syncNotionTasks(
           await db.insert(tasks).values({
             id,
             title,
-            meetingId: null,
+            meetingId,
             projectId,
             workspaceId,
             assigneeId,
