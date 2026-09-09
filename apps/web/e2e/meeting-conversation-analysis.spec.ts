@@ -270,4 +270,61 @@ test.describe('Meeting Conversation Analysis', () => {
     await page.getByRole('button', { name: /הסתר תמלול/ }).click()
     await expect(page.getByText('דובר 1: אז בואו נתחיל')).not.toBeVisible()
   })
+
+  test('re-analyze button sends force=true', async ({ page }) => {
+    const { meetingId } = seedMeetingWithTranscript()
+
+    const dbPath = path.join(__dirname, '../data/e2e.sqlite')
+    const db = new Database(dbPath)
+    const now = new Date().toISOString()
+    const analysisId = `ma_e2e_reanalyze_${Date.now()}`
+
+    db.prepare(
+      `INSERT INTO meeting_analyses (
+        id, meeting_id, source, status,
+        hat_name, topic, mood, subtext, key_insight,
+        score, score_rationale, kaizen_keep, kaizen_improve, open_question,
+        participants_json, action_items_json,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      analysisId,
+      meetingId,
+      'notion_transcript',
+      'completed',
+      'White Hat (עובדות וניתוח אובייקטיבי)',
+      'תכנון ספרינט Q2',
+      'ממוקד ומעט לחוץ',
+      'קיים לחץ עדין להשיג יעדים',
+      'הצוות מחפש בהירות לגבי סדרי עדיפויות',
+      7,
+      'שיחה מעשית אבל חסרה תובנה מפתיעה',
+      'הקשבה טובה וסיכום נקודות פעולה',
+      'להקדיש זמן לחשיבה יצירתית',
+      'איך נוכל לשפר את היעילות בתקשורת הפנימית?',
+      JSON.stringify([{ name: 'אלפיר', confirmed: true }]),
+      JSON.stringify([{ content: 'לעדכן את הרואדמאפ עד יום רביעי' }]),
+      now,
+      now,
+    )
+    db.close()
+
+    let postedBody = ''
+    await page.route('**/api/trpc/meetings.analyzeTranscript*', async (route) => {
+      postedBody = route.request().postData() ?? ''
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          result: { data: { json: { analysisId: `${analysisId}_new` } } },
+        }),
+      })
+    })
+
+    await page.goto(`/meetings/${meetingId}`)
+    await expect(page.getByRole('heading', { name: 'תכנון ספרינט Q2' })).toBeVisible({ timeout: 20000 })
+
+    await page.getByRole('button', { name: /נתח מחדש/ }).click()
+    await expect.poll(() => postedBody.includes('"force":true')).toBe(true)
+  })
 })

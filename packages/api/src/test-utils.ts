@@ -6,6 +6,7 @@ import {
   meetingNotes,
   meetingNotePeople,
   meetingNoteProjects,
+  meetingAnalyses,
   meetingSeries,
   meetingTypes,
   tasks,
@@ -36,6 +37,7 @@ export async function createTestCaller() {
 export async function resetDb() {
   const db = getTestDb()
   await db.delete(tasks)
+  await db.delete(meetingAnalyses)
   await db.delete(meetingNotePeople)
   await db.delete(meetingNoteProjects)
   await db.delete(meetingNotes)

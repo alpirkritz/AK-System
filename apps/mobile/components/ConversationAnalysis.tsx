@@ -94,16 +94,20 @@ export function ConversationAnalysis({ meetingId }: Props) {
     void loadAnalysis()
   }, [loadAnalysis])
 
-  const handleAnalyze = useCallback(async () => {
+  const handleAnalyze = useCallback(async (force = false) => {
     if (!token || analyzing) return
     setAnalyzing(true)
     try {
       const client = createTrpcClient(token)
-      await client.meetings.analyzeTranscript.mutate({ meetingId, force: false })
+      await client.meetings.analyzeTranscript.mutate({ meetingId, force })
       // Poll for completion
       setTimeout(() => void loadAnalysis(), 2000)
     } catch (err) {
       console.error('[ConversationAnalysis] Analyze failed:', err)
+      const errorMessage = err instanceof Error ? err.message : 'שגיאת רשת'
+      Alert.alert('הניתוח נכשל', errorMessage.replace(/^Analysis failed:\s*/i, ''), [
+        { text: 'סגור', style: 'cancel' },
+      ])
     } finally {
       setAnalyzing(false)
     }
@@ -165,7 +169,7 @@ export function ConversationAnalysis({ meetingId }: Props) {
           ניתוח מעמיק של השיחה: מצב רוח, תובנות, קאיזן ואקשן אייטמס
         </Text>
         <Pressable
-          onPress={() => void handleAnalyze()}
+          onPress={() => void handleAnalyze(false)}
           disabled={analyzing}
           style={styles.primaryButton}
           accessibilityRole="button"
@@ -196,7 +200,7 @@ export function ConversationAnalysis({ meetingId }: Props) {
         <Text style={styles.errorTitle}>הניתוח נכשל</Text>
         <Text style={styles.errorText}>{analysis.error}</Text>
         <Pressable
-          onPress={() => void handleAnalyze()}
+          onPress={() => void handleAnalyze(true)}
           style={styles.retryButton}
           accessibilityRole="button"
           accessibilityLabel="נסה שוב"

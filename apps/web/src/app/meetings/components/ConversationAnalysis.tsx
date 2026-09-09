@@ -34,8 +34,8 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   
   const analyzeMutation = trpc.meetings.analyzeTranscript.useMutation({
-    onSuccess: () => {
-      refetch()
+    onSettled: () => {
+      void refetch()
     },
   })
 
@@ -72,9 +72,16 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     return () => document.removeEventListener('mousedown', handler)
   }, [participantPopoverOpen])
 
-  const handleAnalyze = () => {
-    analyzeMutation.mutate({ meetingId, force: false })
+  const handleAnalyze = (force: boolean) => {
+    analyzeMutation.mutate({ meetingId, force })
   }
+
+  const analyzeErrorMessage =
+    analyzeMutation.error instanceof Error
+      ? analyzeMutation.error.message.replace(/^Analysis failed:\s*/i, '')
+      : analyzeMutation.error
+        ? String(analyzeMutation.error)
+        : null
 
   const openParticipantPopover = (index: number) => {
     setSelectedParticipantIndex(index)
@@ -158,7 +165,8 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
             ניתוח שיחה
           </h3>
           <button
-            onClick={handleAnalyze}
+            type="button"
+            onClick={() => handleAnalyze(false)}
             disabled={analyzeMutation.isPending}
             className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
@@ -168,6 +176,9 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
         <p className="text-sm text-gray-600 dark:text-gray-400">
           לחץ על &quot;נתח שיחה&quot; לקבלת ניתוח מעמיק של השיחה - מצב רוח, תת-טקסט, תובנות וקאיזן
         </p>
+        {analyzeErrorMessage ? (
+          <p className="mt-3 text-sm text-red-600 dark:text-red-400">{analyzeErrorMessage}</p>
+        ) : null}
       </div>
     )
   }
@@ -196,8 +207,10 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
             <p className="text-sm text-red-700 dark:text-red-300">{analysis.error}</p>
           </div>
           <button
-            onClick={handleAnalyze}
-            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium"
+            type="button"
+            onClick={() => handleAnalyze(true)}
+            disabled={analyzeMutation.isPending}
+            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
           >
             נסה שוב
           </button>
@@ -226,12 +239,17 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
             </span>
           </div>
           <button
-            onClick={() => handleAnalyze()}
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            type="button"
+            onClick={() => handleAnalyze(true)}
+            disabled={analyzeMutation.isPending}
+            className="text-sm text-teal-600 hover:text-teal-500 dark:text-teal-400 dark:hover:text-teal-300 disabled:opacity-50"
           >
             נתח מחדש
           </button>
         </div>
+        {analyzeErrorMessage ? (
+          <p className="mb-4 text-sm text-red-600 dark:text-red-400">{analyzeErrorMessage}</p>
+        ) : null}
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
