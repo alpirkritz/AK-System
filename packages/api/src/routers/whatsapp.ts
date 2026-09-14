@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages, agentCache } from '@ak-system/database'
 import { eq, asc, and, gte, lte, inArray } from 'drizzle-orm'
-import { generateGroupInsight, generateCrossGroupDigest, generateClusterSummary } from '../services/whatsapp-insights'
+import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
 import { WHATSAPP_WINDOWS, resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import {
   discoverGroups,
@@ -11,16 +11,13 @@ import {
   pushConfigToBridge,
   isBridgeConfigured,
   summarizeGroup,
-  summarizeCluster,
-  isEmptyBufferError,
-  sendBridgeText,
   type GroupRulePayload,
 } from '../services/whatsapp-bridge-client'
 import {
   partitionDueSummaries,
-  formatClusterSummaryMessage,
   type DueSummaryRow,
 } from '../services/whatsapp-summary-clusters'
+import { runClusterSummary } from '../services/whatsapp-cluster-run'
 
 function genId(prefix: string): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -120,89 +117,6 @@ function toDueRows(
     labelTimes: label ? parseJsonArray(label.summaryTimes) : [],
     aggregateSummaries: Boolean(label?.aggregateSummaries),
   }))
-}
-
-async function fallbackClusterFromDb(
-  db: import('../trpc').Context['db'],
-  cluster: { labelId: string; labelName: string; groups: { jid: string; name: string }[] },
-): Promise<{ labelId: string; name: string; ok: boolean; error?: string }> {
-  const range = resolveWhatsappTimeWindow({ window: 'today' })
-  const jids = cluster.groups.map((g) => g.jid)
-  const msgRows = await db
-    .select({
-      groupJid: whatsappMessages.groupJid,
-      senderName: whatsappMessages.senderName,
-      text: whatsappMessages.text,
-      ts: whatsappMessages.ts,
-    })
-    .from(whatsappMessages)
-    .where(
-      and(
-        inArray(whatsappMessages.groupJid, jids),
-        gte(whatsappMessages.ts, range.sinceMs),
-        lte(whatsappMessages.ts, range.untilMs),
-      ),
-    )
-    .orderBy(asc(whatsappMessages.ts))
-
-  const byGroup = new Map<string, { senderName: string; text: string; ts: number }[]>()
-  for (const r of msgRows) {
-    const list = byGroup.get(r.groupJid) ?? []
-    list.push({ senderName: r.senderName, text: r.text, ts: r.ts })
-    byGroup.set(r.groupJid, list)
-  }
-
-  const groups = cluster.groups
-    .map((g) => ({ name: g.name, messages: byGroup.get(g.jid) ?? [] }))
-    .filter((g) => g.messages.length > 0)
-
-  if (groups.length === 0) {
-    return {
-      labelId: cluster.labelId,
-      name: cluster.labelName,
-      ok: false,
-      error: 'No buffered messages for this cluster',
-    }
-  }
-
-  try {
-    const body = await generateClusterSummary(cluster.labelName, groups)
-    const full = formatClusterSummaryMessage(cluster.labelName, body)
-    await saveInsightToChat(db, full)
-    if (isBridgeConfigured()) {
-      const sent = await sendBridgeText(full)
-      if (!sent.ok) {
-        return { labelId: cluster.labelId, name: cluster.labelName, ok: true, error: sent.error }
-      }
-    }
-    return { labelId: cluster.labelId, name: cluster.labelName, ok: true }
-  } catch (err) {
-    return {
-      labelId: cluster.labelId,
-      name: cluster.labelName,
-      ok: false,
-      error: err instanceof Error ? err.message : 'Cluster summarize failed',
-    }
-  }
-}
-
-async function runClusterSummary(
-  db: import('../trpc').Context['db'],
-  cluster: { labelId: string; labelName: string; groups: { jid: string; name: string }[] },
-): Promise<{ labelId: string; name: string; ok: boolean; error?: string }> {
-  if (isBridgeConfigured()) {
-    const result = await summarizeCluster({
-      clusterName: cluster.labelName,
-      groupJids: cluster.groups.map((g) => g.jid),
-    })
-    if (result.ok) {
-      return { labelId: cluster.labelId, name: cluster.labelName, ok: true }
-    }
-    if (!isEmptyBufferError(result.error)) {
-      return { labelId: cluster.labelId, name: cluster.labelName, ok: false, error: result.error }
-    }
-  }
-  return fallbackClusterFromDb(db, cluster)
 }
 
 async function buildBridgePayload(
@@ -544,6 +458,7 @@ export const whatsappRouter = router({
           name: string
           ok: boolean
           error?: string
+          text?: string
         }[] = []
 
         for (const cluster of clusters) {

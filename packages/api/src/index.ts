@@ -82,10 +82,14 @@ export {
 export {
   partitionDueSummaries,
   formatClusterSummaryMessage,
+  formatQuietDayClusterMessage,
+  formatQuietDayGroupMessage,
+  QUIET_DAY_BODY,
   type DueSummaryRow,
   type PartitionedSummaries,
 } from './services/whatsapp-summary-clusters'
 export { generateClusterSummary } from './services/whatsapp-insights'
+export { runClusterSummary, type ClusterRunResult } from './services/whatsapp-cluster-run'
 export {
   NOTIFICATION_TYPES,
   resolveNotificationChannels,

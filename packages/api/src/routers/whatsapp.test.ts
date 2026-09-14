@@ -205,4 +205,33 @@ describe('whatsapp router — label cluster parameter', () => {
       caller.whatsapp.summaries.trigger({ groupJid: 'a@g.us', labelId: 'wl1' }),
     ).rejects.toThrow(/mutually exclusive/)
   })
+
+  it('summaries.trigger on a clustered label with no stored messages delivers a quiet-day briefing', async () => {
+    const caller = await createTestCaller()
+    const label = await caller.whatsapp.labels.upsert({
+      name: 'עומרי',
+      summaryTimes: ['20:00'],
+      aggregateSummaries: true,
+    })
+    await caller.whatsapp.groups.upsert({
+      jid: 'welcome@g.us',
+      name: 'ברוכים הבאים',
+      enabled: true,
+      labelId: label.id,
+    })
+    await caller.whatsapp.groups.upsert({
+      jid: 'tzaharon@g.us',
+      name: 'צהרון',
+      enabled: true,
+      labelId: label.id,
+    })
+
+    const res = await caller.whatsapp.summaries.trigger({ labelId: label.id })
+    expect(res.okCount).toBe(1)
+    expect(res.results[0]?.ok).toBe(true)
+    expect(res.results[0]?.text).toContain('📋 סיכום — עומרי')
+    expect(res.results[0]?.text).toContain('היום לא קרה כלום.')
+    const chats = await getDb().select().from(chatMessages)
+    expect(chats.some((c) => c.content.includes('היום לא קרה כלום.'))).toBe(true)
+  })
 })

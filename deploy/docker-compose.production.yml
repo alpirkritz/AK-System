@@ -42,6 +42,9 @@ services:
     environment:
       AUTH_STATE_PATH: /data/auth
       PORT: '3001'
+      AK_GROUP_SUMMARY_URL: http://web:3000/api/whatsapp/group-summary
+      AK_GROUP_CLUSTER_SUMMARY_URL: http://web:3000/api/whatsapp/group-cluster-summary
+      AK_MESSAGES_INGEST_URL: http://web:3000/api/whatsapp/messages/ingest
     restart: unless-stopped
 
 volumes:

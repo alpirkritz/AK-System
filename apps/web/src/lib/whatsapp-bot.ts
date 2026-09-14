@@ -9,7 +9,7 @@ import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
 import { withChatMessageId } from './notification-url'
 import { chatMessages, getDb, desc, eq, whatsappGroups } from '@ak-system/database'
-import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs } from '@ak-system/api'
+import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs, formatQuietDayGroupMessage, QUIET_DAY_BODY } from '@ak-system/api'
 
 function normalizeEchoText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
@@ -256,6 +256,12 @@ export async function summarizeGroupMessages(
   groupJid: string,
   messages: BufferedGroupMessage[],
 ): Promise<string> {
+  if (messages.length === 0) {
+    const full = formatQuietDayGroupMessage(groupName)
+    await saveChatMessage('assistant', full, 'whatsapp')
+    return full
+  }
+
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
 
@@ -282,15 +288,14 @@ export async function summarizeGroupMessages(
     'Cover naturally: what the conversation was about, what people discussed, any outcome or decision, and the overall vibe.',
     '2–4 short sentences. Under 400 characters total for the body.',
     'Do not invent facts not in the messages. Do not quote long excerpts.',
-    'If nothing meaningful happened, say that plainly in a casual tone.',
+    'If nothing happened today, say exactly: היום לא קרה כלום.',
     '',
     'Messages:',
     lines.join('\n'),
   ].join('\n')
 
   const result = await model.generateContent(prompt)
-  const body = result.response.text().trim()
-  if (!body) throw new Error('Empty summary from Gemini')
+  const body = result.response.text().trim() || QUIET_DAY_BODY
 
   const header = `📋 סיכום קבוצה — ${groupName}\n\n`
   const full = (header + body).slice(0, 65000)

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatClusterSummaryMessage,
+  formatQuietDayClusterMessage,
   partitionDueSummaries,
+  QUIET_DAY_BODY,
   type DueSummaryRow,
 } from './whatsapp-summary-clusters'
 
@@ -179,5 +181,14 @@ describe('formatClusterSummaryMessage', () => {
     const text = formatClusterSummaryMessage('התווית שלי', 'היה טיול.')
     expect(text).toContain('📋 סיכום — התווית שלי')
     expect(text).toContain('היה טיול.')
+  })
+})
+
+describe('formatQuietDayClusterMessage', () => {
+  it('sends a real briefing that says nothing happened, not a blank body', () => {
+    const text = formatQuietDayClusterMessage('עומרי')
+    expect(text).toContain('📋 סיכום — עומרי')
+    expect(text).toContain(QUIET_DAY_BODY)
+    expect(text.replace(/^📋 סיכום — עומרי\s*/, '').trim().length).toBeGreaterThan(0)
   })
 })

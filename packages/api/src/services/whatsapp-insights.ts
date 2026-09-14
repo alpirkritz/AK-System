@@ -5,6 +5,7 @@
  */
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
 import { getDefaultTimezone } from '../lib/calendar-dates'
+import { QUIET_DAY_BODY } from './whatsapp-summary-clusters'
 
 export type GroupInsightMode = 'summary' | 'topics' | 'style'
 
@@ -236,7 +237,7 @@ export async function generateClusterSummary(
 ): Promise<string> {
   const withMessages = groups.filter((g) => g.messages.length > 0)
   if (withMessages.length === 0) {
-    return 'שקט באשכול הזה בטווח שנבחר — אין משהו לספר.'
+    return QUIET_DAY_BODY
   }
 
   const model = getModel()
@@ -251,7 +252,7 @@ export async function generateClusterSummary(
     'Merge duplicate events that appear in more than one group; state shared facts once.',
     'Mention a source group name only when a fact appears in one group and not the others.',
     '4–8 short sentences. Do not invent facts not in the messages. Do not quote long excerpts.',
-    'If nothing meaningful happened, say that plainly once for the whole cluster.',
+    'If nothing happened today, say exactly: היום לא קרה כלום.',
     '',
     'Groups and messages:',
     blocks,
@@ -259,6 +260,5 @@ export async function generateClusterSummary(
 
   const result = await model.generateContent(prompt)
   const body = result.response.text().trim()
-  if (!body) throw new Error('Empty cluster summary from Gemini')
-  return body.slice(0, 1200)
+  return (body || QUIET_DAY_BODY).slice(0, 1200)
 }

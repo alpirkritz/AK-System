@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, whatsappGroups, whatsappLabels } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
-import { partitionDueSummaries, summarizeCluster, summarizeGroup } from '@ak-system/api'
+import { partitionDueSummaries, runClusterSummary, summarizeGroup } from '@ak-system/api'
 
 function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return []
@@ -79,11 +79,11 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
   const results: Record<string, { ok: boolean; error?: string }> = {}
 
   for (const cluster of clusters) {
-    const result = await summarizeCluster({
-      clusterName: cluster.labelName,
-      groupJids: cluster.groups.map((g) => g.jid),
-    })
-    results[`cluster:${cluster.labelId}`] = result
+    const result = await runClusterSummary(db, cluster)
+    results[`cluster:${cluster.labelId}`] = {
+      ok: result.ok,
+      error: result.error,
+    }
   }
 
   for (const group of singles) {

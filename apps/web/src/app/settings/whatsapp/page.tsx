@@ -89,6 +89,7 @@ export default function WhatsAppSettingsPage() {
   const [newLabelAggregate, setNewLabelAggregate] = useState(false)
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
   const [triggeringLabelId, setTriggeringLabelId] = useState<string | null>(null)
+  const [clusterPreview, setClusterPreview] = useState<{ name: string; text: string } | null>(null)
 
   const [digestWindow, setDigestWindow] = useState<DigestWindow>('24h')
   const [digestResult, setDigestResult] = useState<{
@@ -157,8 +158,17 @@ export default function WhatsAppSettingsPage() {
 
   const triggerSummary = trpc.whatsapp.summaries.trigger.useMutation({
     onSuccess: (res) => {
-      if (res.okCount > 0) setMessage('נשלח סיכום מאוחד')
-      else setMessage(res.results[0]?.error || res.message || 'לא היו הודעות לסיכום')
+      const first = res.results[0]
+      if (first?.text) {
+        setClusterPreview({ name: first.name, text: first.text })
+      }
+      if (first?.text && first.error) {
+        setMessage(first.error)
+      } else if (res.okCount > 0) {
+        setMessage('נשלח סיכום מאוחד')
+      } else {
+        setMessage(first?.error || res.message || 'לא היו הודעות לסיכום')
+      }
     },
     onError: (e) => setMessage(`שגיאה: ${e.message}`),
     onSettled: () => setTriggeringLabelId(null),
@@ -238,6 +248,17 @@ export default function WhatsAppSettingsPage() {
       if (g.labelId && g.enabled) {
         map.set(g.labelId, (map.get(g.labelId) ?? 0) + 1)
       }
+    }
+    return map
+  }, [groups])
+
+  const memberNamesByLabel = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const g of groups) {
+      if (!g.labelId || !g.enabled) continue
+      const list = map.get(g.labelId) ?? []
+      list.push(g.name)
+      map.set(g.labelId, list)
     }
     return map
   }, [groups])
@@ -721,6 +742,7 @@ export default function WhatsAppSettingsPage() {
             labels.map((label) => {
               const enabledCount = enabledCountByLabel.get(label.id) ?? 0
               const aggregated = Boolean(label.aggregateSummaries)
+              const memberNames = memberNamesByLabel.get(label.id) ?? []
               return (
                 <div key={label.id} className="card px-4 py-3 flex items-center justify-between gap-3">
                   <div>
@@ -729,6 +751,11 @@ export default function WhatsAppSettingsPage() {
                       סיכום: {(label.summaryTimes ?? []).join(', ') || '—'} · {label.groupCount} קבוצות
                       {aggregated ? ' · סיכום מאוחד' : ''}
                     </div>
+                    {memberNames.length > 0 ? (
+                      <div className="text-[10px] text-[#7a89ab] mt-1 leading-relaxed">
+                        {memberNames.join(' · ')}
+                      </div>
+                    ) : null}
                     {aggregated && enabledCount < 2 ? (
                       <div className="text-[10px] text-[#5a688c] mt-1">
                         צריך לפחות שתי קבוצות פעילות תחת התווית
@@ -774,6 +801,15 @@ export default function WhatsAppSettingsPage() {
               )
             })
           )}
+
+          {clusterPreview ? (
+            <div className="card p-4 space-y-2">
+              <div className="text-sm text-[#b8c4dc]">סיכום אחרון — {clusterPreview.name}</div>
+              <div className="text-xs text-[#cdd7ea] whitespace-pre-wrap leading-relaxed">
+                {clusterPreview.text}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

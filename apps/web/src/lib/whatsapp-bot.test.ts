@@ -91,6 +91,20 @@ describe('summarizeGroupMessages', () => {
     expect(prompt).not.toContain('jid@g.us')
   })
 
+  it('says היום לא קרה כלום when there are no messages', async () => {
+    const result = await summarizeGroupMessages('גן', 'jid@g.us', [])
+    expect(result).toContain('📋 סיכום קבוצה — גן')
+    expect(result).toContain('היום לא קרה כלום.')
+    expect(mockGenerateContent).not.toHaveBeenCalled()
+  })
+
+  it('says היום לא קרה כלום when Gemini returns a blank body', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => '   ' } })
+    const result = await summarizeGroupMessages('גן', 'jid@g.us', sampleMessages)
+    expect(result).toContain('היום לא קרה כלום.')
+    expect(result.trim().endsWith('היום לא קרה כלום.')).toBe(true)
+  })
+
   it('renders second-precision bridge timestamps as Israel local time', async () => {
     // 2026-07-09T11:30:00Z = 14:30 in Israel (UTC+3), delivered in seconds.
     await summarizeGroupMessages('צוות', 'jid@g.us', [

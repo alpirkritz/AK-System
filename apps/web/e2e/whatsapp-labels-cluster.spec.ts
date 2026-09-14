@@ -10,5 +10,6 @@ test.describe('WhatsApp label cluster parameter', () => {
     await expect(page.getByRole('switch')).toBeVisible()
     await expect(page.getByRole('button', { name: 'הוסף תווית' })).toBeVisible()
     await expect(page.getByPlaceholder(/שם תווית/)).toBeVisible()
+    await expect(page.getByText(/קבוצות תחת התווית יקבלו סיכום אחד/)).toBeVisible()
   })
 })

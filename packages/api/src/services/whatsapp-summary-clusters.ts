@@ -81,3 +81,14 @@ export function formatClusterSummaryMessage(clusterName: string, body: string): 
   const header = `📋 סיכום — ${clusterName}\n\n`
   return (header + body).slice(0, 65000)
 }
+
+/** Body used when the local calendar day had no group traffic (or Gemini returned blank). */
+export const QUIET_DAY_BODY = 'היום לא קרה כלום.'
+
+export function formatQuietDayClusterMessage(clusterName: string): string {
+  return formatClusterSummaryMessage(clusterName, QUIET_DAY_BODY)
+}
+
+export function formatQuietDayGroupMessage(groupName: string): string {
+  return (`📋 סיכום קבוצה — ${groupName}\n\n` + QUIET_DAY_BODY).slice(0, 65000)
+}
