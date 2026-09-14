@@ -547,6 +547,7 @@ const WHATSAPP_TABLES = [
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     summary_times TEXT NOT NULL DEFAULT '[]',
+    aggregate_summaries INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS whatsapp_groups (
@@ -580,6 +581,10 @@ const WHATSAPP_TABLES = [
 
 const WHATSAPP_GROUPS_COLUMNS = [
   'ALTER TABLE whatsapp_groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0',
+]
+
+const WHATSAPP_LABELS_COLUMNS = [
+  'ALTER TABLE whatsapp_labels ADD COLUMN aggregate_summaries INTEGER NOT NULL DEFAULT 0',
 ]
 
 const AGENT_TRIGGERS_TABLE = [
@@ -628,6 +633,56 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN auto_create_action_item_tasks INTEGER NOT NULL DEFAULT 0',
+]
+
+const AGENT_RUNTIME_TABLES = [
+  `CREATE TABLE IF NOT EXISTS agent_run_logs (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    status TEXT NOT NULL,
+    finish_reason TEXT,
+    block_reason TEXT,
+    tools_called TEXT NOT NULL DEFAULT '[]',
+    gemini_calls INTEGER NOT NULL DEFAULT 0,
+    queue_wait_ms INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    model_tier TEXT NOT NULL DEFAULT 'flash',
+    cache_hit INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    reply_chars INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_run_logs_run_id ON agent_run_logs(run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_run_logs_agent_id ON agent_run_logs(agent_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_run_logs_status ON agent_run_logs(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_run_logs_created_at ON agent_run_logs(created_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_jobs (
+    id TEXT PRIMARY KEY,
+    dedupe_key TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_run_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_jobs_dedupe_key ON agent_jobs(dedupe_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_jobs_status ON agent_jobs(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_jobs_next_run_at ON agent_jobs(next_run_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_cache (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '{}',
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_cache_expires_at ON agent_cache(expires_at)`,
 ]
 
 const NOTIFICATION_PREFERENCES_COLUMNS = [
@@ -944,6 +999,9 @@ export function getDb() {
   for (const sql of WHATSAPP_GROUPS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+  for (const sql of WHATSAPP_LABELS_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of AGENT_TRIGGERS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -958,6 +1016,9 @@ export function getDb() {
   }
   for (const sql of USER_SETTINGS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of AGENT_RUNTIME_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }
@@ -1026,6 +1087,9 @@ export const salesDocuments = schema.salesDocuments
 export const salesDocumentLines = schema.salesDocumentLines
 export const salesDocumentPayments = schema.salesDocumentPayments
 export const salesDocumentCounters = schema.salesDocumentCounters
+export const agentRunLogs = schema.agentRunLogs
+export const agentJobs = schema.agentJobs
+export const agentCache = schema.agentCache
 
 // Re-export MEETING_CATEGORIES from pg (same value) and types from schema (sqlite has the type exports)
 export type MeetingCategory = typeof schemaPg.MEETING_CATEGORIES[number]
@@ -1127,6 +1191,12 @@ export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof schemaPg.hugoInstructions.$inferInsert
 export type Memory = typeof schemaPg.memories.$inferSelect
 export type NewMemory = typeof schemaPg.memories.$inferInsert
+export type AgentRunLog = typeof schemaPg.agentRunLogs.$inferSelect
+export type NewAgentRunLog = typeof schemaPg.agentRunLogs.$inferInsert
+export type AgentJob = typeof schemaPg.agentJobs.$inferSelect
+export type NewAgentJob = typeof schemaPg.agentJobs.$inferInsert
+export type AgentCacheEntry = typeof schemaPg.agentCache.$inferSelect
+export type NewAgentCacheEntry = typeof schemaPg.agentCache.$inferInsert
 export { MEMORY_KINDS, MEMORY_SOURCES, READING_LIST_STATUSES } from './schema'
 export type { MemoryKind, MemorySource, ReadingListStatus } from './schema'
 

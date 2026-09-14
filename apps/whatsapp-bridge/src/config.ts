@@ -45,6 +45,7 @@ export const config = {
   watchGroupJids: new Set(optionalList('WATCH_GROUP_JIDS')),
   deviceName: optional('DEVICE_NAME', 'ARO'),
   akGroupSummaryUrl: process.env.AK_GROUP_SUMMARY_URL || '',
+  akGroupClusterSummaryUrl: process.env.AK_GROUP_CLUSTER_SUMMARY_URL || '',
   akMessagesIngestUrl: process.env.AK_MESSAGES_INGEST_URL || '',
   /** Must be explicitly enabled — default off to prevent accidental auto-replies. */
   replyEnabled: process.env.REPLY_ENABLED === '1' || process.env.REPLY_ENABLED === 'true',

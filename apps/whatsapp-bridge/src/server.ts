@@ -11,6 +11,7 @@ import {
   getCurrentQr,
   getSelfJid,
   getStatus,
+  requestClusterSummary,
   requestGroupSummary,
   sendWhatsAppMessage,
 } from './whatsapp-client.js'
@@ -124,6 +125,22 @@ export function createServer(): express.Application {
       return
     }
     const result = await requestGroupSummary(groupJid)
+    if (!result.ok) {
+      res.status(400).json(result)
+      return
+    }
+    res.json(result)
+  })
+
+  app.post('/groups/summarize-cluster', requireAuth, async (req, res) => {
+    const clusterName = String(req.body?.clusterName ?? '').trim()
+    const rawJids = req.body?.groupJids
+    const groupJids = Array.isArray(rawJids) ? rawJids.map((j) => String(j).trim()).filter(Boolean) : []
+    if (groupJids.length < 2) {
+      res.status(400).json({ error: 'clusterName and at least two groupJids are required' })
+      return
+    }
+    const result = await requestClusterSummary(clusterName || 'אשכול', groupJids)
     if (!result.ok) {
       res.status(400).json(result)
       return

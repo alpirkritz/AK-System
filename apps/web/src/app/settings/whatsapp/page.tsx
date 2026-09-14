@@ -86,7 +86,9 @@ export default function WhatsAppSettingsPage() {
 
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelTimes, setNewLabelTimes] = useState('20:00')
+  const [newLabelAggregate, setNewLabelAggregate] = useState(false)
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
+  const [triggeringLabelId, setTriggeringLabelId] = useState<string | null>(null)
 
   const [digestWindow, setDigestWindow] = useState<DigestWindow>('24h')
   const [digestResult, setDigestResult] = useState<{
@@ -134,9 +136,12 @@ export default function WhatsAppSettingsPage() {
   })
 
   const upsertLabel = trpc.whatsapp.labels.upsert.useMutation({
-    onSuccess: () => {
-      utils.whatsapp.labels.list.invalidate()
+    onSuccess: async () => {
+      await utils.whatsapp.labels.list.invalidate()
+      await utils.whatsapp.groups.list.invalidate()
       setNewLabelName('')
+      setNewLabelTimes('20:00')
+      setNewLabelAggregate(false)
       setEditingLabelId(null)
       setMessage('התווית נשמרה')
     },
@@ -144,7 +149,19 @@ export default function WhatsAppSettingsPage() {
   })
 
   const deleteLabel = trpc.whatsapp.labels.delete.useMutation({
-    onSuccess: () => utils.whatsapp.groups.list.invalidate(),
+    onSuccess: () => {
+      utils.whatsapp.groups.list.invalidate()
+      utils.whatsapp.labels.list.invalidate()
+    },
+  })
+
+  const triggerSummary = trpc.whatsapp.summaries.trigger.useMutation({
+    onSuccess: (res) => {
+      if (res.okCount > 0) setMessage('נשלח סיכום מאוחד')
+      else setMessage(res.results[0]?.error || res.message || 'לא היו הודעות לסיכום')
+    },
+    onError: (e) => setMessage(`שגיאה: ${e.message}`),
+    onSettled: () => setTriggeringLabelId(null),
   })
 
   const syncBridge = trpc.whatsapp.sync.pushToBridge.useMutation({
@@ -214,6 +231,16 @@ export default function WhatsAppSettingsPage() {
     if (!q) return mergedRows
     return mergedRows.filter((r) => r.name.toLowerCase().includes(q))
   }, [mergedRows, nameFilter])
+
+  const enabledCountByLabel = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const g of groups) {
+      if (g.labelId && g.enabled) {
+        map.set(g.labelId, (map.get(g.labelId) ?? 0) + 1)
+      }
+    }
+    return map
+  }, [groups])
 
   const [drafts, setDrafts] = useState<Record<string, GroupDraft>>({})
 
@@ -651,7 +678,7 @@ export default function WhatsAppSettingsPage() {
             <input
               value={newLabelName}
               onChange={(e) => setNewLabelName(e.target.value)}
-              placeholder="שם תווית (למשל: עבודה, משפחה)"
+              placeholder="שם תווית (למשל: עבודה, משפחה, גן)"
               className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
             <input
@@ -660,6 +687,15 @@ export default function WhatsAppSettingsPage() {
               placeholder="שעות סיכום ברירת מחדל: 20:00"
               className="w-full text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
+            <div className="flex items-center gap-3">
+              <Toggle checked={newLabelAggregate} onChange={setNewLabelAggregate} />
+              <span className="text-[12px] text-[#cdd7ea]">סכם כאשכול</span>
+            </div>
+            <p className="text-[11px] text-[#5a688c] leading-relaxed">
+              קבוצות תחת התווית יקבלו סיכום אחד. כפילויות בין הקבוצות יאוחדו. השתמשו בתווית נפרדת לכל
+              אשכול חיים (גן, בית ספר), לא בתווית כללית לכל הערב. אפשר להוסיף ולמחוק תוויות בכל עת —
+              זה פרמטר על התווית, לא רשימה קבועה.
+            </p>
             <button
               onClick={() => {
                 if (!newLabelName.trim()) return
@@ -667,6 +703,7 @@ export default function WhatsAppSettingsPage() {
                   id: editingLabelId ?? undefined,
                   name: newLabelName.trim(),
                   summaryTimes: parseTimes(newLabelTimes),
+                  aggregateSummaries: newLabelAggregate,
                 })
               }}
               disabled={!newLabelName.trim() || upsertLabel.isPending}
@@ -681,36 +718,61 @@ export default function WhatsAppSettingsPage() {
           ) : labels.length === 0 ? (
             <div className="text-sm text-[#5a688c]">אין תוויות עדיין.</div>
           ) : (
-            labels.map((label) => (
-              <div key={label.id} className="card px-4 py-3 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm text-[#cdd7ea]">{label.name}</div>
-                  <div className="text-[10px] text-[#5a688c]">
-                    סיכום: {(label.summaryTimes ?? []).join(', ') || '—'} · {label.groupCount} קבוצות
+            labels.map((label) => {
+              const enabledCount = enabledCountByLabel.get(label.id) ?? 0
+              const aggregated = Boolean(label.aggregateSummaries)
+              return (
+                <div key={label.id} className="card px-4 py-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-[#cdd7ea]">{label.name}</div>
+                    <div className="text-[10px] text-[#5a688c]">
+                      סיכום: {(label.summaryTimes ?? []).join(', ') || '—'} · {label.groupCount} קבוצות
+                      {aggregated ? ' · סיכום מאוחד' : ''}
+                    </div>
+                    {aggregated && enabledCount < 2 ? (
+                      <div className="text-[10px] text-[#5a688c] mt-1">
+                        צריך לפחות שתי קבוצות פעילות תחת התווית
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    {aggregated && enabledCount >= 2 ? (
+                      <button
+                        onClick={() => {
+                          setTriggeringLabelId(label.id)
+                          triggerSummary.mutate({ labelId: label.id })
+                        }}
+                        disabled={triggerSummary.isPending && triggeringLabelId === label.id}
+                        className="btn btn-ghost text-[11px] py-1 px-2 disabled:opacity-50"
+                      >
+                        {triggerSummary.isPending && triggeringLabelId === label.id
+                          ? 'מסכם…'
+                          : 'סכם עכשיו'}
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() => {
+                        setEditingLabelId(label.id)
+                        setNewLabelName(label.name)
+                        setNewLabelTimes((label.summaryTimes ?? []).join(', '))
+                        setNewLabelAggregate(Boolean(label.aggregateSummaries))
+                      }}
+                      className="btn btn-ghost text-[11px] py-1 px-2"
+                    >
+                      ערוך
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`למחוק את "${label.name}"?`)) deleteLabel.mutate({ id: label.id })
+                      }}
+                      className="btn btn-ghost text-[11px] py-1 px-2 text-red-400"
+                    >
+                      מחק
+                    </button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingLabelId(label.id)
-                      setNewLabelName(label.name)
-                      setNewLabelTimes((label.summaryTimes ?? []).join(', '))
-                    }}
-                    className="btn btn-ghost text-[11px] py-1 px-2"
-                  >
-                    ערוך
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`למחוק את "${label.name}"?`)) deleteLabel.mutate({ id: label.id })
-                    }}
-                    className="btn btn-ghost text-[11px] py-1 px-2 text-red-400"
-                  >
-                    מחק
-                  </button>
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}

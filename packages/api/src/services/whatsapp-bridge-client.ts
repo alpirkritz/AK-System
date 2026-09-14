@@ -114,3 +114,37 @@ export async function summarizeAllGroups(): Promise<{
   }
   return { results: data.results ?? {} }
 }
+
+export async function summarizeCluster(input: {
+  clusterName: string
+  groupJids: string[]
+}): Promise<{ ok: boolean; error?: string }> {
+  const { ok, data } = await bridgeFetch<{ ok?: boolean; error?: string }>('/groups/summarize-cluster', {
+    method: 'POST',
+    body: JSON.stringify({
+      clusterName: input.clusterName,
+      groupJids: input.groupJids,
+    }),
+  })
+  if (!ok) {
+    return { ok: false, error: (data as { error?: string }).error || 'Cluster summarize failed' }
+  }
+  return { ok: true }
+}
+
+export function isEmptyBufferError(error?: string): boolean {
+  if (!error) return false
+  const lower = error.toLowerCase()
+  return lower.includes('no buffered messages')
+}
+
+export async function sendBridgeText(text: string): Promise<{ ok: boolean; error?: string }> {
+  const { ok, data } = await bridgeFetch<{ error?: string }>('/send', {
+    method: 'POST',
+    body: JSON.stringify({ text: text.slice(0, 65000) }),
+  })
+  if (!ok) {
+    return { ok: false, error: (data as { error?: string }).error || 'Send failed' }
+  }
+  return { ok: true }
+}

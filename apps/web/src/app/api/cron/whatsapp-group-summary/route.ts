@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, whatsappGroups, whatsappLabels } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
+import { partitionDueSummaries, summarizeCluster, summarizeGroup } from '@ak-system/api'
 
 function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return []
@@ -21,13 +22,10 @@ function currentTimeInTimezone(timezone: string): string {
   }).format(new Date())
 }
 
-function isDueAtSlot(times: string[], slot: string): boolean {
-  return times.includes(slot)
-}
-
 /**
  * Cron: summarize WhatsApp groups whose schedule matches current HH:MM.
- * Runs every ~15 min; only groups with matching summaryTimes (or label default) are summarized.
+ * Runs every ~15 min. Labels with aggregateSummaries merge into one message;
+ * other due groups stay one-message-each.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   return runScheduledSummary(request)
@@ -47,9 +45,7 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
     }
   }
 
-  const url = process.env.WHATSAPP_BRIDGE_URL
-  const bridgeSecret = process.env.WHATSAPP_BRIDGE_SECRET
-  if (!url || !bridgeSecret) {
+  if (!process.env.WHATSAPP_BRIDGE_URL || !process.env.WHATSAPP_BRIDGE_SECRET) {
     return NextResponse.json({ ok: false, error: 'WhatsApp bridge not configured' }, { status: 503 })
   }
 
@@ -62,39 +58,45 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
     .from(whatsappGroups)
     .leftJoin(whatsappLabels, eq(whatsappGroups.labelId, whatsappLabels.id))
 
-  const due = rows.filter(({ group, label }) => {
-    if (!group.enabled) return false
-    const groupTimes = parseJsonArray(group.summaryTimes)
-    const labelTimes = label ? parseJsonArray(label.summaryTimes) : []
-    const times = groupTimes.length > 0 ? groupTimes : labelTimes
-    return isDueAtSlot(times, slot)
-  })
+  const { clusters, singles } = partitionDueSummaries(
+    rows.map(({ group, label }) => ({
+      enabled: !!group.enabled,
+      jid: group.jid,
+      name: group.name,
+      groupTimes: parseJsonArray(group.summaryTimes),
+      labelId: group.labelId,
+      labelName: label?.name ?? null,
+      labelTimes: label ? parseJsonArray(label.summaryTimes) : [],
+      aggregateSummaries: Boolean(label?.aggregateSummaries),
+    })),
+    slot,
+  )
 
-  if (due.length === 0) {
+  if (clusters.length === 0 && singles.length === 0) {
     return NextResponse.json({ ok: true, slot, summarized: 0, message: 'No groups due at this time' })
   }
 
   const results: Record<string, { ok: boolean; error?: string }> = {}
-  for (const { group } of due) {
-    try {
-      const res = await fetch(`${url.replace(/\/$/, '')}/groups/summarize`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${bridgeSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ groupJid: group.jid }),
-      })
-      const data = (await res.json()) as { ok?: boolean; error?: string }
-      results[group.jid] = res.ok ? { ok: true } : { ok: false, error: data.error || 'Failed' }
-    } catch (err) {
-      results[group.jid] = {
-        ok: false,
-        error: err instanceof Error ? err.message : 'Summarize failed',
-      }
-    }
+
+  for (const cluster of clusters) {
+    const result = await summarizeCluster({
+      clusterName: cluster.labelName,
+      groupJids: cluster.groups.map((g) => g.jid),
+    })
+    results[`cluster:${cluster.labelId}`] = result
+  }
+
+  for (const group of singles) {
+    results[group.jid] = await summarizeGroup(group.jid)
   }
 
   const okCount = Object.values(results).filter((r) => r.ok).length
-  return NextResponse.json({ ok: true, slot, summarized: okCount, results })
+  return NextResponse.json({
+    ok: true,
+    slot,
+    summarized: okCount,
+    clustered: clusters.length,
+    singles: singles.length,
+    results,
+  })
 }

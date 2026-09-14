@@ -75,8 +75,17 @@ export {
   isBridgeConfigured,
   getBridgeStatus,
   getBridgeWatchedGroups,
+  summarizeGroup,
+  summarizeCluster,
   type GroupRulePayload,
 } from './services/whatsapp-bridge-client'
+export {
+  partitionDueSummaries,
+  formatClusterSummaryMessage,
+  type DueSummaryRow,
+  type PartitionedSummaries,
+} from './services/whatsapp-summary-clusters'
+export { generateClusterSummary } from './services/whatsapp-insights'
 export {
   NOTIFICATION_TYPES,
   resolveNotificationChannels,

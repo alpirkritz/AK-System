@@ -178,6 +178,12 @@ function resolveGroupSummaryUrl(): string {
   return config.akWebhookUrl.replace(/\/webhook\/?$/, '/group-summary')
 }
 
+function resolveClusterSummaryUrl(): string {
+  if (config.akGroupClusterSummaryUrl) return config.akGroupClusterSummaryUrl
+  if (!config.akWebhookUrl) return ''
+  return config.akWebhookUrl.replace(/\/webhook\/?$/, '/group-cluster-summary')
+}
+
 function resolveMessagesIngestUrl(): string {
   if (config.akMessagesIngestUrl) return config.akMessagesIngestUrl
   if (!config.akWebhookUrl) return ''
@@ -273,17 +279,19 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
     if (!isGroupWatched(remoteJid)) return
     const sender = msg.key.participant || msg.participant || 'unknown'
     const trimmed = text.trim()
+    // Use pushName if available, otherwise fall back to JID prefix
+    const senderName = msg.pushName?.trim() || sender.split('@')[0] || sender
     const groupMessage: BufferedGroupMessage = {
       id: messageId,
       sender,
-      senderName: sender.split('@')[0] ?? sender,
+      senderName,
       text: trimmed,
       timestamp: messageTimestampMs(msg) ?? Date.now(),
     }
     bufferGroupMessage(remoteJid, groupMessage)
     enqueuePersistMessage(remoteJid, groupMessage)
     onGroupMessage(remoteJid, trimmed)
-    logger.info({ groupJid: remoteJid, messageId }, 'Buffered group message')
+    logger.info({ groupJid: remoteJid, messageId, senderName }, 'Buffered group message')
     return
   }
 
@@ -519,6 +527,66 @@ export async function requestGroupSummary(groupJid: string): Promise<{ ok: boole
   // Persist any queued messages before clearing the FOMO buffer so history stays complete.
   await flushPersistQueues().catch(() => {})
   clearGroupBuffer(groupJid)
+  await sendWhatsAppMessage(getSelfChatTarget(), summary)
+  return { ok: true }
+}
+
+export async function requestClusterSummary(
+  clusterName: string,
+  groupJids: string[],
+): Promise<{ ok: boolean; error?: string }> {
+  const uniqueJids = [...new Set(groupJids.map((j) => j.trim()).filter(Boolean))]
+  if (uniqueJids.length < 2) {
+    return { ok: false, error: 'cluster requires at least two groupJids' }
+  }
+
+  const groups: {
+    groupJid: string
+    groupName: string
+    messages: ReturnType<typeof getGroupBuffer>
+  }[] = []
+  for (const groupJid of uniqueJids) {
+    const messages = getGroupBuffer(groupJid)
+    if (messages.length === 0) continue
+    const rule = getGroupRule(groupJid)
+    const groupName = rule?.name?.trim() || groupJid.split('@')[0] || 'קבוצה'
+    groups.push({ groupJid, groupName, messages })
+  }
+
+  if (groups.length === 0) {
+    return { ok: false, error: 'No buffered messages for this cluster' }
+  }
+
+  const summaryUrl = resolveClusterSummaryUrl()
+  if (!summaryUrl) {
+    return { ok: false, error: 'AK_GROUP_CLUSTER_SUMMARY_URL or AK_WEBHOOK_URL not configured' }
+  }
+
+  const name = clusterName.trim() || groups.map((g) => g.groupName).join(' / ')
+  const res = await fetch(summaryUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.bridgeSecret}`,
+    },
+    body: JSON.stringify({ clusterName: name, groups }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    return { ok: false, error: `Cluster summary API failed (${res.status}): ${body}` }
+  }
+
+  const data = (await res.json()) as { summary?: string; reply?: string }
+  const summary = data.summary || data.reply
+  if (!summary) {
+    return { ok: false, error: 'No summary in response' }
+  }
+
+  await flushPersistQueues().catch(() => {})
+  for (const group of groups) {
+    clearGroupBuffer(group.groupJid)
+  }
   await sendWhatsAppMessage(getSelfChatTarget(), summary)
   return { ok: true }
 }

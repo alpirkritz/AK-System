@@ -220,3 +220,45 @@ export async function generateCrossGroupDigest(
 
   return { text: narrative.slice(0, 60000), items }
 }
+
+export interface ClusterGroupInput {
+  name: string
+  messages: InsightMessage[]
+}
+
+/**
+ * One friend-style briefing for an opt-in label cluster (duplicate facts collapsed).
+ * Cluster name is whatever label the user configured — never a hardcoded list.
+ */
+export async function generateClusterSummary(
+  clusterName: string,
+  groups: ClusterGroupInput[],
+): Promise<string> {
+  const withMessages = groups.filter((g) => g.messages.length > 0)
+  if (withMessages.length === 0) {
+    return 'שקט באשכול הזה בטווח שנבחר — אין משהו לספר.'
+  }
+
+  const model = getModel()
+  const blocks = withMessages
+    .map((g) => `=== קבוצה: ${g.name} (${g.messages.length} הודעות) ===\n${formatLines(g.messages.slice(-120))}`)
+    .join('\n\n')
+
+  const prompt = [
+    `A friend is briefing the user about several related WhatsApp groups that belong to the cluster "${clusterName}".`,
+    'Write in natural spoken Hebrew (unless most messages are in English).',
+    'Sound like a friend over coffee — not a report, no bullet points, no labels like "נושא:".',
+    'Merge duplicate events that appear in more than one group; state shared facts once.',
+    'Mention a source group name only when a fact appears in one group and not the others.',
+    '4–8 short sentences. Do not invent facts not in the messages. Do not quote long excerpts.',
+    'If nothing meaningful happened, say that plainly once for the whole cluster.',
+    '',
+    'Groups and messages:',
+    blocks,
+  ].join('\n')
+
+  const result = await model.generateContent(prompt)
+  const body = result.response.text().trim()
+  if (!body) throw new Error('Empty cluster summary from Gemini')
+  return body.slice(0, 1200)
+}

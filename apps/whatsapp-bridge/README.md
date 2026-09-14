@@ -24,7 +24,8 @@ Open http://localhost:3001/ and scan the QR code (WhatsApp → Linked Devices).
 | POST | `/send` | Bearer | `{ "text": "...", "to?": "jid" }` |
 | GET | `/groups` | Bearer | Watched groups + buffer counts |
 | POST | `/groups/summarize` | Bearer | `{ "groupJid": "..." }` |
-| POST | `/groups/summarize-all` | Bearer | Summarize all watched groups |
+| POST | `/groups/summarize-cluster` | Bearer | `{ "clusterName": "...", "groupJids": ["..."] }` — one briefing for an opt-in label cluster. `/groups/summarize-all` stays per-group. |
+| POST | `/groups/summarize-all` | Bearer | Summarize all watched groups (per-group; clustering is decided by AK cron/tRPC) |
 
 ## Deploy
 

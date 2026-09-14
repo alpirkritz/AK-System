@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages } from '@ak-system/database'
+import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages, agentCache } from '@ak-system/database'
 import { eq, asc, and, gte, lte, inArray } from 'drizzle-orm'
-import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
+import { generateGroupInsight, generateCrossGroupDigest, generateClusterSummary } from '../services/whatsapp-insights'
 import { WHATSAPP_WINDOWS, resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import {
   discoverGroups,
@@ -10,10 +10,17 @@ import {
   getBridgeWatchedGroups,
   pushConfigToBridge,
   isBridgeConfigured,
-  summarizeAllGroups,
   summarizeGroup,
+  summarizeCluster,
+  isEmptyBufferError,
+  sendBridgeText,
   type GroupRulePayload,
 } from '../services/whatsapp-bridge-client'
+import {
+  partitionDueSummaries,
+  formatClusterSummaryMessage,
+  type DueSummaryRow,
+} from '../services/whatsapp-summary-clusters'
 
 function genId(prefix: string): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -93,7 +100,109 @@ function mapGroupRow(
     keywords: parseJsonArray(row.keywords),
     labelName: label?.name ?? null,
     labelSummaryTimes: label ? parseJsonArray(label.summaryTimes) : [],
+    labelAggregateSummaries: Boolean(label?.aggregateSummaries),
   }
+}
+
+function toDueRows(
+  rows: {
+    group: typeof whatsappGroups.$inferSelect
+    label: typeof whatsappLabels.$inferSelect | null
+  }[],
+): DueSummaryRow[] {
+  return rows.map(({ group, label }) => ({
+    enabled: !!group.enabled,
+    jid: group.jid,
+    name: group.name,
+    groupTimes: parseJsonArray(group.summaryTimes),
+    labelId: group.labelId,
+    labelName: label?.name ?? null,
+    labelTimes: label ? parseJsonArray(label.summaryTimes) : [],
+    aggregateSummaries: Boolean(label?.aggregateSummaries),
+  }))
+}
+
+async function fallbackClusterFromDb(
+  db: import('../trpc').Context['db'],
+  cluster: { labelId: string; labelName: string; groups: { jid: string; name: string }[] },
+): Promise<{ labelId: string; name: string; ok: boolean; error?: string }> {
+  const range = resolveWhatsappTimeWindow({ window: 'today' })
+  const jids = cluster.groups.map((g) => g.jid)
+  const msgRows = await db
+    .select({
+      groupJid: whatsappMessages.groupJid,
+      senderName: whatsappMessages.senderName,
+      text: whatsappMessages.text,
+      ts: whatsappMessages.ts,
+    })
+    .from(whatsappMessages)
+    .where(
+      and(
+        inArray(whatsappMessages.groupJid, jids),
+        gte(whatsappMessages.ts, range.sinceMs),
+        lte(whatsappMessages.ts, range.untilMs),
+      ),
+    )
+    .orderBy(asc(whatsappMessages.ts))
+
+  const byGroup = new Map<string, { senderName: string; text: string; ts: number }[]>()
+  for (const r of msgRows) {
+    const list = byGroup.get(r.groupJid) ?? []
+    list.push({ senderName: r.senderName, text: r.text, ts: r.ts })
+    byGroup.set(r.groupJid, list)
+  }
+
+  const groups = cluster.groups
+    .map((g) => ({ name: g.name, messages: byGroup.get(g.jid) ?? [] }))
+    .filter((g) => g.messages.length > 0)
+
+  if (groups.length === 0) {
+    return {
+      labelId: cluster.labelId,
+      name: cluster.labelName,
+      ok: false,
+      error: 'No buffered messages for this cluster',
+    }
+  }
+
+  try {
+    const body = await generateClusterSummary(cluster.labelName, groups)
+    const full = formatClusterSummaryMessage(cluster.labelName, body)
+    await saveInsightToChat(db, full)
+    if (isBridgeConfigured()) {
+      const sent = await sendBridgeText(full)
+      if (!sent.ok) {
+        return { labelId: cluster.labelId, name: cluster.labelName, ok: true, error: sent.error }
+      }
+    }
+    return { labelId: cluster.labelId, name: cluster.labelName, ok: true }
+  } catch (err) {
+    return {
+      labelId: cluster.labelId,
+      name: cluster.labelName,
+      ok: false,
+      error: err instanceof Error ? err.message : 'Cluster summarize failed',
+    }
+  }
+}
+
+async function runClusterSummary(
+  db: import('../trpc').Context['db'],
+  cluster: { labelId: string; labelName: string; groups: { jid: string; name: string }[] },
+): Promise<{ labelId: string; name: string; ok: boolean; error?: string }> {
+  if (isBridgeConfigured()) {
+    const result = await summarizeCluster({
+      clusterName: cluster.labelName,
+      groupJids: cluster.groups.map((g) => g.jid),
+    })
+    if (result.ok) {
+      return { labelId: cluster.labelId, name: cluster.labelName, ok: true }
+    }
+    if (!isEmptyBufferError(result.error)) {
+      return { labelId: cluster.labelId, name: cluster.labelName, ok: false, error: result.error }
+    }
+  }
+  return fallbackClusterFromDb(db, cluster)
 }
 
 async function buildBridgePayload(
@@ -131,6 +240,7 @@ export const whatsappRouter = router({
       return labels.map((label) => ({
         ...label,
         summaryTimes: parseJsonArray(label.summaryTimes),
+        aggregateSummaries: Boolean(label.aggregateSummaries),
         groupCount: groups.filter((g) => g.labelId === label.id).length,
       }))
     }),
@@ -141,6 +251,7 @@ export const whatsappRouter = router({
           id: z.string().optional(),
           name: z.string().min(1).max(100),
           summaryTimes: summaryTimesSchema.default([]),
+          aggregateSummaries: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -149,18 +260,29 @@ export const whatsappRouter = router({
         const existing = input.id
           ? await ctx.db.select().from(whatsappLabels).where(eq(whatsappLabels.id, input.id)).limit(1)
           : []
+        const aggregateSummaries = Boolean(
+          input.aggregateSummaries ?? existing[0]?.aggregateSummaries ?? false,
+        )
         const row = {
           id,
           name: input.name.trim(),
           summaryTimes: stringifyJsonArray(input.summaryTimes),
+          aggregateSummaries,
           createdAt: existing[0]?.createdAt ?? now,
         }
         if (existing.length > 0) {
-          await ctx.db.update(whatsappLabels).set({ name: row.name, summaryTimes: row.summaryTimes }).where(eq(whatsappLabels.id, id))
+          await ctx.db
+            .update(whatsappLabels)
+            .set({
+              name: row.name,
+              summaryTimes: row.summaryTimes,
+              aggregateSummaries: row.aggregateSummaries,
+            })
+            .where(eq(whatsappLabels.id, id))
         } else {
           await ctx.db.insert(whatsappLabels).values(row)
         }
-        return { id, ...row, summaryTimes: input.summaryTimes }
+        return { id, ...row, summaryTimes: input.summaryTimes, aggregateSummaries }
       }),
 
     delete: protectedProcedure
@@ -333,13 +455,21 @@ export const whatsappRouter = router({
 
   summaries: router({
     trigger: protectedProcedure
-      .input(z.object({ groupJid: z.string().optional() }))
+      .input(
+        z
+          .object({
+            groupJid: z.string().min(1).optional(),
+            labelId: z.string().min(1).optional(),
+          })
+          .refine((val) => !(val.groupJid && val.labelId), {
+            message: 'groupJid and labelId are mutually exclusive',
+          }),
+      )
       .mutation(async ({ ctx, input }) => {
-        if (!isBridgeConfigured()) {
-          throw new Error('WhatsApp bridge not configured')
-        }
-
         if (input.groupJid) {
+          if (!isBridgeConfigured()) {
+            throw new Error('WhatsApp bridge not configured')
+          }
           const result = await summarizeGroup(input.groupJid)
           const rows = await ctx.db
             .select({ group: whatsappGroups })
@@ -363,18 +493,71 @@ export const whatsappRouter = router({
           .select({ group: whatsappGroups, label: whatsappLabels })
           .from(whatsappGroups)
           .leftJoin(whatsappLabels, eq(whatsappGroups.labelId, whatsappLabels.id))
-        const enabled = rows.filter(({ group }) => group.enabled)
-        if (enabled.length === 0) {
+
+        if (input.labelId) {
+          const label = await ctx.db
+            .select()
+            .from(whatsappLabels)
+            .where(eq(whatsappLabels.id, input.labelId))
+            .limit(1)
+          if (!label[0]) {
+            throw new Error('Label not found')
+          }
+          const members = rows.filter(
+            ({ group }) => group.enabled && group.labelId === input.labelId,
+          )
+          if (members.length === 0) {
+            return { results: [], okCount: 0, failCount: 0, message: 'No watched groups on this label' }
+          }
+          if (members.length === 1) {
+            if (!isBridgeConfigured()) {
+              throw new Error('WhatsApp bridge not configured')
+            }
+            const group = members[0].group
+            const result = await summarizeGroup(group.jid)
+            return {
+              results: [{ jid: group.jid, name: group.name, ...result }],
+              okCount: result.ok ? 1 : 0,
+              failCount: result.ok ? 0 : 1,
+            }
+          }
+          const clusterResult = await runClusterSummary(ctx.db, {
+            labelId: label[0].id,
+            labelName: label[0].name,
+            groups: members.map(({ group }) => ({ jid: group.jid, name: group.name })),
+          })
+          return {
+            results: [clusterResult],
+            okCount: clusterResult.ok ? 1 : 0,
+            failCount: clusterResult.ok ? 0 : 1,
+          }
+        }
+
+        const { clusters, singles } = partitionDueSummaries(toDueRows(rows), null)
+        if (clusters.length === 0 && singles.length === 0) {
           return { results: [], okCount: 0, failCount: 0, message: 'No watched groups enabled' }
         }
 
-        const { results: raw } = await summarizeAllGroups()
-        const results = enabled.map(({ group }) => ({
-          jid: group.jid,
-          name: group.name,
-          ok: raw[group.jid]?.ok ?? false,
-          error: raw[group.jid]?.error ?? 'Group not summarized (bridge may have no buffer)',
-        }))
+        const results: {
+          jid?: string
+          labelId?: string
+          name: string
+          ok: boolean
+          error?: string
+        }[] = []
+
+        for (const cluster of clusters) {
+          results.push(await runClusterSummary(ctx.db, cluster))
+        }
+
+        if (singles.length > 0 && !isBridgeConfigured()) {
+          throw new Error('WhatsApp bridge not configured')
+        }
+        for (const single of singles) {
+          const result = await summarizeGroup(single.jid)
+          results.push({ jid: single.jid, name: single.name, ...result })
+        }
+
         const okCount = results.filter((r) => r.ok).length
         return { results, okCount, failCount: results.length - okCount }
       }),
@@ -408,6 +591,127 @@ export const whatsappRouter = router({
           .orderBy(asc(whatsappMessages.ts))
           .limit(input.limit)
         return rows
+      }),
+
+    /**
+     * Raw DB data for agent tools (call-diet: returns structured facts, not LLM prose).
+     * Used by query_whatsapp_group / summarize / whatsapp_now to avoid nested Gemini calls.
+     */
+    forTool: protectedProcedure
+      .input(
+        z.object({
+          groupJid: z.string().min(1).optional(),
+          window: z.enum(WHATSAPP_WINDOWS).default('7d'),
+          sinceHour: z.number().int().min(0).max(23).optional(),
+          untilHour: z.number().int().min(1).max(24).optional(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        const range = resolveWhatsappTimeWindow({
+          window: input.window,
+          sinceHour: input.sinceHour,
+          untilHour: input.untilHour,
+        })
+
+        // If groupJid provided, return single-group data
+        if (input.groupJid) {
+          const groupRows = await ctx.db
+            .select({ name: whatsappGroups.name })
+            .from(whatsappGroups)
+            .where(eq(whatsappGroups.jid, input.groupJid))
+            .limit(1)
+          const displayName = groupRows[0]?.name?.trim() || input.groupJid.split('@')[0] || 'קבוצה'
+
+          const msgs = await ctx.db
+            .select({
+              sender: whatsappMessages.sender,
+              senderName: whatsappMessages.senderName,
+              text: whatsappMessages.text,
+              ts: whatsappMessages.ts,
+            })
+            .from(whatsappMessages)
+            .where(
+              and(
+                eq(whatsappMessages.groupJid, input.groupJid),
+                gte(whatsappMessages.ts, range.sinceMs),
+                lte(whatsappMessages.ts, range.untilMs),
+              ),
+            )
+            .orderBy(asc(whatsappMessages.ts))
+
+          // Compute sender stats (top N by message count)
+          const senderCounts = new Map<string, number>()
+          for (const m of msgs) {
+            const name = m.senderName?.trim() || m.sender.split('@')[0] || m.sender
+            senderCounts.set(name, (senderCounts.get(name) || 0) + 1)
+          }
+          const topSenders = Array.from(senderCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([name, count]) => ({ name, count }))
+
+          // Sample recent messages (last 20)
+          const recentMsgs = msgs.slice(-20).map((m) => {
+            const ts = new Date(m.ts)
+            const hh = String(ts.getHours()).padStart(2, '0')
+            const mm = String(ts.getMinutes()).padStart(2, '0')
+            const senderName = m.senderName?.trim() || m.sender.split('@')[0] || m.sender
+            return `[${hh}:${mm}] ${senderName}: ${m.text}`
+          })
+
+          return {
+            groupName: displayName,
+            groupJid: input.groupJid,
+            window: input.window,
+            rangeLabel: range.rangeLabel,
+            sinceMs: range.sinceMs,
+            untilMs: range.untilMs,
+            messageCount: msgs.length,
+            topSenders,
+            recentMessages: recentMsgs,
+            empty: msgs.length === 0,
+          }
+        }
+
+        // Multi-group: return all enabled groups with counts
+        const groups = await ctx.db.select().from(whatsappGroups).where(eq(whatsappGroups.enabled, true))
+        const results = []
+        for (const g of groups) {
+          const msgs = await ctx.db
+            .select({ ts: whatsappMessages.ts })
+            .from(whatsappMessages)
+            .where(
+              and(
+                eq(whatsappMessages.groupJid, g.jid),
+                gte(whatsappMessages.ts, range.sinceMs),
+                lte(whatsappMessages.ts, range.untilMs),
+              ),
+            )
+          if (msgs.length > 0) {
+            results.push({
+              groupName: g.name,
+              groupJid: g.jid,
+              messageCount: msgs.length,
+              priority: g.priority,
+            })
+          }
+        }
+
+        // Sort by priority desc, then message count desc
+        results.sort((a, b) => {
+          if (a.priority !== b.priority) return b.priority - a.priority
+          return b.messageCount - a.messageCount
+        })
+
+        return {
+          window: input.window,
+          rangeLabel: range.rangeLabel,
+          sinceMs: range.sinceMs,
+          untilMs: range.untilMs,
+          groups: results,
+          totalGroups: results.length,
+          empty: results.length === 0,
+        }
       }),
 
     /** Per-group counts and date range of stored messages. */
@@ -481,7 +785,51 @@ export const whatsappRouter = router({
           )
           .orderBy(asc(whatsappMessages.ts))
 
-        const text = await generateGroupInsight(displayName, msgs, input.mode, range.rangeLabel)
+        // Check cache (TTL ~10 min)
+        const cacheKey = `wa_insight:${input.groupJid}:${input.mode}:${range.sinceMs}:${range.untilMs}`
+        const now = Date.now()
+        const cacheTtlMs = 10 * 60 * 1000 // 10 minutes
+
+        let text: string
+        let cachedAt: string | null = null
+
+        const cached = await ctx.db
+          .select()
+          .from(agentCache)
+          .where(eq(agentCache.key, cacheKey))
+          .limit(1)
+
+        if (cached[0] && new Date(cached[0].expiresAt).getTime() > now) {
+          // Cache hit
+          const cacheData = JSON.parse(cached[0].value) as { text: string }
+          text = cacheData.text
+          cachedAt = cached[0].createdAt
+        } else {
+          // Cache miss or expired — generate fresh
+          text = await generateGroupInsight(displayName, msgs, input.mode, range.rangeLabel)
+          
+          // Store in cache
+          const expiresAt = new Date(now + cacheTtlMs).toISOString()
+          const createdAt = new Date().toISOString()
+          try {
+            if (cached[0]) {
+              await ctx.db
+                .update(agentCache)
+                .set({ value: JSON.stringify({ text }), expiresAt, createdAt })
+                .where(eq(agentCache.key, cacheKey))
+            } else {
+              await ctx.db.insert(agentCache).values({
+                key: cacheKey,
+                value: JSON.stringify({ text }),
+                expiresAt,
+                createdAt,
+              })
+            }
+          } catch (err) {
+            console.warn('[whatsapp.insights.forGroup] Failed to update cache:', err)
+          }
+        }
+
         const title =
           input.mode === 'style'
             ? `🔎 תובנות — ${displayName}`
@@ -490,7 +838,7 @@ export const whatsappRouter = router({
               : `📋 סיכום קבוצה — ${displayName}`
         const header = `${title} · ${range.rangeLabel}\n\n`
         const full = (header + text).slice(0, 65000)
-        if (msgs.length > 0) await saveInsightToChat(ctx.db, full)
+        if (msgs.length > 0 && !cachedAt) await saveInsightToChat(ctx.db, full)
         return {
           text: full,
           messageCount: msgs.length,
@@ -575,14 +923,63 @@ export const whatsappRouter = router({
           }
         }
 
-        const { text, items } = await generateCrossGroupDigest(scored, range.rangeLabel)
+        // Check cache (TTL ~10 min)
+        const groupJids = scored.map((g) => g.groupJid).sort().join(',')
+        const cacheKey = `wa_digest:${groupJids}:${range.sinceMs}:${range.untilMs}`
+        const now = Date.now()
+        const cacheTtlMs = 10 * 60 * 1000 // 10 minutes
+
+        let text: string
+        let items: { groupJid: string; name: string; priority: number; score: number; messageCount: number; topic: string | null }[]
+        let cachedAt: string | null = null
+
+        const cached = await ctx.db
+          .select()
+          .from(agentCache)
+          .where(eq(agentCache.key, cacheKey))
+          .limit(1)
+
+        if (cached[0] && new Date(cached[0].expiresAt).getTime() > now) {
+          // Cache hit
+          const cacheData = JSON.parse(cached[0].value) as { text: string; items: typeof items }
+          text = cacheData.text
+          items = cacheData.items
+          cachedAt = cached[0].createdAt
+        } else {
+          // Cache miss or expired — generate fresh
+          const result = await generateCrossGroupDigest(scored, range.rangeLabel)
+          text = result.text
+          items = result.items
+
+          // Store in cache
+          const expiresAt = new Date(now + cacheTtlMs).toISOString()
+          const createdAt = new Date().toISOString()
+          try {
+            if (cached[0]) {
+              await ctx.db
+                .update(agentCache)
+                .set({ value: JSON.stringify({ text, items }), expiresAt, createdAt })
+                .where(eq(agentCache.key, cacheKey))
+            } else {
+              await ctx.db.insert(agentCache).values({
+                key: cacheKey,
+                value: JSON.stringify({ text, items }),
+                expiresAt,
+                createdAt,
+              })
+            }
+          } catch (err) {
+            console.warn('[whatsapp.insights.digest] Failed to update cache:', err)
+          }
+        }
+
         const isPastRange =
           window === 'yesterday' || input?.sinceHour !== undefined || input?.untilHour !== undefined
         const title = isPastRange
           ? `📡 מה היה בקבוצות · ${range.rangeLabel}`
           : `📡 מה קורה עכשיו בקבוצות · ${range.rangeLabel}`
         const full = (`${title}\n\n` + text).slice(0, 65000)
-        await saveInsightToChat(ctx.db, full)
+        if (!cachedAt) await saveInsightToChat(ctx.db, full)
         return { text: full, items, ...meta }
       }),
   }),
@@ -595,16 +992,6 @@ export const whatsappRouter = router({
         .select({ group: whatsappGroups, label: whatsappLabels })
         .from(whatsappGroups)
         .leftJoin(whatsappLabels, eq(whatsappGroups.labelId, whatsappLabels.id))
-      const due: { jid: string; name: string }[] = []
-      for (const { group, label } of rows) {
-        if (!group.enabled) continue
-        const groupTimes = parseJsonArray(group.summaryTimes)
-        const labelTimes = label ? parseJsonArray(label.summaryTimes) : []
-        const times = groupTimes.length > 0 ? groupTimes : labelTimes
-        if (times.includes(input.time)) {
-          due.push({ jid: group.jid, name: group.name })
-        }
-      }
-      return due
+      return partitionDueSummaries(toDueRows(rows), input.time)
     }),
 })

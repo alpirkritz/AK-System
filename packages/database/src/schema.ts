@@ -803,6 +803,7 @@ export const whatsappLabels = sqliteTable('whatsapp_labels', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   summaryTimes: text('summary_times').notNull().default('[]'), // JSON ["20:00"]
+  aggregateSummaries: integer('aggregate_summaries', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
 })
 
@@ -1032,7 +1033,66 @@ export type FeedItem = typeof feedItems.$inferSelect
 export type NewFeedItem = typeof feedItems.$inferInsert
 export type FeedDigest = typeof feedDigests.$inferSelect
 export type NewFeedDigest = typeof feedDigests.$inferInsert
+export const agentRunLogs = sqliteTable('agent_run_logs', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  agentId: text('agent_id').notNull(),
+  channel: text('channel').notNull(),
+  priority: text('priority').notNull(),
+  status: text('status').notNull(),
+  finishReason: text('finish_reason'),
+  blockReason: text('block_reason'),
+  toolsCalled: text('tools_called').notNull().default('[]'),
+  geminiCalls: integer('gemini_calls').notNull().default(0),
+  queueWaitMs: integer('queue_wait_ms').notNull().default(0),
+  attempts: integer('attempts').notNull().default(1),
+  modelTier: text('model_tier').notNull().default('flash'),
+  cacheHit: integer('cache_hit', { mode: 'boolean' }).notNull().default(false),
+  durationMs: integer('duration_ms').notNull().default(0),
+  replyChars: integer('reply_chars').notNull().default(0),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  runIdIdx: index('idx_agent_run_logs_run_id').on(table.runId),
+  agentIdIdx: index('idx_agent_run_logs_agent_id').on(table.agentId),
+  statusIdx: index('idx_agent_run_logs_status').on(table.status),
+  createdAtIdx: index('idx_agent_run_logs_created_at').on(table.createdAt),
+}))
+
+export const agentJobs = sqliteTable('agent_jobs', {
+  id: text('id').primaryKey(),
+  dedupeKey: text('dedupe_key').notNull(),
+  channel: text('channel').notNull(),
+  agentId: text('agent_id').notNull(),
+  payload: text('payload').notNull().default('{}'),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextRunAt: text('next_run_at'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => ({
+  dedupeKeyUq: uniqueIndex('uq_agent_jobs_dedupe_key').on(table.dedupeKey),
+  statusIdx: index('idx_agent_jobs_status').on(table.status),
+  nextRunAtIdx: index('idx_agent_jobs_next_run_at').on(table.nextRunAt),
+}))
+
+export const agentCache = sqliteTable('agent_cache', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull().default('{}'),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  expiresAtIdx: index('idx_agent_cache_expires_at').on(table.expiresAt),
+}))
+
 export type BankConnection = typeof bankConnections.$inferSelect
 export type NewBankConnection = typeof bankConnections.$inferInsert
 export type BankAccount = typeof bankAccounts.$inferSelect
 export type NewBankAccount = typeof bankAccounts.$inferInsert
+export type AgentRunLog = typeof agentRunLogs.$inferSelect
+export type NewAgentRunLog = typeof agentRunLogs.$inferInsert
+export type AgentJob = typeof agentJobs.$inferSelect
+export type NewAgentJob = typeof agentJobs.$inferInsert
+export type AgentCacheEntry = typeof agentCache.$inferSelect
+export type NewAgentCacheEntry = typeof agentCache.$inferInsert
