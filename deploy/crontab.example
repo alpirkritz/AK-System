@@ -27,7 +27,10 @@ SHELL=/bin/bash
 # Feed sync — every 6 hours
 0 */6 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/feed-sync >/dev/null 2>&1
 
-# WhatsApp group summary — every 15 min
+# WhatsApp daily digest of every followed group — every 15 min, fires at the configured HH:MM (default 20:30)
+*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-daily-digest >/dev/null 2>&1
+
+# WhatsApp group summary — every 15 min. Skipped for the rest of the local day after the daily digest sends.
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-summary >/dev/null 2>&1
 
 # WhatsApp message retention — daily at 04:15; purges group messages older than WHATSAPP_MESSAGE_RETENTION_DAYS (default 30)

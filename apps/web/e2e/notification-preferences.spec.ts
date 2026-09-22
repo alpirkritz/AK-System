@@ -7,6 +7,7 @@ test.describe('Notification preferences', () => {
     await expect(page.getByRole('heading', { name: 'התראות וערוצים' })).toBeVisible()
     await expect(page.getByText('מצב ערוצים')).toBeVisible()
     await expect(page.getByText('תדריך בוקר')).toBeVisible({ timeout: 20000 })
+    await expect(page.getByText('סיכום קבוצות יומי')).toBeVisible()
   })
 
   test('settings links to the notifications hub', async ({ page }) => {

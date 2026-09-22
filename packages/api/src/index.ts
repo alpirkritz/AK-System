@@ -91,6 +91,12 @@ export {
 export { generateClusterSummary } from './services/whatsapp-insights'
 export { runClusterSummary, type ClusterRunResult } from './services/whatsapp-cluster-run'
 export {
+  runFollowedDailyDigest,
+  shouldSkipScheduledGroupSummaries,
+  WHATSAPP_DAILY_DIGEST_TYPE,
+  type DigestRunResult,
+} from './services/whatsapp-daily-digest'
+export {
   NOTIFICATION_TYPES,
   resolveNotificationChannels,
   getSchedulablePreference,

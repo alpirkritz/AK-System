@@ -18,6 +18,7 @@ import {
   type DueSummaryRow,
 } from '../services/whatsapp-summary-clusters'
 import { runClusterSummary } from '../services/whatsapp-cluster-run'
+import { runFollowedDailyDigest } from '../services/whatsapp-daily-digest'
 
 function genId(prefix: string): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -897,6 +898,20 @@ export const whatsappRouter = router({
         if (!cachedAt) await saveInsightToChat(ctx.db, full)
         return { text: full, items, ...meta }
       }),
+  }),
+
+  digest: router({
+    run: protectedProcedure.mutation(async ({ ctx }) => {
+      const result = await runFollowedDailyDigest(ctx.db)
+      return {
+        ok: result.ok,
+        text: result.text,
+        actionCount: result.actionCount,
+        sectionCount: result.sectionCount,
+        quietCount: result.quietCount,
+        error: result.error,
+      }
+    }),
   }),
 
   /** Groups due for summary at HH:MM in timezone (used by cron). */

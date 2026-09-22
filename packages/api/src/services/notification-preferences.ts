@@ -116,6 +116,15 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     schedulable: false,
   },
   {
+    id: 'whatsapp_daily_digest',
+    category: 'whatsapp',
+    label: 'סיכום קבוצות יומי',
+    description: 'סיכום אחד של כל הקבוצות במעקב',
+    availableChannels: ALL_CHANNELS,
+    schedulable: true,
+    defaultTime: '20:30',
+  },
+  {
     id: 'hugo_reply',
     category: 'hugo',
     label: 'תשובות הוגו',

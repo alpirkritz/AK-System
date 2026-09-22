@@ -1,7 +1,14 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, whatsappGroups, whatsappLabels } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
-import { partitionDueSummaries, runClusterSummary, summarizeGroup } from '@ak-system/api'
+import {
+  getSchedulablePreference,
+  partitionDueSummaries,
+  runClusterSummary,
+  shouldSkipScheduledGroupSummaries,
+  summarizeGroup,
+  WHATSAPP_DAILY_DIGEST_TYPE,
+} from '@ak-system/api'
 
 function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return []
@@ -51,6 +58,16 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
 
   const timezone = process.env.TIMEZONE || 'Asia/Jerusalem'
   const slot = currentTimeInTimezone(timezone)
+  const digestPref = await getSchedulablePreference(WHATSAPP_DAILY_DIGEST_TYPE)
+  if (
+    shouldSkipScheduledGroupSummaries({
+      digestEnabled: digestPref.enabled,
+      lastSentAt: digestPref.lastSentAt,
+      timeZone: timezone,
+    })
+  ) {
+    return NextResponse.json({ ok: true, slot, summarized: 0, skipped: 'daily-digest-sent' })
+  }
 
   const db = getDb()
   const rows = await db

@@ -1,6 +1,13 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('WhatsApp insights', () => {
+  test('groups tab offers one digest of every followed group', async ({ page }) => {
+    await page.goto('/settings/whatsapp')
+    await expect(page.getByRole('heading', { name: 'WhatsApp' })).toBeVisible({ timeout: 20000 })
+    await expect(page.getByTestId('whatsapp-daily-digest-btn')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'סכם עכשיו את כל הקבוצות במעקב' })).toBeEnabled()
+  })
+
   test('insights tab renders the cross-group briefing and per-group panel', async ({ page }) => {
     await page.goto('/settings/whatsapp')
     await expect(page.getByRole('heading', { name: 'WhatsApp' })).toBeVisible({ timeout: 20000 })

@@ -156,6 +156,15 @@ export default function WhatsAppSettingsPage() {
     },
   })
 
+  const dailyDigest = trpc.whatsapp.digest.run.useMutation({
+    onSuccess: (res) => {
+      if (res.ok && res.text) setMessage('נשלח סיכום יומי')
+      else if (res.ok) setMessage('אין קבוצות במעקב')
+      else setMessage(res.error || 'הסיכום נכשל')
+    },
+    onError: (e) => setMessage(`שגיאה: ${e.message}`),
+  })
+
   const triggerSummary = trpc.whatsapp.summaries.trigger.useMutation({
     onSuccess: (res) => {
       const first = res.results[0]
@@ -372,6 +381,15 @@ export default function WhatsAppSettingsPage() {
       {tab === 'groups' && (
         <div className="space-y-4">
           <div className="flex gap-2 flex-wrap items-center">
+            <button
+              type="button"
+              data-testid="whatsapp-daily-digest-btn"
+              onClick={() => dailyDigest.mutate()}
+              disabled={dailyDigest.isPending}
+              className="btn btn-primary text-[12px] py-2 px-4 disabled:opacity-50"
+            >
+              {dailyDigest.isPending ? 'מסכם…' : 'סכם עכשיו את כל הקבוצות במעקב'}
+            </button>
             <button
               onClick={() => void handleDiscover()}
               disabled={discovering}

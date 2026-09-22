@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { getDb, whatsappGroups, whatsappMessages, whatsappLabels, chatMessages } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
-import { createTestCaller } from '../test-utils'
+import { appRouter } from '../index'
+import { createContext, createCallerFactory } from '../trpc'
+import { createTestCaller, getTestDb } from '../test-utils'
 
 async function seedMessages(groupJid: string, entries: { text: string; ts: number; id?: string }[]) {
   const db = getDb()
@@ -102,6 +104,36 @@ describe('whatsapp router — messages & insights', () => {
     const res = await caller.whatsapp.insights.digest({ window: '24h' })
     expect(res.items).toEqual([])
     expect(res.text).toContain('אין קבוצות')
+  })
+
+  it('digest.run rejects unauthenticated callers', async () => {
+    const ctx = await createContext({ db: getTestDb(), session: null })
+    const caller = createCallerFactory(appRouter)(ctx)
+    await expect(caller.whatsapp.digest.run()).rejects.toThrow(/התחברות/)
+  })
+
+  it('digest.run sends nothing when no group is followed', async () => {
+    const caller = await createTestCaller()
+    await caller.whatsapp.groups.upsert({ jid: 'off@g.us', name: 'כבויה', enabled: false })
+    const res = await caller.whatsapp.digest.run()
+    expect(res.ok).toBe(true)
+    expect(res.text).toBe('')
+    expect(res.actionCount).toBe(0)
+    const chats = await getDb().select().from(chatMessages)
+    expect(chats).toHaveLength(0)
+  })
+
+  it('digest.run covers only followed groups and says the day was quiet', async () => {
+    const caller = await createTestCaller()
+    await caller.whatsapp.groups.upsert({ jid: 'off@g.us', name: 'לא במעקב', enabled: false })
+    await caller.whatsapp.groups.upsert({ jid: 'on@g.us', name: 'במעקב', enabled: true })
+    await seedMessages('off@g.us', [{ text: 'סוד', ts: Date.now() }])
+    const res = await caller.whatsapp.digest.run()
+    expect(res.ok).toBe(true)
+    expect(res.text).toContain('היום לא קרה כלום')
+    expect(res.text).not.toContain('צריך אותך')
+    expect(res.text).not.toContain('לא במעקב')
+    expect(res.text).not.toContain('סוד')
   })
 
   it('insights.digest reports no activity when enabled groups have no recent messages', async () => {
