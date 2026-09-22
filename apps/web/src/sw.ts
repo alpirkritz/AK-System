@@ -73,13 +73,14 @@ serwist.addEventListeners()
 self.addEventListener('push', (event) => {
   if (!event.data) return
 
-  let data: { title?: string; body?: string; url?: string; icon?: string }
+  let data: { notificationId?: string; title?: string; body?: string; url?: string; icon?: string }
   try {
     data = event.data.json() as typeof data
   } catch {
     data = { title: 'ARO', body: event.data.text() }
   }
 
+  const notificationId = data.notificationId ?? ''
   const title = data.title ?? 'ARO'
   const body = data.body ?? ''
   const icon = data.icon ?? '/icons/icon-192.png'
@@ -89,7 +90,7 @@ self.addEventListener('push', (event) => {
     (async () => {
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       for (const client of clients) {
-        client.postMessage({ type: 'PUSH', title, body, url, icon })
+        client.postMessage({ type: 'PUSH', notificationId, title, body, url, icon })
       }
       await self.registration.showNotification(title, {
         body,
@@ -99,7 +100,8 @@ self.addEventListener('push', (event) => {
         lang: 'he',
         tag: 'ak-push',
         renotify: true,
-        data: { url },
+        data: { url, notificationId },
+        actions: [{ action: 'archive', title: 'ארכיון' }],
       })
     })(),
   )
@@ -107,10 +109,33 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data as { url?: string })?.url ?? '/'
+  
+  if (event.action === 'archive') {
+    const notificationId = (event.notification.data as { notificationId?: string })?.notificationId
+    if (notificationId) {
+      event.waitUntil(
+        fetch('/api/trpc/notifications.archive', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: notificationId }),
+        }).catch(() => {
+          // If archive fails (no session), open notifications page
+          self.clients.openWindow('/notifications')
+        })
+      )
+    }
+    return
+  }
+
+  // Default action: open notification detail or URL
+  const notificationId = (event.notification.data as { notificationId?: string })?.notificationId
+  const fallbackUrl = (event.notification.data as { url?: string })?.url ?? '/'
+  const url = notificationId ? `/notifications?id=${notificationId}` : fallbackUrl
+  
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((c) => c.url.includes(url))
+      const existing = clients.find((c) => c.url.includes('/notifications') || c.url.includes(fallbackUrl))
       if (existing) return existing.focus()
       return self.clients.openWindow(url)
     }),

@@ -21,4 +21,10 @@ export default defineConfig({
       '@ak-system/database': path.join(__dirname, '../database/src/index.ts'),
     },
   },
+  ssr: {
+    noExternal: ['nanoid'],
+  },
+  optimizeDeps: {
+    include: ['nanoid'],
+  },
 })

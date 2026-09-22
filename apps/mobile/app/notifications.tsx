@@ -1,4 +1,4 @@
-import { useRouter, type Href } from 'expo-router'
+import { useRouter, useLocalSearchParams, type Href } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -17,6 +17,7 @@ import {
   archiveAllNotifications,
   archiveNotification,
   fetchNotifications,
+  fetchNotificationById,
   isNavigableNotificationUrl,
   markNotificationRead,
   mobileRouteForNotificationUrl,
@@ -142,6 +143,7 @@ function SwipeableNotification({
 export default function NotificationsScreen() {
   const { token } = useAuth()
   const router = useRouter()
+  const params = useLocalSearchParams<{ id?: string }>()
   const [items, setItems] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -153,33 +155,7 @@ export default function NotificationsScreen() {
 
   const { refresh: refreshUnread } = useUnread()
 
-  const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await fetchNotifications(token)
-      setItems(data.notifications)
-      void refreshUnread()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token, refreshUnread])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  useEffect(() => {
-    return () => {
-      if (undoTimer.current) clearTimeout(undoTimer.current)
-      if (bulkUndoTimer.current) clearTimeout(bulkUndoTimer.current)
-    }
-  }, [])
-
-  const onOpen = async (item: AppNotification) => {
+  const onOpen = useCallback(async (item: AppNotification) => {
     if (!token) return
     setSelected(item)
     if (!item.readAt) {
@@ -190,11 +166,61 @@ export default function NotificationsScreen() {
             n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
           ),
         )
+        void refreshUnread()
       } catch {
         // detail still opens
       }
     }
-  }
+  }, [token, refreshUnread])
+
+  const load = useCallback(async () => {
+    if (!token) return
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await fetchNotifications(token)
+      setItems(data.notifications)
+      // Don't auto-refresh unread here - it causes unnecessary re-renders
+      // Refresh unread only after explicit user actions (archive, mark read)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
+    } finally {
+      setLoading(false)
+    }
+  }, [token])  // Removed refreshUnread from dependencies
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Open notification detail from deep link
+  useEffect(() => {
+    if (!params.id || !token || loading) return
+    const item = items.find((n) => n.id === params.id)
+    if (item) {
+      void onOpen(item)
+    } else if (!loading && items.length > 0) {
+      // Not in current list, fetch by ID
+      void (async () => {
+        try {
+          const notification = await fetchNotificationById(token, params.id!)
+          if (notification) {
+            setItems((prev) => [notification, ...prev])
+            void onOpen(notification)
+          }
+        } catch {
+          // Silently fail if notification doesn't exist
+        }
+      })()
+    }
+  }, [params.id, token, items, loading, onOpen])
+
+  useEffect(() => {
+    return () => {
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      if (bulkUndoTimer.current) clearTimeout(bulkUndoTimer.current)
+    }
+  }, [])
 
   const onMarkAll = async () => {
     if (!token) return
@@ -203,6 +229,7 @@ export default function NotificationsScreen() {
       setItems((prev) =>
         prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })),
       )
+      void refreshUnread()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'סימון נכשל')
     }
@@ -217,6 +244,7 @@ export default function NotificationsScreen() {
           n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
         ),
       )
+      void refreshUnread()
     } catch {
       setError('לא ניתן לעדכן את ההתראה. נסה שוב.')
     }
@@ -225,14 +253,19 @@ export default function NotificationsScreen() {
   const onArchive = async (item: AppNotification) => {
     if (!token) return
     if (selected?.id === item.id) setSelected(null)
+    // Optimistically remove from list first
+    setItems((prev) => prev.filter((n) => n.id !== item.id))
     try {
       await archiveNotification(token, item.id)
-      setItems((prev) => prev.filter((n) => n.id !== item.id))
       setUndoId(item.id)
       if (undoTimer.current) clearTimeout(undoTimer.current)
       undoTimer.current = setTimeout(() => setUndoId(null), 4000)
+      // Refresh unread count after successful archive
+      void refreshUnread()
     } catch {
       setError('לא ניתן לעדכן את ההתראה. נסה שוב.')
+      // Restore item on error
+      await load()
     }
   }
 
@@ -251,16 +284,21 @@ export default function NotificationsScreen() {
 
   const onArchiveAll = async () => {
     if (!token || items.length === 0) return
+    // Optimistically clear list first
+    const itemsToArchive = items
+    setItems([])
     try {
       const res = await archiveAllNotifications(token)
-      setItems([])
       if (res.batchAt) {
         setBulkUndo({ batchAt: res.batchAt, count: res.updated })
         if (bulkUndoTimer.current) clearTimeout(bulkUndoTimer.current)
         bulkUndoTimer.current = setTimeout(() => setBulkUndo(null), 4000)
       }
+      void refreshUnread()
     } catch {
       setError('לא ניתן לעדכן את ההתראה. נסה שוב.')
+      // Restore list on error
+      setItems(itemsToArchive)
     }
   }
 

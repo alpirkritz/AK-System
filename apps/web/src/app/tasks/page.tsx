@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS, STATUS_LABELS } from '@ak-system/types'
 import { WorkspacePill } from '@/components/WorkspacePill'
@@ -18,10 +19,18 @@ import {
 } from '@/lib/sort-keys'
 import { ThenBySort } from '@/components/ThenBySort'
 import { LS } from '@/lib/ls-keys'
+import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
 import dynamic from 'next/dynamic'
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
-type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
+type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
+
+function parseStatus(value: string | null): StatusFilter {
+  if (value === 'overdue' || value === 'done' || value === 'cancelled' || value === 'all' || value === 'open') {
+    return value
+  }
+  return 'open'
+}
 
 /**
  * Cancelled tasks also carry `done = true`, so the boolean alone cannot tell "finished" from
@@ -31,7 +40,10 @@ function effectiveStatus(t: { status?: string | null; done?: boolean | null }): 
   return t.status ?? (t.done ? 'done' : 'not_started')
 }
 
-export default function TasksPage() {
+function TasksPageContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const statusQuery = searchParams.get('status')
   const { data: tasksList = [], isLoading } = trpc.tasks.list.useQuery()
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
@@ -67,11 +79,25 @@ export default function TasksPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
 
-  const [status, setStatus] = useState<StatusFilter>('open')
+  const [status, setStatus] = useState<StatusFilter>(() => parseStatus(statusQuery))
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [projectId, setProjectId] = useState<string>('')
   const [meetingId, setMeetingId] = useState<string>('')
   const [workspaceId, setWorkspaceId] = useState<string>('')
   const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    setStatus(parseStatus(statusQuery))
+  }, [statusQuery])
+
+  const selectStatus = (next: StatusFilter) => {
+    setStatus(next)
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'open') params.delete('status')
+    else params.set('status', next)
+    const q = params.toString()
+    router.replace(q ? `/tasks?${q}` : '/tasks', { scroll: false })
+  }
 
   const serverDefault = settingsData?.prefs?.tasksPage
 
@@ -114,6 +140,7 @@ export default function TasksPage() {
     const q = search.trim().toLowerCase()
     return tasksList.filter((t) => {
       const st = effectiveStatus(t as { status?: string | null; done?: boolean | null })
+      if (status === 'overdue' && !isOverdueOpenTask(t)) return false
       if (status === 'open' && (st === 'done' || st === 'cancelled')) return false
       if (status === 'done' && st !== 'done') return false
       if (status === 'cancelled' && st !== 'cancelled') return false
@@ -152,8 +179,11 @@ export default function TasksPage() {
 
   const hasActiveFilter = status !== 'open' || !!projectId || !!meetingId || !!workspaceId || !!search
 
+  const advancedCount = [projectId, meetingId, workspaceId].filter(Boolean).length
+
   const statusTabs: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'פתוחות' },
+    { id: 'overdue', label: 'באיחור' },
     { id: 'done', label: 'הושלמו' },
     { id: 'cancelled', label: 'בוטלו' },
     { id: 'all', label: 'הכל' },
@@ -195,62 +225,76 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Workspace (source) filter */}
-      {workspaces.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mb-3" role="group" aria-label="סינון לפי מקור">
-          <span className="text-[11px] font-medium text-[#647399] uppercase tracking-wider ml-1">מקור</span>
-          <button
-            type="button"
-            className="filter-chip"
-            aria-pressed={workspaceId === ''}
-            onClick={() => setWorkspaceId('')}
-          >
-            הכל
-          </button>
-          {workspaces.map((w) => {
-            const active = workspaceId === w.id
-            const color = w.color ?? '#2dd4bf'
-            return (
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="סינון לפי מצב">
+          {statusTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className="filter-chip"
+              aria-pressed={status === tab.id}
+              onClick={() => selectStatus(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <input
+          className="input w-auto min-w-[200px] flex-1"
+          placeholder="חיפוש משימה…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn btn-ghost min-h-[44px]"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          {advancedCount > 0 ? `סינון (${advancedCount})` : 'סינון'}
+        </button>
+      </div>
+
+      <ThenBySort
+        value={effectiveSort}
+        onChange={setTaskSortAndPersist}
+        fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+        showReset={hasOverride}
+        onReset={resetToDefault}
+        className="min-w-[200px] mb-4"
+      />
+
+      {filtersOpen && (
+        <div className="flex flex-wrap items-start gap-4 mb-6">
+          {workspaces.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="סינון לפי מקור">
+              <span className="text-[11px] font-medium text-[#647399] uppercase tracking-wider ml-1">מקור</span>
               <button
-                key={w.id}
                 type="button"
                 className="filter-chip"
-                aria-pressed={active}
-                style={active ? { background: color + '1a', borderColor: color + '40', color } : undefined}
-                onClick={() => setWorkspaceId(active ? '' : w.id)}
+                aria-pressed={workspaceId === ''}
+                onClick={() => setWorkspaceId('')}
               >
-                {w.name}
+                הכל
               </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-start gap-4 mb-6">
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-1.5">
-            {statusTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className="filter-chip"
-                aria-pressed={status === tab.id}
-                onClick={() => setStatus(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <input
-            className="input w-auto min-w-[200px]"
-            placeholder="חיפוש משימה…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-2">
+              {workspaces.map((w) => {
+                const active = workspaceId === w.id
+                const color = w.color ?? '#2dd4bf'
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className="filter-chip"
+                    aria-pressed={active}
+                    style={active ? { background: color + '1a', borderColor: color + '40', color } : undefined}
+                    onClick={() => setWorkspaceId(active ? '' : w.id)}
+                  >
+                    {w.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <select className="select w-auto min-w-[130px]" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">כל הפרויקטים</option>
             {projects.map((p) => (
@@ -264,16 +308,7 @@ export default function TasksPage() {
             ))}
           </select>
         </div>
-
-        <ThenBySort
-          value={effectiveSort}
-          onChange={setTaskSortAndPersist}
-          fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
-          showReset={hasOverride}
-          onReset={resetToDefault}
-          className="min-w-[200px]"
-        />
-      </div>
+      )}
 
       {isLoading ? (
         <div className="card">
@@ -285,10 +320,18 @@ export default function TasksPage() {
         <div className="card text-center py-12">
           <div className="text-3xl mb-3">✓</div>
           <div className="text-[#eef3fb] font-medium mb-1">
-            {hasActiveFilter ? 'אין משימות שתואמות לסינון' : 'אין משימות פתוחות'}
+            {status === 'overdue'
+              ? 'אין משימות באיחור'
+              : hasActiveFilter
+                ? 'אין משימות שתואמות לסינון'
+                : 'אין משימות פתוחות'}
           </div>
           <div className="text-sm text-[#647399] mb-4">
-            {hasActiveFilter ? 'נסה לשנות את המסננים' : 'הכול נקי. אפשר להוסיף משימה חדשה.'}
+            {status === 'overdue'
+              ? 'אפשר לעבור ל״פתוחות״ כדי לראות את השאר.'
+              : hasActiveFilter
+                ? 'נסה לשנות את המסננים'
+                : 'הכול נקי. אפשר להוסיף משימה חדשה.'}
           </div>
           <button
             className="btn btn-primary"
@@ -347,8 +390,8 @@ export default function TasksPage() {
                         title="ערוך משימה"
                       >
                         {t.title}
-                        {t.dueDate && (
-                          <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
+                        {formatDueLabel(t) && (
+                          <span className="text-[11px] text-[#647399] mr-2"> · {formatDueLabel(t)}</span>
                         )}
                       </div>
                       <StatusPill status={(t as { status?: string | null }).status} />
@@ -426,8 +469,8 @@ export default function TasksPage() {
                   title="ערוך משימה"
                 >
                   {t.title}
-                  {t.dueDate && (
-                    <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
+                  {formatDueLabel(t) && (
+                    <span className="text-[11px] text-[#647399] mr-2"> · {formatDueLabel(t)}</span>
                   )}
                 </div>
                 <StatusPill status={(t as { status?: string | null }).status} />
@@ -484,5 +527,13 @@ export default function TasksPage() {
         }}
       />
     </div>
+  )
+}
+
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="card text-sm text-[#7a89ab] py-4 px-5">טוען משימות…</div>}>
+      <TasksPageContent />
+    </Suspense>
   )
 }

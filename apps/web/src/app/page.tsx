@@ -18,6 +18,7 @@ import {
   type SortPref,
 } from '@/lib/sort-keys'
 import { ThenBySort } from '@/components/ThenBySort'
+import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
 
 function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
@@ -179,6 +180,12 @@ export default function DashboardPage() {
     }).length
   }, [calEvents, calRange, selectedCalIds])
 
+  const overdueCount = useMemo(
+    () => openTasks.filter((t) => isOverdueOpenTask(t)).length,
+    [openTasks],
+  )
+  const calendarHref = `/calendar?view=${calRange === 'today' ? 'day' : 'week'}`
+
   const previewTasks = openTasks.slice(0, DASHBOARD_TASK_PREVIEW)
   const moreOpenTasks = Math.max(0, openTasks.length - previewTasks.length)
 
@@ -199,18 +206,20 @@ export default function DashboardPage() {
         </p>
       </header>
 
-      {/* ── KPI Strip (static — NOT clickable) ──────────────────── */}
+      {/* ── KPI Strip ───────────────────────────────────────────── */}
       <section aria-label="סיכום מהיר">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          {/* Calendar meetings KPI */}
+          {/* Calendar meetings KPI. Toggles stay here; the number opens that range. */}
           <div className="card">
             <div className="flex items-start justify-between mb-2">
-              <div
-                className="text-2xl font-bold"
-                style={{ color: '#2dd4bf' }}
-              >
-                {calMeetingCount}
-              </div>
+              <Link href={calendarHref} className="no-underline">
+                <div
+                  className="text-2xl font-bold"
+                  style={{ color: '#2dd4bf' }}
+                >
+                  {calMeetingCount}
+                </div>
+              </Link>
               <div className="flex gap-1" role="group" aria-label="טווח זמן">
                 {(['today', 'week'] as const).map((r) => (
                   <button
@@ -224,19 +233,29 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="text-sm font-semibold text-[#eef3fb]">אירועים ביומן</div>
+            <Link href={calendarHref} className="text-sm font-semibold text-[#eef3fb] no-underline block">
+              אירועים ביומן
+            </Link>
             <div className="text-xs text-[#6f7ea0] mt-0.5">
               {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
             </div>
           </div>
 
-          {/* Open tasks KPI */}
+          {/* Open tasks KPI. The count opens the open list; overdue is its own link. */}
           <div className="card">
-            <div className="text-2xl font-bold" style={{ color: '#fb7185' }}>
-              {openTasks.length}
-            </div>
-            <div className="text-sm font-semibold text-[#eef3fb] mt-2">משימות פתוחות</div>
-            <div className="text-xs text-[#6f7ea0] mt-0.5">ממתינות לביצוע</div>
+            <Link href="/tasks?status=open" className="block no-underline">
+              <div className="text-2xl font-bold" style={{ color: '#fb7185' }}>
+                {openTasks.length}
+              </div>
+              <div className="text-sm font-semibold text-[#eef3fb] mt-2">משימות פתוחות</div>
+            </Link>
+            {overdueCount > 0 ? (
+              <Link href="/tasks?status=overdue" className="text-xs text-[#eef3fb] mt-0.5 inline-block no-underline hover:underline">
+                {overdueCount} באיחור
+              </Link>
+            ) : (
+              <div className="text-xs text-[#6f7ea0] mt-0.5">אין איחור</div>
+            )}
           </div>
 
           {/* Upcoming CRM meetings KPI */}
@@ -256,22 +275,26 @@ export default function DashboardPage() {
       <section aria-label="פעולות מהירות">
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/meetings"
-            className="btn btn-primary flex items-center gap-2 no-underline min-h-[40px]"
+            href="/meetings?new=1"
+            className="btn btn-primary flex items-center gap-2 no-underline min-h-[44px]"
           >
             {SVG_PLUS}
             פגישה חדשה
           </Link>
-          <Link
-            href="/tasks"
-            className="btn btn-secondary flex items-center gap-2 no-underline min-h-[40px]"
+          <button
+            type="button"
+            className="btn btn-secondary flex items-center gap-2 min-h-[44px]"
+            onClick={() => {
+              setEditingTaskId(null)
+              setTaskModalOpen(true)
+            }}
           >
             {SVG_PLUS}
             משימה חדשה
-          </Link>
+          </button>
           <Link
             href="/calendar"
-            className="btn btn-ghost flex items-center gap-2 no-underline min-h-[40px]"
+            className="btn btn-ghost flex items-center gap-2 no-underline min-h-[44px]"
           >
             {SVG_CALENDAR}
             יומן
@@ -391,6 +414,9 @@ export default function DashboardPage() {
                     >
                       {t.title}
                     </button>
+                    {formatDueLabel(t) && (
+                      <span className="text-[11px] text-[#647399] shrink-0">{formatDueLabel(t)}</span>
+                    )}
                     <span
                       className="dashboard-open-task__dot"
                       style={{ background: priorityColor }}

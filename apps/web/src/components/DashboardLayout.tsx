@@ -13,6 +13,8 @@ import {
   FolderKanban,
   CalendarDays,
   Sparkles,
+  Bot,
+  Brain,
   Wallet,
   Newspaper,
   BookMarked,
@@ -50,11 +52,14 @@ const navSections: { title: string; items: NavItem[] }[] = [
   },
   {
     title: 'יומן',
-    items: [{ href: '/calendar', label: 'יומן גוגל', icon: CalendarDays }],
+    items: [{ href: '/calendar', label: 'יומן', icon: CalendarDays }],
   },
   {
     title: 'עוזר חכם',
-    items: [{ href: '/chat', label: 'עוזר', icon: Sparkles }],
+    items: [
+      { href: '/chat', label: 'עוזר', icon: Sparkles },
+      { href: '/agents', label: 'סוכנים', icon: Bot },
+    ],
   },
   {
     title: 'מידע',
@@ -62,6 +67,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
       { href: '/finance', label: 'פיננסים', icon: Wallet },
       { href: '/updates', label: 'עדכונים', icon: Newspaper },
       { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
+      { href: '/memory', label: 'זיכרון', icon: Brain },
     ],
   },
   {
@@ -77,16 +83,18 @@ const PRIMARY_TABS: NavItem[] = [
   { href: '/', label: 'דשבורד', icon: LayoutDashboard },
   { href: '/meetings', label: 'פגישות', icon: CalendarCheck },
   { href: '/tasks', label: 'משימות', icon: ListChecks },
-  { href: '/people', label: 'אנשים', icon: Users },
   { href: '/chat', label: 'עוזר', icon: Sparkles },
 ]
 
 const MORE_ITEMS: NavItem[] = [
+  { href: '/people', label: 'אנשים', icon: Users },
   { href: '/projects', label: 'פרויקטים', icon: FolderKanban },
-  { href: '/calendar', label: 'יומן גוגל', icon: CalendarDays },
+  { href: '/calendar', label: 'יומן', icon: CalendarDays },
   { href: '/finance', label: 'פיננסים', icon: Wallet },
   { href: '/updates', label: 'עדכונים', icon: Newspaper },
   { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
+  { href: '/agents', label: 'סוכנים', icon: Bot },
+  { href: '/memory', label: 'זיכרון', icon: Brain },
   { href: '/notifications', label: 'התראות', icon: Bell },
   { href: '/settings', label: 'הגדרות', icon: Settings },
 ]
@@ -134,7 +142,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
-    if (href === '/chat') return pathname.startsWith('/chat') || pathname.startsWith('/agents')
+    if (href === '/chat') return pathname.startsWith('/chat')
     return pathname.startsWith(href)
   }
 

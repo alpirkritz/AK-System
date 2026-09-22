@@ -20,6 +20,12 @@ import {
   syncMeetingsFromCalendar,
   type MobileMeeting,
 } from '../../lib/data'
+import {
+  emptyMeetingsCopy,
+  endDateForWindow,
+  meetingWindowPhrase,
+  parseMeetingWindow,
+} from '../../lib/dashboard-window'
 import { colors } from '../../lib/theme'
 
 function isPast(date: string, time: string): boolean {
@@ -40,7 +46,11 @@ export default function MeetingsScreen() {
   const { token } = useAuth()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { focus } = useLocalSearchParams<{ focus?: string }>()
+  const { focus, window: windowParam } = useLocalSearchParams<{
+    focus?: string
+    window?: string | string[]
+  }>()
+  const meetingWindow = parseMeetingWindow(windowParam)
   const listRef = useRef<FlatList<MobileMeeting>>(null)
 
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
@@ -75,15 +85,17 @@ export default function MeetingsScreen() {
   }, [load])
 
   const upcoming = useMemo(() => {
+    const end = meetingWindow ? endDateForWindow(meetingWindow) : null
     return meetings
       .filter((m) => !isPast(m.date, m.time))
+      .filter((m) => (end ? m.date <= end : true))
       .filter((m) => (recurringOnly ? m.recurring : true))
       .sort(
         (a, b) =>
           new Date(a.date + 'T' + (a.time || '00:00')).getTime() -
           new Date(b.date + 'T' + (b.time || '00:00')).getTime(),
       )
-  }, [meetings, recurringOnly])
+  }, [meetings, recurringOnly, meetingWindow])
 
   const past = useMemo(() => {
     return meetings
@@ -193,6 +205,19 @@ export default function MeetingsScreen() {
         </Pressable>
       </View>
 
+      {meetingWindow ? (
+        <Pressable
+          onPress={() => router.setParams({ window: '' })}
+          style={styles.windowBanner}
+          accessibilityRole="button"
+          accessibilityLabel="הצג את כל הפגישות הקרובות"
+        >
+          <Text style={styles.windowBannerText}>
+            פגישות {meetingWindowPhrase(meetingWindow)} · הצג הכל
+          </Text>
+        </Pressable>
+      ) : null}
+
       <FilterChips
         items={[
           { key: 'all', label: 'הכל' },
@@ -220,9 +245,16 @@ export default function MeetingsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="📅"
-            text={activeTab === 'upcoming' 
-              ? (recurringOnly ? 'אין פגישות חוזרות קרובות' : 'אין פגישות קרובות')
-              : (recurringOnly ? 'אין פגישות חוזרות קודמות' : 'אין פגישות קודמות')
+            text={
+              activeTab === 'upcoming'
+                ? recurringOnly
+                  ? 'אין פגישות חוזרות קרובות'
+                  : meetingWindow
+                    ? emptyMeetingsCopy(meetingWindow)
+                    : 'אין פגישות קרובות'
+                : recurringOnly
+                  ? 'אין פגישות חוזרות קודמות'
+                  : 'אין פגישות קודמות'
             }
           />
         }
@@ -321,6 +353,19 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: colors.bg,
     fontWeight: '600',
+  },
+  windowBanner: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  windowBannerText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   list: { paddingHorizontal: 16, flexGrow: 1 },
   card: { padding: 16, marginBottom: 10 },

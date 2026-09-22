@@ -29,9 +29,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const url = body.url?.trim() || '/chat'
 
   try {
-    await createNotification({ title, body: text, url, type: 'system' })
-    const webSent = await sendBrowserPush(title, text, url)
-    const fcmSent = await sendMobilePush(title, text, url)
+    const notificationId = await createNotification({ title, body: text, url, type: 'system' })
+    const webSent = await sendBrowserPush(title, text, url, { notificationId })
+    const fcmSent = await sendMobilePush(title, text, url, { notificationId })
     return NextResponse.json({ webSent, fcmSent })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Test push failed'

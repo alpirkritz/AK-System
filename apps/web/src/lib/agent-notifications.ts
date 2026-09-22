@@ -64,20 +64,21 @@ export async function notifyAgentRunComplete(options: {
     return { notion, webPush: 0, fcmPush: 0 }
   }
 
+  let notificationId: string | undefined
   try {
-    await createNotification({ title, body: options.summary, url, type: 'agent' })
+    notificationId = await createNotification({ title, body: options.summary, url, type: 'agent' })
   } catch (err) {
     console.warn('[agent-notifications] createNotification failed:', err)
   }
 
   try {
-    webPushCount = await sendBrowserPush(title, pushBody, url)
+    webPushCount = await sendBrowserPush(title, pushBody, url, { notificationId })
   } catch (err) {
     console.warn('[agent-notifications] Web push failed:', err)
   }
 
   try {
-    fcmPushCount = await sendMobilePush(title, pushBody, url)
+    fcmPushCount = await sendMobilePush(title, pushBody, url, { notificationId })
   } catch (err) {
     console.warn('[agent-notifications] FCM push failed:', err)
   }

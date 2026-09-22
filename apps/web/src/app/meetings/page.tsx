@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
@@ -270,6 +271,9 @@ export default function MeetingsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      <Suspense fallback={null}>
+        <OpenNewMeeting onOpen={() => { setEditingId(null); setModalOpen(true) }} />
+      </Suspense>
       {/* Header */}
       <div className="flex justify-between items-center mb-7">
         <h1 className="text-2xl font-bold tracking-tight">פגישות</h1>
@@ -671,4 +675,21 @@ export default function MeetingsPage() {
       />
     </div>
   )
+}
+
+function OpenNewMeeting({ onOpen }: { onOpen: () => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const opened = useRef(false)
+
+  useEffect(() => {
+    if (opened.current || searchParams.get('new') !== '1') return
+    opened.current = true
+    onOpenRef.current()
+    router.replace('/meetings', { scroll: false })
+  }, [searchParams, router])
+
+  return null
 }

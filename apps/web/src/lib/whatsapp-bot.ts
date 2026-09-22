@@ -178,9 +178,9 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
         const pushTitle = await resolveAgentDisplayName(HUGO_AGENT_ID)
         const pushBody = pushExcerpt(result.text)
         const url = withChatMessageId('/chat', messageId)
-        await createNotification({ title: pushTitle, body: result.text, url, type: 'hugo' })
-        await sendBrowserPush(pushTitle, pushBody, url)
-        await sendMobilePush(pushTitle, pushBody, url)
+        const notificationId = await createNotification({ title: pushTitle, body: result.text, url, type: 'hugo' })
+        await sendBrowserPush(pushTitle, pushBody, url, { notificationId })
+        await sendMobilePush(pushTitle, pushBody, url, { notificationId })
       }
     } catch (err) {
       console.warn('[WhatsAppBot] Push failed:', err)

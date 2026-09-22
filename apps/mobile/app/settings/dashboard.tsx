@@ -23,7 +23,7 @@ const TASK_OPTIONS: Array<{
   value: MobileDashboardPrefs['taskWindow']
   label: string
 }> = [
-  { value: 'today', label: 'היום ובאיחור' },
+  { value: 'today', label: 'היום, באיחור, ובלי תאריך' },
   { value: 'all', label: 'כל המשימות הפתוחות' },
 ]
 

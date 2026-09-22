@@ -23,6 +23,8 @@ import {
   type MobileMeeting,
   type MobileTask,
 } from '../../lib/data'
+import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
+import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
 import { colors } from '../../lib/theme'
 
 function greeting(hour: number): string {
@@ -33,27 +35,6 @@ function greeting(hour: number): string {
   return 'לילה טוב'
 }
 
-function toDateKey(d: Date): string {
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
-}
-
-function todayKey(): string {
-  return toDateKey(new Date())
-}
-
-function endDateForWindow(window: MobileDashboardPrefs['meetingWindow']): string {
-  const d = new Date()
-  if (window === 'today') return todayKey()
-  if (window === '3days') {
-    d.setDate(d.getDate() + 2)
-    return toDateKey(d)
-  }
-  d.setDate(d.getDate() + 6)
-  return toDateKey(d)
-}
-
 function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): string {
   if (window === 'today') return 'פגישות היום'
   if (window === '3days') return 'פגישות 3 ימים'
@@ -61,7 +42,7 @@ function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): str
 }
 
 function taskSectionTitle(window: MobileDashboardPrefs['taskWindow']): string {
-  return window === 'today' ? 'משימות להיום' : 'משימות פתוחות'
+  return window === 'today' ? 'היום, באיחור, ובלי תאריך' : 'משימות פתוחות'
 }
 
 function isPast(date: string, time: string): boolean {
@@ -116,8 +97,7 @@ export default function DashboardScreen() {
   const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
 
   const overdueCount = useMemo(
-    () =>
-      openTasks.filter((t) => t.dueDate && t.dueDate < todayKey()).length,
+    () => openTasks.filter((t) => isOverdueOpenTask(t)).length,
     [openTasks],
   )
 
@@ -180,26 +160,35 @@ export default function DashboardScreen() {
           value={openTasks.length}
           label="משימות פתוחות"
           color={colors.coral}
-          onPress={() => router.push('/tasks' as Href)}
+          accessibilityLabel={`משימות פתוחות, ${openTasks.length}`}
+          onPress={() =>
+            router.push({ pathname: '/tasks', params: { filter: 'open' } } as Href)
+          }
         />
         <KpiCard
           value={windowMeetings.length}
-          label="פגישות בחלון"
+          label={meetingSectionTitle(prefs.meetingWindow)}
           color={colors.info}
-          onPress={() => router.push('/meetings' as Href)}
+          accessibilityLabel={meetingSectionTitle(prefs.meetingWindow)}
+          onPress={() =>
+            router.push({ pathname: '/meetings', params: { window: prefs.meetingWindow } } as Href)
+          }
         />
         <KpiCard
           value={overdueCount}
           label="באיחור"
           color={colors.accent}
-          onPress={() => router.push('/tasks' as Href)}
+          accessibilityLabel={`משימות באיחור, ${overdueCount}`}
+          onPress={() =>
+            router.push({ pathname: '/tasks', params: { filter: 'overdue' } } as Href)
+          }
         />
       </View>
 
       <View style={styles.section}>
         <SectionHeader title={meetingSectionTitle(prefs.meetingWindow)} style={styles.sectionHeader} />
         {windowMeetings.length === 0 ? (
-          <EmptyState text="אין פגישות בחלון" compact />
+          <EmptyState text={emptyMeetingsCopy(prefs.meetingWindow)} compact />
         ) : (
           windowMeetings.slice(0, 6).map((m) => (
             <Card
@@ -231,10 +220,10 @@ export default function DashboardScreen() {
                   accessibilityRole="button"
                 >
                   <Text style={styles.itemTitle}>{t.title}</Text>
-                  {t.dueDate ? (
-                    <Text style={styles.itemMeta}>
-                      {t.dueDate < todayKey() ? 'באיחור · ' : ''}
-                      {new Date(t.dueDate + 'T00:00:00').toLocaleDateString('he-IL')}
+                  {dueDay(t.dueDate) ? (
+                    <Text style={[styles.itemMeta, isOverdueOpenTask(t) && styles.itemMetaOverdue]}>
+                      {isOverdueOpenTask(t) ? 'באיחור · ' : ''}
+                      {new Date(dueDay(t.dueDate) + 'T00:00:00').toLocaleDateString('he-IL')}
                     </Text>
                   ) : null}
                 </Pressable>
@@ -274,6 +263,7 @@ const styles = StyleSheet.create({
   item: { marginBottom: 8 },
   itemTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   itemMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
+  itemMetaOverdue: { color: colors.coral },
   taskRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   taskBody: { flex: 1 },
   checkBtn: {

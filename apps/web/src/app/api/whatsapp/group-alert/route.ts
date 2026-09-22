@@ -74,14 +74,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (channels.push) {
         const pushTitle = type === 'fomo' ? `🔔 FOMO — ${name}` : `🔑 ${name}`
         const pushBody = text.slice(0, 240)
-        await createNotification({
+        const notificationId = await createNotification({
           title: pushTitle,
           body: text,
           url: '/settings/whatsapp',
           type: 'fomo',
         })
-        await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp')
-        await sendMobilePush(pushTitle, pushBody, '/settings/whatsapp')
+        await sendBrowserPush(pushTitle, pushBody, '/settings/whatsapp', { notificationId })
+        await sendMobilePush(pushTitle, pushBody, '/settings/whatsapp', { notificationId })
       }
     } catch (pushErr) {
       console.warn('[WhatsApp group-alert] Web push failed:', pushErr)

@@ -34,6 +34,21 @@ export default function AgentsManagePage() {
   const [savedDisplayName, setSavedDisplayName] = useState('')
   const [savingName, setSavingName] = useState(false)
 
+  const [showRuntimeOps, setShowRuntimeOps] = useState(false)
+
+  const runtimeHealthQuery = trpc.agents.runtimeHealth.useQuery(undefined, {
+    enabled: showRuntimeOps,
+    refetchInterval: showRuntimeOps ? 10000 : false, // Refresh every 10s when open
+  })
+  
+  const runLogsQuery = trpc.agents.runLogs.list.useQuery(
+    { limit: 20 },
+    {
+      enabled: showRuntimeOps,
+      refetchInterval: showRuntimeOps ? 10000 : false,
+    }
+  )
+
   const displayNamesQuery = trpc.settings.agentDisplayNames.get.useQuery()
   const setDisplayNameMutation = trpc.settings.agentDisplayNames.set.useMutation({
     onSuccess: () => {
@@ -426,6 +441,154 @@ export default function AgentsManagePage() {
               />
             )}
           </div>
+        </div>
+      )}
+
+      {/* Runtime Operations Section */}
+      {!loadingList && agents.length > 0 && (
+        <div className="mt-6 border border-[#1d2b46] rounded-xl overflow-hidden bg-[#0e1626]">
+          <button
+            type="button"
+            className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111b30] transition-colors"
+            onClick={() => setShowRuntimeOps(!showRuntimeOps)}
+          >
+            <div className="text-right">
+              <h2 className="text-lg font-semibold">תפעול זמן ריצה</h2>
+              <p className="text-xs text-[#5a688c] mt-0.5">
+                מצב מערכת, תור, תקציב ולוגים
+              </p>
+            </div>
+            <svg
+              className={`w-5 h-5 text-[#5a688c] transition-transform ${showRuntimeOps ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showRuntimeOps && (
+            <div className="p-4 border-t border-[#1d2b46]">
+              {/* Health Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-[#111b30] border border-[#1d2b46] rounded-lg p-3">
+                  <div className="text-xs text-[#5a688c] mb-1">מצב ברייקר</div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${
+                      runtimeHealthQuery.data?.breakerState === 'closed'
+                        ? 'bg-green-500'
+                        : runtimeHealthQuery.data?.breakerState === 'open'
+                        ? 'bg-red-500'
+                        : 'bg-orange-500'
+                    }`} />
+                    <span className="text-sm font-medium">
+                      {runtimeHealthQuery.data?.breakerState === 'closed'
+                        ? 'תקין'
+                        : runtimeHealthQuery.data?.breakerState === 'open'
+                        ? 'פתוח'
+                        : 'חצי פתוח'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-[#111b30] border border-[#1d2b46] rounded-lg p-3">
+                  <div className="text-xs text-[#5a688c] mb-1">אורך תור</div>
+                  <div className="text-lg font-semibold">{runtimeHealthQuery.data?.queueLength ?? 0}</div>
+                </div>
+
+                <div className="bg-[#111b30] border border-[#1d2b46] rounded-lg p-3">
+                  <div className="text-xs text-[#5a688c] mb-1">תקציב יומי נותר</div>
+                  <div className="text-lg font-semibold">{runtimeHealthQuery.data?.dailyBudgetRemaining ?? 0}</div>
+                </div>
+
+                <div className="bg-[#111b30] border border-[#1d2b46] rounded-lg p-3">
+                  <div className="text-xs text-[#5a688c] mb-1">אחוז תשובות מופחתות</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-lg font-semibold">
+                      {runtimeHealthQuery.data?.degradedResponseRate.toFixed(1) ?? '0.0'}%
+                    </div>
+                    <div className="flex-1 h-2 bg-[#1d2b46] rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-yellow-500"
+                        style={{ width: `${runtimeHealthQuery.data?.degradedResponseRate ?? 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Runs */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">ריצות אחרונות</h3>
+                  <button
+                    type="button"
+                    className="text-xs text-[#2dd4bf] hover:text-[#2dd4bf]/80"
+                    onClick={() => {
+                      void runtimeHealthQuery.refetch()
+                      void runLogsQuery.refetch()
+                    }}
+                  >
+                    רענן
+                  </button>
+                </div>
+
+                {runLogsQuery.isLoading && (
+                  <div className="text-sm text-[#5a688c] text-center py-4">טוען...</div>
+                )}
+
+                {runLogsQuery.data && runLogsQuery.data.logs.length === 0 && (
+                  <div className="text-sm text-[#5a688c] text-center py-4">אין ריצות עדיין</div>
+                )}
+
+                {runLogsQuery.data && runLogsQuery.data.logs.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-[#1d2b46]">
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">סוכן</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">ערוץ</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">סטטוס</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">מודל</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">המתנה</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">קריאות</th>
+                          <th className="text-right py-2 px-2 font-medium text-[#5a688c]">זמן</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {runLogsQuery.data.logs.map((log) => (
+                          <tr key={log.id} className="border-b border-[#1d2b46]/50 hover:bg-[#111b30]">
+                            <td className="py-2 px-2 font-mono text-[10px]">{log.agentId}</td>
+                            <td className="py-2 px-2">{log.channel}</td>
+                            <td className="py-2 px-2">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${
+                                log.status === 'ok'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : log.status === 'degraded'
+                                  ? 'bg-yellow-500/20 text-yellow-400'
+                                  : log.status === 'rate_limited'
+                                  ? 'bg-orange-500/20 text-orange-400'
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {log.status}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 font-mono text-[10px]">{log.modelTier}</td>
+                            <td className="py-2 px-2">{log.queueWaitMs}ms</td>
+                            <td className="py-2 px-2">{log.geminiCalls}</td>
+                            <td className="py-2 px-2 text-[#5a688c]">
+                              {new Date(log.createdAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -28,7 +28,7 @@ const AREAS: MoreEntry[] = [
 const SETTINGS: MoreEntry[] = [
   { icon: '🔔', label: 'העדפות התראות', route: '/settings/notifications' as Href },
   { icon: '📊', label: 'דשבורד', route: '/settings/dashboard' as Href },
-  { icon: '🗂️', label: 'Workspaces', route: '/settings/workspaces' as Href },
+  { icon: '🗂️', label: 'סביבות עבודה', route: '/settings/workspaces' as Href },
   { icon: '🏷️', label: 'סוגי פגישות', route: '/settings/meeting-types' as Href },
   { icon: '🔧', label: 'מפתחים', route: '/settings/developer' as Href },
 ]

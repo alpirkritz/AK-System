@@ -52,21 +52,22 @@ export async function pushAssistantMessage(
   const pushBody = excerpt(text)
   const url = withChatMessageId(options?.url ?? '/chat', messageId)
 
+  let notificationId: string | undefined
   try {
-    await createNotification({ title, body: text, url, type: 'cron' })
+    notificationId = await createNotification({ title, body: text, url, type: 'cron' })
   } catch (err) {
     console.warn('[push-notifications] createNotification failed:', err)
   }
 
   if (channels.push) {
     try {
-      webPush = await sendBrowserPush(title, pushBody, url)
+      webPush = await sendBrowserPush(title, pushBody, url, { notificationId })
     } catch (err) {
       console.warn('[push-notifications] Web push failed:', err)
     }
 
     try {
-      fcmPush = await sendMobilePush(title, pushBody, url)
+      fcmPush = await sendMobilePush(title, pushBody, url, { notificationId })
     } catch (err) {
       console.warn('[push-notifications] FCM push failed:', err)
     }

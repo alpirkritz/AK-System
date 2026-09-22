@@ -112,6 +112,7 @@ export async function sendMobilePush(
   title: string,
   body: string,
   url = '/chat',
+  extras?: { notificationId?: string },
 ): Promise<number> {
   const db = getDb()
   const rows = await db.select().from(fcmPushTokens).all()
@@ -152,8 +153,17 @@ export async function sendMobilePush(
   try {
     batch = await messaging.sendEachForMulticast({
       tokens,
-      notification: { title, body: shortBody },
-      data: { url },
+      notification: {
+        title,
+        body: shortBody,
+      },
+      data: {
+        notificationId: extras?.notificationId ?? '',
+        title,
+        body: shortBody,
+        url,
+        categoryId: 'inbox',
+      },
       android: {
         priority: 'high',
         notification: { channelId: 'default', sound: 'default' },

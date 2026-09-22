@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 
 import type { CalEvent, View } from './lib/types'
@@ -227,6 +228,9 @@ export default function CalendarPage() {
   // ── Render ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-[calc(100dvh-2rem)] -m-4 md:-m-6 lg:-m-8 overflow-hidden">
+      <Suspense fallback={null}>
+        <ApplyCalendarView onApply={setView} />
+      </Suspense>
       <CalendarHeader
         view={view}
         headerLabel={headerLabel}
@@ -282,4 +286,22 @@ export default function CalendarPage() {
       </div>
     </div>
   )
+}
+
+function ApplyCalendarView({ onApply }: { onApply: (view: View) => void }) {
+  const searchParams = useSearchParams()
+  const onApplyRef = useRef(onApply)
+  onApplyRef.current = onApply
+  const applied = useRef(false)
+
+  useEffect(() => {
+    if (applied.current) return
+    const view = searchParams.get('view')
+    if (view === 'day' || view === 'week' || view === 'month') {
+      applied.current = true
+      onApplyRef.current(view)
+    }
+  }, [searchParams])
+
+  return null
 }

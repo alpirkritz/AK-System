@@ -63,13 +63,13 @@ async function deliverClusterBriefing(
     const channels = await resolveNotificationChannels('whatsapp_group_summary')
     if (channels.push) {
       const pushTitle = `📋 סיכום — ${clusterName}`
-      await createNotification({
+      const notificationId = await createNotification({
         title: pushTitle,
         body: full,
         url: '/settings/whatsapp',
         type: 'fomo',
       })
-      await sendMobilePush(pushTitle, full.slice(0, 240), '/settings/whatsapp')
+      await sendMobilePush(pushTitle, full.slice(0, 240), '/settings/whatsapp', { notificationId })
     }
   } catch (pushErr) {
     console.warn('[whatsapp.cluster] notification failed:', pushErr)

@@ -171,3 +171,14 @@ export const appRouter = router({
 })
 
 export type AppRouter = typeof appRouter
+
+export {
+  createAgentJob,
+  getPendingJobs,
+  markJobRunning,
+  markJobDone,
+  markJobFailed,
+  getJob,
+  type AgentJobPayload,
+  type CreateJobOptions,
+} from './services/agent-jobs'

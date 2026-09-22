@@ -31,6 +31,7 @@ export async function sendBrowserPush(
   title: string,
   body: string,
   url = '/chat',
+  extras?: { notificationId?: string },
 ): Promise<number> {
   if (!ensureVapid()) return 0
 
@@ -39,6 +40,7 @@ export async function sendBrowserPush(
   if (subs.length === 0) return 0
 
   const payload = JSON.stringify({
+    notificationId: extras?.notificationId ?? '',
     title,
     body,
     url,

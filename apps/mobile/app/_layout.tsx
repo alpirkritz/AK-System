@@ -1,10 +1,9 @@
 import { Stack, useRouter, useSegments, type Href } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as Notifications from 'expo-notifications'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { mobileRouteForNotificationUrl } from '../lib/api'
 import { AuthProvider, useAuth } from '../lib/auth'
 import { addNotificationResponseListener } from '../lib/notifications'
 import { colors } from '../lib/theme'
@@ -28,24 +27,11 @@ const scrollableFormSheet = {
   sheetAllowedDetents: [0.92],
 }
 
-function navigateFromNotificationUrl(router: ReturnType<typeof useRouter>, url: string) {
-  const target = mobileRouteForNotificationUrl(url)
-  const params: Record<string, string> = {}
-  if (target.message) params.message = target.message
-  if (target.agent) params.agent = target.agent
-  if (target.focus) params.focus = target.focus
-
-  if (Object.keys(params).length > 0) {
-    router.push({ pathname: target.pathname, params } as Href)
-  } else {
-    router.push(target.pathname as Href)
-  }
-}
-
 function RootNavigator() {
   const { token, loading } = useAuth()
   const segments = useSegments()
   const router = useRouter()
+  const [lastConsumedId, setLastConsumedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (loading) return
@@ -61,15 +47,26 @@ function RootNavigator() {
     if (!token) return
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
-      const url = response?.notification.request.content.data?.url
-      if (typeof url === 'string') navigateFromNotificationUrl(router, url)
+      if (!response) return
+      const requestId = response.notification.request.identifier
+      if (lastConsumedId === requestId) return // Already handled
+      setLastConsumedId(requestId)
+
+      const notifId = response.notification.request.content.data?.notificationId
+      if (typeof notifId === 'string' && notifId) {
+        router.push({ pathname: '/notifications', params: { id: notifId } } as Href)
+      }
     })
 
-    const sub = addNotificationResponseListener((url) => {
-      navigateFromNotificationUrl(router, url)
+    const sub = addNotificationResponseListener((url, notificationId) => {
+      if (typeof notificationId === 'string' && notificationId) {
+        router.push({ pathname: '/notifications', params: { id: notificationId } } as Href)
+      } else {
+        router.push('/notifications')
+      }
     })
     return () => sub.remove()
-  }, [token, router])
+  }, [token, router, lastConsumedId])
 
   if (loading) {
     return (
@@ -109,7 +106,7 @@ function RootNavigator() {
         <Stack.Screen name="settings/notifications" options={{ title: 'העדפות התראות' }} />
         <Stack.Screen name="settings/dashboard" options={{ title: 'דשבורד' }} />
         <Stack.Screen name="settings/developer" options={{ title: 'מפתחים' }} />
-        <Stack.Screen name="settings/workspaces" options={{ title: 'Workspaces' }} />
+        <Stack.Screen name="settings/workspaces" options={{ title: 'סביבות עבודה' }} />
         <Stack.Screen name="settings/meeting-types" options={{ title: 'סוגי פגישות' }} />
         <Stack.Screen
           name="task/[id]"

@@ -11,11 +11,13 @@ type Props = {
   /** Small secondary line under the label (e.g. "החודש"). */
   sublabel?: string
   onPress?: () => void
+  /** Spoken name when the visible label is abbreviated. */
+  accessibilityLabel?: string
   style?: StyleProp<ViewStyle>
 }
 
 /** Compact KPI tile, modeled on the dashboard KPI row. */
-export function KpiCard({ value, label, color, sublabel, onPress, style }: Props) {
+export function KpiCard({ value, label, color, sublabel, onPress, accessibilityLabel, style }: Props) {
   const body = (
     <>
       <Text style={[styles.value, { color: color ?? colors.accent }]} numberOfLines={1}>
@@ -36,7 +38,7 @@ export function KpiCard({ value, label, color, sublabel, onPress, style }: Props
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={label}
+        accessibilityLabel={accessibilityLabel ?? label}
         style={({ pressed }) => [styles.kpi, pressed && styles.pressed, style]}
       >
         {body}

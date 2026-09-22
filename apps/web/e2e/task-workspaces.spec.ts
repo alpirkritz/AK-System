@@ -59,6 +59,7 @@ test.describe('Task workspaces', () => {
     await expect(page.locator('.task-row').filter({ hasText: dazTitle })).toBeVisible({ timeout: 20000 })
     await expect(page.locator('.task-row').filter({ hasText: personalTitle })).toBeVisible()
 
+    await page.getByRole('button', { name: 'סינון', exact: true }).click()
     const sourceFilter = page.getByRole('group', { name: 'סינון לפי מקור' })
     await sourceFilter.getByRole('button', { name: 'DAZ', exact: true }).click()
     await expect(page.locator('.task-row').filter({ hasText: dazTitle })).toBeVisible()

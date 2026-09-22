@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterChips, type FilterChipItem } from '../../components/FilterChips'
 import { StatusPill } from '../../components/StatusPill'
@@ -25,10 +25,18 @@ import {
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
+import { dueDay, isOverdueOpenTask } from '../../lib/task-due'
 import { colors, PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR } from '../../lib/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
+type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
+
+const STATUS_FILTERS: StatusFilter[] = ['open', 'overdue', 'done', 'cancelled', 'all']
+
+function filterFromParam(value: string | string[] | undefined): StatusFilter | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  return STATUS_FILTERS.find((filter) => filter === raw) ?? null
+}
 
 function effectiveStatus(t: MobileTask): string {
   return t.status ?? (t.done ? 'done' : 'not_started')
@@ -37,19 +45,30 @@ function effectiveStatus(t: MobileTask): string {
 export default function TasksScreen() {
   const { token } = useAuth()
   const router = useRouter()
+  const navigation = useNavigation()
   const insets = useSafeAreaInsets()
+  const { filter: filterParam } = useLocalSearchParams<{ filter?: string | string[] }>()
   const [tasks, setTasks] = useState<MobileTask[]>([])
   const [workspaces, setWorkspaces] = useState<MobileWorkspace[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<StatusFilter>('open')
+  const [filter, setFilter] = useState<StatusFilter>(() => filterFromParam(filterParam) ?? 'open')
   const [workspaceId, setWorkspaceId] = useState<string | 'all'>('all')
   const [notionConfigured, setNotionConfigured] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const hasLoadedOnce = useRef(false)
+
+  useEffect(() => {
+    const next = filterFromParam(filterParam)
+    if (next) setFilter(next)
+  }, [filterParam])
+
+  useEffect(() => {
+    navigation.setOptions({ title: filter === 'overdue' ? 'משימות באיחור' : 'משימות' })
+  }, [navigation, filter])
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -169,6 +188,7 @@ export default function TasksScreen() {
     const q = search.trim().toLowerCase()
     return tasks.filter((t) => {
       const st = effectiveStatus(t)
+      if (filter === 'overdue' && !isOverdueOpenTask(t)) return false
       if (filter === 'open' && (st === 'done' || st === 'cancelled')) return false
       if (filter === 'done' && st !== 'done') return false
       if (filter === 'cancelled' && st !== 'cancelled') return false
@@ -180,6 +200,7 @@ export default function TasksScreen() {
 
   const filters: FilterChipItem[] = [
     { key: 'open', label: 'פתוחות' },
+    { key: 'overdue', label: 'באיחור', color: colors.coral },
     { key: 'done', label: 'הושלמו' },
     { key: 'cancelled', label: 'בוטלו' },
     { key: 'all', label: 'הכל' },
@@ -232,7 +253,11 @@ export default function TasksScreen() {
       <FilterChips
         items={filters}
         selectedKey={filter}
-        onSelect={(key) => setFilter(key as StatusFilter)}
+        onSelect={(key) => {
+          const next = filterFromParam(key) ?? 'open'
+          setFilter(next)
+          router.setParams({ filter: next })
+        }}
       />
 
       {workspaces.length > 0 ? (
@@ -256,7 +281,14 @@ export default function TasksScreen() {
           <EmptyState
             icon="✓"
             iconColor={colors.success}
-            text={filter === 'open' ? 'אין משימות פתוחות' : 'אין משימות להצגה'}
+            text={
+              filter === 'overdue'
+                ? 'אין משימות באיחור'
+                : filter === 'open'
+                  ? 'אין משימות פתוחות'
+                  : 'אין משימות להצגה'
+            }
+            hint={filter === 'overdue' ? 'אין תאריך שעבר. אפשר לעבור ל״פתוחות״.' : undefined}
           />
         }
         renderItem={({ item }) => {
@@ -305,9 +337,10 @@ export default function TasksScreen() {
                   {workspace ? (
                     <Text style={styles.taskMeta}>{workspace.name}</Text>
                   ) : null}
-                  {item.dueDate ? (
-                    <Text style={styles.taskMeta}>
-                      {new Date(item.dueDate).toLocaleDateString('he-IL')}
+                  {dueDay(item.dueDate) ? (
+                    <Text style={[styles.taskMeta, isOverdueOpenTask(item) && styles.taskMetaOverdue]}>
+                      {isOverdueOpenTask(item) ? 'באיחור · ' : ''}
+                      {new Date(`${dueDay(item.dueDate)}T00:00:00`).toLocaleDateString('he-IL')}
                     </Text>
                   ) : null}
                 </View>
@@ -413,6 +446,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
+  taskMetaOverdue: { color: colors.coral },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
   priorityLabel: { color: colors.textMuted, fontSize: 11, minWidth: 44, textAlign: 'left' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
