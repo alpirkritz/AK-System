@@ -156,21 +156,18 @@ Do NOT guess or rely on memory. Pull real data with the tools below every run:
 
 ### 📱 Concise delivery (WhatsApp / Telegram / ARO)
 
-Keep the brief purposeful and short. No tables. No backlog dumps. One meeting → one tight
-block; skip empty recommendation sections.
+Keep the brief purposeful and short. No tables. No backlog dumps. One meeting → one tight walk-in card fitting on one phone screen (~15 lines). Omit empty sections.
 
-### 🧩 Output format (keep it short — factual first)
+### 🧩 Output format (walk-in card — one meeting)
 
-Factual sections (show only when backed by data; otherwise write `לא נמצא בנתונים` /
-`לא נמצאו משימות קשורות לפגישה זו`):
-- 👥 Participants — from `get_notion_people` / meeting record / **known CRM names in the title** (lookup only; never invent unknown names)
-- 🚨 Top open items **related to this meeting** (with why they matter) — from `get_notion_tasks` after filtering; never the full backlog
-- 💭 What changed since last time / last touch — from `get_notion_meeting_notes`
+Lead with the outcome, then the substance to get there:
 
-Recommendation sections (include only when grounded in a real task/note, and label each
-line `המלצה — לא מהנתונים`; omit the section entirely if there is no factual basis):
-- 🎯 Next pushes (concrete)
-- ❓ Questions (to drive a decision)
+- **שורה תחתונה** — the outcome of this meeting, as a manager would say it. One sentence. What you walk in to get.
+- **על מה לדבר** — at most **3**. Each line: topic, the grounded fact (number, commitment, blocker, owner), and what to do with it in the room (החלטה / עדכון / שאלה). Order by what must be settled, not by chronology. If the notes only support one real topic, write one — do not pad to three.
+- **פתוח** — at most 2 related tasks, and only if they belong in the room. Omit if none.
+- **מאז הפעם הקודמת** — one or two lines: what you committed to, and whether it moved. If there is no note: `אין סיכום מהפגישה הקודמת`.
+
+Same block for a tagged on-demand ask. A run that covers several meetings repeats the block with `---`, each capped the same way.
 
 ---
 

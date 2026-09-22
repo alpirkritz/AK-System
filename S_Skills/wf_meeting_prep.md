@@ -95,12 +95,9 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 **Agent:** `04_meeting_prep_herald`
 
 ### Step 4.1 — Compose Briefing
-- **Action:** For each meeting: 👥 Participants · 🚨 Related open items (or `לא נמצאו משימות קשורות לפגישה זו`) · 💭 Last time we met · 🎯 Today's focus (only if grounded). Keep short and skimmable; separate meetings with `---`. No tables; no backlog dump.
-- **Grounding:** Factual lines (participants, last-time-we-met, related flags) come only from tool
-  results; if missing, write `לא נמצא בנתונים` / `לא נמצאו משימות קשורות לפגישה זו`. Interpretive lines (focus, next pushes,
-  questions) must be grounded in a real **related** task/note and labeled `המלצה — לא מהנתונים`; omit
-  the section if there is no factual basis. Never fabricate participants or past discussion.
-- **Output format:** Related top open items · What changed since last time · Next pushes (concrete, labeled recommendation) · Questions (labeled recommendation)
+- **Action:** For each meeting: write a walk-in card with `שורה תחתונה` (outcome) → `על מה לדבר` (at most 3 talk points) → `פתוח` (at most 2 related tasks) → `מאז הפעם הקודמת` (what was committed / moved). Keep short and skimmable; separate meetings with `---`. No tables; no backlog dump.
+- **Grounding:** Factual lines (talk points, prior commitments) come only from tool results; if missing, write `אין סיכום מהפגישה הקודמת` for missing notes. Omit sections with no grounded data. Never fabricate participants or past discussion. If notes only support one talk point, write one — do not pad to three.
+- **Output format:** `<title> · <time>` → `שורה תחתונה: <outcome>` → `על מה לדבר` (1–3: topic, fact, move) → `פתוח` (0–2 related tasks) → `מאז הפעם הקודמת` (commitments / movement or `אין סיכום`)
 
 ### Step 4.2 — Stage & Log
 - **Action:** Stage briefing in `O_Output/`; append run to `M_Memory/agents_daily_sync.md`

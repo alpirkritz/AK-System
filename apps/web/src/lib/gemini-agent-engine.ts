@@ -18,11 +18,34 @@ import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { getAgentCalendarScopePromptBlock, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt } from '@ak-system/api'
+import { createRunLogger, type AgentRunLogData } from './agent-run-log'
+import { randomBytes } from 'node:crypto'
+
+function genId(): string {
+  return randomBytes(12).toString('base64url')
+}
 
 export type { ChatTurn } from './gemini-config'
 
 export const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
 export const MEETING_PREP_AGENT_ID = '04_meeting_prep_herald'
+export const MORNING_BRIEF_AGENT_ID = '03_morning_briefing'
+
+/** Hard override: day-map morning brief on every channel. */
+export function getMorningBriefOverride(): string {
+  return [
+    '## Morning Brief — day map (MANDATORY — overrides conflicting card instructions)',
+    'The morning brief is a day map, not a full agenda for every meeting. Fit on one screen.',
+    'NEVER use Markdown tables (| ... | or |---|). No H2/H3 headers. No meta narration.',
+    'Write in Hebrew. Required sections IN ORDER:',
+    '1) Header: ☀️ <weekday> <date>',
+    '2) שורה תחתונה — the one thing that defines the day. Name the meeting that needs you sharpest.',
+    '3) הפגישות — every timed event, one line: `• <time> <title> — <decision / עדכון, אין החלטה>`. The words after the dash are the POINT of that meeting (decision vs update), not a description of the invite.',
+    '4) לעשות לפני — at most 3 actions that change a meeting today. Verb first, source in parentheses (DT / Con / DAZ). Omit if nothing is due before you walk in.',
+    '5) אתמול — at most 2 lines, only if missing it changes today. Omit otherwise.',
+    'Omit empty sections — never pad with filler or `לא נמצאו` markers unless the gap blocks preparation.',
+  ].join('\n')
+}
 
 /** Hard override: Notion-parity brief on every channel (WhatsApp / Telegram / ARO). */
 export function getCalendarOptimizerBriefOverride(): string {
@@ -57,22 +80,23 @@ export function getMeetingPrepRelatedTasksOverride(): string {
 }
 
 /**
- * Hard override: Notion-quality single-meeting prep on outbound channels.
- * Bans pasting calendar invite fluff; requires grounded talk-about / stance / actions.
+ * Hard override: walk-in card meeting prep on all channels.
+ * Bans pasting calendar invite fluff; requires talk points with substance.
  */
 export function getMeetingPrepNotionParityOverride(): string {
   return [
-    '## Meeting Prep — Notion-parity brief (MANDATORY — overrides conflicting card paste habits)',
+    '## Meeting Prep — walk-in card (MANDATORY — overrides conflicting card habits)',
     'Focus on the ONE meeting named in the user message / context block (pre-meeting cron or tagged ask).',
     'NEVER paste, quote, or lightly paraphrase the calendar event description / Outlook invite (From/Sent/To/Cc/Subject/When) / Teams "Need help?" / dial-in / mission-statement fluff.',
     'You MUST call tools for real context: at least get_notion_tasks and get_notion_meeting_notes; add people/projects/companies/search_notion when useful. Grounding rules still apply — no invention.',
-    'Write a skimmable brief matching Notion Meeting Prep quality. No Markdown tables. No meta narration ("I understood…").',
-    'Omit any section that has nothing grounded. Prefer Hebrew or English to match the user/trigger.',
-    'Required shape when data exists:',
-    '1) Header — title, time, location, participants (names only, ≤8 + ועוד N if needed)',
-    '2) What you should talk about / על מה לדבר — 3–6 numbered concrete topics grounded in notes/tasks (ownership, decisions, open gaps)',
-    '3) Your recommended stance / עמדה מומלצת — optional; label clearly as המלצה — לא מהנתונים; omit if no factual basis',
-    '4) Also relevant / גם רלוונטי — related open action items only; omit section if none',
+    'Write a skimmable walk-in card (~15 lines). No Markdown tables. No meta narration ("I understood…"). Omit sections with no grounded data.',
+    'Prefer Hebrew or English to match the user/trigger.',
+    'Required shape:',
+    '1) Header — <title> · <time>',
+    '2) שורה תחתונה — the outcome of this meeting, as a manager would say it. One sentence. What you walk in to get.',
+    '3) על מה לדבר — at most 3. Each line: topic, the grounded fact (number, commitment, blocker, owner), and what to do with it in the room (החלטה / עדכון / שאלה). Order by what must be settled. If notes only support one real topic, write one — do not pad to three.',
+    '4) פתוח — at most 2 related tasks, and only if they belong in the room. Omit if none.',
+    '5) מאז הפעם הקודמת — one or two lines: what you committed to, and whether it moved. If no note: `אין סיכום מהפגישה הקודמת`.',
   ].join('\n')
 }
 
@@ -88,6 +112,70 @@ function formatDateLabel(): string {
 
 function todayIso(): string {
   return localTodayIso()
+}
+
+/**
+ * Build a deterministic Hebrew brief from WhatsApp tool data when LLM fails.
+ * Returns null if no WhatsApp data is available.
+ */
+function buildDegradedWhatsAppBrief(toolResults: Map<string, unknown>): string | null {
+  // Check for WhatsApp tools
+  const waTools = ['query_whatsapp_group', 'summarize_whatsapp_groups', 'whatsapp_now']
+  const waTool = waTools.find((t) => toolResults.has(t))
+  if (!waTool) return null
+
+  const data = toolResults.get(waTool) as any
+  if (!data || typeof data !== 'object') return null
+
+  // Single group data
+  if (data.groupName && !data.groups) {
+    if (data.empty || data.messageCount === 0) {
+      return `⚠️ מצב מופחת\n\nאין הודעות בקבוצה "${data.groupName}" (${data.rangeLabel || data.window}).`
+    }
+
+    const parts = [
+      `⚠️ מצב מופחת — ${data.groupName}`,
+      `${data.rangeLabel || data.window} · ${data.messageCount} הודעות\n`,
+    ]
+
+    if (data.topSenders && Array.isArray(data.topSenders) && data.topSenders.length > 0) {
+      parts.push('כותבים הכי הרבה:')
+      for (const s of data.topSenders.slice(0, 3)) {
+        parts.push(`• ${s.name}: ${s.count} הודעות`)
+      }
+      parts.push('')
+    }
+
+    if (data.recentMessages && Array.isArray(data.recentMessages) && data.recentMessages.length > 0) {
+      parts.push('הודעות אחרונות:')
+      for (const line of data.recentMessages.slice(-10)) {
+        parts.push(line)
+      }
+    }
+
+    return parts.join('\n')
+  }
+
+  // Multi-group data
+  if (data.groups && Array.isArray(data.groups)) {
+    if (data.empty || data.groups.length === 0) {
+      return `⚠️ מצב מופחת\n\nאין הודעות בקבוצות (${data.rangeLabel || data.window}).`
+    }
+
+    const parts = [
+      `⚠️ מצב מופחת — סיכום קבוצות`,
+      `${data.rangeLabel || data.window}\n`,
+      `${data.totalGroups} קבוצות עם פעילות:\n`,
+    ]
+
+    for (const g of data.groups.slice(0, 10)) {
+      parts.push(`• ${g.groupName}: ${g.messageCount} הודעות`)
+    }
+
+    return parts.join('\n')
+  }
+
+  return null
 }
 
 async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChannel): Promise<string> {
@@ -138,11 +226,14 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     parts.push(getCalendarOptimizerBriefOverride(), '')
   }
 
+  if (agentId === MORNING_BRIEF_AGENT_ID) {
+    parts.push(getMorningBriefOverride(), '')
+  }
+
   if (agentId === MEETING_PREP_AGENT_ID) {
     parts.push(getMeetingPrepRelatedTasksOverride(), '')
-    if (channel === 'whatsapp' || channel === 'telegram' || channel === 'cron') {
-      parts.push(getMeetingPrepNotionParityOverride(), '')
-    }
+    // Inject walk-in card format on ALL channels (web + WhatsApp + Telegram + cron)
+    parts.push(getMeetingPrepNotionParityOverride(), '')
   }
 
   parts.push(
@@ -276,6 +367,25 @@ function isGeminiNetworkError(err: unknown): boolean {
   return msg.includes('fetch failed') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')
 }
 
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota exceeded')
+}
+
+function extractRetryAfter(err: unknown): number | null {
+  if (!(err instanceof Error)) return null
+  // Try to extract retry-after from error message
+  const match = err.message.match(/retry.*?(\d+)\s*(second|minute|ms)/i)
+  if (match) {
+    const value = parseInt(match[1], 10)
+    const unit = match[2].toLowerCase()
+    if (unit === 'minute') return value * 60 * 1000
+    if (unit === 'second') return value * 1000
+    return value
+  }
+  return null
+}
+
 const DEFERRAL_PATTERNS = [
   /אעדכן\s+(אותך|ברגע)/i,
   /אחזור\s+אליך/i,
@@ -352,6 +462,7 @@ async function processToolCalls(
   caller: Awaited<ReturnType<typeof createApiCaller>>,
   toolCtx: ToolExecutionContext | undefined,
   toolsCalled: Set<string>,
+  toolResults: Map<string, unknown>,
 ) {
   return Promise.all(
     calls.map(async (call) => {
@@ -362,6 +473,7 @@ async function processToolCalls(
       } catch (err) {
         toolResult = { error: err instanceof Error ? err.message : 'Tool execution failed' }
       }
+      toolResults.set(call.name, toolResult)
       return { functionResponse: { name: call.name, response: { result: toolResult } } }
     }),
   )
@@ -373,6 +485,7 @@ async function runToolLoop(
   caller: Awaited<ReturnType<typeof createApiCaller>>,
   toolCtx: ToolExecutionContext | undefined,
   toolsCalled: Set<string>,
+  toolResults: Map<string, unknown>,
   maxIterations: number,
 ): Promise<Awaited<ReturnType<typeof chat.sendMessage>>> {
   let result = initialResult
@@ -380,11 +493,21 @@ async function runToolLoop(
   while (iterations < maxIterations) {
     const calls = result.response.functionCalls() as FunctionCall[] | undefined
     if (!calls || calls.length === 0) break
-    const responses = await processToolCalls(calls, caller, toolCtx, toolsCalled)
+    const responses = await processToolCalls(calls, caller, toolCtx, toolsCalled, toolResults)
     result = await chat.sendMessage(responses)
     iterations++
   }
   return result
+}
+
+interface ChatLoopResult {
+  text: string
+  finishReason: string | null
+  blockReason: string | null
+  toolsCalled: string[]
+  geminiCalls: number
+  reasonCode?: string // Machine-readable failure reason
+  toolResults?: Map<string, unknown> // Tool name → result, for degraded fallback
 }
 
 async function runChatLoop(
@@ -394,30 +517,62 @@ async function runChatLoop(
   message: string,
   caller: Awaited<ReturnType<typeof createApiCaller>>,
   toolCtx: ToolExecutionContext | undefined,
-): Promise<string> {
+  logger: ReturnType<typeof createRunLogger>,
+  allowTools = true, // Can be set to false for MALFORMED_FUNCTION_CALL retry
+): Promise<ChatLoopResult> {
   const chat = model.startChat({ history: buildHistoryContents(history) })
   const toolsCalled = new Set<string>()
-  let result = await runToolLoop(chat, await chat.sendMessage(message), caller, toolCtx, toolsCalled, 10)
+  const toolResults = new Map<string, unknown>()
+  let geminiCalls = 1
 
-  let text = extractResponseText(result)
+  logger.log('Starting chat loop', { agentId, message: message.slice(0, 100), allowTools })
+  let result = await runToolLoop(chat, await chat.sendMessage(message), caller, toolCtx, toolsCalled, toolResults, allowTools ? 10 : 0)
+
+  let inspection = inspectResponse(result)
+  logger.log('Initial response', {
+    textLength: inspection.text.length,
+    finishReason: inspection.finishReason,
+    toolsCount: toolsCalled.size,
+  })
+
+  // MALFORMED_FUNCTION_CALL recovery: retry without tools
+  if (
+    inspection.finishReason === 'MALFORMED_FUNCTION_CALL' &&
+    allowTools
+  ) {
+    logger.log('MALFORMED_FUNCTION_CALL detected — retrying without tools')
+    geminiCalls++
+    // Start a fresh chat without tools
+    const noToolModel = model
+    const noToolChat = noToolModel.startChat({ history: buildHistoryContents(history) })
+    try {
+      const retryResult = await noToolChat.sendMessage(message)
+      inspection = inspectResponse(retryResult)
+      logger.log('No-tool retry response', { textLength: inspection.text.length })
+    } catch (err) {
+      logger.log('No-tool retry failed', { error: err instanceof Error ? err.message : 'Unknown' })
+    }
+  }
 
   if (
     agentId === HUGO_AGENT_ID &&
-    text &&
-    looksLikeDeferredDelegation(text) &&
+    inspection.text &&
+    looksLikeDeferredDelegation(inspection.text) &&
     !toolsCalled.has('run_abc_agent') &&
     !COS_OWN_WORK_TOOLS.some((t) => toolsCalled.has(t))
   ) {
-    console.warn('[GeminiAgent] CoS deferred with no tools — forcing completion retry')
+    logger.log('CoS deferred with no tools — forcing completion retry')
+    geminiCalls++
     result = await runToolLoop(
       chat,
       await chat.sendMessage(DELEGATION_RETRY_PROMPT),
       caller,
       toolCtx,
       toolsCalled,
+      toolResults,
       5,
     )
-    text = extractResponseText(result)
+    inspection = inspectResponse(result)
   }
 
   // Meeting Prep Herald must ground its briefing in real data. If it answered without
@@ -426,39 +581,118 @@ async function runChatLoop(
     agentId === MEETING_PREP_AGENT_ID &&
     !MEETING_PREP_GROUNDING_TOOLS.some((t) => toolsCalled.has(t))
   ) {
-    console.warn('[GeminiAgent] Meeting prep answered without a data tool — forcing grounding retry')
+    logger.log('Meeting prep answered without a data tool — forcing grounding retry')
+    geminiCalls++
     result = await runToolLoop(
       chat,
       await chat.sendMessage(MEETING_PREP_GROUNDING_RETRY_PROMPT),
       caller,
       toolCtx,
       toolsCalled,
+      toolResults,
       5,
     )
-    text = extractResponseText(result)
+    inspection = inspectResponse(result)
   }
 
-  if (!text && toolsCalled.size > 0) {
+  if (!inspection.text && toolsCalled.size > 0) {
+    logger.log('Empty response with tools — nudging for answer')
+    geminiCalls++
     result = await chat.sendMessage(
       'Based on the tool results above, write your complete answer to the user now. ' +
         'Use ONLY facts present in the tool results or injected context; if a datum is missing, ' +
         'say it is missing (write "לא נמצא בנתונים") rather than inventing it. ' +
         'Use the same language as the user. Do not call any more tools.',
     )
-    text = extractResponseText(result)
+    inspection = inspectResponse(result)
   }
 
-  return text || 'לא התקבלה תשובה מהסוכן.'
+  // Determine final text and reason code
+  let finalText = inspection.text
+  let reasonCode: string | undefined
+
+  if (!finalText) {
+    // Try degraded WhatsApp brief first
+    const degradedBrief = buildDegradedWhatsAppBrief(toolResults)
+    if (degradedBrief) {
+      finalText = degradedBrief
+      reasonCode = 'DEGRADED_WHATSAPP'
+      logger.log('Using degraded WhatsApp brief', { length: finalText.length })
+    } else if (inspection.blockReason) {
+      reasonCode = 'CONTENT_BLOCKED'
+      finalText = `לא הצלחתי לייצר תשובה (CONTENT_BLOCKED: ${inspection.blockReason}). הבקשה נחסמה על ידי מדיניות התוכן.`
+    } else if (inspection.finishReason === 'MALFORMED_FUNCTION_CALL') {
+      reasonCode = 'MALFORMED_FUNCTION_CALL'
+      finalText = 'לא הצלחתי לייצר תשובה (MALFORMED_FUNCTION_CALL). נסה שוב או נסח את השאלה אחרת.'
+    } else if (toolsCalled.size === 0) {
+      reasonCode = 'EMPTY_RESPONSE_NO_TOOLS'
+      finalText = 'לא הצלחתי לייצר תשובה (EMPTY_RESPONSE). נסה שוב או פנה לתמיכה.'
+    } else {
+      reasonCode = 'EMPTY_RESPONSE_WITH_TOOLS'
+      finalText = 'לא הצלחתי לייצר תשובה (EMPTY_RESPONSE). הנתונים התקבלו אך התשובה לא נוצרה. נסה שוב.'
+    }
+    logger.log('No text generated', { reasonCode })
+  }
+
+  logger.log('Chat loop complete', {
+    textLength: finalText.length,
+    geminiCalls,
+    toolsCalled: toolsCalled.size,
+    reasonCode,
+  })
+
+  return {
+    text: finalText,
+    finishReason: inspection.finishReason,
+    blockReason: inspection.blockReason,
+    toolsCalled: Array.from(toolsCalled),
+    geminiCalls,
+    reasonCode,
+    toolResults,
+  }
 }
 
 type ToolArgs = Record<string, unknown>
 
-function extractResponseText(result: { response: { text: () => string } }): string {
-  try {
-    return result.response.text()?.trim() ?? ''
-  } catch {
-    return ''
+interface ResponseInspection {
+  text: string
+  finishReason: string | null
+  blockReason: string | null
+}
+
+function inspectResponse(result: {
+  response: {
+    text: () => string
+    candidates?: Array<{ finishReason?: string; safetyRatings?: Array<{ blocked?: boolean; category?: string }> }>
   }
+}): ResponseInspection {
+  let text = ''
+  let finishReason: string | null = null
+  let blockReason: string | null = null
+
+  try {
+    text = result.response.text()?.trim() ?? ''
+  } catch {
+    text = ''
+  }
+
+  try {
+    const candidate = result.response.candidates?.[0]
+    if (candidate?.finishReason) {
+      finishReason = candidate.finishReason
+    }
+    // Check for safety blocks
+    if (candidate?.safetyRatings) {
+      const blocked = candidate.safetyRatings.find((r) => r.blocked)
+      if (blocked?.category) {
+        blockReason = blocked.category
+      }
+    }
+  } catch {
+    // Ignore inspection errors
+  }
+
+  return { text, finishReason, blockReason }
 }
 
 export async function runGeminiAgentChat(options: {
@@ -469,6 +703,14 @@ export async function runGeminiAgentChat(options: {
 }): Promise<{ text: string }> {
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
+
+  const runId = genId()
+  const channel = options.channel ?? 'web'
+  // Determine priority: interactive for web, event for whatsapp/telegram, batch for cron
+  const priority = channel === 'cron' ? 'batch' : channel === 'web' ? 'interactive' : 'event'
+  const logger = createRunLogger(runId, options.agentId, channel, priority)
+
+  logger.log('Starting agent run', { message: options.message.slice(0, 100) })
 
   const genAI = new GoogleGenerativeAI(geminiKey)
   const caller = await createApiCaller()
@@ -493,12 +735,187 @@ export async function runGeminiAgentChat(options: {
     })
 
   try {
-    return { text: await runChatLoop(buildModel(getGeminiModelOptions()), options.agentId, history, options.message, caller, toolCtx) }
+    const result = await runChatLoop(
+      buildModel(getGeminiModelOptions()),
+      options.agentId,
+      history,
+      options.message,
+      caller,
+      toolCtx,
+      logger,
+    )
+
+    // Determine status
+    let status: AgentRunLogData['status'] = 'ok'
+    let errorMessage: string | null = null
+
+    if (result.blockReason) {
+      status = 'error'
+      errorMessage = `Blocked: ${result.blockReason}`
+    } else if (result.reasonCode === 'DEGRADED_WHATSAPP') {
+      status = 'degraded'
+      errorMessage = result.reasonCode
+    } else if (result.reasonCode) {
+      status = 'empty'
+      errorMessage = result.reasonCode
+    } else if (!result.text || result.text.startsWith('לא הצלחתי לייצר תשובה')) {
+      status = 'empty'
+      errorMessage = result.reasonCode || 'EMPTY_RESPONSE'
+    }
+
+    await logger.complete({
+      status,
+      finishReason: result.finishReason,
+      blockReason: result.blockReason,
+      toolsCalled: result.toolsCalled,
+      geminiCalls: result.geminiCalls,
+      queueWaitMs: 0, // No gateway integration yet
+      attempts: 1,
+      modelTier: 'flash-thinking', // Primary model
+      cacheHit: false,
+      replyChars: result.text.length,
+      errorMessage,
+    })
+
+    return { text: result.text }
   } catch (err) {
-    if (!isGeminiNetworkError(err)) throw err
-    console.warn('[GeminiAgent] extended thinking failed, retrying without thinking:', err)
-    return {
-      text: await runChatLoop(buildModel(getGeminiModelOptionsFast()), options.agentId, history, options.message, caller, toolCtx),
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+    
+    // Handle rate limit errors specially
+    if (isRateLimitError(err)) {
+      logger.log('Rate limit error detected', { error: errorMsg })
+      const retryAfter = extractRetryAfter(err)
+      const retryMsg = retryAfter
+        ? ` נסה שוב בעוד ${Math.ceil(retryAfter / 1000)} שניות.`
+        : ' נסה שוב בעוד כמה דקות.'
+
+      await logger.complete({
+        status: 'rate_limited',
+        finishReason: null,
+        blockReason: null,
+        toolsCalled: [],
+        geminiCalls: 1,
+        queueWaitMs: 0,
+        attempts: 1,
+        modelTier: 'flash-thinking',
+        cacheHit: false,
+        replyChars: 0,
+        errorMessage: 'RATE_LIMIT_EXCEEDED',
+      })
+
+      return {
+        text: `לא הצלחתי לייצר תשובה (RATE_LIMIT_EXCEEDED). המערכת עמוסה כרגע.${retryMsg}`,
+      }
+    }
+    
+    if (!isGeminiNetworkError(err)) {
+      // Non-network error — log and rethrow
+      await logger.complete({
+        status: 'error',
+        finishReason: null,
+        blockReason: null,
+        toolsCalled: [],
+        geminiCalls: 1,
+        queueWaitMs: 0,
+        attempts: 1,
+        modelTier: 'flash-thinking',
+        cacheHit: false,
+        replyChars: 0,
+        errorMessage: errorMsg,
+      })
+      throw err
+    }
+
+    // Network error — retry with fast model
+    logger.log('Extended thinking failed, retrying without thinking', { error: errorMsg })
+    try {
+      const result = await runChatLoop(
+        buildModel(getGeminiModelOptionsFast()),
+        options.agentId,
+        history,
+        options.message,
+        caller,
+        toolCtx,
+        logger,
+      )
+
+      let status: AgentRunLogData['status'] = 'ok'
+      let errorMessage: string | null = null
+
+      if (result.blockReason) {
+        status = 'error'
+        errorMessage = `Blocked: ${result.blockReason}`
+      } else if (result.reasonCode === 'DEGRADED_WHATSAPP') {
+        status = 'degraded'
+        errorMessage = result.reasonCode
+      } else if (result.reasonCode) {
+        status = 'empty'
+        errorMessage = result.reasonCode
+      } else if (!result.text || result.text.startsWith('לא הצלחתי לייצר תשובה')) {
+        status = 'empty'
+        errorMessage = result.reasonCode || 'EMPTY_RESPONSE'
+      }
+
+      await logger.complete({
+        status,
+        finishReason: result.finishReason,
+        blockReason: result.blockReason,
+        toolsCalled: result.toolsCalled,
+        geminiCalls: result.geminiCalls,
+        queueWaitMs: 0,
+        attempts: 2, // Second attempt after fallback
+        modelTier: 'flash', // Fast model
+        cacheHit: false,
+        replyChars: result.text.length,
+        errorMessage,
+      })
+
+      return { text: result.text }
+    } catch (retryErr) {
+      // Fallback failed too
+      const retryErrorMsg = retryErr instanceof Error ? retryErr.message : 'Unknown error'
+      
+      // Check if the fallback also failed due to rate limit
+      if (isRateLimitError(retryErr)) {
+        logger.log('Fallback also hit rate limit', { error: retryErrorMsg })
+        const retryAfter = extractRetryAfter(retryErr)
+        const retryMsg = retryAfter
+          ? ` נסה שוב בעוד ${Math.ceil(retryAfter / 1000)} שניות.`
+          : ' נסה שוב בעוד כמה דקות.'
+
+        await logger.complete({
+          status: 'rate_limited',
+          finishReason: null,
+          blockReason: null,
+          toolsCalled: [],
+          geminiCalls: 2,
+          queueWaitMs: 0,
+          attempts: 2,
+          modelTier: 'flash',
+          cacheHit: false,
+          replyChars: 0,
+          errorMessage: 'RATE_LIMIT_EXCEEDED (both primary and fallback)',
+        })
+
+        return {
+          text: `לא הצלחתי לייצר תשובה (RATE_LIMIT_EXCEEDED). המערכת עמוסה מאוד כרגע.${retryMsg}`,
+        }
+      }
+      
+      await logger.complete({
+        status: 'error',
+        finishReason: null,
+        blockReason: null,
+        toolsCalled: [],
+        geminiCalls: 2,
+        queueWaitMs: 0,
+        attempts: 2,
+        modelTier: 'flash',
+        cacheHit: false,
+        replyChars: 0,
+        errorMessage: `Primary failed: ${errorMsg}, Fallback failed: ${retryErrorMsg}`,
+      })
+      throw retryErr
     }
   }
 }

@@ -92,28 +92,23 @@ Every morning, you create @Alpir Kritzler a brief in helping me start my day inf
 
 #### Brief writing instructions
 
-In the brief, add:
-- Up to the three top priorities for today.
-- One or two things that I missed yesterday — only if they are important. Skip otherwise.
+The morning brief is a day map, not a full agenda for every meeting. Write these sections in order:
 
-Present the sections in this order:
-1. 🏆 Today's Priorities
-2. 👀 Things I Missed Yesterday
+1. **שורה תחתונה** — the one thing that defines the day. Name the meeting that needs you sharpest.
+2. **הפגישות** — every timed event, one line. The words after the dash are the point of that meeting (decision, or "עדכון, אין החלטה"), not a description of the invite.
+3. **לעשות לפני** — at most 3 actions that change a meeting today. Verb first, source in parentheses (e.g. DT, Con, DAZ). Omit if nothing is due before you walk in.
+4. **אתמול** — at most 2 lines, only if missing it changes today. Omit otherwise.
 
-For each priority, you may:
-- Summarize what needs to be done and why it's important
-- List specific action items. Skip this if it is a single, simple task.
-- Include deadlines if there's a time constraint
+Do not paste full agendas here. The walk-in card for each meeting (sent 15 min ahead) carries the detailed prep.
 
 #### Style instructions
 
-The brief is read on a phone (WhatsApp / push / app). It must be easy to scan in 30 seconds.
+The brief is read on a phone (WhatsApp / push / app). It must fit on one screen.
 - Write in **Hebrew**, friendly tone
-- Open with one TL;DR line
-- Section headers with the emojis above (🏆 / 👀) — no Markdown H2/H3, no tables
+- Format: `☀️ <weekday date>` as the header, then the four sections above (no H2/H3, no Markdown tables)
 - Short bullets; bold key actions or decisions
-- Name the source of each fact briefly (e.g. "מתוך DT - Action items"), no raw URLs unless useful
-- If a section is empty, write one short line (e.g. `לא נמצאו משימות פתוחות להיום`) — never pad with filler
+- Name the source of each task briefly (e.g. DT, Con, DAZ), no raw URLs
+- Omit empty sections — never pad with filler or write `לא נמצאו` markers unless the gap blocks preparation
 
 ---
 

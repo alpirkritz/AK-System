@@ -38,6 +38,7 @@ import {
   getCalendarOptimizerBriefOverride,
   getMeetingPrepNotionParityOverride,
   getMeetingPrepRelatedTasksOverride,
+  getMorningBriefOverride,
 } from './gemini-agent-engine'
 
 const ORIGINAL_ENV = { ...process.env }
@@ -108,6 +109,31 @@ describe('Chief of Staff primary interface', () => {
   })
 })
 
+describe('morning brief day map', () => {
+  it('override defines day-map sections with line caps', () => {
+    const override = getMorningBriefOverride()
+    expect(override).toContain('day map')
+    expect(override).toContain('NEVER use Markdown tables')
+    expect(override).toContain('שורה תחתונה')
+    expect(override).toContain('הפגישות')
+    expect(override).toContain('לעשות לפני')
+    expect(override).toContain('אתמול')
+    expect(override).toContain('at most 3 actions')
+    expect(override).toContain('at most 2 lines')
+    expect(override).toContain('the meeting that needs you sharpest')
+  })
+
+  it('injects day-map override into 03 system instruction on all channels', async () => {
+    for (const channel of ['whatsapp', 'telegram', 'web', 'cron'] as const) {
+      const prompt = await buildAgentSystemInstruction('03_morning_briefing', channel)
+      expect(prompt).toContain('Morning Brief — day map')
+      expect(prompt).toContain('שורה תחתונה')
+      expect(prompt).toContain('הפגישות')
+      expect(prompt).toContain('at most 3 actions')
+    }
+  })
+})
+
 describe('meeting prep related tasks only', () => {
   it('override forbids full backlog dump', () => {
     const override = getMeetingPrepRelatedTasksOverride()
@@ -123,24 +149,30 @@ describe('meeting prep related tasks only', () => {
   })
 })
 
-describe('meeting prep Notion-parity (WhatsApp/cron)', () => {
-  it('override bans invite paste and requires talk-about sections', () => {
+describe('meeting prep walk-in card (all channels)', () => {
+  it('override bans invite paste and requires talk points with substance', () => {
     const override = getMeetingPrepNotionParityOverride()
     expect(override).toContain('NEVER paste')
-    expect(override).toContain('What you should talk about')
-    expect(override).toContain('recommended stance')
+    expect(override).toContain('walk-in card')
+    expect(override).toContain('at most 3')
     expect(override).toContain('get_notion_tasks')
     expect(override).toContain('על מה לדבר')
-    expect(override).toContain('עמדה מומלצת')
+    expect(override).toContain('שורה תחתונה')
+    expect(override).toContain('the outcome of this meeting')
+    expect(override).toContain('פתוח')
+    expect(override).toContain('מאז הפעם הקודמת')
+    // No longer has separate stance section
+    expect(override).not.toContain('recommended stance')
+    expect(override).not.toContain('עמדה מומלצת')
   })
 
-  it('injects Notion-parity override on whatsapp/cron/telegram only', async () => {
-    for (const channel of ['whatsapp', 'cron', 'telegram'] as const) {
+  it('injects walk-in card override on ALL channels including web', async () => {
+    for (const channel of ['whatsapp', 'cron', 'telegram', 'web'] as const) {
       const prompt = await buildAgentSystemInstruction('04_meeting_prep_herald', channel)
-      expect(prompt).toContain('Meeting Prep — Notion-parity brief')
+      expect(prompt).toContain('Meeting Prep — walk-in card')
       expect(prompt).toContain('NEVER paste')
+      expect(prompt).toContain('at most 3')
+      expect(prompt).toContain('שורה תחתונה')
     }
-    const web = await buildAgentSystemInstruction('04_meeting_prep_herald', 'web')
-    expect(web).not.toContain('Meeting Prep — Notion-parity brief')
   })
 })

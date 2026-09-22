@@ -160,23 +160,29 @@ Step-by-step execution map for the Morning Briefing agent. The agent's **Instruc
 ## Output Template
 
 ```
-☀️ תדריך בוקר — <תאריך>
-TL;DR: <שורה אחת>
+☀️ <weekday> <date>
+שורה תחתונה: <the one thing that defines the day — name the meeting that needs you sharpest>
 
-🏆 העדיפויות של היום
-• <עדיפות 1> — מה צריך לעשות ולמה זה חשוב (מקור: <DB>)
-• <עדיפות 2> — ...
-• <עדיפות 3> — ...
+הפגישות
+• <time> <title> — <decision / עדכון, אין החלטה>
+• <time> <title> — <decision / עדכון, אין החלטה>
+...
 
-👀 דברים שפספסתי אתמול
-• <רק פריט אחד או שניים חשובים; לדלג אם אין>
+לעשות לפני
+• <verb first> <what> לפני <time> (<source: DT / Con / DAZ>)
+[at most 3; omit section if nothing is due before meetings]
+
+אתמול
+• <what was missed yesterday that changes today>
+[at most 2 lines; omit section if nothing important]
 ```
 
-Notes on the output (per agent Instructions):
+Notes on the output:
 - Hebrew, phone-friendly: short bullets, no Markdown tables, no H2/H3 headers
-- No checklist checkboxes — reference tasks by their task-DB name
-- Suggested non-task next steps use a `Next step:` bullet
-- Bold key actions/decisions; name sources briefly; friendly tone
+- `הפגישות`: one line per timed event. The words after the dash are the **point** of that meeting (decision vs update), not a description of the calendar invite.
+- `לעשות לפני`: actions that change a meeting today, verb first, source in parentheses. At most 3.
+- `אתמול`: at most 2 lines, only if missing it changes today. Omit otherwise.
+- Omit empty sections — never pad with `לא נמצאו` filler unless the gap blocks preparation.
 
 ---
 
