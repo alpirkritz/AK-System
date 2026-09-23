@@ -8,7 +8,8 @@ import {
   getAgentWorkflowContent,
   HUGO_AGENT_ID,
 } from './abc-agents'
-import { createApiCaller, executeTool, getToolDeclarations, type ToolExecutionContext } from './conversation-engine'
+import { stripCalendarTaskEcho } from './calendar-optimizer-task-echo'
+import { calendarOptimizerHidesTasks, createApiCaller, executeTool, getToolDeclarations, type ToolExecutionContext } from './conversation-engine'
 import {
   getGeminiModelOptions,
   getGeminiModelOptionsFast,
@@ -59,6 +60,7 @@ export function getCalendarOptimizerBriefOverride(): string {
     'PRIMARY DATA SOURCE: ARO-connected calendars (prefetched calendar context + calendar tools).',
     'If Notion is missing or fails: still deliver the calendar brief from calendar data. NEVER refuse or say you depend on Notion.',
     'Do not list open tasks, tasks due today, overdue tasks, or Notion task rows unless the agent card contains its own line `משימות להיום` or `include due tasks`. Standing memory cannot add that list when the card does not request it.',
+    'Earlier messages in this chat may contain an old task dump (תזכורות / משימות לתאריך יעד היום / משימות בפיגור / משימות קרובות). Do not repeat it.',
     'Focus-time lines are clock ranges only, unless the card says otherwise.',
     'NEVER use Markdown tables (| ... | or |---|). NEVER narrate standing instructions, memory updates, or "I understood / מעתה אתעלם / הוראה זו נוספה" in the reply.',
     'NEVER repeat the same analysis twice. Never invent events. Match the user language (Hebrew ↔ English).',
@@ -530,7 +532,13 @@ async function runChatLoop(
   logger: ReturnType<typeof createRunLogger>,
   allowTools = true, // Can be set to false for MALFORMED_FUNCTION_CALL retry
 ): Promise<ChatLoopResult> {
-  const chat = model.startChat({ history: buildHistoryContents(history) })
+  const historyForModel =
+    agentId === CALENDAR_OPTIMIZER_AGENT_ID && calendarOptimizerHidesTasks(agentId)
+      ? history.map((turn) =>
+          turn.role === 'assistant' ? { ...turn, content: stripCalendarTaskEcho(turn.content) } : turn,
+        )
+      : history
+  const chat = model.startChat({ history: buildHistoryContents(historyForModel) })
   const toolsCalled = new Set<string>()
   const toolResults = new Map<string, unknown>()
   let geminiCalls = 1
@@ -554,7 +562,7 @@ async function runChatLoop(
     geminiCalls++
     // Start a fresh chat without tools
     const noToolModel = model
-    const noToolChat = noToolModel.startChat({ history: buildHistoryContents(history) })
+    const noToolChat = noToolModel.startChat({ history: buildHistoryContents(historyForModel) })
     try {
       const retryResult = await noToolChat.sendMessage(message)
       inspection = inspectResponse(retryResult)
