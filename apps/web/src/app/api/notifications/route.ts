@@ -29,7 +29,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Single notification fetch
   if (id) {
     const row = await db.select().from(notifications).where(eq(notifications.id, id)).limit(1)
-    if (!row[0]) {
+    // Archived rows must 404. The installed app refetches this id after Archive
+    // and reopens the sheet whenever a body comes back.
+    if (!row[0] || row[0].archivedAt) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     return NextResponse.json({ notification: row[0] })

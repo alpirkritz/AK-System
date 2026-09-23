@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { localDateRangeToUtc, localMidnightToUtc, localTodayIso, localTomorrowIso, resolveLocalDayArg } from './calendar-dates'
+import { formatLocalClock, formatLocalRange, localDateRangeToUtc, localMidnightToUtc, localTodayIso, localTomorrowIso, resolveLocalDayArg, toZonedIso } from './calendar-dates'
 
 const TZ = 'Asia/Jerusalem'
 
@@ -56,5 +56,24 @@ describe('localDateRangeToUtc', () => {
     const { timeMin, timeMax } = localDateRangeToUtc('2026-07-09', '2026-07-09', TZ)
     expect(timeMin.toISOString()).toBe('2026-07-08T21:00:00.000Z')
     expect(timeMax.toISOString()).toBe('2026-07-09T21:00:00.000Z')
+  })
+})
+
+describe('formatLocalClock', () => {
+  it('converts a UTC instant to Israel summer time', () => {
+    expect(formatLocalClock('2026-09-23T12:30:00.000Z', TZ)).toBe('15:30')
+    expect(formatLocalRange('2026-09-23T12:30:00.000Z', '2026-09-23T13:00:00.000Z', TZ)).toBe('15:30–16:00')
+  })
+
+  it('keeps floating wall-clock digits', () => {
+    expect(formatLocalClock('2026-07-20T09:30:00', TZ)).toBe('09:30')
+  })
+
+  it('keeps an explicit Jerusalem offset', () => {
+    expect(formatLocalClock('2026-09-23T15:30:00+03:00', TZ)).toBe('15:30')
+  })
+
+  it('writes the same instant with a Jerusalem offset', () => {
+    expect(toZonedIso('2026-09-23T12:30:00.000Z', TZ)).toBe('2026-09-23T15:30:00+03:00')
   })
 })

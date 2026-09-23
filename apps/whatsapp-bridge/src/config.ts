@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { bareUserJid, routeSelfChatJid } from './self-chat.js'
+
+export { bareUserJid, routeSelfChatJid }
 
 function loadEnvFile(): void {
   const envPath = resolve(process.cwd(), '.env')
@@ -65,17 +68,13 @@ export function setSelfLid(jid: string): void {
   config.selfLid = jid
 }
 
-function normalizeJidBase(jid: string): string {
-  return jid.split(':')[0] ?? jid
-}
-
 /** Message Yourself — only explicit self JIDs, never all @lid contacts. */
 export function isSelfChatJid(jid: string): boolean {
-  const base = normalizeJidBase(jid)
-  if (config.selfJid && base === normalizeJidBase(config.selfJid)) return true
-  if (config.selfLid && base === normalizeJidBase(config.selfLid)) return true
+  const base = bareUserJid(jid)
+  if (config.selfJid && base === bareUserJid(config.selfJid)) return true
+  if (config.selfLid && base === bareUserJid(config.selfLid)) return true
   if (config.allowedJids.length > 0) {
-    return config.allowedJids.some((allowed) => base === normalizeJidBase(allowed))
+    return config.allowedJids.some((allowed) => base === bareUserJid(allowed))
   }
   return false
 }

@@ -75,3 +75,80 @@ export function localDateRangeToUtc(
 export function getDefaultTimezone(): string {
   return DEFAULT_TIMEZONE
 }
+
+/** True when the string carries a UTC `Z` or a numeric offset. Floating `YYYY-MM-DDTHH:mm:ss` does not. */
+function hasExplicitOffset(iso: string): boolean {
+  return /(?:Z|[+-]\d{2}:\d{2})$/i.test(iso.trim())
+}
+
+function clockFromInstant(instant: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  let hour = parts.find((p) => p.type === 'hour')?.value ?? '00'
+  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00'
+  if (hour === '24') hour = '00'
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+}
+
+/**
+ * Clock in `timeZone`.
+ * Floating timestamps (no Z/offset) keep their digits — those strings are already wall time.
+ * `Z` and numeric offsets are converted, so `12:30:00Z` in summer Israel is `15:30`.
+ */
+export function formatLocalClock(iso: string, timeZone = DEFAULT_TIMEZONE): string {
+  if (!iso.includes('T')) return 'כל היום'
+  const rawClock = iso.slice(11, 16)
+  if (!hasExplicitOffset(iso)) return rawClock
+  const instant = new Date(iso)
+  if (Number.isNaN(instant.getTime())) return rawClock
+  return clockFromInstant(instant, timeZone)
+}
+
+/** `15:30–16:00`, or a single clock when end is missing or equal. All-day stays `כל היום`. */
+export function formatLocalRange(
+  start: string,
+  end?: string | null,
+  timeZone = DEFAULT_TIMEZONE,
+): string {
+  const startClock = formatLocalClock(start, timeZone)
+  if (startClock === 'כל היום' || !end) return startClock
+  const endClock = formatLocalClock(end, timeZone)
+  if (endClock === 'כל היום' || endClock === startClock) return startClock
+  return `${startClock}–${endClock}`
+}
+
+/**
+ * Same instant, written as RFC3339 in `timeZone` (`2026-09-23T15:30:00+03:00`).
+ * Floating timestamps are returned unchanged.
+ */
+export function toZonedIso(iso: string, timeZone = DEFAULT_TIMEZONE): string {
+  if (!iso.includes('T') || !hasExplicitOffset(iso)) return iso
+  const instant = new Date(iso)
+  if (Number.isNaN(instant.getTime())) return iso
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '00'
+  let hour = get('hour')
+  if (hour === '24') hour = '00'
+  const wall = `${get('year')}-${get('month')}-${get('day').padStart(2, '0')}T${hour.padStart(2, '0')}:${get('minute').padStart(2, '0')}:${get('second').padStart(2, '0')}`
+  const offsetMin = Math.round((Date.parse(`${wall}Z`) - instant.getTime()) / 60_000)
+  const sign = offsetMin >= 0 ? '+' : '-'
+  const abs = Math.abs(offsetMin)
+  const oh = String(Math.floor(abs / 60)).padStart(2, '0')
+  const om = String(abs % 60).padStart(2, '0')
+  return `${wall}${sign}${oh}:${om}`
+}

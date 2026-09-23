@@ -13,7 +13,7 @@ import { Boom } from '@hapi/boom'
 import pino from 'pino'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { config, getSelfChatTarget, isSelfChatJid, setSelfJid } from './config.js'
+import { config, getSelfChatTarget, isSelfChatJid, routeSelfChatJid, setSelfJid, setSelfLid } from './config.js'
 import { isGroupWatched, getGroupRule } from './group-config.js'
 import { onGroupMessage } from './rules-engine.js'
 import {
@@ -373,8 +373,10 @@ export async function startWhatsAppClient(): Promise<void> {
       lastError = null
       if (socket.user?.id) {
         const self = jidNormalizedUser(socket.user.id)
-        setSelfJid(config.selfJid || self)
-        logger.info({ selfJid: config.selfJid }, 'WhatsApp connected')
+        const liveLid = socket.user.lid ? jidNormalizedUser(socket.user.lid) : ''
+        if (!process.env.SELF_JID) setSelfJid(self)
+        if (liveLid.endsWith('@lid')) setSelfLid(liveLid)
+        logger.info({ selfJid: config.selfJid, selfLid: config.selfLid }, 'WhatsApp connected')
       }
     }
 
@@ -441,10 +443,14 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
   if (!sock || !connected) {
     throw new Error('WhatsApp not connected')
   }
-  const jid = to || getSelfChatTarget()
+  const requested = to || getSelfChatTarget()
+  const jid = routeSelfChatJid(requested, config.selfJid, config.selfLid)
   if (!jid) throw new Error('No self-chat JID configured')
-  if (!isSelfChatJid(jid)) {
+  if (!isSelfChatJid(requested) && !isSelfChatJid(jid)) {
     throw new Error(`Blocked: outbound WhatsApp only allowed to self-chat, not ${jid}`)
+  }
+  if (jid !== requested) {
+    logger.info({ requested, jid }, 'Routed self-chat send to LID')
   }
   const result = await sock.sendMessage(jid, { text: text.slice(0, 65000) })
   markRecentOutbound(text)

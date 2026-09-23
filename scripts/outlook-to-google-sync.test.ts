@@ -131,6 +131,24 @@ describe('eventBody', () => {
     expect(body.description).toContain('Bob <bob@example.com>')
     expect(body.description).toContain('No Email')
   })
+
+  it('writes a UTC instant as Jerusalem wall time, not the Z clock', () => {
+    const body = eventBody(
+      makeSource({
+        start: '2026-09-23T12:30:00.000Z',
+        end: '2026-09-23T13:00:00.000Z',
+      }),
+      { timeZone: 'Asia/Jerusalem' },
+    )
+    expect(body.start).toMatchObject({
+      dateTime: '2026-09-23T15:30:00+03:00',
+      timeZone: 'Asia/Jerusalem',
+    })
+    expect(body.end).toMatchObject({
+      dateTime: '2026-09-23T16:00:00+03:00',
+      timeZone: 'Asia/Jerusalem',
+    })
+  })
 })
 
 describe('toSourceEvents', () => {

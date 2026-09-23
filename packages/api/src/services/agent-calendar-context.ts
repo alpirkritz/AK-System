@@ -1,5 +1,5 @@
 import { isExcludedFromTimedMeetingAlerts } from '../lib/calendar-filters'
-import { localDateRangeToUtc, localTodayIso } from '../lib/calendar-dates'
+import { formatLocalRange, localDateRangeToUtc, localTodayIso } from '../lib/calendar-dates'
 import {
   filterEventsByCalendarScope,
   getAgentCalendarIds,
@@ -32,23 +32,10 @@ export async function getAgentCalendarContext(
   return { today, events: scoped, errors }
 }
 
-function formatEventTime(ev: GoogleCalendarEvent): string {
-  if (ev.isAllDay || !ev.start.includes('T')) return 'כל היום'
-  try {
-    return new Date(ev.start).toLocaleTimeString('he-IL', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: process.env.TIMEZONE || 'Asia/Jerusalem',
-    })
-  } catch {
-    return ev.start.slice(11, 16)
-  }
-}
-
 function eventLine(ev: GoogleCalendarEvent): string {
   const cal = ev.calendarName ? ` [${ev.calendarName}]` : ''
-  return `- ${formatEventTime(ev)} ${ev.title}${cal}`
+  const when = ev.isAllDay ? 'כל היום' : formatLocalRange(ev.start, ev.end)
+  return `- ${when} ${ev.title}${cal}`
 }
 
 /** Hebrew prompt block with today's Google Calendar events (agent scope applied). */

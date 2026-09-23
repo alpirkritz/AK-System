@@ -14,7 +14,7 @@ export default defineConfig({
     // running files in parallel makes them clobber each other.
     fileParallelism: false,
     environment: 'node',
-    include: ['src/**/*.test.ts', '../../scripts/**/*.test.ts'],
+    include: ['src/**/*.test.ts', '../../scripts/**/*.test.ts', '../../apps/whatsapp-bridge/src/**/*.test.ts'],
   },
   resolve: {
     alias: {

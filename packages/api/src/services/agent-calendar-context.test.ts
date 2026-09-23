@@ -17,10 +17,29 @@ describe('formatAgentCalendarContextForPrompt', () => {
         },
       ],
     })
+    expect(text).toContain('08:30–09:00')
     expect(text).toContain('Algo Daily')
     expect(text).toContain('Dragontail')
     expect(text).toContain('Event count: 1')
     expect(text).toContain('Do NOT report 0 hours')
+  })
+
+  it('converts a UTC Z event to Israel time instead of slicing the string', () => {
+    const text = formatAgentCalendarContextForPrompt({
+      today: '2026-09-23',
+      errors: [],
+      events: [
+        {
+          id: 'rom',
+          title: 'חוג מדע ורפואה של רום',
+          start: '2026-09-23T12:30:00.000Z',
+          end: '2026-09-23T13:00:00.000Z',
+          isAllDay: false,
+        },
+      ],
+    })
+    expect(text).toContain('15:30–16:00')
+    expect(text).not.toContain('12:30')
   })
 
   it('surfaces API errors', () => {

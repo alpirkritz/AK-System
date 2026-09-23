@@ -152,6 +152,8 @@ export default function NotificationsScreen() {
   const [bulkUndo, setBulkUndo] = useState<{ batchAt: string; count: number } | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bulkUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Deep link opens once. Re-running on list changes reopened the sheet after Archive. */
+  const openedParamId = useRef<string | null>(null)
 
   const { refresh: refreshUnread } = useUnread()
 
@@ -193,26 +195,28 @@ export default function NotificationsScreen() {
     load()
   }, [load])
 
-  // Open notification detail from deep link
+  // Open notification detail from deep link — once per id, not on every list change.
   useEffect(() => {
-    if (!params.id || !token || loading) return
-    const item = items.find((n) => n.id === params.id)
+    const id = typeof params.id === 'string' ? params.id : undefined
+    if (!id || !token || loading) return
+    if (openedParamId.current === id) return
+    if (items.length === 0) return
+    openedParamId.current = id
+    const item = items.find((n) => n.id === id)
     if (item) {
       void onOpen(item)
-    } else if (!loading && items.length > 0) {
-      // Not in current list, fetch by ID
-      void (async () => {
-        try {
-          const notification = await fetchNotificationById(token, params.id!)
-          if (notification) {
-            setItems((prev) => [notification, ...prev])
-            void onOpen(notification)
-          }
-        } catch {
-          // Silently fail if notification doesn't exist
-        }
-      })()
+      return
     }
+    void (async () => {
+      try {
+        const notification = await fetchNotificationById(token, id)
+        if (!notification || notification.archivedAt) return
+        setItems((prev) => (prev.some((n) => n.id === notification.id) ? prev : [notification, ...prev]))
+        void onOpen(notification)
+      } catch {
+        // Silently fail if notification doesn't exist
+      }
+    })()
   }, [params.id, token, items, loading, onOpen])
 
   useEffect(() => {

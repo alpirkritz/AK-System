@@ -1,6 +1,9 @@
+import { formatLocalRange } from '@ak-system/api'
+
 /** Shared shape for morning briefing template + agent context. */
 export interface MorningBriefEvent {
   start: string
+  end?: string | null
   title: string
 }
 
@@ -29,8 +32,7 @@ export function formatMorningBriefingContext(
     if (events.length > 0) {
       lines.push('', 'אירועים:')
       for (const e of events) {
-        const time = e.start.includes('T') ? e.start.slice(11, 16) : 'כל היום'
-        lines.push(`• ${time} – ${e.title}`)
+        lines.push(`• ${formatLocalRange(e.start, e.end)} – ${e.title}`)
       }
     }
     if (dueTasks.length > 0) {

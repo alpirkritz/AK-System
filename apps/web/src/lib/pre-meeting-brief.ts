@@ -1,3 +1,5 @@
+import { formatLocalClock } from '@ak-system/api'
+
 /** Calendar attendee as returned by Google/Apple calendar APIs. */
 export interface PreMeetingAttendee {
   email?: string
@@ -211,7 +213,7 @@ export function shouldRunPreMeetingAgent(event: {
 /** Fact block for the agent — never include invite fluff as "agenda". */
 export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): string {
   const { event, linkedMeeting, crmPeople = [], relatedTasks = [], priorNotes } = input
-  const time = event.start.includes('T') ? event.start.slice(11, 16) : 'כל היום'
+  const time = formatLocalClock(event.start)
   const participants = formatParticipantsForBrief(
     collectParticipantLabels(crmPeople, event.attendees ?? [], extractParticipantsFromDescription(event.description)),
   )
@@ -406,7 +408,7 @@ function resolveAgenda(input: FormatPreMeetingBriefInput): string {
  */
 export function formatPreMeetingBrief(input: FormatPreMeetingBriefInput): string {
   const { event, linkedMeeting, crmPeople = [], relatedTasks = [] } = input
-  const time = event.start.includes('T') ? event.start.slice(11, 16) : 'כל היום'
+  const time = formatLocalClock(event.start)
   const fromDescription = extractParticipantsFromDescription(event.description)
   const participantsLine = formatParticipantsForBrief(
     collectParticipantLabels(crmPeople, event.attendees ?? [], fromDescription),

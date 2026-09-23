@@ -22,6 +22,18 @@ describe('formatMorningBriefingContext', () => {
     expect(text).toContain('• [high] לסגור מע״מ')
   })
 
+  it('prints UTC instants in Israel time, not the Z clock', () => {
+    const text = formatMorningBriefingContext('2026-09-23', [
+      {
+        start: '2026-09-23T12:30:00.000Z',
+        end: '2026-09-23T13:00:00.000Z',
+        title: 'חוג מדע ורפואה של רום',
+      },
+    ], [])
+    expect(text).toContain('• 15:30–16:00 – חוג מדע ורפואה של רום')
+    expect(text).not.toContain('12:30')
+  })
+
   it('adds a finance section when something stands out', () => {
     const text = formatMorningBriefingContext('2026-07-20', [], [], ['• מזון — ₪800 מעל הרגיל'])
     expect(text).toContain('פיננסים:')
