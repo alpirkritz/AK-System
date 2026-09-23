@@ -9,6 +9,7 @@ import { WorkspacePill } from '@/components/WorkspacePill'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
+import { MeetingAttendees } from '../components/MeetingAttendees'
 import { NotionSummaryCard } from '../components/NotionSummaryCard'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
@@ -338,94 +339,7 @@ export default function MeetingDetailPage() {
 
         {/* Left: Attendees + Notes */}
         <div>
-          <div className="card">
-            <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">משתתפים</div>
-            
-            {/* Quick Add Tags */}
-            {(() => {
-              // Extract unique tags from all people
-              const allTags = new Set<string>()
-              people.forEach((p) => {
-                if (p.tags) {
-                  p.tags.split(',').forEach((tag) => {
-                    const trimmed = tag.trim()
-                    if (trimmed) allTags.add(trimmed)
-                  })
-                }
-              })
-              
-              if (allTags.size > 0) {
-                return (
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {[...allTags].map((tag) => {
-                      // Count people with this tag
-                      const taggedPeople = people.filter((p) =>
-                        p.tags?.split(',').some((t) => t.trim() === tag)
-                      )
-                      const count = taggedPeople.length
-                      
-                      return (
-                        <button
-                          key={tag}
-                          onClick={() => {
-                            // Add all people with this tag to the meeting
-                            const newPeopleIds = [...peopleIds]
-                            taggedPeople.forEach((p) => {
-                              if (!newPeopleIds.includes(p.id)) {
-                                newPeopleIds.push(p.id)
-                              }
-                            })
-                            if (newPeopleIds.length > peopleIds.length) {
-                              updateMeeting.mutate({
-                                id,
-                                title: meeting.title,
-                                date: meeting.date,
-                                time: meeting.time ?? '',
-                                category: meeting.category,
-                                recurring: meeting.recurring,
-                                recurrenceDay: meeting.recurrenceDay,
-                                notes: meeting.notes ?? '',
-                                projectId: meeting.projectId,
-                                typeId: meeting.typeId,
-                                peopleIds: JSON.stringify(newPeopleIds),
-                              })
-                            }
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:border-teal-500/50 rounded-lg text-xs font-medium transition-all"
-                        >
-                          + {tag}
-                          <span className="text-[10px] opacity-70">({count})</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )
-              }
-              return null
-            })()}
-            
-            {peopleIds.map((pid) => {
-              const p = getPerson(pid)
-              return p ? (
-                <div key={pid} className="flex gap-2.5 items-center mb-2.5">
-                  <div
-                    className="avatar w-[34px] h-[34px] text-[13px] border-[1.5px]"
-                    style={{
-                      background: (p.color ?? '#2dd4bf') + '22',
-                      color: p.color ?? '#2dd4bf',
-                      borderColor: (p.color ?? '#2dd4bf') + '33',
-                    }}
-                  >
-                    {p.name[0]}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{p.name}</div>
-                    <div className="text-[11px] text-[#5a688c]">{p.role}</div>
-                  </div>
-                </div>
-              ) : null
-            })}
-          </div>
+          <MeetingAttendees meetingId={id} people={people} peopleIds={peopleIds} />
 
           {/* Conversation Analysis */}
           <div className="mt-4">

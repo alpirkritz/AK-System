@@ -24,6 +24,15 @@ import {
 import { FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB } from '../lib/calendar-filters'
 import { localDateRangeToUtc } from '../lib/calendar-dates'
 import { pushMeetingProperties, type MeetingWriteBackResult } from '../services/notion-meeting-writeback'
+import {
+  acceptAnalysisParticipant,
+  attachPersonToMeeting,
+  detachPersonFromMeeting,
+  linkAnalysisParticipant as linkAnalysisParticipantRecord,
+  removeAnalysisParticipant,
+  resolvePersonForMeeting,
+} from '../services/meeting-attendees'
+import { TRPCError } from '@trpc/server'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -814,6 +823,40 @@ export const meetingsRouter = router({
       }
     }),
 
+  attachPerson: protectedProcedure
+    .input(
+      z.object({
+        meetingId: z.string().min(1),
+        personId: z.string().min(1).optional(),
+        name: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const hasId = Boolean(input.personId)
+      const hasName = Boolean(input.name?.trim())
+      if (hasId === hasName) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'יש לבחור איש קשר או להקליד שם' })
+      }
+      const resolved = await resolvePersonForMeeting(ctx.db, {
+        personId: input.personId,
+        name: input.name,
+      })
+      await attachPersonToMeeting(ctx.db, input.meetingId, resolved.id)
+      return { personId: resolved.id, name: resolved.name, created: resolved.created }
+    }),
+
+  detachPerson: protectedProcedure
+    .input(
+      z.object({
+        meetingId: z.string().min(1),
+        personId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await detachPersonFromMeeting(ctx.db, input.meetingId, input.personId)
+      return { ok: true as const }
+    }),
+
   linkAnalysisParticipant: protectedProcedure
     .input(
       z.object({
@@ -823,66 +866,31 @@ export const meetingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { meetingAnalyses } = await import('@ak-system/database')
+      return linkAnalysisParticipantRecord(ctx.db, input)
+    }),
 
-      // 1. Fetch the analysis
-      const [analysis] = await ctx.db
-        .select()
-        .from(meetingAnalyses)
-        .where(eq(meetingAnalyses.id, input.analysisId))
-        .limit(1)
+  acceptAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+        personId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const resolved = await acceptAnalysisParticipant(ctx.db, input)
+      return { personId: resolved.id, name: resolved.name, created: resolved.created }
+    }),
 
-      if (!analysis) {
-        throw new Error('Analysis not found')
-      }
-
-      // 2. Parse participants JSON
-      const participants = analysis.participantsJson
-        ? JSON.parse(analysis.participantsJson)
-        : []
-
-      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
-        throw new Error('Invalid participant index')
-      }
-
-      // 3. Update the participant
-      participants[input.participantIndex] = {
-        ...participants[input.participantIndex],
-        personId: input.personId,
-        confirmed: true,
-      }
-
-      // 4. Update the analysis record
-      await ctx.db
-        .update(meetingAnalyses)
-        .set({
-          participantsJson: JSON.stringify(participants),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(meetingAnalyses.id, input.analysisId))
-
-      // 5. Auto-add person to meeting if not already present
-      const [meeting] = await ctx.db
-        .select()
-        .from(meetings)
-        .where(eq(meetings.id, analysis.meetingId))
-        .limit(1)
-
-      if (meeting) {
-        const currentPeopleIds = meeting.peopleIds ? JSON.parse(meeting.peopleIds) : []
-        if (!currentPeopleIds.includes(input.personId)) {
-          currentPeopleIds.push(input.personId)
-          await ctx.db
-            .update(meetings)
-            .set({
-              peopleIds: JSON.stringify(currentPeopleIds),
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(meetings.id, analysis.meetingId))
-        }
-      }
-
-      return { success: true }
+  removeAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return removeAnalysisParticipant(ctx.db, input)
     }),
 
   confirmAnalysisParticipant: protectedProcedure
@@ -893,44 +901,8 @@ export const meetingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { meetingAnalyses } = await import('@ak-system/database')
-
-      // 1. Fetch the analysis
-      const [analysis] = await ctx.db
-        .select()
-        .from(meetingAnalyses)
-        .where(eq(meetingAnalyses.id, input.analysisId))
-        .limit(1)
-
-      if (!analysis) {
-        throw new Error('Analysis not found')
-      }
-
-      // 2. Parse participants JSON
-      const participants = analysis.participantsJson
-        ? JSON.parse(analysis.participantsJson)
-        : []
-
-      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
-        throw new Error('Invalid participant index')
-      }
-
-      // 3. Mark participant as confirmed
-      participants[input.participantIndex] = {
-        ...participants[input.participantIndex],
-        confirmed: true,
-      }
-
-      // 4. Update the analysis record
-      await ctx.db
-        .update(meetingAnalyses)
-        .set({
-          participantsJson: JSON.stringify(participants),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(meetingAnalyses.id, input.analysisId))
-
-      return { success: true }
+      const resolved = await acceptAnalysisParticipant(ctx.db, input)
+      return { success: true as const, personId: resolved.id, name: resolved.name, created: resolved.created }
     }),
 
   createTasksFromAnalysis: protectedProcedure
