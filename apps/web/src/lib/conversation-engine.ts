@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI, FunctionCallingMode, SchemaType } from '@google/generative-ai'
 import type { FunctionDeclaration } from '@google/generative-ai'
 import { chatMessages, getDb } from '@ak-system/database'
-import { getRunnableAgentIds } from './abc-agents'
+import { agentCardRequestsDueTasks, getAgentInstructions, getRunnableAgentIds } from './abc-agents'
 import { appendAgentFeedback } from './agent-feedback-log'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
@@ -72,6 +72,31 @@ function waTimeArgs(args: Record<string, unknown>, fallbackWindow: WaWindow) {
 
 export type ToolExecutionContext = {
   channel?: AgentNotifyChannel
+  agentId?: string
+}
+
+const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
+const TASK_LIST_TOOLS = new Set(['get_open_tasks', 'get_overdue_tasks', 'get_notion_tasks'])
+
+/** יועץ יומן does not see task lists unless the saved agent card opts in on its own line. */
+export function calendarOptimizerHidesTasks(agentId?: string): boolean {
+  if (agentId !== CALENDAR_OPTIMIZER_AGENT_ID) return false
+  try {
+    return !agentCardRequestsDueTasks(getAgentInstructions(agentId))
+  } catch {
+    return true
+  }
+}
+
+const CALENDAR_ONLY_TOOL_DESCRIPTIONS: Record<string, string> = {
+  get_today_schedule:
+    "Get TODAY's calendar events (Israel time). Use for 'היום' / today only. For מחר / tomorrow use get_day_schedule with date 'tomorrow'. Events only — no tasks.",
+  get_day_schedule:
+    "Get calendar events on a specific local day (Asia/Jerusalem). REQUIRED for מחר / tomorrow / a named date. Pass date 'tomorrow' or 'today' or YYYY-MM-DD. Never invent an empty day — if calendarErrors is non-empty, say calendars failed; do not claim zero meetings. Events only — no tasks.",
+  get_week_schedule:
+    "Get this week's calendar events. Use for: 'מה יש לי השבוע', 'this week'. For a single day (מחר) prefer get_day_schedule. Events only — no tasks.",
+  get_next_meeting_brief:
+    "Get the next upcoming calendar event: time, location, attendees, and linked project. Do not include open tasks.",
 }
 
 const baseToolDeclarations: FunctionDeclaration[] = [
@@ -637,8 +662,15 @@ function buildLogAgentFeedbackTool(): FunctionDeclaration {
   }
 }
 
-export function getToolDeclarations(): FunctionDeclaration[] {
-  return [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
+export function getToolDeclarations(agentId?: string): FunctionDeclaration[] {
+  const decls = [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
+  if (!calendarOptimizerHidesTasks(agentId)) return decls
+  return decls
+    .filter((d) => !TASK_LIST_TOOLS.has(d.name))
+    .map((d) => {
+      const description = CALENDAR_ONLY_TOOL_DESCRIPTIONS[d.name]
+      return description ? { ...d, description } : d
+    })
 }
 
 /** @deprecated prefer getToolDeclarations() */
@@ -670,11 +702,12 @@ export async function executeTool(
       ])
       const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
       const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === dayStr)
+      const hideTasks = calendarOptimizerHidesTasks(ctx?.agentId)
       return {
         date: dayStr,
         requested: rawDate || 'today',
         events: scopedEvents,
-        dueTasks,
+        ...(hideTasks ? {} : { dueTasks }),
         calendarErrors: calResult.googleErrors,
         calendarWarning:
           calResult.googleErrors.length > 0
@@ -694,11 +727,12 @@ export async function executeTool(
       const dueTasks = allTasks.filter(
         (t) => !t.done && t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEnd,
       )
+      const hideTasks = calendarOptimizerHidesTasks(ctx?.agentId)
       return {
         startDate: todayStr,
         endDate: weekEnd,
         events: scopedEvents,
-        dueTasks,
+        ...(hideTasks ? {} : { dueTasks }),
         calendarErrors: calResult.googleErrors,
         calendarWarning:
           calResult.googleErrors.length > 0
@@ -754,6 +788,9 @@ export async function executeTool(
         }
       }
 
+      if (calendarOptimizerHidesTasks(ctx?.agentId)) {
+        return { calEvent, meeting: linkedMeeting, attendees, project }
+      }
       return { calEvent, meeting: linkedMeeting, attendees, openTasks, project }
     }
 

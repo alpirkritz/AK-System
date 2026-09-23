@@ -2,11 +2,13 @@ import { type NextRequest, NextResponse } from 'next/server'
 import {
   filterEventsByCalendarScope,
   getAgentCalendarIds,
+  getNotificationRouting,
   getSchedulablePreference,
   localTodayIso,
   markNotificationSent,
   wasNotificationSentInSlot,
 } from '@ak-system/api'
+import { agentCardRequestsDueTasks, getAgentInstructions } from '@/lib/abc-agents'
 import { createServiceCaller } from '@/lib/api-caller'
 import { formatMorningBriefingContext } from '@/lib/morning-briefing-context'
 import {
@@ -75,6 +77,15 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
     ])
     const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
     const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === today)
+    const routedAgentId = (await getNotificationRouting('morning_briefing')).agentId
+    let includeDueTasks = routedAgentId !== '06_calendar_optimizer'
+    if (routedAgentId === '06_calendar_optimizer') {
+      try {
+        includeDueTasks = agentCardRequestsDueTasks(getAgentInstructions(routedAgentId))
+      } catch {
+        includeDueTasks = false
+      }
+    }
 
     // Finance is a nice-to-have on this brief: an analytics failure must not cost the user
     // their schedule, so it degrades to no finance section rather than a 500.
@@ -91,6 +102,7 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
+      { includeDueTasks },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

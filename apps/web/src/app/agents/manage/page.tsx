@@ -428,17 +428,26 @@ export default function AgentsManagePage() {
                 placeholder="תוכן markdown של ה-workflow..."
               />
             ) : (
-              <textarea
-                className="input flex-1 resize-none rounded-none border-0 font-mono text-xs leading-relaxed p-4 min-h-0"
-                dir="ltr"
-                spellCheck={false}
-                value={content}
-                onChange={(e) => {
-                  setContent(e.target.value)
-                  setMessage(null)
-                }}
-                placeholder="תוכן markdown של הסוכן..."
-              />
+              <div className="flex-1 flex flex-col min-h-0">
+                {selectedId === '06_calendar_optimizer' && (
+                  <p className="px-4 py-2 text-xs text-[#97a4c2] border-b border-[#1d2b46] bg-[#0a1224]">
+                    הטקסט שנשמר כאן הוא מה שיועץ היומן עוקב אחריו בריצה הבאה. מחיקה והוספה כאן חלות.
+                    רשימת משימות להיום לא נכנסת אוטומטית. כדי להחזיר אותה, הוסף שורה נפרדת:{' '}
+                    <span className="font-mono text-[#eef3fb]">משימות להיום</span>
+                  </p>
+                )}
+                <textarea
+                  className="input flex-1 resize-none rounded-none border-0 font-mono text-xs leading-relaxed p-4 min-h-0"
+                  dir="ltr"
+                  spellCheck={false}
+                  value={content}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    setMessage(null)
+                  }}
+                  placeholder="תוכן markdown של הסוכן..."
+                />
+              </div>
             )}
           </div>
         </div>

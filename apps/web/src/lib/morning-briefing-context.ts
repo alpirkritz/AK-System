@@ -24,10 +24,13 @@ export function formatMorningBriefingContext(
   dueTasks: MorningBriefTask[],
   /** Pre-formatted finance lines (warn-level insights only) — omitted when nothing stands out. */
   financeLines: string[] = [],
+  options?: { includeDueTasks?: boolean },
 ): string {
+  const includeDueTasks = options?.includeDueTasks !== false
+  const tasks = includeDueTasks ? dueTasks : []
   const lines: string[] = ['📅 סיכום הבוקר – ' + today]
-  if (events.length === 0 && dueTasks.length === 0 && financeLines.length === 0) {
-    lines.push('אין אירועים או משימות מועדות להיום.')
+  if (events.length === 0 && tasks.length === 0 && financeLines.length === 0) {
+    lines.push(includeDueTasks ? 'אין אירועים או משימות מועדות להיום.' : 'אין אירועים להיום.')
   } else {
     if (events.length > 0) {
       lines.push('', 'אירועים:')
@@ -35,9 +38,9 @@ export function formatMorningBriefingContext(
         lines.push(`• ${formatLocalRange(e.start, e.end)} – ${e.title}`)
       }
     }
-    if (dueTasks.length > 0) {
+    if (tasks.length > 0) {
       lines.push('', 'משימות להיום:')
-      for (const t of dueTasks) {
+      for (const t of tasks) {
         lines.push(`• [${t.priority}] ${t.title}`)
       }
     }

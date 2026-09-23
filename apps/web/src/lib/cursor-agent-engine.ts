@@ -1,6 +1,7 @@
 import { Agent } from '@cursor/sdk'
 import type { SDKAgent } from '@cursor/sdk'
 import {
+  agentCardRequestsDueTasks,
   agentNeedsNotionContext,
   getAbcRootPath,
   getAgentInstructions,
@@ -63,7 +64,16 @@ async function buildPrompt(
   if (agentNeedsNotionContext(agentId)) {
     try {
       const ctx = await getNotionContext()
-      parts.push(formatNotionContextForPrompt(ctx), '', '---', '')
+      const hideTasks = agentId === '06_calendar_optimizer' && !agentCardRequestsDueTasks(instructions)
+      parts.push(
+        formatNotionContextForPrompt(
+          ctx,
+          hideTasks ? { omitTasks: true, omitCalendarReview: true } : undefined,
+        ),
+        '',
+        '---',
+        '',
+      )
     } catch (err) {
       parts.push(
         `_Notion context unavailable: ${err instanceof Error ? err.message : 'error'}_`,

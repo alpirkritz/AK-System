@@ -44,4 +44,17 @@ describe('formatMorningBriefingContext', () => {
   it('leaves the finance section out entirely when there is nothing to say', () => {
     expect(formatMorningBriefingContext('2026-07-20', [], [], [])).not.toContain('פיננסים')
   })
+
+  it('drops due tasks when includeDueTasks is false', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [{ start: '2026-07-20T09:30:00', title: '1:1 עם טינקו' }],
+      [{ title: 'לסגור מע״מ', priority: 'high', done: false, dueDate: '2026-07-20' }],
+      [],
+      { includeDueTasks: false },
+    )
+    expect(text).toContain('1:1 עם טינקו')
+    expect(text).not.toContain('משימות להיום')
+    expect(text).not.toContain('לסגור מע״מ')
+  })
 })

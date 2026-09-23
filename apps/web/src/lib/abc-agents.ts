@@ -185,6 +185,14 @@ export function agentNeedsCalendarContext(agentId: string): boolean {
   return CALENDAR_CONTEXT_AGENTS.has(agentId)
 }
 
+/**
+ * Explicit opt-in on the agent card (the text /agents/manage saves).
+ * A whole line, so "do not list tasks" does not turn the feed back on.
+ */
+export function agentCardRequestsDueTasks(card: string): boolean {
+  return /(?:^|\n)\s*(?:[-*]|\d+[.)])?\s*(?:משימות להיום|include due tasks)\s*(?=$|\n)/i.test(card)
+}
+
 /** All registered ABC agent IDs — used for run_abc_agent tool enum. */
 export function getRunnableAgentIds(): string[] {
   return listAgents().map((a) => a.id)

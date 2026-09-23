@@ -80,7 +80,12 @@ describe('runGeminiAgentChat — meeting prep grounding', () => {
     const prompts = sendMessage.mock.calls.map((c) => String(c[0]))
     expect(prompts.some((p) => p.startsWith(GROUNDING_RETRY))).toBe(true)
     expect(prompts.some((p) => p.includes('לא נמצאו משימות קשורות לפגישה זו'))).toBe(true)
-    expect(executeTool).toHaveBeenCalledWith('get_notion_tasks', expect.anything(), expect.anything(), undefined)
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_tasks',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ agentId: '04_meeting_prep_herald' }),
+    )
     expect(result.text).toContain('לא נמצא בנתונים')
   })
 

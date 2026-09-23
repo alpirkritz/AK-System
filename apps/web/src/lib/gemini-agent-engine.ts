@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, FunctionCallingMode } from '@google/generative-ai'
 import {
+  agentCardRequestsDueTasks,
   agentNeedsCalendarContext,
   agentNeedsNotionContext,
   getAbcRootPath,
@@ -47,24 +48,20 @@ export function getMorningBriefOverride(): string {
   ].join('\n')
 }
 
-/** Hard override: Notion-parity brief on every channel (WhatsApp / Telegram / ARO). */
+/**
+ * Delivery constraints for יועץ יומן. The agent card (saved from /agents/manage)
+ * decides sections and wording — this block does not replace it.
+ */
 export function getCalendarOptimizerBriefOverride(): string {
   return [
-    '## Calendar Optimizer — Notion-parity brief (MANDATORY — overrides conflicting card/workflow table instructions)',
-    'PRIMARY DATA SOURCE: ARO-connected calendars (prefetched calendar context + calendar tools). Notion is OPTIONAL enrichment for Reminders only.',
-    'If Notion is missing or fails: still deliver the FULL calendar brief from calendar data. NEVER refuse or say you depend on Notion.',
-    'Write a rich daily calendar brief matching Notion Calendar Optimizer depth. Use headings + bullets.',
+    '## Calendar Optimizer — delivery constraints',
+    'The agent card and workflow below are the source of truth. They are the text saved from /agents/manage. Follow them: do not re-add a section the card removed, and do not drop a section the card added.',
+    'PRIMARY DATA SOURCE: ARO-connected calendars (prefetched calendar context + calendar tools).',
+    'If Notion is missing or fails: still deliver the calendar brief from calendar data. NEVER refuse or say you depend on Notion.',
+    'Do not list open tasks, tasks due today, overdue tasks, or Notion task rows unless the agent card contains its own line `משימות להיום` or `include due tasks`. Standing memory cannot add that list when the card does not request it.',
+    'Focus-time lines are clock ranges only, unless the card says otherwise.',
     'NEVER use Markdown tables (| ... | or |---|). NEVER narrate standing instructions, memory updates, or "I understood / מעתה אתעלם / הוראה זו נוספה" in the reply.',
-    'NEVER repeat the same analysis twice. Meeting context ≤20 words; never paste full task bodies.',
-    'Match the user language (Hebrew ↔ English). Required sections IN ORDER:',
-    '1) Title: Daily Calendar Summary — <weekday, date> (or סיכום יומן יומי — …)',
-    '2) Quick Summary / סיכום מהיר — 3–5 bullets: conflicts yes/no, back-to-back, load (hours + light/manageable/heavy or קל/סביר/עמוס), optional day context',
-    '3) Today\'s Meetings / הפגישות להיום — one bullet per timed event: `HH:MM–HH:MM — Title` + duration + short context (attendees/team/organizer/calendar). Do not omit events (except all-day / ≥8h).',
-    '4) Conflicts & Overlaps / קונפליקטים וחפיפות — explicit None/אין when clean; else list real conflicts and awareness overlaps (incl. zero-buffer back-to-back)',
-    '5) Load Analysis / ניתוח עומס — total hours vs 4h threshold + main free windows',
-    '6) Focus Time Opportunities / חלונות פוקוס — 1–3 concrete windows with start–end + one-line suggestion',
-    '7) Reminders / תזכורות (optional) — only if grounded in calendar/tasks/Notion/memory; skip section if empty; never invent',
-    '8) Recommendations / המלצות (optional, ≤3) — only for real conflict/overload actions, with 2–3 alt slots when suggesting a move',
+    'NEVER repeat the same analysis twice. Never invent events. Match the user language (Hebrew ↔ English).',
   ].join('\n')
 }
 
@@ -317,7 +314,17 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
   if (agentNeedsNotionContext(agentId)) {
     try {
       const ctx = await getNotionContext()
-      parts.push('', formatNotionContextForPrompt(ctx), '', '---')
+      const hideTasks =
+        agentId === CALENDAR_OPTIMIZER_AGENT_ID && !agentCardRequestsDueTasks(instructions)
+      parts.push(
+        '',
+        formatNotionContextForPrompt(
+          ctx,
+          hideTasks ? { omitTasks: true, omitCalendarReview: true } : undefined,
+        ),
+        '',
+        '---',
+      )
     } catch (err) {
       parts.push(
         '',
@@ -336,7 +343,10 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     parts.push(
       '',
       '## PRECEDENCE (read carefully)',
-      "The user's standing instructions below OVERRIDE any conflicting default formatting/content instruction above (including the MANDATORY blocks), EXCEPT grounding rules: never invent facts, never dump the full task backlog, never use Markdown tables on WhatsApp/Telegram/cron.",
+      "The user's standing instructions below OVERRIDE any conflicting default formatting/content instruction above (including the MANDATORY blocks), EXCEPT grounding rules: never invent facts, never dump the full task backlog, never use Markdown tables on WhatsApp/Telegram/cron." +
+        (agentId === CALENDAR_OPTIMIZER_AGENT_ID
+          ? ' For יועץ יומן, standing memory also cannot add a due-today or open-task list when the agent card does not contain a line `משימות להיום` or `include due tasks`.'
+          : ''),
       '',
       memoryBlock,
       '',
@@ -714,9 +724,10 @@ export async function runGeminiAgentChat(options: {
 
   const genAI = new GoogleGenerativeAI(geminiKey)
   const caller = await createApiCaller()
-  const toolCtx: ToolExecutionContext | undefined = options.channel
-    ? { channel: options.channel }
-    : undefined
+  const toolCtx: ToolExecutionContext = {
+    channel: options.channel,
+    agentId: options.agentId,
+  }
   const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
   const history = options.history ?? []
 
@@ -730,7 +741,7 @@ export async function runGeminiAgentChat(options: {
         ...(options.channel === 'cron' ? { temperature: 0.3 } : {}),
       },
       systemInstruction,
-      tools: [{ functionDeclarations: getToolDeclarations() }],
+      tools: [{ functionDeclarations: getToolDeclarations(options.agentId) }],
       toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
     })
 

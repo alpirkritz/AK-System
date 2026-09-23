@@ -704,7 +704,16 @@ function meetingLine(m: NotionMeeting): string {
   return `- ${when ? `${when} ` : ''}${m.title} (${m.account})${who}`
 }
 
-export function formatNotionContextForPrompt(ctx: NotionContext): string {
+export interface NotionPromptOptions {
+  /** Drop task buckets (due today / overdue / soon). Used by יועץ יומן unless the card opts in. */
+  omitTasks?: boolean
+  /** Drop the prior Calendar Review page — it copies an older brief, including tasks, back in. */
+  omitCalendarReview?: boolean
+}
+
+export function formatNotionContextForPrompt(ctx: NotionContext, options?: NotionPromptOptions): string {
+  const omitTasks = options?.omitTasks === true
+  const omitCalendarReview = options?.omitCalendarReview === true
   const lines: string[] = [
     `## Live Notion Context (${ctx.today}) — all accounts`,
     '',
@@ -716,18 +725,24 @@ export function formatNotionContextForPrompt(ctx: NotionContext): string {
     ...ctx.meetings.upcoming.slice(0, 15).map(meetingLine),
     ...(ctx.meetings.upcoming.length === 0 ? ['- None'] : []),
     '',
-    '### Tasks — Due Today',
-    ...ctx.tasks.today.map((t) => `- [${t.priority || '?'}] ${t.title} (${t.account}/${t.db}, status: ${t.status || 'open'})`),
-    ...(ctx.tasks.today.length === 0 ? ['- None'] : []),
-    '',
-    '### Tasks — Overdue',
-    ...ctx.tasks.overdue.slice(0, 15).map((t) => `- [${t.priority || '?'}] ${t.title} due ${t.due} (${t.account}/${t.db})`),
-    ...(ctx.tasks.overdue.length === 0 ? ['- None'] : []),
-    '',
-    '### Tasks — Soon (3 days)',
-    ...ctx.tasks.soon.map((t) => `- ${t.title} due ${t.due} (${t.account}/${t.db})`),
-    ...(ctx.tasks.soon.length === 0 ? ['- None'] : []),
-    '',
+  ]
+  if (!omitTasks) {
+    lines.push(
+      '### Tasks — Due Today',
+      ...ctx.tasks.today.map((t) => `- [${t.priority || '?'}] ${t.title} (${t.account}/${t.db}, status: ${t.status || 'open'})`),
+      ...(ctx.tasks.today.length === 0 ? ['- None'] : []),
+      '',
+      '### Tasks — Overdue',
+      ...ctx.tasks.overdue.slice(0, 15).map((t) => `- [${t.priority || '?'}] ${t.title} due ${t.due} (${t.account}/${t.db})`),
+      ...(ctx.tasks.overdue.length === 0 ? ['- None'] : []),
+      '',
+      '### Tasks — Soon (3 days)',
+      ...ctx.tasks.soon.map((t) => `- ${t.title} due ${t.due} (${t.account}/${t.db})`),
+      ...(ctx.tasks.soon.length === 0 ? ['- None'] : []),
+      '',
+    )
+  }
+  lines.push(
     '### Recent Meeting Notes',
     ...ctx.meetingNotes.slice(0, 6).map((n) => {
       const when = n.date ? `${n.date} ` : ''
@@ -737,15 +752,19 @@ export function formatNotionContextForPrompt(ctx: NotionContext): string {
     }),
     ...(ctx.meetingNotes.length === 0 ? ['- None'] : []),
     '',
-    '### Calendar Review',
-    // Cap: an unbounded Notion page here pushed the actual instructions thousands
-    // of tokens away from the generation point.
-    ctx.calendarReview
-      ? ctx.calendarReview.length > 6000
-        ? `${ctx.calendarReview.slice(0, 6000)}\n[…קוצר — העמוד המלא ארוך מדי להזרקה]`
-        : ctx.calendarReview
-      : '_No calendar review page found for today._',
-  ]
+  )
+  if (!omitCalendarReview) {
+    lines.push(
+      '### Calendar Review',
+      // Cap: an unbounded Notion page here pushed the actual instructions thousands
+      // of tokens away from the generation point.
+      ctx.calendarReview
+        ? ctx.calendarReview.length > 6000
+          ? `${ctx.calendarReview.slice(0, 6000)}\n[…קוצר — העמוד המלא ארוך מדי להזרקה]`
+          : ctx.calendarReview
+        : '_No calendar review page found for today._',
+    )
+  }
   if (ctx.errors.length > 0) {
     lines.push(
       '',
