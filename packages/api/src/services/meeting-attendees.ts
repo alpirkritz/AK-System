@@ -133,15 +133,19 @@ function participantAt(participants: StoredParticipant[], index: number): Stored
 
 export async function acceptAnalysisParticipant(
   db: Db,
-  input: { analysisId: string; participantIndex: number; personId?: string },
+  input: { analysisId: string; participantIndex: number; personId?: string; name?: string },
 ): Promise<ResolvedPerson> {
   const analysis = await loadAnalysis(db, input.analysisId)
   const participants = parseParticipants(analysis.participantsJson)
   const current = participantAt(participants, input.participantIndex)
   const resolved = await resolvePersonForMeeting(db, {
     personId: input.personId,
-    name: input.personId ? undefined : current.name,
+    name: input.personId ? undefined : (input.name?.trim() || current.name),
   })
+  const previousId = current.personId ?? (await personAlreadyOnMeeting(db, analysis.meetingId, current.name))
+  if (previousId && previousId !== resolved.id) {
+    await detachPersonFromMeeting(db, analysis.meetingId, previousId)
+  }
   participants[input.participantIndex] = {
     ...current,
     name: resolved.name,

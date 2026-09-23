@@ -143,11 +143,6 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     return match?.id ?? ''
   }
 
-  function matchesFor(name: string) {
-    const normalized = name.trim().toLowerCase()
-    return people.filter((person) => person.name.trim().toLowerCase() === normalized)
-  }
-
   const meetingPeopleIds: string[] = meeting?.peopleIds ?? []
   const peopleBusy = acceptParticipant.isPending || removeParticipant.isPending || attachPerson.isPending
 
@@ -363,7 +358,6 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
               ) : (
                 <div className="space-y-2 mb-3">
                   {analysis.participants.map((p, i) => {
-                    const matches = matchesFor(p.name)
                     const linkedOnMeeting = people.filter(
                       (person) =>
                         meetingPeopleIds.includes(person.id) &&
@@ -386,63 +380,19 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                               <span className="text-xs text-teal-600 dark:text-teal-400 mr-2">בפגישה</span>
                             ) : null}
                           </span>
-                          {onMeeting ? null : matches.length > 1 ? (
-                            <button
-                              type="button"
-                              className="btn btn-primary min-h-[44px]"
-                              disabled={peopleBusy}
-                              onClick={() => {
-                                setLinkIndex(linking ? null : i)
-                                setLinkQuery('')
-                              }}
-                            >
-                              בחר איש קשר
-                            </button>
-                          ) : matches.length === 1 ? (
-                            <button
-                              type="button"
-                              className="btn btn-primary min-h-[44px]"
-                              disabled={peopleBusy}
-                              aria-label={`הוסף את ${p.name} לפגישה`}
-                              onClick={() =>
-                                acceptParticipant.mutate({
-                                  analysisId: analysis.id,
-                                  participantIndex: i,
-                                  personId: matches[0]!.id,
-                                })
-                              }
-                            >
-                              הוסף לפגישה
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn-primary min-h-[44px]"
-                              disabled={peopleBusy}
-                              aria-label={`צור איש קשר ${p.name} והוסף לפגישה`}
-                              onClick={() =>
-                                acceptParticipant.mutate({
-                                  analysisId: analysis.id,
-                                  participantIndex: i,
-                                })
-                              }
-                            >
-                              צור והוסף
-                            </button>
-                          )}
-                          {onMeeting || matches.length > 1 ? null : (
-                            <button
-                              type="button"
-                              className="btn btn-ghost min-h-[44px]"
-                              disabled={peopleBusy}
-                              onClick={() => {
-                                setLinkIndex(linking ? null : i)
-                                setLinkQuery('')
-                              }}
-                            >
-                              {matches.length === 1 ? 'קשר לאחר' : 'קשר לקיים'}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="btn btn-primary min-h-[44px]"
+                            disabled={peopleBusy}
+                            aria-expanded={linking}
+                            onClick={() => {
+                              setLinkIndex(linking ? null : i)
+                              setLinkQuery('')
+                              setConfirmRemoveIndex(null)
+                            }}
+                          >
+                            קשר לאיש קשר קיים
+                          </button>
                           {confirming ? (
                             <>
                               <p className="text-xs text-gray-600 dark:text-gray-400 w-full">
@@ -523,6 +473,28 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                                 ) : null}
                               </button>
                             ))}
+                            {linkQuery.trim().length >= 2 &&
+                            !people.some(
+                              (person) => person.name.trim().toLowerCase() === linkQuery.trim().toLowerCase(),
+                            ) ? (
+                              <button
+                                type="button"
+                                className="btn btn-ghost min-h-[44px] w-full text-right"
+                                disabled={peopleBusy}
+                                onClick={() =>
+                                  acceptParticipant.mutate({
+                                    analysisId: analysis.id,
+                                    participantIndex: i,
+                                    name: linkQuery.trim(),
+                                  })
+                                }
+                              >
+                                צור איש קשר «{linkQuery.trim()}» והוסף
+                              </button>
+                            ) : null}
+                            {linkChoices.length === 0 && linkQuery.trim().length < 2 ? (
+                              <p className="text-sm text-gray-500 dark:text-gray-400 px-1">הקלידו שם כדי לחפש באנשים</p>
+                            ) : null}
                           </div>
                         )}
                       </div>

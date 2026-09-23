@@ -566,6 +566,55 @@ describe('meetings router — analysis attendees', () => {
     expect(listed.some((person) => person.id === 'p_notion_dana' && person.notionPageId === 'notion-dana')).toBe(true)
   })
 
+  it('relinking a suggestion replaces only that attendee', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const { getDb, people, meetingPeople } = await import('@ak-system/database')
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(people).values([
+      {
+        id: 'p_notion_dana',
+        name: 'דנה',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-dana',
+        createdAt: now,
+      },
+      {
+        id: 'p_notion_yosi',
+        name: 'יוסי',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-yosi',
+        createdAt: now,
+      },
+      {
+        id: 'p_noa',
+        name: 'נועה',
+        status: 'confirmed',
+        source: 'manual',
+        createdAt: now,
+      },
+    ])
+    await db.insert(meetingPeople).values([
+      { meetingId: meeting.id, personId: 'p_notion_dana' },
+      { meetingId: meeting.id, personId: 'p_notion_yosi' },
+    ])
+
+    await caller.meetings.acceptAnalysisParticipant({
+      analysisId,
+      participantIndex: 1,
+      personId: 'p_noa',
+    })
+
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain('p_noa')
+    expect(refreshed?.peopleIds).toContain('p_notion_yosi')
+    expect(refreshed?.peopleIds ?? []).not.toContain('p_notion_dana')
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === 'p_notion_dana')).toBe(true)
+  })
+
   it('linkAnalysisParticipant writes meeting_people', async () => {
     const { caller, meeting, analysisId } = await analyzed()
     const person = await caller.people.create({ name: 'נועה' })

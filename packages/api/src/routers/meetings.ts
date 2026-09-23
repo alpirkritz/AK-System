@@ -875,6 +875,7 @@ export const meetingsRouter = router({
         analysisId: z.string().min(1),
         participantIndex: z.number(),
         personId: z.string().min(1).optional(),
+        name: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

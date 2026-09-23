@@ -50,23 +50,15 @@ Name matching is trimmed and case-insensitive. `ignored` people are not auto-mat
 
 ## UI Surface
 
-Web meeting detail only: `apps/web/src/app/meetings/[id]/page.tsx` and `apps/web/src/app/meetings/components/ConversationAnalysis.tsx`.
+Web meeting detail only. One editor: the analysis block in `ConversationAnalysis.tsx`. The attendees card lists who is already on the event (including Notion links) and does not repeat add/remove.
 
-**Attendees card (the event)** — one primary add action, `+ הוסף אדם`:
+**Analysis suggestions** — each name is a row:
 
-- Search existing contacts, or create when the typed name has no exact match (`צור איש קשר «שם» והוסף לפגישה`).
-- Each row has `הסר`. Confirm copy: `להסיר את {name} מהפגישה? איש הקשר יישאר באנשים.` with `הסר` and `ביטול`.
-- Empty: `עדיין אין משתתפים בפגישה` plus the add button.
-
-**Analysis suggestions** — each name is a row, not a dead chip:
-
-- Not on the meeting, no match: `צור והוסף` and `קשר לקיים`.
-- Not on the meeting, one match: `הוסף לפגישה` and `קשר לאחר`.
-- Several matches: `בחר איש קשר`.
-- Already on the meeting: label `בפגישה` and `הסר` (same confirm as the card, and also drops the suggestion).
-- A suggestion that was never added can be removed without a confirm dialog.
-- The same `+ הוסף אדם` control sits under the suggestions for someone the analysis missed.
-- Buttons use `.btn` / `.btn-primary` / `.btn-ghost`, at least 44px tall. Errors show the server message in Hebrew. Pending disables the row actions.
+- Always: `קשר לאיש קשר קיים` opens a search of אנשים. Choosing one links that person to the suggestion and to the meeting. If this suggestion was already tied to someone else, that previous meeting link is removed and other attendees stay.
+- Inside the search, a typed name with no exact match offers `צור איש קשר «שם» והוסף`.
+- `הסר` drops the suggestion. If they are on the meeting, confirm: `להסיר את {name} מהפגישה? איש הקשר יישאר באנשים.`
+- Already on the meeting: label `בפגישה`, and `קשר לאיש קשר קיים` stays available.
+- One `+ הוסף אדם` under the list, for someone the analysis missed.
 
 ## Out of Scope
 
