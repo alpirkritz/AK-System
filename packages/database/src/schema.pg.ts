@@ -802,6 +802,8 @@ export const userSettings = pgTable('user_settings', {
   /** Auto-create tasks from meeting analysis action items */
   autoCreateActionItemTasks: boolean('auto_create_action_item_tasks').notNull().default(false),
   duplicatesNotifiedPairs: text('duplicates_notified_pairs'),
+  /** null = use the code default for the evening WhatsApp digest */
+  whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1118,10 +1120,13 @@ export const voiceRecordings = pgTable('voice_recordings', {
   consentConfirmedAt: text('consent_confirmed_at').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  /** Optional project this conversation is about; copied onto the voice meeting */
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
 }, (table) => ({
   meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
   analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
   createdAtIdx: index('idx_voice_recordings_created_at').on(table.createdAt),
+  projectIdIdx: index('idx_voice_recordings_project_id').on(table.projectId),
 }))
 
 export const voiceRecordingPeople = pgTable('voice_recording_people', {

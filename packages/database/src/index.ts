@@ -222,9 +222,12 @@ const EMAIL_VOICE_TABLES = [
     error TEXT,
     consent_confirmed_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
   )`,
+  'ALTER TABLE voice_recordings ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_meeting_id ON voice_recordings(meeting_id)',
+  'CREATE INDEX IF NOT EXISTS idx_voice_recordings_project_id ON voice_recordings(project_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_analysis_id ON voice_recordings(analysis_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_created_at ON voice_recordings(created_at)',
   `CREATE TABLE IF NOT EXISTS voice_recording_people (
@@ -776,6 +779,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN auto_create_action_item_tasks INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE user_settings ADD COLUMN whatsapp_daily_digest_prompt TEXT',
 ]
 
 const AGENT_RUNTIME_TABLES = [

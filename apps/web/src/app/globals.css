@@ -161,6 +161,17 @@ body {
   color: #eef3fb;
 }
 
+.btn-danger {
+  background: #7f1d1d;
+  color: #fecaca;
+  padding: 8px 16px;
+  border: 1px solid #991b1b;
+}
+.btn-danger:hover {
+  background: #991b1b;
+  color: #fff;
+}
+
 .btn-secondary {
   background: #223052;
   color: #eef3fb;
@@ -773,6 +784,9 @@ body {
   }
   .btn-ghost {
     padding: 8px 14px;
+  }
+  .btn-danger {
+    padding: 10px 18px;
   }
   .btn-secondary {
     padding: 10px 18px;

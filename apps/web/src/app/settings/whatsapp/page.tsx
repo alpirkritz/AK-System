@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 
@@ -54,6 +54,161 @@ interface GroupDraft {
   priority: number
   lastMessageAt: number | null
   expanded?: boolean
+}
+
+function DigestPromptCard({ setMessage }: { setMessage: (message: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [fieldError, setFieldError] = useState<string | null>(null)
+  const utils = trpc.useUtils()
+  const query = trpc.whatsapp.digest.prompt.get.useQuery()
+
+  useEffect(() => {
+    if (!confirmReset) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirmReset(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [confirmReset])
+
+  const save = trpc.whatsapp.digest.prompt.save.useMutation({
+    onSuccess: async (res) => {
+      setDraft(res.prompt)
+      setFieldError(null)
+      setMessage('הניסוח נשמר. הסיכום הבא ישתמש בו.')
+      await utils.whatsapp.digest.prompt.get.invalidate()
+    },
+    onError: () => setMessage('לא הצלחתי לשמור. נסה שוב.'),
+  })
+
+  const reset = trpc.whatsapp.digest.prompt.reset.useMutation({
+    onSuccess: async (res) => {
+      setDraft(res.prompt)
+      setConfirmReset(false)
+      setFieldError(null)
+      setMessage('הניסוח חזר לברירת המחדל.')
+      await utils.whatsapp.digest.prompt.get.invalidate()
+    },
+    onError: () => setMessage('לא הצלחתי לשמור. נסה שוב.'),
+  })
+
+  const loaded = query.data?.prompt ?? ''
+  const dirty = draft !== loaded
+  const showReset = Boolean(query.data?.customized) || (open && dirty)
+
+  function openEditor() {
+    setDraft(query.data?.prompt ?? '')
+    setFieldError(null)
+    setOpen(true)
+  }
+
+  function onSave() {
+    if (draft.trim().length < 40) {
+      setFieldError('כתוב לפחות כמה משפטים, או אפס לברירת המחדל.')
+      return
+    }
+    setFieldError(null)
+    save.mutate({ prompt: draft })
+  }
+
+  return (
+    <div className="card p-4">
+      <div className="text-sm text-[#cdd7ea]">ניסוח הסיכום היומי</div>
+      <p className="text-xs text-[#5a688c] mt-1">
+        הסיכום של כל הקבוצות במעקב. קבוצה בלי הודעות לא מופיעה.
+      </p>
+      {query.isLoading ? <div className="text-xs text-[#4d659c] mt-3">טוען ניסוח…</div> : null}
+      {query.isError ? (
+        <div className="mt-3 text-xs text-red-400 flex items-center gap-2">
+          <span>לא הצלחתי לטעון את הניסוח.</span>
+          <button type="button" className="btn btn-ghost text-[12px]" onClick={() => query.refetch()}>
+            נסה שוב
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-testid="whatsapp-digest-prompt-edit"
+          className="btn btn-ghost text-[12px] mt-3"
+          onClick={openEditor}
+          disabled={query.isLoading || query.isError}
+        >
+          ערוך ניסוח
+        </button>
+      )}
+      {open && !query.isError ? (
+        <div className="mt-4">
+          <label className="label" htmlFor="whatsapp-digest-prompt-text">איך לספר את היום</label>
+          <p className="text-[11px] text-[#5a688c] mb-2">ההודעות של היום מתווספות אוטומטית. כאן קובעים רק את הסגנון.</p>
+          <textarea
+            id="whatsapp-digest-prompt-text"
+            data-testid="whatsapp-digest-prompt-text"
+            className="input w-full"
+            dir="rtl"
+            rows={8}
+            aria-label="איך לספר את היום"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setFieldError(null)
+            }}
+          />
+          {fieldError ? <p className="text-red-400 text-xs mt-2">{fieldError}</p> : null}
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <button
+              type="button"
+              data-testid="whatsapp-digest-prompt-save"
+              className="btn btn-primary text-[12px] py-2 px-4 disabled:opacity-50"
+              disabled={!dirty || save.isPending}
+              onClick={onSave}
+            >
+              {save.isPending ? 'שומר…' : 'שמור'}
+            </button>
+            {showReset ? (
+              <button
+                type="button"
+                data-testid="whatsapp-digest-prompt-reset"
+                className="btn btn-ghost text-[12px]"
+                onClick={() => setConfirmReset(true)}
+              >
+                אפס לברירת מחדל
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {confirmReset ? (
+        <div className="overlay" onClick={() => setConfirmReset(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-bold text-lg mb-2">לאפס את הניסוח?</div>
+            <p className="text-sm text-[#97a4c2] mb-6">
+              הניסוח ששמרת יימחק, והסיכום יחזור לברירת המחדל.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" className="btn btn-ghost" onClick={() => setConfirmReset(false)}>
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger disabled:opacity-50"
+                disabled={reset.isPending}
+                onClick={() => reset.mutate()}
+              >
+                אפס
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function fmtLastMessage(ms: number | null): string {
@@ -411,6 +566,8 @@ export default function WhatsAppSettingsPage() {
               className="flex-1 min-w-[140px] text-[12px] bg-[#111b30] border border-[#29395d] rounded-lg px-3 py-2 text-[#97a4c2]"
             />
           </div>
+
+          <DigestPromptCard setMessage={setMessage} />
 
           {groupsLoading || discovering ? (
             <div className="text-xs text-[#4d659c]">טוען קבוצות…</div>

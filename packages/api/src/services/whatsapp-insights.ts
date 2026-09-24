@@ -263,10 +263,11 @@ export async function generateClusterSummary(
   return (body || QUIET_DAY_BODY).slice(0, 1200)
 }
 
+export const DIGEST_NARRATIVE_FALLBACK = 'לא הצלחתי לנסח את הסיכום. נסה שוב.'
+
 export interface DailyDigestModel {
   actions: { text: string; source: string }[]
-  groups: { name: string; line: string; detail: string }[]
-  shared: { label: string; summary: string }[]
+  narrative: string
 }
 
 export interface DailyDigestGroupPrompt {
@@ -280,19 +281,18 @@ function asText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-/**
- * One JSON briefing over every followed group that had messages today.
- * The server owns section order, the quiet line, and whether "צריך אותך" appears.
- */
-export async function generateDailyDigestModel(
-  groups: DailyDigestGroupPrompt[],
-): Promise<DailyDigestModel> {
-  const withMessages = groups.filter((g) => g.messages.length > 0)
-  if (withMessages.length === 0) {
-    return { actions: [], groups: [], shared: [] }
-  }
+const DIGEST_JSON_CONTRACT = [
+  'Respond in JSON only, no markdown fences, with this shape:',
+  '{"actions":[{"text":"<one concrete thing the user must do, bring, approve, pay, confirm, or answer>","source":"<exact group name, or exact label name if the same ask appears in more than one group of that label>"}],"narrative":"<spoken Hebrew story, a few short sentences, under 900 characters>"}',
+  'narrative is concise spoken prose. No bullets, no label headings. A sentence or two per active group, more only when something actually happened. State a repeated event once. Do not mention a group that is not in the blocks below.',
+  'Include an action only when the messages contain a request, an unanswered question, a deadline, or something to bring, approve, pay, or confirm.',
+  'A decision already made with nothing left to do is not an action. If unsure, omit the action. Do not invent.',
+  'Copy source exactly from a group name or label in the input.',
+].join('\n')
 
-  const model = getModel()
+/** Storytelling instruction plus the fixed JSON contract. Empty groups are left out. */
+export function buildDailyDigestPrompt(instructions: string, groups: DailyDigestGroupPrompt[]): string {
+  const withMessages = groups.filter((g) => g.messages.length > 0)
   const priorityLabel = (p: number) => (p >= 2 ? 'קריטי' : p === 1 ? 'חשוב' : 'רגיל')
   const blocks = withMessages
     .map((g) => {
@@ -301,42 +301,50 @@ export async function generateDailyDigestModel(
     })
     .join('\n\n')
 
-  const prompt = [
-    'You are preparing an end-of-day briefing of the WhatsApp groups the user chose to follow.',
-    'Write Hebrew (unless most messages are in English).',
-    'Respond in JSON only, no markdown fences, with this shape:',
-    '{"actions":[{"text":"<one concrete thing the user must do, bring, approve, pay, confirm, or answer>","source":"<exact group name, or exact label name if the same ask appears in more than one group of that label>"}],"groups":[{"name":"<exact group name>","line":"<one Hebrew sentence: what happened>","detail":"<one unique fact, or empty string>"}],"shared":[{"label":"<exact label name>","summary":"<one or two Hebrew sentences merging facts that appear in more than one group of this label, or empty string>"}]}',
-    'Include an action only when the messages contain a request, an unanswered question, a deadline, or something to bring, approve, pay, or confirm.',
-    'A decision already made with nothing left to do is not an action. If unsure, omit the action. Do not invent.',
-    'Copy name, source, and label exactly from the input. One groups entry per group above. Leave detail empty when the line already says everything.',
-    'shared.summary states a repeated fact once. Do not repeat that fact in every group line.',
+  return [
+    instructions.trim(),
+    '',
+    DIGEST_JSON_CONTRACT,
     '',
     'Groups and messages:',
     blocks,
   ].join('\n')
+}
 
+/**
+ * One JSON briefing over every followed group that had messages today.
+ * The server owns whether "צריך אותך" appears and clips the story.
+ */
+export async function generateDailyDigestModel(
+  groups: DailyDigestGroupPrompt[],
+  instructions: string,
+): Promise<DailyDigestModel> {
+  const withMessages = groups.filter((g) => g.messages.length > 0)
+  if (withMessages.length === 0) {
+    return { actions: [], narrative: '' }
+  }
+
+  const model = getModel()
+  const prompt = buildDailyDigestPrompt(instructions, withMessages)
   const result = await model.generateContent(prompt)
   const raw = result.response.text().trim().replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()
   let parsed: {
     actions?: { text?: unknown; source?: unknown }[]
-    groups?: { name?: unknown; line?: unknown; detail?: unknown }[]
-    shared?: { label?: unknown; summary?: unknown }[]
+    narrative?: unknown
   }
   try {
     parsed = JSON.parse(raw) as typeof parsed
   } catch {
-    throw new Error('Daily digest JSON parse failed')
+    return { actions: [], narrative: DIGEST_NARRATIVE_FALLBACK }
   }
+
+  const narrative = asText(parsed.narrative)
+  if (!narrative) return { actions: [], narrative: DIGEST_NARRATIVE_FALLBACK }
 
   return {
     actions: (parsed.actions ?? [])
       .map((a) => ({ text: asText(a?.text), source: asText(a?.source) }))
       .filter((a) => a.text && a.source),
-    groups: (parsed.groups ?? [])
-      .map((g) => ({ name: asText(g?.name), line: asText(g?.line), detail: asText(g?.detail) }))
-      .filter((g) => g.name),
-    shared: (parsed.shared ?? [])
-      .map((s) => ({ label: asText(s?.label), summary: asText(s?.summary) }))
-      .filter((s) => s.label && s.summary),
+    narrative,
   }
 }

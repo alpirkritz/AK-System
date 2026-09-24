@@ -20,7 +20,12 @@ import {
   type DueSummaryRow,
 } from '../services/whatsapp-summary-clusters'
 import { runClusterSummary } from '../services/whatsapp-cluster-run'
-import { runFollowedDailyDigest } from '../services/whatsapp-daily-digest'
+import {
+  getDailyDigestPrompt,
+  resetDailyDigestPrompt,
+  runFollowedDailyDigest,
+  saveDailyDigestPrompt,
+} from '../services/whatsapp-daily-digest'
 
 function genId(prefix: string): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -951,6 +956,13 @@ export const whatsappRouter = router({
         quietCount: result.quietCount,
         error: result.error,
       }
+    }),
+    prompt: router({
+      get: protectedProcedure.query(async ({ ctx }) => getDailyDigestPrompt(ctx.db)),
+      save: protectedProcedure
+        .input(z.object({ prompt: z.string().trim().min(40).max(4000) }))
+        .mutation(async ({ ctx, input }) => saveDailyDigestPrompt(ctx.db, input.prompt)),
+      reset: protectedProcedure.mutation(async ({ ctx }) => resetDailyDigestPrompt(ctx.db)),
     }),
   }),
 

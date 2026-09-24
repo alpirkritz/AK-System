@@ -648,6 +648,7 @@ export const userSettings = sqliteTable('user_settings', {
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
   duplicatesNotifiedPairs: text('duplicates_notified_pairs'), // JSON string[] "idA|idB" already announced by the duplicates cron
+  whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'), // null = code default for the evening digest
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1292,10 +1293,13 @@ export const voiceRecordings = sqliteTable('voice_recordings', {
   consentConfirmedAt: text('consent_confirmed_at').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  /** Optional project this conversation is about; copied onto the voice meeting */
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
 }, (table) => ({
   meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
   analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
   createdAtIdx: index('idx_voice_recordings_created_at').on(table.createdAt),
+  projectIdIdx: index('idx_voice_recordings_project_id').on(table.projectId),
 }))
 
 export const voiceRecordingPeople = sqliteTable('voice_recording_people', {
