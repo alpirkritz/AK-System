@@ -3,6 +3,7 @@ import { peopleRouter } from './routers/people'
 import { projectsRouter } from './routers/projects'
 import { workspacesRouter } from './routers/workspaces'
 import { meetingsRouter } from './routers/meetings'
+import { circlesRouter } from './routers/circles'
 import { meetingTypesRouter } from './routers/meeting-types'
 import { tasksRouter } from './routers/tasks'
 import { calendarRouter } from './routers/calendar'
@@ -146,6 +147,7 @@ export const appRouter = router({
   projects: projectsRouter,
   workspaces: workspacesRouter,
   meetings: meetingsRouter,
+  circles: circlesRouter,
   meetingTypes: meetingTypesRouter,
   tasks: tasksRouter,
   calendar: calendarRouter,

@@ -27,6 +27,7 @@ const JOBS = [
   ['notion-sync', 30],
   ['feed-sync', 360],
   ['whatsapp-message-retention', 1440],
+  ['people-duplicates', 1440],
 ]
 
 const headers = SECRET ? { Authorization: `Bearer ${SECRET}` } : {}

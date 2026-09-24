@@ -176,10 +176,54 @@ export const meetingSeries = sqliteTable('meeting_series', {
   rollingNotes: text('rolling_notes'),
   /** Google recurring event id used to group synced instances */
   googleRecurringEventId: text('google_recurring_event_id'),
+  /** `calendarId|normalized title` — groups calendar events that recur without a recurring id (Outlook bridge) */
+  titleKey: text('title_key'),
+  /** When the standing roster was first saved from the calendar */
+  rosterSavedAt: text('roster_saved_at'),
+  /** Signature of a calendar diff the owner dismissed; hidden until the calendar changes again */
+  rosterDismissedSig: text('roster_dismissed_sig'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
+  titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
+}))
+
+export const SERIES_ROSTER_SOURCES = ['attendees', 'description', 'manual'] as const
+export type SeriesRosterSource = (typeof SERIES_ROSTER_SOURCES)[number]
+
+/** Standing participants of a recurring series, read from the calendar. Not CRM people until followed. */
+export const seriesRoster = sqliteTable('series_roster', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id').notNull().references(() => meetingSeries.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  /** attendees | description | manual */
+  source: text('source').notNull(),
+  personId: text('person_id').references(() => people.id, { onDelete: 'set null' }),
+  inactive: integer('inactive', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  seriesIdIdx: index('idx_series_roster_series_id').on(table.seriesId),
+  personIdIdx: index('idx_series_roster_person_id').on(table.personId),
+}))
+
+export const ROSTER_EXCEPTION_KINDS = ['absent', 'guest'] as const
+export type RosterExceptionKind = (typeof ROSTER_EXCEPTION_KINDS)[number]
+
+/** Per-occurrence deviation from the series roster: someone missing today, or a guest. */
+export const meetingRosterExceptions = sqliteTable('meeting_roster_exceptions', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  /** absent | guest */
+  kind: text('kind').notNull(),
+  rosterId: text('roster_id').references(() => seriesRoster.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  meetingIdIdx: index('idx_meeting_roster_exceptions_meeting_id').on(table.meetingId),
 }))
 
 /** User-managed meeting types (1:1, strategy, operations, ...) — mirrors projects */
@@ -214,6 +258,8 @@ export const meetings = sqliteTable('meetings', {
   source: text('source').notNull().default('calendar'),
   /** When source='notion_note', this is the first note that created the meeting */
   sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
+  /** JSON CalendarParticipant[] read from calendar attendees or the description `משתתפים:` block */
+  calendarParticipants: text('calendar_participants'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -597,6 +643,7 @@ export const userSettings = sqliteTable('user_settings', {
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
+  duplicatesNotifiedPairs: text('duplicates_notified_pairs'), // JSON string[] "idA|idB" already announced by the duplicates cron
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -837,6 +884,34 @@ export const whatsappMessages = sqliteTable('whatsapp_messages', {
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
+
+/** A WhatsApp sender JID confirmed as a CRM person, so group messages reach that person's card. */
+export const whatsappPersonLinks = sqliteTable('whatsapp_person_links', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  whatsappJid: text('whatsapp_jid').notNull(),
+  /** manual | blocked (owner rejected an automatic phone match for this person) */
+  matchedBy: text('matched_by').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_person_links_person_id').on(table.personId),
+  jidUq: uniqueIndex('uq_whatsapp_person_links_jid').on(table.whatsappJid),
+}))
+
+/** Pairs the owner marked "not the same person"; `personIdA < personIdB`. */
+export const duplicateReviews = sqliteTable('duplicate_reviews', {
+  id: text('id').primaryKey(),
+  personIdA: text('person_id_a').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  personIdB: text('person_id_b').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_duplicate_reviews_pair').on(table.personIdA, table.personIdB),
+}))
+
+export type SeriesRosterRow = typeof seriesRoster.$inferSelect
+export type MeetingRosterException = typeof meetingRosterExceptions.$inferSelect
+export type WhatsappPersonLink = typeof whatsappPersonLinks.$inferSelect
+export type DuplicateReview = typeof duplicateReviews.$inferSelect
 
 export type WhatsappLabel = typeof whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof whatsappLabels.$inferInsert

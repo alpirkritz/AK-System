@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildPreMeetingAgentContext,
   collectParticipantLabels,
   extractParticipantsFromDescription,
   findPriorMeetingNotes,
@@ -264,5 +265,41 @@ Download Teams | Join on the web
     expect(text).not.toContain('לא נמצאו')
     expect(text).toContain('ועוד')
     expect(text).not.toMatch(/@yum\.com/)
+  })
+})
+
+describe('relationship context in the brief', () => {
+  const circleEvent = {
+    title: 'Algo 4.0',
+    start: '2026-03-02T10:00:00',
+    description: 'משתתפים: ' + Array.from({ length: 20 }, (_, i) => `Person ${i} <p${i}@dt.com>`).join(', '),
+  }
+  const circle = {
+    kind: 'circle' as const,
+    lines: ['המלצה לחוג: בפגישה האחרונה: להחליט על הרודמפ', 'חסרים היום: Ron'],
+    circleTitle: 'Algo 4.0',
+    rosterCount: 19,
+  }
+
+  it('replaces the participant list with a circle count', () => {
+    const text = formatPreMeetingBrief({ event: circleEvent, relationship: circle })
+    expect(text).toContain('משתתפים: חוג Algo 4.0 · 19 משתתפים')
+    expect(text).not.toContain('Person 3')
+    expect(text).toContain('• חסרים היום: Ron')
+  })
+
+  it('tells the agent not to profile circle participants', () => {
+    const context = buildPreMeetingAgentContext({ event: circleEvent, relationship: circle })
+    expect(context).toContain('Circle context')
+    expect(context).toContain('Participants: חוג Algo 4.0 · 19 משתתפים')
+  })
+
+  it('keeps normal participants when there is no circle', () => {
+    const text = formatPreMeetingBrief({
+      event: { title: '1:1', start: '2026-03-02T10:00:00', attendees: [{ email: 'dana@dt.com', displayName: 'Dana' }] },
+      relationship: { kind: 'people', lines: ['Dana: הקשר משתפר · המשך כך'], circleTitle: null, rosterCount: null },
+    })
+    expect(text).toContain('Dana (dana@dt.com)')
+    expect(text).toContain('הקשר:')
   })
 })

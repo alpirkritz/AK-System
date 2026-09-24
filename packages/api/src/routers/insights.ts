@@ -18,6 +18,14 @@ import { titlesFuzzyMatch } from '../services/notion-graph-sync'
 import { ensureMeetingPageNote, parseNotionIdFromInput } from '../services/notion-meeting-note-body'
 import { resolveDatabases } from '../services/notion-tasks-sync'
 import { syncNotionGraph } from '../services/notion-graph-sync'
+import {
+  buildPersonContext,
+  coolingFlagsForDate,
+  meetingPrepRelationship,
+  linkWhatsappSender,
+  unlinkWhatsappSender,
+  unlinkedWhatsappSenders,
+} from '../services/person-context'
 
 const meetingNotesInput = z
   .object({
@@ -371,6 +379,8 @@ export const insightsRouter = router({
         .from(personExternalIds)
         .where(eq(personExternalIds.personId, input.personId))
 
+      const extras = await buildPersonContext(ctx.db, input.personId)
+
       return {
         lastContactAt,
         cadence,
@@ -378,6 +388,33 @@ export const insightsRouter = router({
         recentMeetingNotes,
         identitySources,
         meetingCount: personMeetings.length,
+        ...extras!,
       }
+    }),
+
+  meetingPrepContext: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => meetingPrepRelationship(ctx.db, input.meetingId)),
+
+  coolingForDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => coolingFlagsForDate(ctx.db, input.date)),
+
+  whatsappSenders: protectedProcedure
+    .input(z.object({ query: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => unlinkedWhatsappSenders(ctx.db, input?.query)),
+
+  linkWhatsappSender: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await linkWhatsappSender(ctx.db, input.personId, input.jid)
+      return { ok: true }
+    }),
+
+  unlinkWhatsappSender: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await unlinkWhatsappSender(ctx.db, input.personId, input.jid)
+      return { ok: true }
     }),
 })

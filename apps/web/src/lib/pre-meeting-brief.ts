@@ -43,6 +43,20 @@ export interface FormatPreMeetingBriefInput {
   crmPeople?: PreMeetingCrmPerson[]
   relatedTasks?: PreMeetingTask[]
   priorNotes?: string | null
+  relationship?: PreMeetingRelationship | null
+}
+
+/** From `insights.meetingPrepContext` — structured lines only, never raw chat. */
+export interface PreMeetingRelationship {
+  kind: 'circle' | 'people' | 'none'
+  lines: string[]
+  circleTitle: string | null
+  rosterCount: number | null
+}
+
+function circleParticipantsLine(rel: PreMeetingRelationship | null | undefined): string | null {
+  if (rel?.kind !== 'circle' || rel.rosterCount == null) return null
+  return `חוג ${rel.circleTitle ?? ''} · ${rel.rosterCount} משתתפים`.replace(/\s+·/, ' ·')
 }
 
 /** Drop Teams/Zoom join chrome (per line). */
@@ -212,11 +226,13 @@ export function shouldRunPreMeetingAgent(event: {
 
 /** Fact block for the agent — never include invite fluff as "agenda". */
 export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): string {
-  const { event, linkedMeeting, crmPeople = [], relatedTasks = [], priorNotes } = input
+  const { event, linkedMeeting, crmPeople = [], relatedTasks = [], priorNotes, relationship } = input
   const time = formatLocalClock(event.start)
-  const participants = formatParticipantsForBrief(
-    collectParticipantLabels(crmPeople, event.attendees ?? [], extractParticipantsFromDescription(event.description)),
-  )
+  const participants =
+    circleParticipantsLine(relationship) ??
+    formatParticipantsForBrief(
+      collectParticipantLabels(crmPeople, event.attendees ?? [], extractParticipantsFromDescription(event.description)),
+    )
   const lines: string[] = [
     `Meeting: ${event.title}`,
     `Time: ${time}`,
@@ -234,6 +250,15 @@ export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): 
   if (relatedTasks.length > 0) {
     lines.push('', 'Possibly related open tasks (verify/filter with get_notion_tasks):')
     for (const t of relatedTasks) lines.push(`- [${t.priority}] ${t.title}`)
+  }
+  if (relationship && relationship.lines.length > 0) {
+    lines.push(
+      '',
+      relationship.kind === 'circle'
+        ? 'Circle context (recurring meeting — do not profile each participant):'
+        : 'Relationship context (from Notion meetings + WhatsApp, already reconciled):',
+    )
+    for (const l of relationship.lines) lines.push(`- ${l}`)
   }
   return lines.join('\n')
 }
@@ -407,12 +432,12 @@ function resolveAgenda(input: FormatPreMeetingBriefInput): string {
  * Omits agenda / participants / tasks sections when there is nothing useful to say.
  */
 export function formatPreMeetingBrief(input: FormatPreMeetingBriefInput): string {
-  const { event, linkedMeeting, crmPeople = [], relatedTasks = [] } = input
+  const { event, linkedMeeting, crmPeople = [], relatedTasks = [], relationship } = input
   const time = formatLocalClock(event.start)
   const fromDescription = extractParticipantsFromDescription(event.description)
-  const participantsLine = formatParticipantsForBrief(
-    collectParticipantLabels(crmPeople, event.attendees ?? [], fromDescription),
-  )
+  const participantsLine =
+    circleParticipantsLine(relationship) ??
+    formatParticipantsForBrief(collectParticipantLabels(crmPeople, event.attendees ?? [], fromDescription))
   const agenda = resolveAgenda(input)
 
   const lines: string[] = [
@@ -441,6 +466,12 @@ export function formatPreMeetingBrief(input: FormatPreMeetingBriefInput): string
     for (const t of relatedTasks) {
       lines.push(`• [${t.priority}] ${t.title}`)
     }
+  }
+
+  if (relationship && relationship.lines.length > 0) {
+    lines.push('')
+    lines.push(relationship.kind === 'circle' ? 'החוג:' : 'הקשר:')
+    for (const l of relationship.lines) lines.push(`• ${l}`)
   }
 
   return lines.join('\n').slice(0, MAX_MESSAGE_CHARS)

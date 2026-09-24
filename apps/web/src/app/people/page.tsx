@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { usePeopleState } from '@/components/people/usePeopleState'
 import { PeopleTopBar } from '@/components/people/PeopleTopBar'
@@ -24,6 +25,8 @@ export default function PeoplePage() {
   const state = usePeopleState()
   const [tab, setTab] = useState<'contacts' | 'review'>('contacts')
   const { data: reviewQueue = [] } = trpc.people.reviewQueue.useQuery()
+  const { data: duplicates } = trpc.people.findDuplicates.useQuery(undefined, { staleTime: 60_000 })
+  const duplicateCount = duplicates?.pairs.length ?? 0
 
   const items = state.data?.items ?? []
   const total = state.data?.total ?? 0
@@ -57,6 +60,9 @@ export default function PeoplePage() {
         >
           לאישור{reviewQueue.length > 0 ? ` (${reviewQueue.length})` : ''}
         </button>
+        <Link href="/people/duplicates" className="filter-chip" data-testid="duplicates-link">
+          {duplicateCount > 0 ? `${duplicateCount} כפילויות חשודות` : 'כפילויות'}
+        </Link>
       </div>
 
       {tab === 'review' ? (

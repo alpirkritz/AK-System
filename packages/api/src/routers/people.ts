@@ -13,13 +13,21 @@ import {
   projects,
   projectPeople,
   workspaces,
+  seriesRoster,
+  whatsappPersonLinks,
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 import { ensureSelfPerson } from '../services/self-person'
 import { repointPersonExternalIds } from '../services/person-external-ids'
+import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
+import { createNotification } from '../lib/notification-store'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
+
+const MERGE_FILL_FIELDS = [
+  'email', 'phone', 'company', 'companyId', 'role', 'jobTitle', 'linkedin', 'goal', 'notes', 'expertIn', 'tags', 'notionPageId',
+] as const
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -463,9 +471,41 @@ export const peopleRouter = router({
       }
 
       await repointPersonExternalIds(ctx.db, input.fromId, input.toId)
+      await ctx.db.update(seriesRoster).set({ personId: input.toId }).where(eq(seriesRoster.personId, input.fromId))
+      await ctx.db.update(whatsappPersonLinks).set({ personId: input.toId }).where(eq(whatsappPersonLinks.personId, input.fromId))
+
+      // Like Google Contacts: the kept record inherits fields it was missing.
+      const [from] = await ctx.db.select().from(people).where(eq(people.id, input.fromId)).limit(1)
+      const [to] = await ctx.db.select().from(people).where(eq(people.id, input.toId)).limit(1)
+      if (from && to) {
+        const fill: Partial<typeof from> = {}
+        for (const key of MERGE_FILL_FIELDS) {
+          if (!to[key] && from[key]) (fill as Record<string, unknown>)[key] = from[key]
+        }
+        if (Object.keys(fill).length > 0) await ctx.db.update(people).set(fill).where(eq(people.id, input.toId))
+      }
 
       // Remove the source person (cascades remove its now-duplicate links)
       await ctx.db.delete(people).where(eq(people.id, input.fromId))
+      return { ok: true }
+    }),
+
+  findDuplicates: protectedProcedure.query(async ({ ctx }) => {
+    return { pairs: await findDuplicatePairs(ctx.db) }
+  }),
+
+  compareDuplicates: protectedProcedure
+    .input(z.object({ personIdA: z.string().min(1), personIdB: z.string().min(1) }))
+    .query(async ({ ctx, input }) => compareDuplicatePair(ctx.db, input.personIdA, input.personIdB)),
+
+  notifyNewDuplicates: protectedProcedure.mutation(async ({ ctx }) =>
+    notifyNewDuplicates(ctx.db, (n) => createNotification({ ...n, type: 'system' })),
+  ),
+
+  markNotDuplicate: protectedProcedure
+    .input(z.object({ personIdA: z.string().min(1), personIdB: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await markNotDuplicate(ctx.db, input.personIdA, input.personIdB)
       return { ok: true }
     }),
 

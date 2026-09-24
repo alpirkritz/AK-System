@@ -33,6 +33,12 @@ import {
   resolvePersonForMeeting,
 } from '../services/meeting-attendees'
 import { TRPCError } from '@trpc/server'
+import {
+  parseCalendarParticipants,
+  seriesTitleKey,
+  type CalendarParticipant,
+} from '../lib/calendar-participants'
+import { getSelfPersonName } from '../services/self-person'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -546,6 +552,72 @@ export const meetingsRouter = router({
         }
       }
 
+      // ── Participants snapshot per event (attendees, or the Dragontail description block) ──
+      const ownerEmails = new Set<string>()
+      for (const ev of allEvents) {
+        const acct = (ev as GoogleCalendarEvent).accountEmail
+        if (acct) ownerEmails.add(acct.toLowerCase())
+      }
+      const ownerName = getSelfPersonName()
+      const participantsByEventId = new Map<string, CalendarParticipant[]>()
+      for (const ev of allEvents) {
+        participantsByEventId.set(ev.id, parseCalendarParticipants({
+          attendees: 'attendees' in ev && Array.isArray(ev.attendees) ? ev.attendees : [],
+          description: (ev as { description?: string | null }).description ?? null,
+          ownerEmails: [...ownerEmails],
+          ownerName,
+        }))
+      }
+
+      // ── Title-based series for events that repeat without a recurring id (Outlook bridge) ──
+      const seriesByTitleKey = new Map<string, string>()
+      const titleKeyByEventId = new Map<string, string>()
+      const titleKeyCounts = new Map<string, number>()
+      for (const ev of allEvents) {
+        if ((ev as GoogleCalendarEvent).recurringEventId || !ev.calendarId) continue
+        if ((participantsByEventId.get(ev.id) ?? []).length === 0) continue
+        const key = seriesTitleKey(ev.calendarId, ev.title)
+        titleKeyByEventId.set(ev.id, key)
+        titleKeyCounts.set(key, (titleKeyCounts.get(key) ?? 0) + 1)
+      }
+      if (titleKeyCounts.size > 0) {
+        const existingTitleSeries = await ctx.db
+          .select({ id: meetingSeries.id, titleKey: meetingSeries.titleKey })
+          .from(meetingSeries)
+          .where(inArray(meetingSeries.titleKey, [...titleKeyCounts.keys()]))
+        for (const s of existingTitleSeries) {
+          if (s.titleKey) seriesByTitleKey.set(s.titleKey, s.id)
+        }
+        for (const ev of allEvents) {
+          const key = titleKeyByEventId.get(ev.id)
+          if (!key || seriesByTitleKey.has(key) || (titleKeyCounts.get(key) ?? 0) < 2) continue
+          const sid = 'ms_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+          const weekday = new Date(ev.start.split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })
+          await ctx.db.insert(meetingSeries).values({
+            id: sid,
+            title: ev.title,
+            cadence: 'weekly',
+            recurrenceDay: weekday,
+            rollingNotes: null,
+            titleKey: key,
+            createdAt: now,
+            updatedAt: now,
+          })
+          seriesByTitleKey.set(key, sid)
+        }
+      }
+
+      // Series with a saved roster never flood the review queue with their attendees.
+      const allSeriesIds = [...seriesByRecurringId.values(), ...seriesByTitleKey.values()]
+      const rosteredSeriesIds = new Set<string>()
+      if (allSeriesIds.length > 0) {
+        const rostered = await ctx.db
+          .select({ id: meetingSeries.id })
+          .from(meetingSeries)
+          .where(and(inArray(meetingSeries.id, allSeriesIds), isNotNull(meetingSeries.rosterSavedAt)))
+        for (const r of rostered) rosteredSeriesIds.add(r.id)
+      }
+
       // Pre-load all people for attendee matching (case-insensitive by email)
       const peopleByEmail = new Map<string, { id: string; status: string }>()
       const allPeople = await ctx.db.select({ id: people.id, email: people.email, status: people.status }).from(people)
@@ -558,15 +630,18 @@ export const meetingsRouter = router({
         meetingId: string,
         ev: SyncCalendarEvent,
         calendarSource: string,
+        knownOnly: boolean,
       ) => {
         const attendees = ('attendees' in ev && Array.isArray(ev.attendees)) ? ev.attendees : []
+        const linked = new Set<string>()
         for (const attendee of attendees) {
           const email = (attendee as { email?: string }).email?.trim()
           if (!email || (attendee as { self?: boolean }).self) continue
           const key = email.toLowerCase()
           const match = peopleByEmail.get(key)
           if (match) {
-            if (match.status === 'ignored') continue
+            if (match.status === 'ignored' || linked.has(match.id)) continue
+            linked.add(match.id)
             await ctx.db.insert(meetingPeople).values({ meetingId, personId: match.id })
             await upsertPersonExternalId(ctx.db, {
               personId: match.id,
@@ -577,6 +652,7 @@ export const meetingsRouter = router({
             })
             continue
           }
+          if (knownOnly) continue
           const personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
           await ctx.db.insert(people).values({
             id: personId,
@@ -597,6 +673,15 @@ export const meetingsRouter = router({
             displayName: (attendee as { displayName?: string }).displayName || email,
           })
           await ctx.db.insert(meetingPeople).values({ meetingId, personId })
+          linked.add(personId)
+        }
+        // Description-listed participants link only when already a known person.
+        for (const p of participantsByEventId.get(ev.id) ?? []) {
+          if (p.source !== 'description' || !p.email) continue
+          const match = peopleByEmail.get(p.email)
+          if (!match || match.status === 'ignored' || linked.has(match.id)) continue
+          linked.add(match.id)
+          await ctx.db.insert(meetingPeople).values({ meetingId, personId: match.id })
         }
       }
 
@@ -606,8 +691,13 @@ export const meetingsRouter = router({
         const startTime = ev.start.includes('T') ? ev.start.split('T')[1].slice(0, 5) : '09:00'
         const source = 'source' in ev ? 'apple' : 'google'
         const rid = (ev as GoogleCalendarEvent).recurringEventId
-        const seriesId = rid ? (seriesByRecurringId.get(rid) ?? null) : null
-        const isRecurring = Boolean(rid)
+        const titleKey = titleKeyByEventId.get(ev.id)
+        const seriesId = rid
+          ? (seriesByRecurringId.get(rid) ?? null)
+          : (titleKey ? (seriesByTitleKey.get(titleKey) ?? null) : null)
+        const isRecurring = Boolean(seriesId)
+        const participants = participantsByEventId.get(ev.id) ?? []
+        const calendarParticipants = participants.length > 0 ? JSON.stringify(participants) : null
         const recurrenceDay = isRecurring
           ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })
           : null
@@ -625,6 +715,7 @@ export const meetingsRouter = router({
               seriesId,
               recurring: isRecurring ? 'weekly' : null,
               recurrenceDay,
+              calendarParticipants,
               updatedAt: now,
             })
             .where(eq(meetings.id, existing.id))
@@ -648,11 +739,12 @@ export const meetingsRouter = router({
           seriesId,
           recurring: isRecurring ? 'weekly' : null,
           recurrenceDay,
+          calendarParticipants,
           createdAt: now,
           updatedAt: now,
         })
 
-        await linkAttendees(id, ev, source)
+        await linkAttendees(id, ev, source, seriesId ? rosteredSeriesIds.has(seriesId) : false)
 
         created++
       }

@@ -102,6 +102,9 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         calEvent.title,
       )
       const priorNotes = findPriorMeetingNotes(allMeetings, calEvent.title, today)
+      const relationship = linkedMeeting
+        ? await caller.insights.meetingPrepContext({ meetingId: linkedMeeting.id }).catch(() => null)
+        : null
 
       const briefInput = {
         event: eventShape,
@@ -113,9 +116,10 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
               projectName,
             }
           : null,
-        crmPeople,
+        crmPeople: relationship?.kind === 'circle' ? [] : crmPeople,
         relatedTasks,
         priorNotes,
+        relationship,
       }
 
       // Agent path (Notion-parity Meeting Prep) — skip gated noise silently

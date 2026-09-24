@@ -165,10 +165,45 @@ export const meetingSeries = pgTable('meeting_series', {
   recurrenceDay: text('recurrence_day'),
   rollingNotes: text('rolling_notes'),
   googleRecurringEventId: text('google_recurring_event_id'),
+  titleKey: text('title_key'),
+  rosterSavedAt: text('roster_saved_at'),
+  rosterDismissedSig: text('roster_dismissed_sig'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
+  titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
+}))
+
+export const SERIES_ROSTER_SOURCES = ['attendees', 'description', 'manual'] as const
+
+export const seriesRoster = pgTable('series_roster', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id').notNull().references(() => meetingSeries.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  source: text('source').notNull(),
+  personId: text('person_id').references(() => people.id, { onDelete: 'set null' }),
+  inactive: boolean('inactive').notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  seriesIdIdx: index('idx_series_roster_series_id').on(table.seriesId),
+  personIdIdx: index('idx_series_roster_person_id').on(table.personId),
+}))
+
+export const ROSTER_EXCEPTION_KINDS = ['absent', 'guest'] as const
+
+export const meetingRosterExceptions = pgTable('meeting_roster_exceptions', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  rosterId: text('roster_id').references(() => seriesRoster.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  meetingIdIdx: index('idx_meeting_roster_exceptions_meeting_id').on(table.meetingId),
 }))
 
 /** User-managed meeting types (1:1, strategy, operations, ...) — mirrors projects */
@@ -202,6 +237,7 @@ export const meetings = pgTable('meetings', {
   source: text('source').notNull().default('calendar'),
   /** When source='notion_note', this is the first note that created the meeting */
   sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
+  calendarParticipants: text('calendar_participants'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -705,6 +741,26 @@ export const whatsappMessages = pgTable('whatsapp_messages', {
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
 
+export const whatsappPersonLinks = pgTable('whatsapp_person_links', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  whatsappJid: text('whatsapp_jid').notNull(),
+  matchedBy: text('matched_by').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_person_links_person_id').on(table.personId),
+  jidUq: uniqueIndex('uq_whatsapp_person_links_jid').on(table.whatsappJid),
+}))
+
+export const duplicateReviews = pgTable('duplicate_reviews', {
+  id: text('id').primaryKey(),
+  personIdA: text('person_id_a').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  personIdB: text('person_id_b').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_duplicate_reviews_pair').on(table.personIdA, table.personIdB),
+}))
+
 export const hugoInstructions = pgTable('hugo_instructions', {
   id: text('id').primaryKey(),
   content: text('content').notNull().default(''),
@@ -739,6 +795,7 @@ export const userSettings = pgTable('user_settings', {
   listSortPrefs: text('list_sort_prefs'),
   /** Auto-create tasks from meeting analysis action items */
   autoCreateActionItemTasks: boolean('auto_create_action_item_tasks').notNull().default(false),
+  duplicatesNotifiedPairs: text('duplicates_notified_pairs'),
   updatedAt: text('updated_at').notNull(),
 })
 

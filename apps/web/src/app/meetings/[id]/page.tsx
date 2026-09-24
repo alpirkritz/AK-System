@@ -11,6 +11,7 @@ import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
 import { MeetingAttendees } from '../components/MeetingAttendees'
 import { NotionSummaryCard } from '../components/NotionSummaryCard'
+import { CircleCard } from '../components/CircleCard'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -521,6 +522,8 @@ onClick={() => {
           </div>
         </div>
       </div>
+
+      {series && <CircleCard seriesId={series.id} meetingId={id} />}
 
       {/* ── Series card — shared notes + sibling instances ─────────────────── */}
       {series && (

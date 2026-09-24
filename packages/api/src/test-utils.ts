@@ -13,6 +13,10 @@ import {
   workspaces,
   workspaceNotionDatabases,
   notionStatusOverrides,
+  seriesRoster,
+  meetingRosterExceptions,
+  whatsappPersonLinks,
+  duplicateReviews,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -36,6 +40,10 @@ export async function createTestCaller() {
  */
 export async function resetDb() {
   const db = getTestDb()
+  await db.delete(meetingRosterExceptions)
+  await db.delete(seriesRoster)
+  await db.delete(whatsappPersonLinks)
+  await db.delete(duplicateReviews)
   await db.delete(tasks)
   await db.delete(meetingAnalyses)
   await db.delete(meetingNotePeople)

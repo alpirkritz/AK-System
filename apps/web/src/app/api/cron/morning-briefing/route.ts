@@ -97,12 +97,17 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       console.warn('[cron/morning-briefing] finance insights unavailable:', err)
     }
 
+    const coolingFlags = await caller.insights.coolingForDate({ date: today }).catch((err) => {
+      console.warn('[cron/morning-briefing] cooling flags unavailable:', err)
+      return []
+    })
+
     const text = formatMorningBriefingContext(
       today,
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
-      { includeDueTasks },
+      { includeDueTasks, coolingFlags },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

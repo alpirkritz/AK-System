@@ -491,6 +491,36 @@ export async function fetchPersonRelated(token: string, id: string): Promise<unk
   return client.people.getRelated.query({ id })
 }
 
+export interface MobilePersonContext {
+  recommendation: string | null
+  warmthTrend: 'warming' | 'cooling' | 'stable' | null
+  openLoops: { content: string; meetingDate: string }[]
+  whatsappSinceCount: number
+  lastNotionMeetingDate: string | null
+  circles: { seriesId: string; seriesTitle: string }[]
+}
+
+export async function fetchPersonContext(token: string, personId: string): Promise<MobilePersonContext | null> {
+  const client = createTrpcClient(token)
+  const ctx = (await client.insights.personContext.query({ personId })) as {
+    recommendation: string | null
+    warmth: { trend: MobilePersonContext['warmthTrend'] }
+    openLoopsForPerson: { content: string; meetingDate: string }[]
+    whatsappSinceMeeting: unknown[]
+    lastNotionMeetingDate: string | null
+    circles: { seriesId: string; seriesTitle: string }[]
+  } | null
+  if (!ctx) return null
+  return {
+    recommendation: ctx.recommendation,
+    warmthTrend: ctx.warmth.trend,
+    openLoops: ctx.openLoopsForPerson.map((l) => ({ content: l.content, meetingDate: l.meetingDate })),
+    whatsappSinceCount: ctx.whatsappSinceMeeting.length,
+    lastNotionMeetingDate: ctx.lastNotionMeetingDate,
+    circles: ctx.circles.map((c) => ({ seriesId: c.seriesId, seriesTitle: c.seriesTitle })),
+  }
+}
+
 export async function fetchReviewQueue(token: string): Promise<MobileReviewPerson[]> {
   const client = createTrpcClient(token)
   return (await client.people.reviewQueue.query()) as MobileReviewPerson[]

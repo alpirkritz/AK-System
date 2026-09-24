@@ -13,6 +13,7 @@ import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
 import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
+import { PersonContextCard } from './PersonContextCard'
 
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -508,25 +509,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           )}
 
           {/* Relationship insights */}
-          {personContext && (
-            <section className="mb-5">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">
-                הקשר
-              </h3>
-              <div
-                className="rounded-lg px-3 py-2 text-xs space-y-1"
-                style={{ background: '#141f36', border: '1px solid #29395d', color: '#97a4c2' }}
-              >
-                {personContext.lastContactAt && (
-                  <div>
-                    קשר אחרון:{' '}
-                    {format(new Date(personContext.lastContactAt + (personContext.lastContactAt.length === 10 ? 'T00:00:00' : '')), 'dd/MM/yy')}
-                  </div>
-                )}
-                <div>{personContext.meetingCount} פגישות · {personContext.sharedProjects.length} פרויקטים משותפים</div>
-              </div>
-            </section>
-          )}
+          {personContext && <PersonContextCard personId={personId} />}
 
           {/* External identities */}
           {related?.identities && related.identities.length > 0 && (

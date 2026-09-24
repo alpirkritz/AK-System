@@ -13,6 +13,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
 import { ConversationAnalysis } from '../../components/ConversationAnalysis'
+import { CircleSection } from '../../components/CircleSection'
 import { useAuth } from '../../lib/auth'
 import {
   deleteMeeting,
@@ -273,6 +274,8 @@ export default function MeetingDetailScreen() {
           />
         </>
       ) : null}
+
+      {id && seriesId ? <CircleSection seriesId={seriesId} meetingId={id} /> : null}
 
       {/* Conversation Analysis */}
       {id && <ConversationAnalysis meetingId={id} />}

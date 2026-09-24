@@ -58,3 +58,27 @@ describe('formatMorningBriefingContext', () => {
     expect(text).not.toContain('לסגור מע״מ')
   })
 })
+
+describe('formatMorningBriefingContext cooling flags', () => {
+  it('marks meetings with cooling people or a cooling circle', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [
+        { id: 'ev1', start: '2026-07-20T10:00:00', end: '2026-07-20T11:00:00', title: 'Dana 1:1' },
+        { id: 'ev2', start: '2026-07-20T12:00:00', end: '2026-07-20T13:00:00', title: 'Algo 4.0' },
+        { id: 'ev3', start: '2026-07-20T14:00:00', end: '2026-07-20T15:00:00', title: 'Fine' },
+      ],
+      [],
+      [],
+      {
+        coolingFlags: [
+          { calendarEventId: 'ev1', title: 'Dana 1:1', coolingPeople: ['Dana'], circleCooling: false },
+          { calendarEventId: 'ev2', title: 'Algo 4.0', coolingPeople: [], circleCooling: true },
+        ],
+      },
+    )
+    expect(text).toContain('Dana 1:1 (↓ Dana)')
+    expect(text).toContain('Algo 4.0 (↓ הפגישה מתקררת)')
+    expect(text).toMatch(/– Fine$/m)
+  })
+})

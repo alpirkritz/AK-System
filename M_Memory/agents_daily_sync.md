@@ -1691,3 +1691,24 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - Test with real Notion transcripts
 - Validate mobile batch modal on smaller screens (iPhone SE)
 
+
+## 2026-09-24 · Person context hierarchy, circles, warmth, duplicates
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` · spec `docs/specs/person-context-hierarchy.md`
+- **Actions:** Calendar participants parsed from attendees or the Dragontail `משתתפים:` description and stored per meeting. Title-based series for bridge events. Circles (roster saved once from the calendar, diff, absent/guest per occurrence, follow). Person card hierarchy (recommendation, loops, WhatsApp since the last Notion meeting, notes, older WhatsApp, circles). Warmth for people and series. Duplicate review + merge page. Chat-free meeting-prep context. Compact mobile person card.
+- **Outputs:** `reports/person-context-hierarchy.md` (APPROVED WITH NITS), `reports/qa-person-context-hierarchy.md`
+- **Production:** EC2 SQLite migrates automatically via `PERSON_CONTEXT_TABLES` bootstrap; back up `/data/ak_system.sqlite` first, then run a calendar sync.
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored [x] No raw WhatsApp text in agent prep context [x] No ABC workspace files changed
+- **Tests:** API 857/857 · web brief 22/22 · e2e new spec 2/2 (suite 78 pass / 21 already failing, same set as `qa-whatsapp-daily-digest`)
+- **Performance notes:** Warmth and duplicates computed on read. Duplicate scan is O(n²); add blocking if contacts grow into the thousands.
+
+## 2026-09-24 · Person context hierarchy — gap pass
+
+- **Agent:** Dev pipeline (Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/person-context-hierarchy.md`
+- **Actions:** Morning-brief cooling flags. Blocked WhatsApp phone matches. Mobile circle section on the meeting screen. Touch-visible circle ×. Nightly `people-duplicates` cron with one notification per new pair.
+- **Outputs:** `reports/person-context-hierarchy.md` (follow-up section)
+- **Production:** New column `user_settings.duplicates_notified_pairs` applied by bootstrap. Reinstall EC2 crontab for `people-duplicates`.
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored
+- **Tests:** API 860/860 · web lib 29/29 · lint clean · web build pass

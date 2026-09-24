@@ -93,6 +93,55 @@ const MEETING_STRUCTURE_TABLES = [
   `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_source ON meeting_analyses(source)`,
 ]
 
+/** Person/circle context: series rosters, per-occurrence exceptions, WhatsApp sender links, duplicate reviews. */
+const PERSON_CONTEXT_TABLES = [
+  'ALTER TABLE user_settings ADD COLUMN duplicates_notified_pairs TEXT',
+  'ALTER TABLE meetings ADD COLUMN calendar_participants TEXT',
+  'ALTER TABLE meeting_series ADD COLUMN title_key TEXT',
+  'ALTER TABLE meeting_series ADD COLUMN roster_saved_at TEXT',
+  'ALTER TABLE meeting_series ADD COLUMN roster_dismissed_sig TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_meeting_series_title_key ON meeting_series(title_key)',
+  `CREATE TABLE IF NOT EXISTS series_roster (
+    id TEXT PRIMARY KEY,
+    series_id TEXT NOT NULL REFERENCES meeting_series(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    email TEXT,
+    source TEXT NOT NULL,
+    person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    inactive INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_series_roster_series_id ON series_roster(series_id)',
+  'CREATE INDEX IF NOT EXISTS idx_series_roster_person_id ON series_roster(person_id)',
+  `CREATE TABLE IF NOT EXISTS meeting_roster_exceptions (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    roster_id TEXT REFERENCES series_roster(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    email TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_meeting_roster_exceptions_meeting_id ON meeting_roster_exceptions(meeting_id)',
+  `CREATE TABLE IF NOT EXISTS whatsapp_person_links (
+    id TEXT PRIMARY KEY,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    whatsapp_jid TEXT NOT NULL,
+    matched_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_whatsapp_person_links_person_id ON whatsapp_person_links(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_person_links_jid ON whatsapp_person_links(whatsapp_jid)',
+  `CREATE TABLE IF NOT EXISTS duplicate_reviews (
+    id TEXT PRIMARY KEY,
+    person_id_a TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_id_b TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_duplicate_reviews_pair ON duplicate_reviews(person_id_a, person_id_b)',
+]
+
 const PEOPLE_COLUMNS = [
   'ALTER TABLE people ADD COLUMN phone TEXT',
   'ALTER TABLE people ADD COLUMN company TEXT',
@@ -984,6 +1033,9 @@ export function getDb() {
   for (const sql of CONTACT_GRAPH_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
   }
+  for (const sql of PERSON_CONTEXT_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
+  }
   for (const sql of VAT_ENTRIES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1047,6 +1099,12 @@ export const meetingNotes = schema.meetingNotes
 export const meetingNotePeople = schema.meetingNotePeople
 export const meetingNoteProjects = schema.meetingNoteProjects
 export const meetingAnalyses = schema.meetingAnalyses
+export const seriesRoster = schema.seriesRoster
+export const meetingRosterExceptions = schema.meetingRosterExceptions
+export const whatsappPersonLinks = schema.whatsappPersonLinks
+export const duplicateReviews = schema.duplicateReviews
+export const SERIES_ROSTER_SOURCES = schemaPg.SERIES_ROSTER_SOURCES
+export const ROSTER_EXCEPTION_KINDS = schemaPg.ROSTER_EXCEPTION_KINDS
 export const tasks = schema.tasks
 export const taskPeople = schema.taskPeople
 export const financeTrades = schema.financeTrades
@@ -1136,6 +1194,12 @@ export type PersonExternalId = typeof schemaPg.personExternalIds.$inferSelect
 export type MeetingNote = typeof schemaPg.meetingNotes.$inferSelect
 export type MeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferSelect
 export type NewMeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferInsert
+export type SeriesRosterRow = typeof schemaPg.seriesRoster.$inferSelect
+export type MeetingRosterException = typeof schemaPg.meetingRosterExceptions.$inferSelect
+export type WhatsappPersonLink = typeof schemaPg.whatsappPersonLinks.$inferSelect
+export type DuplicateReview = typeof schemaPg.duplicateReviews.$inferSelect
+export type SeriesRosterSource = (typeof schemaPg.SERIES_ROSTER_SOURCES)[number]
+export type RosterExceptionKind = (typeof schemaPg.ROSTER_EXCEPTION_KINDS)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect
 export type NewTask = typeof schemaPg.tasks.$inferInsert
 export type FinanceTrade = typeof schemaPg.financeTrades.$inferSelect

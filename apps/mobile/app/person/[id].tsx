@@ -14,8 +14,10 @@ import { useAuth } from '../../lib/auth'
 import {
   deletePerson,
   fetchPerson,
+  fetchPersonContext,
   fetchPersonRelated,
   updatePerson,
+  type MobilePersonContext,
 } from '../../lib/data'
 import { colors } from '../../lib/theme'
 
@@ -33,16 +35,19 @@ export default function PersonDetailScreen() {
   const [company, setCompany] = useState('')
   const [meetingCount, setMeetingCount] = useState(0)
   const [taskCount, setTaskCount] = useState(0)
+  const [context, setContext] = useState<MobilePersonContext | null>(null)
 
   const load = useCallback(async () => {
     if (!token || !id) return
     setLoading(true)
     setError(null)
     try {
-      const [person, related] = await Promise.all([
+      const [person, related, ctx] = await Promise.all([
         fetchPerson(token, id),
         fetchPersonRelated(token, id).catch(() => null),
+        fetchPersonContext(token, id).catch(() => null),
       ])
+      setContext(ctx)
       if (!person) {
         setError('איש הקשר לא נמצא')
         return
@@ -139,6 +144,26 @@ export default function PersonDetailScreen() {
         </View>
       )}
 
+      {context && (context.recommendation || context.openLoops.length > 0 || context.circles.length > 0) ? (
+        <View style={styles.contextCard}>
+          <View style={styles.contextHeader}>
+            <Text style={styles.contextTitle}>הקשר</Text>
+            {context.warmthTrend === 'cooling' ? <Text style={[styles.warmth, styles.cooling]}>↓ מתקרר</Text> : null}
+            {context.warmthTrend === 'warming' ? <Text style={[styles.warmth, styles.warming]}>↑ מתחמם</Text> : null}
+          </View>
+          {context.recommendation ? <Text style={styles.recommendation}>{context.recommendation}</Text> : null}
+          {context.openLoops.slice(0, 3).map((l, i) => (
+            <Text key={i} style={styles.contextLine}>• {l.content}</Text>
+          ))}
+          {context.whatsappSinceCount > 0 ? (
+            <Text style={styles.contextMuted}>{context.whatsappSinceCount} הודעות וואטסאפ מאז הפגישה האחרונה</Text>
+          ) : null}
+          {context.circles.length > 0 ? (
+            <Text style={styles.contextMuted}>חוגים: {context.circles.map((c) => c.seriesTitle).join(', ')}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <Text style={styles.label}>שם</Text>
       <TextInput
         value={name}
@@ -185,6 +210,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   statText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
+  contextCard: {
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+    marginBottom: 8,
+  },
+  contextHeader: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  contextTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '600', writingDirection: 'rtl' },
+  warmth: { fontSize: 12, fontWeight: '600', writingDirection: 'rtl' },
+  cooling: { color: '#facc15' },
+  warming: { color: colors.success },
+  recommendation: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    borderRightWidth: 3,
+    borderRightColor: colors.accent,
+    paddingRight: 8,
+  },
+  contextLine: { color: colors.text, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
+  contextMuted: { color: colors.textMuted, fontSize: 12, textAlign: 'right', writingDirection: 'rtl' },
   label: {
     color: colors.textMuted,
     fontSize: 13,
