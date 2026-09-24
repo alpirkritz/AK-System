@@ -1040,7 +1040,7 @@ export const whatsappDmSummaries = pgTable('whatsapp_dm_summaries', {
 
 export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
 export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
-export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email'] as const
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice'] as const
 export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
 export const COMMITMENT_OWNERS = ['me', 'them'] as const
 export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
@@ -1054,7 +1054,7 @@ export const commitments = pgTable('commitments', {
   content: text('content').notNull(),
   /** ISO date when the conversation named one */
   dueInferred: text('due_inferred'),
-  /** whatsapp_dm | whatsapp_group | meeting_analysis | email */
+  /** whatsapp_dm | whatsapp_group | meeting_analysis | email | voice */
   source: text('source').notNull(),
   sourceId: text('source_id'),
   /** Short quote of the source message, kept after the raw text expires */
@@ -1073,3 +1073,65 @@ export const commitments = pgTable('commitments', {
 export type WhatsappDmMessage = typeof whatsappDmMessages.$inferSelect
 export type WhatsappDmSummary = typeof whatsappDmSummaries.$inferSelect
 export type Commitment = typeof commitments.$inferSelect
+
+/** Latest state of an email thread with a known person, one row per (thread, person). */
+export const personEmailThreads = pgTable('person_email_threads', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** `accountEmail::threadId` — Gmail thread ids are only unique per account */
+  gmailThreadId: text('gmail_thread_id').notNull(),
+  accountEmail: text('account_email').notNull(),
+  subject: text('subject').notNull(),
+  from: text('from').notNull(),
+  to: text('to').notNull(),
+  /** ISO timestamp of the latest message */
+  date: text('date').notNull(),
+  snippet: text('snippet'),
+  messageCount: integer('message_count').notNull().default(1),
+  lastSyncedAt: text('last_synced_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_email_threads_person_id').on(table.personId),
+  dateIdx: index('idx_person_email_threads_date').on(table.date),
+  threadPersonUq: uniqueIndex('uq_person_email_threads_thread_person').on(table.gmailThreadId, table.personId),
+}))
+
+export const VOICE_RECORDING_STATUSES = ['uploaded', 'processing', 'completed', 'failed'] as const
+export type VoiceRecordingStatus = (typeof VOICE_RECORDING_STATUSES)[number]
+
+/** A consented recording; its analysis always lives on a meeting (a placeholder one when standalone). */
+export const voiceRecordings = pgTable('voice_recordings', {
+  id: text('id').primaryKey(),
+  audioPath: text('audio_path').notNull(),
+  mimeType: text('mime_type').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  transcriptText: text('transcript_text'),
+  analysisId: text('analysis_id').references(() => meetingAnalyses.id, { onDelete: 'set null' }),
+  meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  /** Placeholder meeting created for a standalone recording; removed when attached elsewhere */
+  createdMeetingId: text('created_meeting_id'),
+  /** Seconds */
+  duration: integer('duration').notNull(),
+  /** uploaded | processing | completed | failed */
+  status: text('status').notNull().default('uploaded'),
+  error: text('error'),
+  consentConfirmedAt: text('consent_confirmed_at').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
+  analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
+  createdAtIdx: index('idx_voice_recordings_created_at').on(table.createdAt),
+}))
+
+export const voiceRecordingPeople = pgTable('voice_recording_people', {
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_recording_people_recording_id').on(table.recordingId),
+  personIdIdx: index('idx_voice_recording_people_person_id').on(table.personId),
+  pairUq: uniqueIndex('uq_voice_recording_people_pair').on(table.recordingId, table.personId),
+}))
+
+export type PersonEmailThread = typeof personEmailThreads.$inferSelect
+export type VoiceRecording = typeof voiceRecordings.$inferSelect

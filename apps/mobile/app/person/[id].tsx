@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   StyleSheet,
   Switch,
   Text,
@@ -22,6 +23,15 @@ import {
   type MobilePersonContext,
 } from '../../lib/data'
 import { colors } from '../../lib/theme'
+
+function shortDate(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getDate()}.${d.getMonth() + 1}`
+}
+
+function durationLabel(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
 
 export default function PersonDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -205,6 +215,42 @@ export default function PersonDetailScreen() {
               <Text style={styles.commitmentsLink}>{context.proposedCommitmentCount} התחייבויות לאישור ›</Text>
             </Pressable>
           ) : null}
+        </View>
+      ) : null}
+
+      {context && context.emailThreads.length > 0 ? (
+        <View style={styles.contextCard}>
+          <Text style={styles.contextTitle}>אימיילים</Text>
+          {context.emailThreads.slice(0, 3).map((t) => (
+            <Pressable
+              key={t.id}
+              disabled={!t.gmailUrl}
+              onPress={() => t.gmailUrl && void Linking.openURL(t.gmailUrl).catch(() => Alert.alert('שגיאה', 'לא ניתן לפתוח את Gmail'))}
+              accessibilityRole="link"
+              accessibilityLabel={`פתח ב-Gmail: ${t.subject}`}
+            >
+              <Text style={styles.contextLine} numberOfLines={1}>{shortDate(t.date)} · {t.subject}</Text>
+              {t.snippet ? <Text style={styles.contextMuted} numberOfLines={2}>{t.snippet}</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {context && context.voiceRecordings.length > 0 ? (
+        <View style={styles.contextCard}>
+          <Text style={styles.contextTitle}>הקלטות קוליות</Text>
+          {context.voiceRecordings.map((r) => (
+            <Pressable
+              key={r.id}
+              disabled={!r.meetingId || r.status !== 'completed'}
+              onPress={() => r.meetingId && router.push(`/meeting/${r.meetingId}` as Href)}
+              accessibilityRole="link"
+            >
+              <Text style={styles.contextLine} numberOfLines={1}>
+                {shortDate(r.createdAt)} · {durationLabel(r.duration)} · {r.status === 'completed' ? r.topic ?? 'הקלטה' : r.status === 'failed' ? 'הניתוח נכשל' : 'בעיבוד…'}
+              </Text>
+            </Pressable>
+          ))}
         </View>
       ) : null}
 

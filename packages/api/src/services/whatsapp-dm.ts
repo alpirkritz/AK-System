@@ -12,6 +12,7 @@ import {
   whatsappDmSummaries,
   whatsappPersonLinks,
   type CommitmentOwner,
+  type CommitmentSource,
   type getDb,
 } from '@ak-system/database'
 import { normalizePhone } from '../lib/phone'
@@ -185,6 +186,9 @@ const HE = '\\u0590-\\u05FF'
 const SELF_PROMISE = new RegExp(`(?:^|[^${HE}])[וש]?(אשלח|אבדוק|אטפל|אחזור|אעביר|אכין|אתקשר|אדבר|אסדר|אעדכן|אארגן|אזמין)(?=$|[^${HE}])`)
 /** Imperative / second person future: the speaker asks the other side. */
 const REQUEST = new RegExp(`(?:^|[^${HE}])[וש]?(תשלח|תשלחי|תבדוק|תבדקי|תעביר|תעבירי|תטפל|תטפלי|תחזור|תחזרי|תעדכן|תעדכני|תכין|תכיני|תתקשר|תתקשרי)(?=$|[^${HE}])`)
+/** English equivalents, for email. */
+const SELF_PROMISE_EN = /\bI(?:'ll| will) (?:send|check|get back|follow up|share|prepare|call|update|review)\b/i
+const REQUEST_EN = /\b(?:can|could) you (?:please )?(?:send|check|share|review|prepare|update|call)\b|\bplease (?:send|check|share|review|prepare|update)\b/i
 
 const WEEKDAYS: [RegExp, number][] = [
   [/ביום ראשון|ביום א['׳]/, 0],
@@ -217,8 +221,8 @@ function clip(text: string, max = 140): string {
 export function detectCommitmentsHeuristic(messages: DmPromptMessage[]): ProposedCommitment[] {
   const out: ProposedCommitment[] = []
   for (const m of messages) {
-    const promise = SELF_PROMISE.test(m.text)
-    const request = !promise && REQUEST.test(m.text)
+    const promise = SELF_PROMISE.test(m.text) || SELF_PROMISE_EN.test(m.text)
+    const request = !promise && (REQUEST.test(m.text) || REQUEST_EN.test(m.text))
     if (!promise && !request) continue
     const speakerIsMe = m.fromMe
     const owner: CommitmentOwner = promise === speakerIsMe ? 'me' : 'them'
@@ -352,7 +356,7 @@ export async function summarizeDmChats(
 export async function proposeCommitments(
   db: Db,
   personId: string,
-  source: 'whatsapp_dm' | 'whatsapp_group' | 'meeting_analysis' | 'email',
+  source: CommitmentSource,
   items: (ProposedCommitment & { sourceSnippet: string | null })[],
   createdAt = new Date().toISOString(),
 ): Promise<number> {

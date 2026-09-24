@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { commitmentsForDate } from '../services/commitments'
 import { pushDmAllowlist } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
 import {
@@ -400,6 +401,11 @@ export const insightsRouter = router({
   coolingForDate: protectedProcedure
     .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ ctx, input }) => coolingFlagsForDate(ctx.db, input.date)),
+
+  /** Morning brief: open commitments of today's attendees, plus my other open ones. */
+  commitmentsForDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => commitmentsForDate(ctx.db, input.date)),
 
   whatsappSenders: protectedProcedure
     .input(z.object({ query: z.string().optional() }).optional())

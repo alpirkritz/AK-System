@@ -1,0 +1,189 @@
+/**
+ * The shared commitment queue: proposals from meeting/voice analyses, source links, and the
+ * per-day view Hugo's morning brief and meeting prep read.
+ */
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import {
+  commitments,
+  meetingAnalyses,
+  meetingPeople,
+  meetings,
+  people,
+  type CommitmentSource,
+  type getDb,
+} from '@ak-system/database'
+import { normalizeParticipantName } from '../lib/calendar-participants'
+import { getSelfPersonName } from './self-person'
+import { inferDueDate, proposeCommitments } from './whatsapp-dm'
+
+type Db = ReturnType<typeof getDb>
+
+/** How Hugo names each source in briefs. */
+export const COMMITMENT_SOURCE_LABELS: Record<CommitmentSource, string> = {
+  meeting_analysis: 'מהאנליזה',
+  whatsapp_dm: 'מהוואטסאפ',
+  whatsapp_group: 'מהוואטסאפ',
+  email: 'מאימייל',
+  voice: 'מהקלטה',
+}
+
+export function sourceLabel(source: string): string {
+  return COMMITMENT_SOURCE_LABELS[source as CommitmentSource] ?? source
+}
+
+/** Gmail thread key is `accountEmail::threadId`. */
+export function gmailThreadUrl(threadKey: string): string | null {
+  const sep = threadKey.indexOf('::')
+  if (sep <= 0) return null
+  const account = threadKey.slice(0, sep)
+  const threadId = threadKey.slice(sep + 2)
+  if (!threadId) return null
+  return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account)}#all/${encodeURIComponent(threadId)}`
+}
+
+/** Where the commitment came from, or null when there is nothing to open (WhatsApp). */
+export function commitmentSourceUrl(c: { source: string; sourceId: string | null }): string | null {
+  if (!c.sourceId) return null
+  if (c.source === 'email') return gmailThreadUrl(c.sourceId)
+  if (c.source === 'meeting_analysis' || c.source === 'voice') return `/meetings/${c.sourceId}`
+  return null
+}
+
+function namesMatch(a: string, b: string): boolean {
+  const x = normalizeParticipantName(a)
+  const y = normalizeParticipantName(b)
+  if (!x || !y) return false
+  if (x === y) return true
+  const first = y.split(' ')[0]
+  return first.length >= 2 && x.split(' ').includes(first)
+}
+
+/**
+ * Proposes commitments from a completed analysis's action items. An item owned by a confirmed
+ * attendee goes to that person; an item owned by me (or by nobody) goes to the only other
+ * attendee, and stays on the analysis when several people were there.
+ */
+export async function proposeCommitmentsFromAnalysis(
+  db: Db,
+  analysisId: string,
+  source: Extract<CommitmentSource, 'meeting_analysis' | 'voice'> = 'meeting_analysis',
+): Promise<number> {
+  const [analysis] = await db
+    .select({ meetingId: meetingAnalyses.meetingId, actionItemsJson: meetingAnalyses.actionItemsJson, status: meetingAnalyses.status })
+    .from(meetingAnalyses)
+    .where(eq(meetingAnalyses.id, analysisId))
+  if (!analysis || analysis.status !== 'completed' || !analysis.actionItemsJson) return 0
+  let items: { content?: unknown; owner?: unknown }[]
+  try {
+    items = JSON.parse(analysis.actionItemsJson) as typeof items
+  } catch {
+    return 0
+  }
+  if (!Array.isArray(items) || items.length === 0) return 0
+
+  const [meeting] = await db.select({ date: meetings.date }).from(meetings).where(eq(meetings.id, analysis.meetingId))
+  const selfName = getSelfPersonName()
+  const attendees = (
+    await db
+      .select({ id: people.id, name: people.name })
+      .from(meetingPeople)
+      .innerJoin(people, eq(people.id, meetingPeople.personId))
+      .where(and(eq(meetingPeople.meetingId, analysis.meetingId), eq(people.status, 'confirmed')))
+  ).filter((p) => !namesMatch(p.name, selfName))
+  if (attendees.length === 0) return 0
+
+  const base = meeting?.date ? new Date(`${meeting.date}T12:00:00Z`).getTime() : Date.now()
+  const byPerson = new Map<string, Parameters<typeof proposeCommitments>[3]>()
+  for (const raw of items) {
+    const content = typeof raw?.content === 'string' ? raw.content.replace(/\s+/g, ' ').trim().slice(0, 140) : ''
+    if (!content) continue
+    const owner = typeof raw?.owner === 'string' ? raw.owner.trim() : ''
+    const theirs = owner ? attendees.find((p) => namesMatch(owner, p.name)) : undefined
+    const mine = !owner || namesMatch(owner, selfName) || /^(אני|me|i)$/i.test(owner)
+    let personId: string | null = null
+    let who: 'me' | 'them' = 'me'
+    if (theirs) {
+      personId = theirs.id
+      who = 'them'
+    } else if (mine && attendees.length === 1) {
+      personId = attendees[0].id
+    }
+    if (!personId) continue
+    const list = byPerson.get(personId) ?? []
+    list.push({ owner: who, content, dueInferred: inferDueDate(content, base), sourceMessageId: analysis.meetingId, sourceSnippet: null })
+    byPerson.set(personId, list)
+  }
+  let added = 0
+  for (const [personId, list] of byPerson) added += await proposeCommitments(db, personId, source, list)
+  return added
+}
+
+export interface BriefCommitment {
+  personName: string
+  owner: string
+  content: string
+  source: string
+}
+
+export interface CommitmentsForDate {
+  /** Proposed commitments of people I meet that day, grouped by person */
+  byPerson: { personId: string; personName: string; items: BriefCommitment[] }[]
+  /** My other proposed commitments, not already listed above */
+  mine: BriefCommitment[]
+}
+
+const MINE_LIMIT = 5
+const PER_PERSON_LIMIT = 5
+
+export async function commitmentsForDate(db: Db, date: string): Promise<CommitmentsForDate> {
+  const attendees = await db
+    .select({ id: people.id, name: people.name })
+    .from(meetings)
+    .innerJoin(meetingPeople, eq(meetingPeople.meetingId, meetings.id))
+    .innerJoin(people, eq(people.id, meetingPeople.personId))
+    .where(and(eq(meetings.date, date), eq(people.status, 'confirmed')))
+  const personIds = [...new Set(attendees.map((a) => a.id))]
+  const nameById = new Map(attendees.map((a) => [a.id, a.name]))
+
+  const todays = personIds.length
+    ? await db
+        .select({ id: commitments.id, personId: commitments.personId, owner: commitments.owner, content: commitments.content, source: commitments.source })
+        .from(commitments)
+        .where(and(eq(commitments.status, 'proposed'), inArray(commitments.personId, personIds)))
+        .orderBy(desc(commitments.createdAt))
+    : []
+  const byPerson: CommitmentsForDate['byPerson'] = []
+  for (const personId of personIds) {
+    const items = todays.filter((c) => c.personId === personId).slice(0, PER_PERSON_LIMIT)
+    if (items.length === 0) continue
+    const personName = nameById.get(personId) ?? ''
+    byPerson.push({ personId, personName, items: items.map((c) => ({ personName, owner: c.owner, content: c.content, source: c.source })) })
+  }
+
+  const listed = new Set(todays.map((c) => c.id))
+  const mineRows = await db
+    .select({ id: commitments.id, owner: commitments.owner, content: commitments.content, source: commitments.source, personName: people.name })
+    .from(commitments)
+    .innerJoin(people, eq(people.id, commitments.personId))
+    .where(and(eq(commitments.status, 'proposed'), eq(commitments.owner, 'me')))
+    .orderBy(desc(commitments.createdAt))
+    .limit(MINE_LIMIT + listed.size)
+  const mine = mineRows
+    .filter((c) => !listed.has(c.id))
+    .slice(0, MINE_LIMIT)
+    .map((c) => ({ personName: c.personName, owner: c.owner, content: c.content, source: c.source }))
+  return { byPerson, mine }
+}
+
+/** Prep lines for one attendee: text only, never the raw source snippet. */
+export async function prepCommitmentLines(db: Db, personId: string, personName: string, limit = 3): Promise<string[]> {
+  const rows = await db
+    .select({ owner: commitments.owner, content: commitments.content, source: commitments.source })
+    .from(commitments)
+    .where(and(eq(commitments.personId, personId), eq(commitments.status, 'proposed')))
+    .orderBy(desc(commitments.createdAt))
+    .limit(limit)
+  return rows.map((c) =>
+    `${personName} · התחייבות פתוחה (${sourceLabel(c.source)}): ${c.owner === 'me' ? 'אני' : personName} – ${c.content}`,
+  )
+}

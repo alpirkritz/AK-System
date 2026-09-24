@@ -27,6 +27,8 @@ import { salesDocumentsRouter } from './routers/sales-documents'
 import { notionGraphRouter } from './routers/notion-graph'
 import { contactsRouter } from './routers/contacts'
 import { insightsRouter } from './routers/insights'
+import { emailRouter } from './routers/email'
+import { voiceRouter } from './routers/voice'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -98,6 +100,15 @@ export {
   runDmRetention,
   type DmIngestMessage,
 } from './services/whatsapp-dm'
+export { proposeCommitmentsFromAnalysis } from './services/commitments'
+export { syncEmailThreads, type EmailSyncResult } from './services/email-sync'
+export {
+  saveVoiceUpload,
+  processVoiceRecording,
+  voiceStorageDir,
+  VoiceUploadError,
+  VOICE_MAX_BYTES,
+} from './services/voice'
 export { runClusterSummary, type ClusterRunResult } from './services/whatsapp-cluster-run'
 export {
   runFollowedDailyDigest,
@@ -179,6 +190,8 @@ export const appRouter = router({
   notionGraph: notionGraphRouter,
   contacts: contactsRouter,
   insights: insightsRouter,
+  email: emailRouter,
+  voice: voiceRouter,
 })
 
 export type AppRouter = typeof appRouter

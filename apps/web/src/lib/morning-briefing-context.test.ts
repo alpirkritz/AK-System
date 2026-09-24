@@ -82,3 +82,39 @@ describe('formatMorningBriefingContext cooling flags', () => {
     expect(text).toMatch(/– Fine$/m)
   })
 })
+
+describe('formatMorningBriefingContext commitments', () => {
+  it('adds open commitments after the events and a separate reminder block', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [{ start: '2026-07-20T10:00:00', end: '2026-07-20T11:00:00', title: 'Dana 1:1' }],
+      [],
+      [],
+      {
+        commitments: {
+          byPerson: [
+            {
+              personName: 'דנה',
+              items: [
+                { personName: 'דנה', owner: 'them', content: 'לשלוח מצגת', source: 'email' },
+                { personName: 'דנה', owner: 'me', content: 'לבדוק תקציב', source: 'voice' },
+              ],
+            },
+          ],
+          mine: [{ personName: 'רון', owner: 'me', content: 'להחזיר תשובה', source: 'whatsapp_dm' }],
+        },
+      },
+    )
+    expect(text).toContain('התחייבויות פתוחות:\n• דנה לי: לשלוח מצגת (מאימייל)\n• אני ל-דנה: לבדוק תקציב (מהקלטה)')
+    expect(text).toContain('זכור לטפל:\n• אמרת ל-רון: להחזיר תשובה')
+    expect(text.indexOf('אירועים:')).toBeLessThan(text.indexOf('התחייבויות פתוחות:'))
+  })
+
+  it('a day with only commitments is not reported as empty', () => {
+    const text = formatMorningBriefingContext('2026-07-20', [], [], [], {
+      commitments: { byPerson: [], mine: [{ personName: 'רון', owner: 'me', content: 'להחזיר תשובה', source: 'email' }] },
+    })
+    expect(text).not.toContain('אין אירועים')
+    expect(text).toContain('זכור לטפל:')
+  })
+})

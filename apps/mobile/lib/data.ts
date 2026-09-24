@@ -502,6 +502,8 @@ export interface MobilePersonContext {
   captureReachable: boolean
   dmSummary: string | null
   proposedCommitmentCount: number
+  emailThreads: { id: string; subject: string; date: string; snippet: string | null; gmailUrl: string | null }[]
+  voiceRecordings: { id: string; createdAt: string; duration: number; status: string; topic: string | null; meetingId: string | null }[]
 }
 
 export async function fetchPersonContext(token: string, personId: string): Promise<MobilePersonContext | null> {
@@ -517,6 +519,8 @@ export async function fetchPersonContext(token: string, personId: string): Promi
     captureReachable: boolean
     latestDmSummary: { summary: string } | null
     proposedCommitments: unknown[]
+    emailThreads?: MobilePersonContext['emailThreads']
+    voiceRecordings?: MobilePersonContext['voiceRecordings']
   } | null
   if (!ctx) return null
   return {
@@ -530,6 +534,15 @@ export async function fetchPersonContext(token: string, personId: string): Promi
     captureReachable: ctx.captureReachable,
     dmSummary: ctx.latestDmSummary?.summary ?? null,
     proposedCommitmentCount: ctx.proposedCommitments.length,
+    emailThreads: (ctx.emailThreads ?? []).map((t) => ({ id: t.id, subject: t.subject, date: t.date, snippet: t.snippet, gmailUrl: t.gmailUrl })),
+    voiceRecordings: (ctx.voiceRecordings ?? []).map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      duration: r.duration,
+      status: r.status,
+      topic: r.topic,
+      meetingId: r.meetingId,
+    })),
   }
 }
 

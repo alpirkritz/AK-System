@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { Check, X } from 'lucide-react'
+import { Check, ExternalLink, X } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
 
 type OwnerFilter = 'all' | 'me' | 'them'
 
@@ -14,11 +15,14 @@ const FILTERS: { id: OwnerFilter; label: string }[] = [
   { id: 'them', label: 'שלהם' },
 ]
 
-const SOURCE_LABELS: Record<string, string> = {
-  whatsapp_dm: 'וואטסאפ פרטי',
-  whatsapp_group: 'קבוצת וואטסאפ',
-  meeting_analysis: 'סיכום פגישה',
-  email: 'אימייל',
+const SOURCE_LINK_LABELS: Record<string, string> = {
+  meeting_analysis: 'לסיכום הפגישה',
+  email: 'פתח ב-Gmail',
+  voice: 'להקלטה',
+}
+
+function createdLabel(iso: string): string {
+  return format(new Date(iso), 'dd/MM')
 }
 
 function dateLabel(iso: string | null): string {
@@ -93,7 +97,7 @@ export default function CommitmentsPage() {
         <p className="text-sm text-[#5a688c]">טוען…</p>
       ) : items.length === 0 ? (
         <div className="card text-sm text-[#97a4c2]" data-testid="commitments-empty">
-          אין התחייבויות ממתינות. הן מופיעות כאן אחרי הסיכום הלילי של שיחות וואטסאפ פרטיות.
+          אין התחייבויות ממתינות. הן מגיעות מסיכומי פגישות, מוואטסאפ פרטי, מאימייל ומהקלטות.
         </div>
       ) : (
         <ul className="space-y-2" data-testid="commitments-list">
@@ -109,9 +113,10 @@ export default function CommitmentsPage() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 text-xs text-[#5a688c]">
+                    <CommitmentSourceBadge source={c.source} />
                     <span className="text-[#b8c4dc] font-medium">{c.personName}</span>
                     <span>· {c.owner === 'me' ? 'עליי' : 'עליו/ה'}</span>
-                    <span>· {SOURCE_LABELS[c.source] ?? c.source}</span>
+                    {c.source === 'voice' && <span>· מהקלטה ב-{createdLabel(c.createdAt)}</span>}
                     {c.dueInferred && <span className="tabular-nums">· עד {dateLabel(c.dueInferred)}</span>}
                   </div>
                   <p className="text-[#eef3fb] mt-0.5">{c.content}</p>
@@ -119,6 +124,17 @@ export default function CommitmentsPage() {
                     <p className="text-xs text-[#97a4c2] mt-1 line-clamp-2" style={{ borderInlineStart: '2px solid #223052', paddingInlineStart: 8 }}>
                       {c.sourceSnippet}
                     </p>
+                  )}
+                  {c.sourceUrl && (
+                    <a
+                      href={c.sourceUrl}
+                      {...(c.source === 'email' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                      className="btn-ghost text-[11px] mt-1 inline-flex items-center gap-1"
+                      data-testid="commitment-source-link"
+                    >
+                      {c.source === 'email' && <ExternalLink className="w-3 h-3" aria-hidden />}
+                      {SOURCE_LINK_LABELS[c.source] ?? 'למקור'}
+                    </a>
                   )}
                 </div>
                 {editingId !== c.id && (

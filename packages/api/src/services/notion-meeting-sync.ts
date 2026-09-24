@@ -196,6 +196,9 @@ export async function triggerAnalysisIfNeeded(
         })
         .where(eq(meetingAnalyses.id, analysisId))
 
+      const { proposeCommitmentsFromAnalysis } = await import('./commitments')
+      await proposeCommitmentsFromAnalysis(db, analysisId)
+
       // Note: WhatsApp notification is sent by the cron job that polls for new analyses
       // (apps/web/src/app/api/cron/transcript-analysis/route.ts)
     } catch (err) {

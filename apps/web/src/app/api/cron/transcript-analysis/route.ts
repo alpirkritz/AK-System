@@ -3,7 +3,7 @@ import { getDb, meetings, meetingNotes, meetingAnalyses } from '@ak-system/datab
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { formatAnalysisMessage } from '@/lib/analysis-message-formatter'
-import { analyzeTranscript } from '@ak-system/api'
+import { analyzeTranscript, proposeCommitmentsFromAnalysis } from '@ak-system/api'
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
 
@@ -142,6 +142,10 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
             updatedAt: now.toISOString(),
           })
           .where(eq(meetingAnalyses.id, analysisId))
+
+        await proposeCommitmentsFromAnalysis(db, analysisId).catch((err) => {
+          console.warn('[cron/transcript-analysis] commitments not proposed:', err)
+        })
 
         // Format and send message
         const message = formatAnalysisMessage(result, meeting.meetingTitle, meeting.meetingDate)

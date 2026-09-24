@@ -2,7 +2,7 @@
 
 **Stack:** `next-trpc-monorepo`  
 **Slug:** `email-voice-commitments-hugo`  
-**Status:** Draft  
+**Status:** Implemented (see Implementation Decisions; native mobile recorder pending)  
 **Created:** 2026-09-24  
 **Depends on:** `person-context-hierarchy`, `whatsapp-dm-capture` (person card and commitments table must exist first)
 
@@ -212,3 +212,54 @@ None blocking. Default behavior:
 - Voice transcription uses Gemini audio API (same as meeting transcripts).
 - Commitment detection from email uses the same heuristic as WhatsApp (action verbs + LLM for ambiguous cases).
 - Audio files are stored locally on the server (`apps/web/data/voice/`) or in S3 if configured; the spec does not mandate a specific storage backend.
+
+## Implementation Decisions
+
+Recorded before implementation (2026-09-24). Where these differ from the sections above, these win.
+
+### Email
+
+- **Who is matched.** `people.email` plus `person_external_ids` rows with provider `email`, for people with `status = 'confirmed'`. The owner's own contact row is skipped.
+- **Query.** The Gmail search `newer_than:30d (from:a OR to:a OR cc:a …)` runs in batches of 15 addresses per connected account, via `messages.list` + `messages.get?format=metadata` (From, To, Cc, Subject, Date + Gmail `snippet`). `searchGmailMessages` fetches full bodies and has no `To` header, so the sync gets its own metadata fetcher in `services/email-sync.ts`. It is injectable, so tests never hit Gmail.
+- **One row per (thread, person).** `gmailThreadId` stores `accountEmail::threadId`. The unique index is `(gmail_thread_id, person_id)`, because one thread with two known people belongs on both cards. The row keeps the latest message's subject, from, to, date and snippet. "New messages" means the latest message date moved forward.
+- **Gmail link.** `https://mail.google.com/mail/u/?authuser={accountEmail}#all/{threadId}` opens the right account without knowing its index.
+- **Commitments from email.** The Hebrew verb heuristic from WhatsApp runs on the snippet of each new or updated message, plus a few English patterns ("I'll send", "can you send"). `fromMe` is true when From is the account itself. The source is `email` and `sourceId` is the thread key. No LLM call per email.
+- **Scope.** `gmail.readonly` is already in the Google OAuth scopes. An account without it is skipped and reported in the cron result, not failed.
+- **Cron.** `/api/cron/email-sync` runs hourly (`crontab.example` + `local-cron.mjs`).
+
+### Voice
+
+- **Every recording gets a meeting row.** `meeting_analyses.meeting_id` is NOT NULL, and warmth, open loops and the person card all read analyses through meetings. So:
+  - A recording uploaded with a `meetingId` analyzes into that meeting.
+  - Otherwise a meeting is created with `source = 'voice'` and title `שיחה מוקלטת`, dated at the recording's start, and the recording's people become its `meeting_people`.
+  - Attaching later to an existing meeting moves the analysis and people there and deletes the placeholder meeting, but only if it is a `source='voice'` meeting created for this recording.
+- **Analysis.** `meeting_analyses` rows get `source = 'voice'`, `audioPath`, and `consentConfirmedAt`.
+- **Transcription.** Gemini (`gemini-2.5-flash`) with inline audio, which caps uploads at 19 MB (about 40 minutes of mono AAC). Larger files are rejected with a clear message. Then `analyzeTranscript` runs; it needs ≥100 characters.
+- **Storage.** `VOICE_STORAGE_DIR`, defaulting to `dirname(DATABASE_PATH)/voice`. On EC2 that is `/data/voice` on the `web-data` volume, so recordings survive redeploys. Audio is served back only through the authenticated `GET /api/voice/{id}/audio`.
+- **Processing.**
+  - The upload returns as soon as the file is saved; processing runs in the background on the long-running Node server.
+  - `status` is `uploaded` | `processing` | `completed` | `failed`, plus an `error` column.
+  - `voice.retry` re-runs a failed recording.
+- **Consent.** Required on every upload. The server rejects uploads without `consentConfirmed=true` and stores `consentConfirmedAt`.
+- **Recorders.**
+  - Web: a browser recorder (MediaRecorder) at `/voice`, with the same consent, timer, pause and stop.
+  - Mobile: the person screen shows recordings (read-only) in this pass. A native recorder needs `expo-audio`, which is not installed, and `apps/mobile/package.json` plus the lockfile carry an unrelated in-progress Expo upgrade. Adding it waits for the owner's go-ahead and a new APK build.
+- **Voice table columns added to the spec.** `status`, `error`, `mimeType`, `sizeBytes`, and `createdMeeting` (the placeholder meeting id, when one was created).
+
+### Commitments
+
+- **Source enum.** `voice` joins `COMMITMENT_SOURCES`.
+- **From analyses.** Analyses (Notion transcripts and voice) propose commitments from their action items when they complete. This covers the cron, `meetings.analyzeTranscript` and voice.
+  - An item whose owner matches a confirmed attendee becomes `owner = 'them'` on that person.
+  - An item owned by me (the owner name, or no owner) becomes `owner = 'me'`, attached to the only other confirmed attendee. With several attendees, owner-less items stay on the meeting's analysis and are not guessed onto a person.
+  - `sourceId` is the meeting id, and dedupe works per person by content, as before.
+- **No `tasks.notes` column.** The link lives on the commitment instead: `commitments.listProposed` and `listForPerson` return a computed `sourceUrl`, which is the meeting page for analysis or voice, and Gmail for email. Accepting an analysis or voice commitment sets `tasks.meetingId` on the new task, so the task links back to the conversation.
+- **Badges on /commitments.** Notion (meeting_analysis), WhatsApp (dm/group), Email, הקלטה (voice).
+
+### Hugo
+
+- **Morning brief.** `insights.commitmentsForDate({date})` returns:
+  - the proposed commitments of confirmed attendees of that day's meetings, grouped by person;
+  - my other proposed commitments (`owner = 'me'`, up to 5, newest first, excluding those already listed).
+  - The formatter adds the sections "התחייבויות פתוחות:" and "זכור לטפל:" after the events.
+- **Meeting prep.** `meetingPrepRelationship` adds up to 3 proposed commitments per attendee (circle or people) with the source label: מהאנליזה / מהוואטסאפ / מאימייל / מהקלטה. It uses the commitment text only, never the raw snippet.

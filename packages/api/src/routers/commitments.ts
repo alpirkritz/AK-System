@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { and, desc, eq } from 'drizzle-orm'
-import { commitments, people, projectPeople, COMMITMENT_STATUSES } from '@ak-system/database'
-import { router, protectedProcedure } from '../trpc'
+import { commitments, meetings, people, projectPeople, COMMITMENT_STATUSES } from '@ak-system/database'
+import { router, protectedProcedure, type Context } from '../trpc'
 import { tasksRouter } from './tasks'
+import { commitmentSourceUrl } from '../services/commitments'
 
 const withPerson = {
   id: commitments.id,
@@ -21,6 +22,15 @@ const withPerson = {
   createdAt: commitments.createdAt,
 }
 
+async function existingMeetingId(db: Context['db'], id: string): Promise<string | undefined> {
+  const [m] = await db.select({ id: meetings.id }).from(meetings).where(eq(meetings.id, id))
+  return m?.id
+}
+
+function withSourceUrl<T extends { source: string; sourceId: string | null }>(rows: T[]) {
+  return rows.map((r) => ({ ...r, sourceUrl: commitmentSourceUrl(r) }))
+}
+
 export const commitmentsRouter = router({
   listProposed: protectedProcedure
     .input(z.object({ owner: z.enum(['me', 'them', 'all']).default('all') }).optional())
@@ -35,6 +45,7 @@ export const commitmentsRouter = router({
         .innerJoin(people, eq(people.id, commitments.personId))
         .where(where)
         .orderBy(desc(commitments.createdAt))
+        .then(withSourceUrl)
     }),
 
   listForPerson: protectedProcedure
@@ -49,6 +60,7 @@ export const commitmentsRouter = router({
         .innerJoin(people, eq(people.id, commitments.personId))
         .where(where)
         .orderBy(desc(commitments.createdAt))
+        .then(withSourceUrl)
     }),
 
   /** Turns a proposed commitment into a normal task (same path as any new task, incl. Notion). */
@@ -80,6 +92,7 @@ export const commitmentsRouter = router({
         projectId,
         workspaceId: input.taskWorkspaceId ?? null,
         ...(c.owner === 'them' ? { assigneeId: c.personId } : {}),
+        ...((c.source === 'meeting_analysis' || c.source === 'voice') && c.sourceId ? { meetingId: await existingMeetingId(ctx.db, c.sourceId) } : {}),
       })
       const taskId = created.id
       await ctx.db

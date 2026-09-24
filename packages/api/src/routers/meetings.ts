@@ -859,6 +859,9 @@ export const meetingsRouter = router({
           })
           .where(eq(meetingAnalyses.id, analysisId))
 
+        const { proposeCommitmentsFromAnalysis } = await import('../services/commitments')
+        await proposeCommitmentsFromAnalysis(ctx.db, analysisId)
+
         return { analysisId }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'

@@ -102,12 +102,17 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       return []
     })
 
+    const commitments = await caller.insights.commitmentsForDate({ date: today }).catch((err) => {
+      console.warn('[cron/morning-briefing] commitments unavailable:', err)
+      return undefined
+    })
+
     const text = formatMorningBriefingContext(
       today,
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
-      { includeDueTasks, coolingFlags },
+      { includeDueTasks, coolingFlags, commitments },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

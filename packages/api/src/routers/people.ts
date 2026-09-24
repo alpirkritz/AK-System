@@ -19,6 +19,8 @@ import {
   whatsappDmMessages,
   whatsappDmSummaries,
   commitments,
+  personEmailThreads,
+  voiceRecordingPeople,
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
@@ -482,6 +484,24 @@ export const peopleRouter = router({
       await ctx.db.update(whatsappDmMessages).set({ personId: input.toId }).where(eq(whatsappDmMessages.personId, input.fromId))
       await ctx.db.update(whatsappDmSummaries).set({ personId: input.toId }).where(eq(whatsappDmSummaries.personId, input.fromId))
       await ctx.db.update(commitments).set({ personId: input.toId }).where(eq(commitments.personId, input.fromId))
+      const keptThreads = (
+        await ctx.db.select({ t: personEmailThreads.gmailThreadId }).from(personEmailThreads).where(eq(personEmailThreads.personId, input.toId))
+      ).map((r) => r.t)
+      if (keptThreads.length > 0) {
+        await ctx.db
+          .delete(personEmailThreads)
+          .where(and(eq(personEmailThreads.personId, input.fromId), inArray(personEmailThreads.gmailThreadId, keptThreads)))
+      }
+      await ctx.db.update(personEmailThreads).set({ personId: input.toId }).where(eq(personEmailThreads.personId, input.fromId))
+      const keptRecordings = (
+        await ctx.db.select({ r: voiceRecordingPeople.recordingId }).from(voiceRecordingPeople).where(eq(voiceRecordingPeople.personId, input.toId))
+      ).map((r) => r.r)
+      if (keptRecordings.length > 0) {
+        await ctx.db
+          .delete(voiceRecordingPeople)
+          .where(and(eq(voiceRecordingPeople.personId, input.fromId), inArray(voiceRecordingPeople.recordingId, keptRecordings)))
+      }
+      await ctx.db.update(voiceRecordingPeople).set({ personId: input.toId }).where(eq(voiceRecordingPeople.personId, input.fromId))
 
       // Like Google Contacts: the kept record inherits fields it was missing.
       const [from] = await ctx.db.select().from(people).where(eq(people.id, input.fromId)).limit(1)

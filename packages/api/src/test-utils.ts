@@ -20,6 +20,9 @@ import {
   commitments,
   whatsappDmSummaries,
   whatsappDmMessages,
+  personEmailThreads,
+  voiceRecordingPeople,
+  voiceRecordings,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -44,6 +47,9 @@ export async function createTestCaller() {
 export async function resetDb() {
   const db = getTestDb()
   await db.delete(commitments)
+  await db.delete(personEmailThreads)
+  await db.delete(voiceRecordingPeople)
+  await db.delete(voiceRecordings)
   await db.delete(whatsappDmSummaries)
   await db.delete(whatsappDmMessages)
   await db.delete(meetingRosterExceptions)

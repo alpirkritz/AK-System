@@ -2,11 +2,24 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { MessageCircle, Users, CheckSquare, FileText, Link2, X, Pin, Handshake } from 'lucide-react'
+import { MessageCircle, Users, CheckSquare, FileText, Link2, X, Pin, Handshake, Mail, Mic, ExternalLink, Play } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
+import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
 
 const SINCE_SHOWN = 5
+
+function durationLabel(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const VOICE_STATUS: Record<string, string> = {
+  uploaded: 'ממתין לעיבוד',
+  processing: 'מתמלל ומנתח…',
+  failed: 'הניתוח נכשל',
+}
 
 function tsLabel(ts: number): string {
   return format(new Date(ts), 'dd/MM HH:mm')
@@ -75,13 +88,14 @@ function SubHeading({ icon: Icon, children }: { icon: typeof Users; children: Re
 /**
  * Person card, ordered: recommendation → open loops → commitments to confirm → 1:1 summary →
  * WhatsApp since the last Notion meeting (1:1 and groups) → Notion meetings → older WhatsApp
- * (collapsed) → circles → capture and sender settings.
+ * (collapsed) → email threads → voice recordings → circles → capture and sender settings.
  */
 export function PersonContextCard({ personId }: { personId: string }) {
   const utils = trpc.useUtils()
   const { data: ctx } = trpc.insights.personContext.useQuery({ personId })
   const [showAllSince, setShowAllSince] = useState(false)
   const [linking, setLinking] = useState(false)
+  const [playing, setPlaying] = useState<string | null>(null)
   const [senderQuery, setSenderQuery] = useState('')
   const senders = trpc.insights.whatsappSenders.useQuery({ query: senderQuery }, { enabled: linking })
   const invalidate = () => {
@@ -136,7 +150,8 @@ export function PersonContextCard({ personId }: { personId: string }) {
             <SubHeading icon={Handshake}>התחייבויות לאישור ({ctx.proposedCommitments.length})</SubHeading>
             <ul className="space-y-1">
               {ctx.proposedCommitments.slice(0, 3).map((c) => (
-                <li key={c.id} className="flex gap-2 text-[#b8c4dc]">
+                <li key={c.id} className="flex items-baseline gap-2 text-[#b8c4dc]">
+                  <CommitmentSourceBadge source={c.source} />
                   <span className="text-[#5a688c] shrink-0">{c.owner === 'me' ? 'עליי' : 'עליו/ה'}</span>
                   <span className="min-w-0">{c.content}</span>
                   {c.dueInferred && <span className="text-[#5a688c] shrink-0 tabular-nums">{dateLabel(c.dueInferred)}</span>}
@@ -197,6 +212,70 @@ export function PersonContextCard({ personId }: { personId: string }) {
               ))}
             </ul>
           </details>
+        )}
+
+        {ctx.emailThreads.length > 0 && (
+          <div data-testid="person-email-threads">
+            <SubHeading icon={Mail}>אימיילים</SubHeading>
+            <ul className="space-y-1.5">
+              {ctx.emailThreads.map((t) => (
+                <li key={t.id} className="text-[#b8c4dc]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[#5a688c] tabular-nums shrink-0">{dateLabel(t.date.slice(0, 10))}</span>
+                    <span className="truncate font-medium">{t.subject}</span>
+                    {t.messageCount > 1 && <span className="text-[#5a688c] shrink-0">· {t.messageCount}</span>}
+                    {t.gmailUrl && (
+                      <a
+                        href={t.gmailUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ms-auto shrink-0 rounded p-0.5 text-[#5a688c] hover:text-[#eef3fb] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547]"
+                        aria-label={`פתח ב-Gmail: ${t.subject}`}
+                        title="פתח ב-Gmail"
+                      >
+                        <ExternalLink className="w-3 h-3" aria-hidden />
+                      </a>
+                    )}
+                  </div>
+                  {t.snippet && <p className="leading-relaxed line-clamp-2 text-[#97a4c2]">{t.snippet}</p>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {ctx.voiceRecordings.length > 0 && (
+          <div data-testid="person-voice-recordings">
+            <SubHeading icon={Mic}>הקלטות קוליות</SubHeading>
+            <ul className="space-y-1.5">
+              {ctx.voiceRecordings.map((r) => (
+                <li key={r.id} className="text-[#b8c4dc]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[#5a688c] tabular-nums shrink-0">{tsLabel(new Date(r.createdAt).getTime())}</span>
+                    <span className="text-[#5a688c] tabular-nums shrink-0">· {durationLabel(r.duration)}</span>
+                    <span className="truncate">{r.status === 'completed' ? r.topic ?? r.meetingTitle : VOICE_STATUS[r.status] ?? r.status}</span>
+                    <span className="ms-auto flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-[#5a688c] hover:text-[#eef3fb] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547]"
+                        aria-label={playing === r.id ? 'הסתר נגן' : 'השמע הקלטה'}
+                        aria-expanded={playing === r.id}
+                        onClick={() => setPlaying((id) => (id === r.id ? null : r.id))}
+                      >
+                        <Play className="w-3 h-3" aria-hidden />
+                      </button>
+                      {r.meetingId && r.status === 'completed' && (
+                        <a href={`/meetings/${r.meetingId}`} className="btn-ghost text-[11px]">לסיכום</a>
+                      )}
+                    </span>
+                  </div>
+                  {playing === r.id && (
+                    <audio controls autoPlay preload="none" src={`/api/voice/${r.id}/audio`} className="w-full h-8 mt-1" />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {ctx.circles.length > 0 && (
@@ -268,6 +347,10 @@ export function PersonContextCard({ personId }: { personId: string }) {
               <Link2 className="w-3 h-3" aria-hidden />
               קשר שולח מוואטסאפ
             </button>
+            <a href={`/voice?person=${personId}`} className="btn-ghost text-[11px] inline-flex items-center gap-1" data-testid="record-conversation-link">
+              <Mic className="w-3 h-3" aria-hidden />
+              הקלט שיחה
+            </a>
           </div>
           {linking && (
             <div className="space-y-1.5">

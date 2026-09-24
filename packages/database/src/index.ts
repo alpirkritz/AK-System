@@ -11,7 +11,7 @@ function usePostgres(): boolean {
   return Boolean(process.env.DATABASE_URL)
 }
 
-function getDbPath(): string {
+export function getDbPath(): string {
   if (process.env.DATABASE_PATH) {
     const p = process.env.DATABASE_PATH
     return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p)
@@ -188,6 +188,52 @@ const WHATSAPP_DM_TABLES = [
   'CREATE INDEX IF NOT EXISTS idx_commitments_person_id ON commitments(person_id)',
   'CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)',
   'CREATE INDEX IF NOT EXISTS idx_commitments_task_id ON commitments(task_id)',
+]
+
+const EMAIL_VOICE_TABLES = [
+  `CREATE TABLE IF NOT EXISTS person_email_threads (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    gmail_thread_id TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    "from" TEXT NOT NULL,
+    "to" TEXT NOT NULL,
+    date TEXT NOT NULL,
+    snippet TEXT,
+    message_count INTEGER DEFAULT 1 NOT NULL,
+    last_synced_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_person_email_threads_person_id ON person_email_threads(person_id)',
+  'CREATE INDEX IF NOT EXISTS idx_person_email_threads_date ON person_email_threads(date)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_email_threads_thread_person ON person_email_threads(gmail_thread_id, person_id)',
+  `CREATE TABLE IF NOT EXISTS voice_recordings (
+    id TEXT PRIMARY KEY NOT NULL,
+    audio_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    transcript_text TEXT,
+    analysis_id TEXT REFERENCES meeting_analyses(id) ON DELETE SET NULL,
+    meeting_id TEXT REFERENCES meetings(id) ON DELETE SET NULL,
+    created_meeting_id TEXT,
+    duration INTEGER NOT NULL,
+    status TEXT DEFAULT 'uploaded' NOT NULL,
+    error TEXT,
+    consent_confirmed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_voice_recordings_meeting_id ON voice_recordings(meeting_id)',
+  'CREATE INDEX IF NOT EXISTS idx_voice_recordings_analysis_id ON voice_recordings(analysis_id)',
+  'CREATE INDEX IF NOT EXISTS idx_voice_recordings_created_at ON voice_recordings(created_at)',
+  `CREATE TABLE IF NOT EXISTS voice_recording_people (
+    recording_id TEXT NOT NULL REFERENCES voice_recordings(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_recording_id ON voice_recording_people(recording_id)',
+  'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_person_id ON voice_recording_people(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_recording_people_pair ON voice_recording_people(recording_id, person_id)',
 ]
 
 const PEOPLE_COLUMNS = [
@@ -1120,7 +1166,7 @@ export function getDb() {
   for (const sql of AGENT_RUNTIME_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
-  for (const sql of WHATSAPP_DM_TABLES) {
+  for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
@@ -1160,6 +1206,10 @@ export const commitments = schema.commitments
 export const COMMITMENT_STATUSES = schemaPg.COMMITMENT_STATUSES
 export const COMMITMENT_SOURCES = schemaPg.COMMITMENT_SOURCES
 export const COMMITMENT_OWNERS = schemaPg.COMMITMENT_OWNERS
+export const personEmailThreads = schema.personEmailThreads
+export const voiceRecordings = schema.voiceRecordings
+export const voiceRecordingPeople = schema.voiceRecordingPeople
+export const VOICE_RECORDING_STATUSES = schemaPg.VOICE_RECORDING_STATUSES
 export const SERIES_ROSTER_SOURCES = schemaPg.SERIES_ROSTER_SOURCES
 export const ROSTER_EXCEPTION_KINDS = schemaPg.ROSTER_EXCEPTION_KINDS
 export const tasks = schema.tasks
@@ -1261,6 +1311,9 @@ export type Commitment = typeof schemaPg.commitments.$inferSelect
 export type CommitmentStatus = (typeof schemaPg.COMMITMENT_STATUSES)[number]
 export type CommitmentSource = (typeof schemaPg.COMMITMENT_SOURCES)[number]
 export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
+export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect
+export type VoiceRecording = typeof schemaPg.voiceRecordings.$inferSelect
+export type VoiceRecordingStatus = (typeof schemaPg.VOICE_RECORDING_STATUSES)[number]
 export type SeriesRosterSource = (typeof schemaPg.SERIES_ROSTER_SOURCES)[number]
 export type RosterExceptionKind = (typeof schemaPg.ROSTER_EXCEPTION_KINDS)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect

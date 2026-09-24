@@ -1723,3 +1723,20 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored [x] Capture opt-in, enforced in bridge and ingest [x] No raw chat text in meeting prep
 - **Tests:** API 875/875 · bridge 10/10 · new e2e 2/2 · lint clean · web build pass
 - **Performance notes:** Fixed a drizzle push drift (bootstrap `DEFAULT 0` / missing `NOT NULL` / column order) that broke `pnpm test`; local dev DB backed up to `/tmp` and repaired (new empty columns only).
+
+## 2026-09-24 · Email archive + voice capture + Hugo commitments
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md` (Implementation Decisions section)
+- **Actions:**
+  - Hourly Gmail archive: metadata + snippet per (thread, known person), heuristic email commitments, Gmail links on the person card.
+  - Consented voice upload: Gemini transcription → `analyzeTranscript` into the given meeting or a placeholder `source='voice'` meeting. Attach/move to a real meeting. Web recorder `/voice`.
+  - Commitments proposed from every completed analysis.
+  - Source badges and links on `/commitments`.
+  - Morning brief sections "התחייבויות פתוחות" and "זכור לטפל"; meeting prep commitment lines with source labels.
+  - Mobile person screen shows emails and recordings (read-only).
+- **Outputs:** `reports/email-voice-commitments-hugo.md` (APPROVED WITH NITS), `reports/qa-email-voice-commitments-hugo.md`
+- **Production:** Back up `/data/ak_system.sqlite`, `pnpm deploy:ec2` (tables via `EMAIL_VOICE_TABLES` bootstrap; audio in `/data/voice`), reinstall EC2 crontab (`email-sync` hourly).
+- **Compliance:** [x] Spec-first [x] tRPC client only (upload is multipart by design) [x] Both schemas mirrored [x] Consent enforced server-side [x] Email bodies not stored [x] No raw snippets in meeting prep
+- **Tests:** API 887/887 · web 233/233 · new e2e 4/4 (suite 82 pass / 23 fail = 22 baseline + flaky agent-config) · lint clean · web build pass · mobile tsc pass
+- **Performance notes:** Bootstrap DDL verified against drizzle ("No changes detected"). Native mobile recorder deferred: needs `expo-audio`, which would touch the in-progress Expo upgrade in `apps/mobile/package.json`.

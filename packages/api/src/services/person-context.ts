@@ -11,6 +11,7 @@ import {
   meetings,
   people,
   commitments,
+  personEmailThreads,
   whatsappDmMessages,
   whatsappDmSummaries,
   whatsappGroups,
@@ -24,6 +25,8 @@ import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { circlesForPerson, getCircle, occurrenceAttendance, openLoopsForMeetings, type OpenLoop } from './series-roster'
 import { personWarmth, seriesWarmth, type WarmthResult } from './warmth'
 import { dmJidsForPerson } from './whatsapp-dm'
+import { commitmentSourceUrl, gmailThreadUrl, prepCommitmentLines } from './commitments'
+import { listVoiceRecordings, type VoiceRecordingSummary } from './voice'
 
 type Db = ReturnType<typeof getDb>
 
@@ -46,6 +49,18 @@ export interface DmSummarySnippet {
   messageCount: number
 }
 
+export interface EmailThreadSnippet {
+  id: string
+  subject: string
+  from: string
+  date: string
+  snippet: string | null
+  messageCount: number
+  gmailUrl: string | null
+}
+
+export type PersonCommitment = Commitment & { sourceUrl: string | null }
+
 export interface CircleSummary {
   seriesId: string
   seriesTitle: string
@@ -65,11 +80,15 @@ export interface PersonContextExtras {
   /** Has a phone or a manual link, so a 1:1 chat can be recognised */
   captureReachable: boolean
   latestDmSummary: DmSummarySnippet | null
-  proposedCommitments: Commitment[]
+  proposedCommitments: PersonCommitment[]
+  emailThreads: EmailThreadSnippet[]
+  voiceRecordings: VoiceRecordingSummary[]
 }
 
 const SINCE_LIMIT = 20
 const OLDER_LIMIT = 10
+const EMAIL_LIMIT = 5
+const VOICE_LIMIT = 3
 
 /**
  * Sender JIDs that belong to this person: manual links plus phone matches on user JIDs.
@@ -244,6 +263,22 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     .where(and(eq(commitments.personId, personId), eq(commitments.status, 'proposed')))
     .orderBy(desc(commitments.createdAt))
 
+  const emailRows = await db
+    .select({
+      id: personEmailThreads.id,
+      gmailThreadId: personEmailThreads.gmailThreadId,
+      subject: personEmailThreads.subject,
+      from: personEmailThreads.from,
+      date: personEmailThreads.date,
+      snippet: personEmailThreads.snippet,
+      messageCount: personEmailThreads.messageCount,
+    })
+    .from(personEmailThreads)
+    .where(eq(personEmailThreads.personId, personId))
+    .orderBy(desc(personEmailThreads.date))
+    .limit(EMAIL_LIMIT)
+  const { recordings: voiceRecordings } = await listVoiceRecordings(db, { personId, limit: VOICE_LIMIT })
+
   const circles = await circlesForPerson(db, personId)
   const warmth = await personWarmth(db, personId)
 
@@ -265,7 +300,9 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     captureWhatsapp: !!person.captureWhatsapp,
     captureReachable: (await dmJidsForPerson(db, personId, person.phone)).length > 0,
     latestDmSummary: latestSummary ?? null,
-    proposedCommitments,
+    proposedCommitments: proposedCommitments.map((c) => ({ ...c, sourceUrl: commitmentSourceUrl(c) })),
+    emailThreads: emailRows.map(({ gmailThreadId, ...t }) => ({ ...t, gmailUrl: gmailThreadUrl(gmailThreadId) })),
+    voiceRecordings,
   }
 }
 
@@ -279,6 +316,18 @@ export interface MeetingPrepRelationship {
 
 const PREP_MAX_PEOPLE = 5
 const PREP_MAX_LOOPS = 5
+
+/** Open commitments for a circle meeting's confirmed attendees (first few people only). */
+async function attendeeCommitmentLines(db: Db, meetingId: string): Promise<string[]> {
+  const attendees = await db
+    .select({ id: people.id, name: people.name })
+    .from(meetingPeople)
+    .innerJoin(people, eq(people.id, meetingPeople.personId))
+    .where(and(eq(meetingPeople.meetingId, meetingId), eq(people.status, 'confirmed')))
+  const lines: string[] = []
+  for (const p of attendees.slice(0, PREP_MAX_PEOPLE)) lines.push(...(await prepCommitmentLines(db, p.id, p.name, 2)))
+  return lines
+}
 
 /**
  * Structured relationship lines for meeting prep: circle recommendation for rostered series,
@@ -307,6 +356,7 @@ export async function meetingPrepRelationship(db: Db, meetingId: string): Promis
       if (attendance && attendance.guests.length > 0) {
         lines.push(`אורחים היום: ${attendance.guests.map((g) => g.displayName).join(', ')}`)
       }
+      lines.push(...(await attendeeCommitmentLines(db, meetingId)))
       if (circle.warmth.trend === 'cooling') lines.push('שים לב: אווירת הפגישה מתדרדרת לפי הסיכומים האחרונים')
       return {
         kind: 'circle',
@@ -339,6 +389,7 @@ export async function meetingPrepRelationship(db: Db, meetingId: string): Promis
     for (const loop of ctx.openLoopsForPerson.slice(0, 3)) lines.push(`${p.name} · משימה פתוחה: ${loop.content}`)
     if (ctx.circles.length > 0) lines.push(`${p.name} · חוגים: ${ctx.circles.map((c) => c.seriesTitle).join(', ')}`)
     if (ctx.warmth.trend === 'cooling') lines.push(`שים לב: הקשר עם ${p.name} נראה מתקרר.`)
+    lines.push(...(await prepCommitmentLines(db, p.personId, p.name)))
   }
   return { kind: lines.length > 0 ? 'people' : 'none', lines, circleTitle: null, rosterCount: null }
 }
