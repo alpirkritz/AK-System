@@ -54,7 +54,7 @@ function geminiGenerationConfig(): GenerationConfig {
   return {}
 }
 
-function getModel() {
+export function getModel() {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY is not set')
   const genAI = new GoogleGenerativeAI(key)

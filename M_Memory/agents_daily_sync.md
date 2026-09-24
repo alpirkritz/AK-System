@@ -1712,3 +1712,14 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - **Production:** New column `user_settings.duplicates_notified_pairs` applied by bootstrap. Reinstall EC2 crontab for `people-duplicates`.
 - **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored
 - **Tests:** API 860/860 · web lib 29/29 · lint clean · web build pass
+
+## 2026-09-24 · WhatsApp 1:1 capture + commitments queue
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/whatsapp-dm-capture.md` (Implementation Decisions section)
+- **Actions:** Opt-in 1:1 capture per person (bridge allowlist + ingest re-check + capture start stamp). 1:1 messages merged into the person card with a "פרטי" badge and pin. Nightly DM summary cron proposes commitments. New `commitments` router and `/commitments` page (web + mobile), accept → `tasks.create`. DM retention: text expires at 90 days unless pinned; pinned group messages kept.
+- **Outputs:** `reports/whatsapp-dm-capture.md` (APPROVED WITH NITS), `reports/qa-whatsapp-dm-capture.md`
+- **Production:** Back up `/data/ak_system.sqlite`, deploy web + bridge (`--profile whatsapp`), reinstall EC2 crontab (`whatsapp-dm-summary`, `people-duplicates`).
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored [x] Capture opt-in, enforced in bridge and ingest [x] No raw chat text in meeting prep
+- **Tests:** API 875/875 · bridge 10/10 · new e2e 2/2 · lint clean · web build pass
+- **Performance notes:** Fixed a drizzle push drift (bootstrap `DEFAULT 0` / missing `NOT NULL` / column order) that broke `pnpm test`; local dev DB backed up to `/tmp` and repaired (new empty columns only).

@@ -17,6 +17,7 @@ type MoreEntry = {
  */
 const AREAS: MoreEntry[] = [
   { icon: '👥', label: 'אנשים', route: '/people' as Href },
+  { icon: '🤝', label: 'התחייבויות', route: '/commitments' as Href },
   { icon: '📁', label: 'פרויקטים', route: '/projects' as Href },
   { icon: '📅', label: 'יומן', route: '/calendar' as Href },
   { icon: '💰', label: 'פיננסים', route: '/finance' as Href },

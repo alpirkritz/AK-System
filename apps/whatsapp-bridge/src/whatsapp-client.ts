@@ -26,6 +26,7 @@ import {
   requeuePersistMessages,
   type BufferedGroupMessage,
 } from './group-buffer.js'
+import { drainDmQueue, enqueueDmMessage, requeueDmMessages, resolveCapturedDm } from './dm-capture.js'
 
 export interface BridgeStatus {
   connected: boolean
@@ -190,8 +191,56 @@ function resolveMessagesIngestUrl(): string {
   return config.akWebhookUrl.replace(/\/webhook\/?$/, '/messages/ingest')
 }
 
-/** Flush queued watched-group messages to the AK database (batched, per group). */
+function resolveDmIngestUrl(): string {
+  if (!config.akWebhookUrl) return ''
+  return config.akWebhookUrl.replace(/\/webhook\/?$/, '/dm/ingest')
+}
+
+function capturedDmFor(remoteJid: string): { jid: string; altJid: string | null } | null {
+  return resolveCapturedDm(remoteJid, Object.values(chatStore.contacts), isSelfChatJid)
+}
+
+/** Queue an allowlisted 1:1 message (sent or received) for the AK database. */
+function captureDmMessage(msg: proto.IWebMessageInfo, target: { jid: string; altJid: string | null }): void {
+  const text = extractText(msg.message).trim()
+  const id = msg.key.id
+  if (!text || !id) return
+  enqueueDmMessage({
+    id,
+    jid: target.jid,
+    altJid: target.altJid,
+    fromMe: !!msg.key.fromMe,
+    text,
+    timestamp: messageTimestampMs(msg) ?? Date.now(),
+  })
+}
+
+async function flushDmQueue(): Promise<void> {
+  const url = resolveDmIngestUrl()
+  if (!url) return
+  const messages = drainDmQueue()
+  if (messages.length === 0) return
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.bridgeSecret}` },
+      body: JSON.stringify({ messages }),
+    })
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'DM ingest failed — requeueing')
+      requeueDmMessages(messages)
+    } else {
+      logger.info({ count: messages.length }, 'Flushed 1:1 messages to AK')
+    }
+  } catch (err) {
+    logger.warn({ err }, 'DM ingest error — requeueing')
+    requeueDmMessages(messages)
+  }
+}
+
+/** Flush queued watched-group and allowlisted 1:1 messages to the AK database. */
 export async function flushPersistQueues(): Promise<void> {
+  await flushDmQueue()
   const ingestUrl = resolveMessagesIngestUrl()
   if (!ingestUrl) return
   const batches = drainPersistQueues()
@@ -239,6 +288,12 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
   if (!msg.key.remoteJid) return
 
   const remoteJid = msg.key.remoteJid
+
+  const capturedDm = capturedDmFor(remoteJid)
+  if (capturedDm) {
+    captureDmMessage(msg, capturedDm)
+    return
+  }
 
   // Never process or reply to anyone except explicit self-chat JIDs
   if (!isSelfChatJid(remoteJid)) {
@@ -405,7 +460,8 @@ export async function startWhatsAppClient(): Promise<void> {
     for (const msg of messages) {
       const isGroup = msg.key.remoteJid?.endsWith('@g.us')
       // Self-chat: only live notifications — append replays old bot replies and causes loops.
-      if (!isGroup && type !== 'notify') continue
+      // Allowlisted 1:1 chats take both: messages sent from the phone can arrive as append.
+      if (!isGroup && type !== 'notify' && !capturedDmFor(msg.key.remoteJid ?? '')) continue
       try {
         await handleInboundMessage(msg)
       } catch (err) {

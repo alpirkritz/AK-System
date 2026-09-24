@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
+import { pushDmAllowlist, summarizeDmChats } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
-import { whatsappLabels, whatsappGroups, whatsappMessages, chatMessages, agentCache } from '@ak-system/database'
-import { eq, asc, and, gte, lte, inArray } from 'drizzle-orm'
+import { whatsappLabels, whatsappGroups, whatsappMessages, whatsappDmMessages, chatMessages, agentCache } from '@ak-system/database'
+import { eq, asc, desc, and, gte, lte, inArray } from 'drizzle-orm'
 import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
 import { WHATSAPP_WINDOWS, resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import {
@@ -338,7 +340,8 @@ export const whatsappRouter = router({
       }
       const groups = await buildBridgePayload(ctx.db)
       await pushConfigToBridge(groups)
-      return { ok: true, count: groups.filter((g) => g.enabled).length }
+      const dm = await pushDmAllowlist(ctx.db)
+      return { ok: true, count: groups.filter((g) => g.enabled).length, dmCount: dm.count }
     }),
 
     /** Drift check: how many groups are enabled in the DB vs actually watched by the bridge. */
@@ -898,6 +901,43 @@ export const whatsappRouter = router({
         if (!cachedAt) await saveInsightToChat(ctx.db, full)
         return { text: full, items, ...meta }
       }),
+  }),
+
+  dm: router({
+    list: protectedProcedure
+      .input(z.object({
+        personId: z.string().min(1),
+        sinceMeetingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }))
+      .query(async ({ ctx, input }) => {
+        const since = input.sinceMeetingDate ? new Date(`${input.sinceMeetingDate}T23:59:59`).getTime() : 0
+        const rows = await ctx.db
+          .select()
+          .from(whatsappDmMessages)
+          .where(and(eq(whatsappDmMessages.personId, input.personId), gte(whatsappDmMessages.ts, since)))
+          .orderBy(desc(whatsappDmMessages.ts))
+          .limit(input.limit + 1)
+        return { messages: rows.slice(0, input.limit), hasMore: rows.length > input.limit }
+      }),
+
+    /** Keeps a message's text past retention. Works for 1:1 and group messages. */
+    pin: protectedProcedure
+      .input(z.object({ messageId: z.string().min(1), pinned: z.boolean().default(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const [dm] = await ctx.db.select({ id: whatsappDmMessages.id }).from(whatsappDmMessages).where(eq(whatsappDmMessages.id, input.messageId))
+        if (dm) {
+          await ctx.db.update(whatsappDmMessages).set({ pinned: input.pinned }).where(eq(whatsappDmMessages.id, input.messageId))
+          return { pinned: input.pinned }
+        }
+        const [group] = await ctx.db.select({ id: whatsappMessages.id }).from(whatsappMessages).where(eq(whatsappMessages.id, input.messageId))
+        if (!group) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' })
+        await ctx.db.update(whatsappMessages).set({ pinned: input.pinned }).where(eq(whatsappMessages.id, input.messageId))
+        return { pinned: input.pinned }
+      }),
+
+    /** Nightly job, also runnable on demand: summaries + proposed commitments for active 1:1 chats. */
+    summarize: protectedProcedure.mutation(async ({ ctx }) => summarizeDmChats(ctx.db)),
   }),
 
   digest: router({

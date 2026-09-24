@@ -1,6 +1,7 @@
 import { config } from './config.js'
 import { createServer } from './server.js'
 import { loadPersistedGroupConfig } from './group-config.js'
+import { loadPersistedDmConfig } from './dm-capture.js'
 import { startWhatsAppClient, startPersistFlushLoop } from './whatsapp-client.js'
 
 async function main(): Promise<void> {
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
 
   // Restore watched-group config from disk so alerts/summaries survive restarts.
   loadPersistedGroupConfig()
+  loadPersistedDmConfig()
 
   void startWhatsAppClient()
 

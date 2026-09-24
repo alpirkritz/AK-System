@@ -142,6 +142,54 @@ const PERSON_CONTEXT_TABLES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_duplicate_reviews_pair ON duplicate_reviews(person_id_a, person_id_b)',
 ]
 
+const WHATSAPP_DM_TABLES = [
+  'ALTER TABLE people ADD COLUMN capture_whatsapp INTEGER DEFAULT false NOT NULL',
+  'ALTER TABLE people ADD COLUMN capture_whatsapp_since TEXT',
+  'ALTER TABLE whatsapp_messages ADD COLUMN pinned INTEGER DEFAULT false NOT NULL',
+  `CREATE TABLE IF NOT EXISTS whatsapp_dm_messages (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    whatsapp_jid TEXT NOT NULL,
+    wa_message_id TEXT NOT NULL,
+    from_me INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    meeting_id TEXT REFERENCES meetings(id) ON DELETE SET NULL,
+    pinned INTEGER DEFAULT false NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_whatsapp_dm_messages_person_id ON whatsapp_dm_messages(person_id)',
+  'CREATE INDEX IF NOT EXISTS idx_whatsapp_dm_messages_ts ON whatsapp_dm_messages(ts)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_dm_messages_msg ON whatsapp_dm_messages(wa_message_id, whatsapp_jid)',
+  `CREATE TABLE IF NOT EXISTS whatsapp_dm_summaries (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    summary TEXT NOT NULL,
+    from_ts INTEGER NOT NULL,
+    to_ts INTEGER NOT NULL,
+    message_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_whatsapp_dm_summaries_person_id ON whatsapp_dm_summaries(person_id)',
+  `CREATE TABLE IF NOT EXISTS commitments (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    owner TEXT NOT NULL,
+    content TEXT NOT NULL,
+    due_inferred TEXT,
+    source TEXT NOT NULL,
+    source_id TEXT,
+    source_snippet TEXT,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_commitments_person_id ON commitments(person_id)',
+  'CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)',
+  'CREATE INDEX IF NOT EXISTS idx_commitments_task_id ON commitments(task_id)',
+]
+
 const PEOPLE_COLUMNS = [
   'ALTER TABLE people ADD COLUMN phone TEXT',
   'ALTER TABLE people ADD COLUMN company TEXT',
@@ -1072,6 +1120,9 @@ export function getDb() {
   for (const sql of AGENT_RUNTIME_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of WHATSAPP_DM_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
+  }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }
 
@@ -1103,6 +1154,12 @@ export const seriesRoster = schema.seriesRoster
 export const meetingRosterExceptions = schema.meetingRosterExceptions
 export const whatsappPersonLinks = schema.whatsappPersonLinks
 export const duplicateReviews = schema.duplicateReviews
+export const whatsappDmMessages = schema.whatsappDmMessages
+export const whatsappDmSummaries = schema.whatsappDmSummaries
+export const commitments = schema.commitments
+export const COMMITMENT_STATUSES = schemaPg.COMMITMENT_STATUSES
+export const COMMITMENT_SOURCES = schemaPg.COMMITMENT_SOURCES
+export const COMMITMENT_OWNERS = schemaPg.COMMITMENT_OWNERS
 export const SERIES_ROSTER_SOURCES = schemaPg.SERIES_ROSTER_SOURCES
 export const ROSTER_EXCEPTION_KINDS = schemaPg.ROSTER_EXCEPTION_KINDS
 export const tasks = schema.tasks
@@ -1198,6 +1255,12 @@ export type SeriesRosterRow = typeof schemaPg.seriesRoster.$inferSelect
 export type MeetingRosterException = typeof schemaPg.meetingRosterExceptions.$inferSelect
 export type WhatsappPersonLink = typeof schemaPg.whatsappPersonLinks.$inferSelect
 export type DuplicateReview = typeof schemaPg.duplicateReviews.$inferSelect
+export type WhatsappDmMessage = typeof schemaPg.whatsappDmMessages.$inferSelect
+export type WhatsappDmSummary = typeof schemaPg.whatsappDmSummaries.$inferSelect
+export type Commitment = typeof schemaPg.commitments.$inferSelect
+export type CommitmentStatus = (typeof schemaPg.COMMITMENT_STATUSES)[number]
+export type CommitmentSource = (typeof schemaPg.COMMITMENT_SOURCES)[number]
+export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
 export type SeriesRosterSource = (typeof schemaPg.SERIES_ROSTER_SOURCES)[number]
 export type RosterExceptionKind = (typeof schemaPg.ROSTER_EXCEPTION_KINDS)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect

@@ -28,6 +28,7 @@ const JOBS = [
   ['feed-sync', 360],
   ['whatsapp-message-retention', 1440],
   ['people-duplicates', 1440],
+  ['whatsapp-dm-summary', 1440],
 ]
 
 const headers = SECRET ? { Authorization: `Bearer ${SECRET}` } : {}

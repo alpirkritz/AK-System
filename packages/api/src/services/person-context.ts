@@ -10,25 +10,40 @@ import {
   meetingSeries,
   meetings,
   people,
+  commitments,
+  whatsappDmMessages,
+  whatsappDmSummaries,
   whatsappGroups,
   whatsappMessages,
   whatsappPersonLinks,
+  type Commitment,
   type getDb,
 } from '@ak-system/database'
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { circlesForPerson, getCircle, occurrenceAttendance, openLoopsForMeetings, type OpenLoop } from './series-roster'
 import { personWarmth, seriesWarmth, type WarmthResult } from './warmth'
+import { dmJidsForPerson } from './whatsapp-dm'
 
 type Db = ReturnType<typeof getDb>
 
 export interface WhatsAppSnippet {
   id: string
+  channel: 'group' | 'dm'
   groupJid: string
   groupName: string | null
   senderName: string
+  fromMe: boolean
   text: string
   ts: number
+  pinned: boolean
+}
+
+export interface DmSummarySnippet {
+  summary: string
+  fromTs: number
+  toTs: number
+  messageCount: number
 }
 
 export interface CircleSummary {
@@ -46,6 +61,11 @@ export interface PersonContextExtras {
   whatsappSenders: { jid: string; matchedBy: string }[]
   circles: CircleSummary[]
   warmth: WarmthResult
+  captureWhatsapp: boolean
+  /** Has a phone or a manual link, so a 1:1 chat can be recognised */
+  captureReachable: boolean
+  latestDmSummary: DmSummarySnippet | null
+  proposedCommitments: Commitment[]
 }
 
 const SINCE_LIMIT = 20
@@ -130,7 +150,10 @@ export function personRecommendation(input: {
 }
 
 export async function buildPersonContext(db: Db, personId: string, today = new Date().toISOString().slice(0, 10)): Promise<PersonContextExtras | null> {
-  const [person] = await db.select({ id: people.id, name: people.name, phone: people.phone }).from(people).where(eq(people.id, personId))
+  const [person] = await db
+    .select({ id: people.id, name: people.name, phone: people.phone, captureWhatsapp: people.captureWhatsapp })
+    .from(people)
+    .where(eq(people.id, personId))
   if (!person) return null
 
   const meetingLinks = await db.select({ meetingId: meetingPeople.meetingId }).from(meetingPeople).where(eq(meetingPeople.personId, personId))
@@ -157,27 +180,69 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
   const openLoopsForPerson = await openLoopsForMeetings(db, meetingIds, (item) => ownerMatchesPerson(item.owner, person.name))
 
   const whatsappSenders = await senderJidsForPerson(db, personId, person.phone)
-  let whatsappSinceMeeting: WhatsAppSnippet[] = []
-  let olderWhatsapp: WhatsAppSnippet[] = []
-  if (whatsappSenders.length > 0) {
-    const cutoff = lastNotionMeetingDate ? new Date(`${lastNotionMeetingDate}T23:59:59`).getTime() : 0
-    const rows = await db
+  const fetchLimit = SINCE_LIMIT + OLDER_LIMIT + 20
+  const groupRows: WhatsAppSnippet[] = whatsappSenders.length > 0
+    ? (
+        await db
+          .select({
+            id: whatsappMessages.id,
+            groupJid: whatsappMessages.groupJid,
+            groupName: whatsappGroups.name,
+            senderName: whatsappMessages.senderName,
+            text: whatsappMessages.text,
+            ts: whatsappMessages.ts,
+            pinned: whatsappMessages.pinned,
+          })
+          .from(whatsappMessages)
+          .leftJoin(whatsappGroups, eq(whatsappGroups.jid, whatsappMessages.groupJid))
+          .where(inArray(whatsappMessages.sender, whatsappSenders.map((s) => s.jid)))
+          .orderBy(desc(whatsappMessages.ts))
+          .limit(fetchLimit)
+      ).map((r) => ({ ...r, channel: 'group' as const, fromMe: false, pinned: !!r.pinned }))
+    : []
+  const dmRows: WhatsAppSnippet[] = (
+    await db
       .select({
-        id: whatsappMessages.id,
-        groupJid: whatsappMessages.groupJid,
-        groupName: whatsappGroups.name,
-        senderName: whatsappMessages.senderName,
-        text: whatsappMessages.text,
-        ts: whatsappMessages.ts,
+        id: whatsappDmMessages.id,
+        groupJid: whatsappDmMessages.whatsappJid,
+        fromMe: whatsappDmMessages.fromMe,
+        text: whatsappDmMessages.text,
+        ts: whatsappDmMessages.ts,
+        pinned: whatsappDmMessages.pinned,
       })
-      .from(whatsappMessages)
-      .leftJoin(whatsappGroups, eq(whatsappGroups.jid, whatsappMessages.groupJid))
-      .where(inArray(whatsappMessages.sender, whatsappSenders.map((s) => s.jid)))
-      .orderBy(desc(whatsappMessages.ts))
-      .limit(SINCE_LIMIT + OLDER_LIMIT + 20)
-    whatsappSinceMeeting = rows.filter((r) => r.ts > cutoff).slice(0, SINCE_LIMIT)
-    olderWhatsapp = rows.filter((r) => r.ts <= cutoff).slice(0, OLDER_LIMIT)
-  }
+      .from(whatsappDmMessages)
+      .where(eq(whatsappDmMessages.personId, personId))
+      .orderBy(desc(whatsappDmMessages.ts))
+      .limit(fetchLimit)
+  ).map((r) => ({
+    ...r,
+    channel: 'dm' as const,
+    groupName: null,
+    senderName: r.fromMe ? 'אני' : person.name,
+    fromMe: !!r.fromMe,
+    pinned: !!r.pinned,
+  }))
+  const cutoff = lastNotionMeetingDate ? new Date(`${lastNotionMeetingDate}T23:59:59`).getTime() : 0
+  const merged = [...groupRows, ...dmRows].sort((a, b) => b.ts - a.ts)
+  const whatsappSinceMeeting = merged.filter((r) => r.ts > cutoff).slice(0, SINCE_LIMIT)
+  const olderWhatsapp = merged.filter((r) => r.ts <= cutoff).slice(0, OLDER_LIMIT)
+
+  const [latestSummary] = await db
+    .select({
+      summary: whatsappDmSummaries.summary,
+      fromTs: whatsappDmSummaries.fromTs,
+      toTs: whatsappDmSummaries.toTs,
+      messageCount: whatsappDmSummaries.messageCount,
+    })
+    .from(whatsappDmSummaries)
+    .where(and(eq(whatsappDmSummaries.personId, personId), sql`${whatsappDmSummaries.summary} != ''`))
+    .orderBy(desc(whatsappDmSummaries.toTs))
+    .limit(1)
+  const proposedCommitments = await db
+    .select()
+    .from(commitments)
+    .where(and(eq(commitments.personId, personId), eq(commitments.status, 'proposed')))
+    .orderBy(desc(commitments.createdAt))
 
   const circles = await circlesForPerson(db, personId)
   const warmth = await personWarmth(db, personId)
@@ -185,7 +250,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
   return {
     recommendation: personRecommendation({
       lastNotionMeetingDate,
-      latestWhatsapp: whatsappSinceMeeting[0] ?? olderWhatsapp[0] ?? null,
+      latestWhatsapp: merged.find((r) => r.text !== '[expired]') ?? null,
       whatsappSinceCount: whatsappSinceMeeting.length,
       openLoopCount: openLoopsForPerson.length,
       trend: warmth.trend,
@@ -197,6 +262,10 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     whatsappSenders,
     circles,
     warmth,
+    captureWhatsapp: !!person.captureWhatsapp,
+    captureReachable: (await dmJidsForPerson(db, personId, person.phone)).length > 0,
+    latestDmSummary: latestSummary ?? null,
+    proposedCommitments,
   }
 }
 

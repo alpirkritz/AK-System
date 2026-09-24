@@ -498,6 +498,10 @@ export interface MobilePersonContext {
   whatsappSinceCount: number
   lastNotionMeetingDate: string | null
   circles: { seriesId: string; seriesTitle: string }[]
+  captureWhatsapp: boolean
+  captureReachable: boolean
+  dmSummary: string | null
+  proposedCommitmentCount: number
 }
 
 export async function fetchPersonContext(token: string, personId: string): Promise<MobilePersonContext | null> {
@@ -509,6 +513,10 @@ export async function fetchPersonContext(token: string, personId: string): Promi
     whatsappSinceMeeting: unknown[]
     lastNotionMeetingDate: string | null
     circles: { seriesId: string; seriesTitle: string }[]
+    captureWhatsapp: boolean
+    captureReachable: boolean
+    latestDmSummary: { summary: string } | null
+    proposedCommitments: unknown[]
   } | null
   if (!ctx) return null
   return {
@@ -518,7 +526,43 @@ export async function fetchPersonContext(token: string, personId: string): Promi
     whatsappSinceCount: ctx.whatsappSinceMeeting.length,
     lastNotionMeetingDate: ctx.lastNotionMeetingDate,
     circles: ctx.circles.map((c) => ({ seriesId: c.seriesId, seriesTitle: c.seriesTitle })),
+    captureWhatsapp: ctx.captureWhatsapp,
+    captureReachable: ctx.captureReachable,
+    dmSummary: ctx.latestDmSummary?.summary ?? null,
+    proposedCommitmentCount: ctx.proposedCommitments.length,
   }
+}
+
+export async function setCaptureWhatsapp(token: string, id: string, enabled: boolean): Promise<boolean> {
+  const client = createTrpcClient(token)
+  const res = (await client.people.setCaptureWhatsapp.mutate({ id, enabled })) as { captureWhatsapp: boolean }
+  return res.captureWhatsapp
+}
+
+export interface MobileCommitment {
+  id: string
+  personId: string
+  personName: string
+  owner: 'me' | 'them'
+  content: string
+  dueInferred: string | null
+  source: string
+  sourceSnippet: string | null
+}
+
+export async function fetchProposedCommitments(token: string, owner: 'all' | 'me' | 'them' = 'all'): Promise<MobileCommitment[]> {
+  const client = createTrpcClient(token)
+  return (await client.commitments.listProposed.query({ owner })) as MobileCommitment[]
+}
+
+export async function acceptCommitment(token: string, commitmentId: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.commitments.accept.mutate({ commitmentId })
+}
+
+export async function dismissCommitment(token: string, commitmentId: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.commitments.dismiss.mutate({ commitmentId })
 }
 
 export async function fetchReviewQueue(token: string): Promise<MobileReviewPerson[]> {

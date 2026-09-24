@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, whatsappGroups, whatsappLabels } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
-import { pushConfigToBridge, isBridgeConfigured, type GroupRulePayload } from '@ak-system/api'
+import { pushConfigToBridge, pushDmAllowlist, isBridgeConfigured, type GroupRulePayload } from '@ak-system/api'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,7 +62,8 @@ async function run(request: NextRequest): Promise<NextResponse> {
     )
   }
 
-  return NextResponse.json({ ok: true, enabled: groups.filter((g) => g.enabled).length })
+  const dm = await pushDmAllowlist(db)
+  return NextResponse.json({ ok: true, enabled: groups.filter((g) => g.enabled).length, dmAllowlist: dm.count, dmPushed: dm.pushed })
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

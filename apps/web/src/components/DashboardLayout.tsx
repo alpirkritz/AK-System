@@ -10,6 +10,7 @@ import {
   CalendarCheck,
   Users,
   ListChecks,
+  Handshake,
   FolderKanban,
   CalendarDays,
   Sparkles,
@@ -47,6 +48,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
       { href: '/meetings', label: 'פגישות', icon: CalendarCheck },
       { href: '/people', label: 'אנשים', icon: Users },
       { href: '/tasks', label: 'משימות', icon: ListChecks },
+      { href: '/commitments', label: 'התחייבויות', icon: Handshake },
       { href: '/projects', label: 'פרויקטים', icon: FolderKanban },
     ],
   },
@@ -88,6 +90,7 @@ const PRIMARY_TABS: NavItem[] = [
 
 const MORE_ITEMS: NavItem[] = [
   { href: '/people', label: 'אנשים', icon: Users },
+  { href: '/commitments', label: 'התחייבויות', icon: Handshake },
   { href: '/projects', label: 'פרויקטים', icon: FolderKanban },
   { href: '/calendar', label: 'יומן', icon: CalendarDays },
   { href: '/finance', label: 'פיננסים', icon: Wallet },

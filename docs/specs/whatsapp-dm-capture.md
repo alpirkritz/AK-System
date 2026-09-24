@@ -2,7 +2,7 @@
 
 **Stack:** `next-trpc-monorepo`  
 **Slug:** `whatsapp-dm-capture`  
-**Status:** Draft  
+**Status:** Implemented  
 **Created:** 2026-09-24  
 **Depends on:** `person-context-hierarchy` (person card must exist first)
 
@@ -155,18 +155,8 @@ All procedures `protectedProcedure`.
 
 - Extend to merge 1:1 messages into the WhatsApp sections
 - Show source badge on each snippet: "DM" or group name
-- **Warmth badge:** when `warmthTrend` is `cooling` or `warming`, show a badge next to the recommendation:
-  - `cooling`: yellow badge "מתקרר" with a trend-down icon
-  - `warming`: green badge "מתחמם" with a trend-up icon
-- **Warmth detail modal:** clicking the badge opens a timeline chart showing sentiment per interaction over the last 180 days, with tooltips showing the interaction type and date
 
-### Sentiment timeline component: `apps/web/src/components/people/SentimentTimeline.tsx` (new)
-
-- Line chart (or bar chart) with X-axis = date, Y-axis = sentiment (-1 to 1)
-- Interaction types shown with different colors: meeting (gold), WhatsApp (green), email (blue)
-- Hovering a point shows: date, interaction type, sentiment score, link to the source (meeting page, WhatsApp snippet, email thread)
-- Horizontal line at 0.0 (neutral baseline)
-- Shaded region for recent 90 days vs. older 90 days to visualize the comparison window
+Warmth and the sentiment timeline already shipped in `person-context-hierarchy`; nothing to add here.
 
 ### New page: `apps/web/src/app/commitments/page.tsx`
 
@@ -212,3 +202,17 @@ None blocking. Default behavior:
 - Commitment detection uses a simple heuristic (Hebrew action verbs: "אשלח", "תבדוק", "אטפל") plus an LLM call for ambiguous cases, similar to meeting analysis action item extraction.
 - Summaries run nightly via the existing `/api/cron/whatsapp-group-summary` extended or a new `/api/cron/whatsapp-dm-summary`.
 - Retention window is 90 days (matches existing group message retention).
+
+## Implementation Decisions (2026-09-24)
+
+These refine the spec above before coding. Where they conflict, this section wins.
+
+1. **Allowlist identity.** `people.capture_whatsapp` (bool) plus `people.capture_whatsapp_since` (ISO text, set when capture is switched on, cleared when off). The person's JIDs are their phone (`<digits>@s.whatsapp.net`) and their non-blocked rows in `whatsapp_person_links` (added in step 1). No `person_external_ids` provider `whatsapp`.
+2. **Bridge push.** New bridge endpoint `POST /config/dm { jids: string[] }`, persisted to `dm-config.json` next to the auth state. The web app pushes the full list from `sync-bridge` and after any change to capture, phone, or links (best-effort; failure never blocks the save).
+3. **Bridge capture.** An allowlisted 1:1 chat is captured in both directions (`fromMe` true and false). A chat that arrives as `@lid` is resolved to a phone JID through the bridge's contact store before the allowlist check. Self-chat is checked first and is never captured. Messages are queued and flushed every 60s to `POST /api/whatsapp/dm/ingest`.
+4. **Ingest guard.** The web ingest re-resolves each JID to a person, drops anything whose person has capture off, and drops messages older than `capture_whatsapp_since`. That keeps the no-backfill promise even if the bridge replays history. Dedupe is on `(wa_message_id, whatsapp_jid)`.
+5. **Summaries.** New table `whatsapp_dm_summaries (id, person_id, summary, from_ts, to_ts, message_count, created_at)`. The nightly cron `/api/cron/whatsapp-dm-summary` summarizes each person with new DM messages since their last summary (window capped at 7 days). It uses Gemini when `GEMINI_API_KEY` is set. Without a key it runs a Hebrew-verb heuristic that proposes commitments only, with no summary. A proposed commitment is not duplicated if the same person already has one with the same text.
+6. **Accept flow.** Accepting a commitment calls the existing `tasks.create` procedure, so Notion write-back behaves exactly as for any task. The assignee is the owner for `me` and the person for `them`. The web UI edits title and due date inline in the row instead of opening a modal, which saves a layer.
+7. **Retention.** DM text is cleared to `[expired]` after `WHATSAPP_DM_RETENTION_DAYS` (default 90) unless the message is pinned. Group messages keep their existing delete-after-30-days behaviour (`WHATSAPP_MESSAGE_RETENTION_DAYS`), but pinned group messages are now skipped. The spec line saying the 90-day window "matches existing group retention" was inaccurate.
+8. **Card merge.** `WhatsAppSnippet` gains `channel: 'group' | 'dm'` and `fromMe`. DM snippets show a "פרטי" badge; group snippets show the group name.
+9. **Mobile.** The capture toggle and commitments list live on the existing screens: the toggle goes on `app/person/[id].tsx`, and `app/commitments.tsx` is reached from the person screen and settings.

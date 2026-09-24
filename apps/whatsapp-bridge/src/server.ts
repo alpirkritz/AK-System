@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { config, isSelfChatJid } from './config.js'
 import { listEnabledGroupJids, reloadGroupConfig, type GroupRule } from './group-config.js'
 import { listWatchedGroupsWithCounts } from './group-buffer.js'
+import { dmAllowlistSize, reloadDmConfig } from './dm-capture.js'
 import {
   discoverAvailableGroups,
   getCurrentQr,
@@ -116,6 +117,21 @@ export function createServer(): express.Application {
     }))
     reloadGroupConfig(groups.filter((g) => g.jid))
     res.json({ ok: true, enabled: groups.filter((g) => g.enabled).length })
+  })
+
+  /** Allowlisted 1:1 chats to capture (sent by AK after a person's capture setting changes). */
+  app.post('/config/dm', requireAuth, (req, res) => {
+    const raw = req.body?.jids
+    if (!Array.isArray(raw)) {
+      res.status(400).json({ error: 'jids array is required' })
+      return
+    }
+    const count = reloadDmConfig(raw.map((j: unknown) => String(j)))
+    res.json({ ok: true, count })
+  })
+
+  app.get('/config/dm', requireAuth, (_req, res) => {
+    res.json({ count: dmAllowlistSize() })
   })
 
   app.post('/groups/summarize', requireAuth, async (req, res) => {

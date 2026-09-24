@@ -71,6 +71,10 @@ export const people = sqliteTable('people', {
   /** Notion page id when this person was synced from a Notion people database */
   notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
+  /** Opt-in: save this person's WhatsApp 1:1 chat. Declared last to match the SQLite ALTER order. */
+  captureWhatsapp: integer('capture_whatsapp', { mode: 'boolean' }).notNull().default(false),
+  /** When capture was switched on; earlier messages are never stored */
+  captureWhatsappSince: text('capture_whatsapp_since'),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),
@@ -880,6 +884,8 @@ export const whatsappMessages = sqliteTable('whatsapp_messages', {
   text: text('text').notNull(),
   ts: integer('ts').notNull(), // epoch ms of the message
   createdAt: text('created_at').notNull(),
+  /** Kept past retention. Declared last to match the SQLite ALTER order. */
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 }, (table) => ({
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
@@ -1171,3 +1177,73 @@ export type AgentJob = typeof agentJobs.$inferSelect
 export type NewAgentJob = typeof agentJobs.$inferInsert
 export type AgentCacheEntry = typeof agentCache.$inferSelect
 export type NewAgentCacheEntry = typeof agentCache.$inferInsert
+
+/** 1:1 WhatsApp messages with an allowlisted person (`people.captureWhatsapp`), both directions. */
+export const whatsappDmMessages = sqliteTable('whatsapp_dm_messages', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** The other party's JID */
+  whatsappJid: text('whatsapp_jid').notNull(),
+  waMessageId: text('wa_message_id').notNull(),
+  fromMe: integer('from_me', { mode: 'boolean' }).notNull(),
+  /** `[expired]` after DM retention unless pinned */
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(),
+  /** Meeting with this person within 3 days of the message */
+  meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_dm_messages_person_id').on(table.personId),
+  tsIdx: index('idx_whatsapp_dm_messages_ts').on(table.ts),
+  msgUq: uniqueIndex('uq_whatsapp_dm_messages_msg').on(table.waMessageId, table.whatsappJid),
+}))
+
+/** Nightly summary of one person's 1:1 chat; outlives the raw messages. */
+export const whatsappDmSummaries = sqliteTable('whatsapp_dm_summaries', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  fromTs: integer('from_ts').notNull(),
+  toTs: integer('to_ts').notNull(),
+  messageCount: integer('message_count').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_dm_summaries_person_id').on(table.personId),
+}))
+
+export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
+export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email'] as const
+export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
+export const COMMITMENT_OWNERS = ['me', 'them'] as const
+export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
+
+/** Something promised in a conversation; becomes a task only when the owner accepts it. */
+export const commitments = sqliteTable('commitments', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** me | them */
+  owner: text('owner').notNull(),
+  content: text('content').notNull(),
+  /** ISO date when the conversation named one */
+  dueInferred: text('due_inferred'),
+  /** whatsapp_dm | whatsapp_group | meeting_analysis | email */
+  source: text('source').notNull(),
+  sourceId: text('source_id'),
+  /** Short quote of the source message, kept after the raw text expires */
+  sourceSnippet: text('source_snippet'),
+  /** proposed | accepted | dismissed */
+  status: text('status').notNull().default('proposed'),
+  taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_commitments_person_id').on(table.personId),
+  statusIdx: index('idx_commitments_status').on(table.status),
+  taskIdIdx: index('idx_commitments_task_id').on(table.taskId),
+}))
+
+export type WhatsappDmMessage = typeof whatsappDmMessages.$inferSelect
+export type WhatsappDmSummary = typeof whatsappDmSummaries.$inferSelect
+export type Commitment = typeof commitments.$inferSelect

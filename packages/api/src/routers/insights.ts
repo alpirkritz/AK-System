@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pushDmAllowlist } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
 import {
   people,
@@ -408,6 +409,7 @@ export const insightsRouter = router({
     .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await linkWhatsappSender(ctx.db, input.personId, input.jid)
+      await pushDmAllowlist(ctx.db)
       return { ok: true }
     }),
 
@@ -415,6 +417,7 @@ export const insightsRouter = router({
     .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await unlinkWhatsappSender(ctx.db, input.personId, input.jid)
+      await pushDmAllowlist(ctx.db)
       return { ok: true }
     }),
 })

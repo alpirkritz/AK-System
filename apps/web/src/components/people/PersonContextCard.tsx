@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { MessageCircle, Users, CheckSquare, FileText, Link2, X } from 'lucide-react'
+import { MessageCircle, Users, CheckSquare, FileText, Link2, X, Pin, Handshake } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
 
@@ -16,6 +16,53 @@ function dateLabel(date: string | null): string {
   return date ? format(new Date(date + (date.length === 10 ? 'T00:00:00' : '')), 'dd/MM/yy') : ''
 }
 
+interface Snippet {
+  id: string
+  channel: 'group' | 'dm'
+  groupName: string | null
+  fromMe: boolean
+  text: string
+  ts: number
+  pinned: boolean
+}
+
+const EXPIRED = '[expired]'
+
+function SnippetItem({ m, muted, onPin, pinning }: { m: Snippet; muted?: boolean; onPin: (m: Snippet) => void; pinning: boolean }) {
+  const expired = m.text === EXPIRED
+  return (
+    <li className={`group ${muted ? 'text-[#97a4c2]' : 'text-[#b8c4dc]'}`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[#5a688c] tabular-nums">{tsLabel(m.ts)}</span>
+        {m.channel === 'dm' ? (
+          <span className="pill text-[10px] py-0" data-testid="snippet-source-dm">פרטי</span>
+        ) : (
+          m.groupName && <span className="text-[#5a688c] truncate">· {m.groupName}</span>
+        )}
+        {m.channel === 'dm' && m.fromMe && <span className="text-[#5a688c]">· אני</span>}
+        {!expired && (
+          <button
+            type="button"
+            className={`ms-auto rounded p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547] ${
+              m.pinned ? 'text-[#e8c547]' : 'text-[#5a688c] hover:text-[#eef3fb] [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus:opacity-100'
+            }`}
+            aria-label={m.pinned ? 'בטל נעיצה' : 'נעץ · ההודעה לא תימחק'}
+            title={m.pinned ? 'נעוץ · לא יימחק' : 'נעץ כדי לשמור אחרי תקופת השמירה'}
+            aria-pressed={m.pinned}
+            disabled={pinning}
+            onClick={() => onPin(m)}
+          >
+            <Pin className="w-3 h-3" aria-hidden />
+          </button>
+        )}
+      </div>
+      <p className={`leading-relaxed line-clamp-2 ${expired ? 'italic text-[#5a688c]' : ''}`}>
+        {expired ? 'ההודעה נמחקה לפי מדיניות השמירה' : m.text}
+      </p>
+    </li>
+  )
+}
+
 function SubHeading({ icon: Icon, children }: { icon: typeof Users; children: React.ReactNode }) {
   return (
     <h4 className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5a688c] mb-1.5">
@@ -26,8 +73,9 @@ function SubHeading({ icon: Icon, children }: { icon: typeof Users; children: Re
 }
 
 /**
- * Person card, ordered: recommendation → open loops → WhatsApp since the last Notion meeting →
- * Notion meetings → older WhatsApp (collapsed) → circles.
+ * Person card, ordered: recommendation → open loops → commitments to confirm → 1:1 summary →
+ * WhatsApp since the last Notion meeting (1:1 and groups) → Notion meetings → older WhatsApp
+ * (collapsed) → circles → capture and sender settings.
  */
 export function PersonContextCard({ personId }: { personId: string }) {
   const utils = trpc.useUtils()
@@ -42,6 +90,14 @@ export function PersonContextCard({ personId }: { personId: string }) {
   }
   const link = trpc.insights.linkWhatsappSender.useMutation({ onSuccess: () => { invalidate(); setLinking(false) } })
   const unlink = trpc.insights.unlinkWhatsappSender.useMutation({ onSuccess: invalidate })
+  const pin = trpc.whatsapp.dm.pin.useMutation({ onSuccess: invalidate })
+  const capture = trpc.people.setCaptureWhatsapp.useMutation({
+    onSuccess: () => {
+      invalidate()
+      utils.people.invalidate()
+    },
+  })
+  const onPin = (m: Snippet) => pin.mutate({ messageId: m.id, pinned: !m.pinned })
 
   if (!ctx) return null
   const since = showAllSince ? ctx.whatsappSinceMeeting : ctx.whatsappSinceMeeting.slice(0, SINCE_SHOWN)
@@ -75,6 +131,29 @@ export function PersonContextCard({ personId }: { personId: string }) {
           </div>
         )}
 
+        {ctx.proposedCommitments.length > 0 && (
+          <div data-testid="person-commitments">
+            <SubHeading icon={Handshake}>התחייבויות לאישור ({ctx.proposedCommitments.length})</SubHeading>
+            <ul className="space-y-1">
+              {ctx.proposedCommitments.slice(0, 3).map((c) => (
+                <li key={c.id} className="flex gap-2 text-[#b8c4dc]">
+                  <span className="text-[#5a688c] shrink-0">{c.owner === 'me' ? 'עליי' : 'עליו/ה'}</span>
+                  <span className="min-w-0">{c.content}</span>
+                  {c.dueInferred && <span className="text-[#5a688c] shrink-0 tabular-nums">{dateLabel(c.dueInferred)}</span>}
+                </li>
+              ))}
+            </ul>
+            <a href="/commitments" className="btn-ghost text-[11px] mt-1 inline-block">לאישור או דחייה</a>
+          </div>
+        )}
+
+        {ctx.latestDmSummary && (
+          <div data-testid="person-dm-summary">
+            <SubHeading icon={MessageCircle}>סיכום השיחה הפרטית · {tsLabel(ctx.latestDmSummary.toTs)}</SubHeading>
+            <p className="text-[#b8c4dc] leading-relaxed">{ctx.latestDmSummary.summary}</p>
+          </div>
+        )}
+
         {ctx.whatsappSinceMeeting.length > 0 && (
           <div>
             <SubHeading icon={MessageCircle}>
@@ -82,11 +161,7 @@ export function PersonContextCard({ personId }: { personId: string }) {
             </SubHeading>
             <ul className="space-y-1.5">
               {since.map((m) => (
-                <li key={m.id} className="text-[#b8c4dc]">
-                  <span className="text-[#5a688c] tabular-nums">{tsLabel(m.ts)}</span>
-                  {m.groupName && <span className="text-[#5a688c]"> · {m.groupName}</span>}
-                  <p className="leading-relaxed line-clamp-2">{m.text}</p>
-                </li>
+                <SnippetItem key={m.id} m={m} onPin={onPin} pinning={pin.isPending} />
               ))}
             </ul>
             {ctx.whatsappSinceMeeting.length > SINCE_SHOWN && (
@@ -118,11 +193,7 @@ export function PersonContextCard({ personId }: { personId: string }) {
             </summary>
             <ul className="space-y-1.5 mt-1.5">
               {ctx.olderWhatsapp.map((m) => (
-                <li key={m.id} className="text-[#97a4c2]">
-                  <span className="text-[#5a688c] tabular-nums">{tsLabel(m.ts)}</span>
-                  {m.groupName && <span className="text-[#5a688c]"> · {m.groupName}</span>}
-                  <p className="leading-relaxed line-clamp-2">{m.text}</p>
-                </li>
+                <SnippetItem key={m.id} m={m} muted onPin={onPin} pinning={pin.isPending} />
               ))}
             </ul>
           </details>
@@ -146,6 +217,35 @@ export function PersonContextCard({ personId }: { personId: string }) {
           <div className="text-[#5a688c]">
             {ctx.lastContactAt && <>קשר אחרון: {dateLabel(ctx.lastContactAt)} · </>}
             {ctx.meetingCount} פגישות · {ctx.sharedProjects.length} פרויקטים משותפים
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={ctx.captureWhatsapp}
+              data-testid="capture-whatsapp-toggle"
+              disabled={capture.isPending || (!ctx.captureWhatsapp && !ctx.captureReachable)}
+              onClick={() => capture.mutate({ id: personId, enabled: !ctx.captureWhatsapp })}
+              className="inline-flex items-center gap-2 rounded-md px-1 py-0.5 text-[#b8c4dc] disabled:opacity-50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547]"
+            >
+              <span
+                className={`relative inline-block h-4 w-7 rounded-full transition-colors ${ctx.captureWhatsapp ? 'bg-[#e8c547]' : 'bg-[#223052]'}`}
+                aria-hidden
+              >
+                <span
+                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-[#0e1626] transition-all ${ctx.captureWhatsapp ? 'start-3.5' : 'start-0.5'}`}
+                />
+              </span>
+              תיעוד וואטסאפ 1:1
+            </button>
+            <span className="text-[#5a688c]">
+              {ctx.captureWhatsapp
+                ? 'הודעות חדשות בצ׳אט הפרטי נשמרות בכרטיס'
+                : ctx.captureReachable
+                  ? 'כבוי · שום הודעה פרטית לא נשמרת'
+                  : 'צריך טלפון או שולח מקושר כדי לזהות את הצ׳אט'}
+            </span>
+            {capture.error && <span className="text-red-400">{capture.error.message}</span>}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {ctx.whatsappSenders.map((s) => (

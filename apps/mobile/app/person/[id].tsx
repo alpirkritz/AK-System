@@ -3,12 +3,13 @@ import {
   ActivityIndicator,
   Alert,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native'
 import { Pressable } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
 import { useAuth } from '../../lib/auth'
 import {
@@ -16,6 +17,7 @@ import {
   fetchPerson,
   fetchPersonContext,
   fetchPersonRelated,
+  setCaptureWhatsapp,
   updatePerson,
   type MobilePersonContext,
 } from '../../lib/data'
@@ -36,6 +38,20 @@ export default function PersonDetailScreen() {
   const [meetingCount, setMeetingCount] = useState(0)
   const [taskCount, setTaskCount] = useState(0)
   const [context, setContext] = useState<MobilePersonContext | null>(null)
+  const [captureSaving, setCaptureSaving] = useState(false)
+
+  const toggleCapture = async (enabled: boolean) => {
+    if (!token || !id || !context) return
+    setCaptureSaving(true)
+    try {
+      const on = await setCaptureWhatsapp(token, id, enabled)
+      setContext({ ...context, captureWhatsapp: on })
+    } catch (err) {
+      Alert.alert('שגיאה', err instanceof Error ? err.message : 'השמירה נכשלה')
+    } finally {
+      setCaptureSaving(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!token || !id) return
@@ -164,6 +180,34 @@ export default function PersonDetailScreen() {
         </View>
       ) : null}
 
+      {context ? (
+        <View style={styles.contextCard}>
+          <View style={styles.captureRow}>
+            <Text style={styles.contextTitle}>תיעוד וואטסאפ 1:1</Text>
+            <Switch
+              value={context.captureWhatsapp}
+              onValueChange={toggleCapture}
+              disabled={captureSaving || (!context.captureWhatsapp && !context.captureReachable)}
+              trackColor={{ true: colors.accent, false: colors.border }}
+              accessibilityLabel="תיעוד וואטסאפ 1:1"
+            />
+          </View>
+          <Text style={styles.contextMuted}>
+            {context.captureWhatsapp
+              ? 'הודעות חדשות בצ׳אט הפרטי נשמרות בכרטיס'
+              : context.captureReachable
+                ? 'כבוי · שום הודעה פרטית לא נשמרת'
+                : 'צריך טלפון או שולח מקושר כדי לזהות את הצ׳אט'}
+          </Text>
+          {context.dmSummary ? <Text style={styles.contextLine}>{context.dmSummary}</Text> : null}
+          {context.proposedCommitmentCount > 0 ? (
+            <Pressable onPress={() => router.push('/commitments' as Href)} accessibilityRole="link">
+              <Text style={styles.commitmentsLink}>{context.proposedCommitmentCount} התחייבויות לאישור ›</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
       <Text style={styles.label}>שם</Text>
       <TextInput
         value={name}
@@ -236,6 +280,8 @@ const styles = StyleSheet.create({
   },
   contextLine: { color: colors.text, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
   contextMuted: { color: colors.textMuted, fontSize: 12, textAlign: 'right', writingDirection: 'rtl' },
+  captureRow: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between' },
+  commitmentsLink: { color: colors.accent, fontSize: 13, textAlign: 'right', writingDirection: 'rtl', marginTop: 4 },
   label: {
     color: colors.textMuted,
     fontSize: 13,

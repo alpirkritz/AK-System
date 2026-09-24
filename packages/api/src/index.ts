@@ -4,6 +4,7 @@ import { projectsRouter } from './routers/projects'
 import { workspacesRouter } from './routers/workspaces'
 import { meetingsRouter } from './routers/meetings'
 import { circlesRouter } from './routers/circles'
+import { commitmentsRouter } from './routers/commitments'
 import { meetingTypesRouter } from './routers/meeting-types'
 import { tasksRouter } from './routers/tasks'
 import { calendarRouter } from './routers/calendar'
@@ -90,6 +91,13 @@ export {
   type PartitionedSummaries,
 } from './services/whatsapp-summary-clusters'
 export { generateClusterSummary } from './services/whatsapp-insights'
+export {
+  ingestDmMessages,
+  pushDmAllowlist,
+  summarizeDmChats,
+  runDmRetention,
+  type DmIngestMessage,
+} from './services/whatsapp-dm'
 export { runClusterSummary, type ClusterRunResult } from './services/whatsapp-cluster-run'
 export {
   runFollowedDailyDigest,
@@ -148,6 +156,7 @@ export const appRouter = router({
   workspaces: workspacesRouter,
   meetings: meetingsRouter,
   circles: circlesRouter,
+  commitments: commitmentsRouter,
   meetingTypes: meetingTypesRouter,
   tasks: tasksRouter,
   calendar: calendarRouter,

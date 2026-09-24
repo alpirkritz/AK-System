@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
   people,
@@ -15,6 +16,9 @@ import {
   workspaces,
   seriesRoster,
   whatsappPersonLinks,
+  whatsappDmMessages,
+  whatsappDmSummaries,
+  commitments,
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
@@ -22,6 +26,7 @@ import { ensureSelfPerson } from '../services/self-person'
 import { repointPersonExternalIds } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
 import { createNotification } from '../lib/notification-store'
+import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
 
@@ -49,6 +54,7 @@ const createInput = z.object({
 
 const updateInput = createInput.extend({
   id: z.string().min(1),
+  captureWhatsapp: z.boolean().optional(),
 })
 
 const idInput = z.object({ id: z.string().min(1) })
@@ -473,6 +479,9 @@ export const peopleRouter = router({
       await repointPersonExternalIds(ctx.db, input.fromId, input.toId)
       await ctx.db.update(seriesRoster).set({ personId: input.toId }).where(eq(seriesRoster.personId, input.fromId))
       await ctx.db.update(whatsappPersonLinks).set({ personId: input.toId }).where(eq(whatsappPersonLinks.personId, input.fromId))
+      await ctx.db.update(whatsappDmMessages).set({ personId: input.toId }).where(eq(whatsappDmMessages.personId, input.fromId))
+      await ctx.db.update(whatsappDmSummaries).set({ personId: input.toId }).where(eq(whatsappDmSummaries.personId, input.fromId))
+      await ctx.db.update(commitments).set({ personId: input.toId }).where(eq(commitments.personId, input.fromId))
 
       // Like Google Contacts: the kept record inherits fields it was missing.
       const [from] = await ctx.db.select().from(people).where(eq(people.id, input.fromId)).limit(1)
@@ -554,6 +563,10 @@ export const peopleRouter = router({
   }),
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+    const [before] = await ctx.db
+      .select({ phone: people.phone, capture: people.captureWhatsapp })
+      .from(people)
+      .where(eq(people.id, input.id))
     await ctx.db
       .update(people)
       .set({
@@ -574,9 +587,23 @@ export const peopleRouter = router({
         notes: input.notes ?? null,
       })
       .where(eq(people.id, input.id))
+    if (input.captureWhatsapp !== undefined) await setCaptureWhatsapp(ctx.db, input.id, input.captureWhatsapp)
     const [row] = await ctx.db.select().from(people).where(eq(people.id, input.id))
+    const allowlistChanged =
+      !!before && (!!before.capture !== !!row?.captureWhatsapp || (!!row?.captureWhatsapp && before.phone !== row.phone))
+    if (allowlistChanged) await pushDmAllowlist(ctx.db)
     return row ?? null
   }),
+
+  /** Opt a person in or out of WhatsApp 1:1 capture; capture starts from now, never backfills. */
+  setCaptureWhatsapp: protectedProcedure
+    .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const state = await setCaptureWhatsapp(ctx.db, input.id, input.enabled)
+      if (!state) throw new TRPCError({ code: 'NOT_FOUND', message: 'Person not found' })
+      const bridge = await pushDmAllowlist(ctx.db)
+      return { captureWhatsapp: !!state.capture, captureWhatsappSince: state.since, bridgeUpdated: bridge.pushed }
+    }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(people).where(eq(people.id, input.id))
