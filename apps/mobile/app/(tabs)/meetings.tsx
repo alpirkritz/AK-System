@@ -175,6 +175,14 @@ export default function MeetingsScreen() {
           {syncing ? <ActivityIndicator size="small" color={colors.accent} /> : null}
           <Text style={styles.syncBtnText}>{syncing ? 'מסנכרן…' : 'סנכרן מיומן'}</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.push('/record' as Href)}
+          accessibilityRole="button"
+          accessibilityLabel="הקלט שיחה"
+          style={styles.syncBtn}
+        >
+          <Text style={styles.syncBtnText}>הקלט שיחה</Text>
+        </Pressable>
       </View>
 
       {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
@@ -301,7 +309,7 @@ export default function MeetingsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  actionRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12 },
+  actionRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12 },
   syncBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',

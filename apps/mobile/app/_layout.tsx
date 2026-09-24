@@ -93,6 +93,7 @@ function RootNavigator() {
         <Stack.Screen name="people" options={{ title: 'אנשים' }} />
         <Stack.Screen name="reading-list" options={{ title: 'רשימת קריאה' }} />
         <Stack.Screen name="commitments" options={{ title: 'התחייבויות לאישור' }} />
+        <Stack.Screen name="record" options={{ title: 'הקלטת שיחה' }} />
         <Stack.Screen name="account" options={{ title: 'החשבון שלי', ...formSheet }} />
         <Stack.Screen name="agents" options={{ title: 'סוכנים' }} />
         <Stack.Screen name="agent/[id]" options={{ title: 'הגדרות סוכן', ...scrollableFormSheet }} />

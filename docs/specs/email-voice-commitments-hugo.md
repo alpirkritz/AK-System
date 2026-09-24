@@ -243,7 +243,12 @@ Recorded before implementation (2026-09-24). Where these differ from the section
 - **Consent.** Required on every upload. The server rejects uploads without `consentConfirmed=true` and stores `consentConfirmedAt`.
 - **Recorders.**
   - Web: a browser recorder (MediaRecorder) at `/voice`, with the same consent, timer, pause and stop.
-  - Mobile: the person screen shows recordings (read-only) in this pass. A native recorder needs `expo-audio`, which is not installed, and `apps/mobile/package.json` plus the lockfile carry an unrelated in-progress Expo upgrade. Adding it waits for the owner's go-ahead and a new APK build.
+  - Mobile (approved by the owner, on top of the in-progress Expo upgrade): a stack screen `apps/mobile/app/record.tsx` using `expo-audio` (`RecordingPresets.HIGH_QUALITY` → `.m4a` / `audio/mp4`, metering on).
+    - Entry points: "הקלט שיחה" on the person screen (presets that person) and next to "סנכרן מיומן" on the meetings tab. Optional `personId` / `meetingId` params.
+    - Flow: consent checkbox + disclaimer → recording (timer, level bars, pause/resume, "עצור ושלח") → upload with a progress bar (`XMLHttpRequest`, multipart, bearer) → status polled every 4 s via `voice.get` → result: key insight, action items, attach to a meeting that just ended (`voice.attachCandidates`) or keep standalone, retry when failed or stuck, link to the meeting.
+    - Recordings shorter than 10 s are discarded with a message. Leaving the screen mid-recording asks for confirmation. Recording pauses with a message if the app goes to the background (no background recording permission), and "המשך" resumes it.
+    - Microphone permission is requested on start; a denial shows a message pointing to system settings.
+    - The APK is built locally (`eas build --local`, same signing key), version 1.0.2.
 - **Voice table columns added to the spec.** `status`, `error`, `mimeType`, `sizeBytes`, and `createdMeeting` (the placeholder meeting id, when one was created).
 
 ### Commitments

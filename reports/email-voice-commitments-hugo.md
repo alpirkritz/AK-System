@@ -108,3 +108,47 @@ Every acceptance criterion is met except native mobile recording (see Should-fix
 ## Suggested PR Description
 
 Email threads with known people are archived hourly (metadata and snippet only) and shown on the person card with Gmail links. Consented voice recordings are uploaded, transcribed and analyzed like Notion transcripts, and attached to people and, optionally, a meeting that just ended. Action items from every analysis, email promises and voice recordings now land in the shared `/commitments` queue with source badges and links. Hugo's morning brief lists open commitments for today's attendees plus a "זכור לטפל" block, and meeting prep lists each attendee's commitments by source.
+
+## Follow-up: EC2 deploy and native mobile recorder (2026-09-24)
+
+### Deploy (done)
+
+- Backup: `~/backups/ak_system-20260924-145313.sqlite` on the instance (online `.backup`, `integrity_check` ok), with a copy on the Mac at `~/ak-backups/`.
+- Rehearsal on a copy of that backup before deploying:
+  - At container start, `drizzle-kit push` sees `whatsapp_messages.pinned` / `people.capture_whatsapp` as "not-null without default". This is a drizzle-kit false alarm, since both have defaults. With no TTY it aborts with exit 0 and changes nothing.
+  - `getDb()` then creates every table and column from steps 1–3.
+  - Row counts are unchanged. The 32 orphaned `meeting_notes` rows were already there.
+- `SKIP_CI=1 pnpm deploy:ec2`. The container matched the rehearsal. Cron was reinstalled (`email-sync`, `whatsapp-dm-summary`, `people-duplicates`).
+- First `email-sync`: 65 threads for 18 people, `accountErrors: []`.
+- Probe of `/api/voice/upload` on production: mobile bearer plus a 5 s file → 400 "קצרה מדי"; no auth → 401.
+
+### Mobile recorder
+
+- `expo-audio ~56.0.13` plus its config plugin (Hebrew mic permission, no background recording). App version 1.0.2 / versionCode 3.
+- `apps/mobile/app/record.tsx` records mono AAC at 48 kbps, which keeps about 40 minutes under the 19 MB cap.
+- `lib/voice.ts`:
+  - Multipart upload via `XMLHttpRequest`, because React Native's fetch reports no upload progress.
+  - tRPC wrappers for `voice.get` / `getAnalysis` / `attachCandidates` / `attachToPeople` / `retry`.
+- `lib/voice-format.ts` holds the pure helpers, covered by `lib/voice-format.test.ts` (4 tests, `node:test`).
+- Entry points: "הקלט שיחה" on the person screen (preset person) and on the meetings tab.
+- API: added a test that `audio/mp4` uploads are accepted and stored as `.m4a` (13/13).
+- Mobile `tsc --noEmit` is clean.
+
+### UI/UX Review (mobile)
+
+**Verdict:** APPROVED WITH NITS
+
+- [x] Consent is a real checkbox (`accessibilityRole="checkbox"` + state). "התחל הקלטה" stays disabled until it is checked, and the legal note matches the web text.
+- [x] Recording: large tabular timer (`accessibilityRole="timer"`), live/paused dot, metering bars hidden from screen readers, and 48 pt pause/resume and "עצור ושלח" buttons.
+- [x] Upload: `progressbar` role with a value. After upload, a `polite` live result card, with retry when failed or stuck.
+- [x] Attaching to a just-ended meeting uses radio rows (44 pt) with "בלי פגישה" as the default.
+- [x] Guard rails:
+  - Leaving mid-recording or mid-upload asks for confirmation.
+  - Going to the background pauses and explains why.
+  - A denied mic shows a "פתח הגדרות" link.
+  - Recordings under 10 s are refused with the reason.
+- [x] RTL: `row-reverse` rows, `textAlign: 'right'` / `writingDirection: 'rtl'`, theme tokens only.
+- **Nit:** the person screen reloads its recordings only when reopened, not when coming back from the recorder.
+- **Nit:** people can be chosen only via the person-screen preset. A recording started from the meetings tab has no people until it is attached on the web.
+
+**Reviewer verdict for the follow-up:** APPROVED WITH NITS

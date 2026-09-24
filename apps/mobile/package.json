@@ -15,6 +15,7 @@
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@trpc/client": "^10.45.0",
     "expo": "~56.0.12",
+    "expo-audio": "~56.0.13",
     "expo-auth-session": "~56.0.14",
     "expo-constants": "~56.0.18",
     "expo-linking": "~56.0.14",

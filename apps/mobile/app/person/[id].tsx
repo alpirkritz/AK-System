@@ -236,9 +236,19 @@ export default function PersonDetailScreen() {
         </View>
       ) : null}
 
-      {context && context.voiceRecordings.length > 0 ? (
+      {context ? (
         <View style={styles.contextCard}>
-          <Text style={styles.contextTitle}>הקלטות קוליות</Text>
+          <View style={styles.captureRow}>
+            <Text style={styles.contextTitle}>הקלטות קוליות</Text>
+            <Pressable
+              onPress={() => router.push(`/record?personId=${encodeURIComponent(id ?? '')}&personName=${encodeURIComponent(name)}` as Href)}
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Text style={styles.commitmentsLink}>הקלט שיחה</Text>
+            </Pressable>
+          </View>
+          {context.voiceRecordings.length === 0 ? <Text style={styles.contextMuted}>עוד אין הקלטות</Text> : null}
           {context.voiceRecordings.map((r) => (
             <Pressable
               key={r.id}

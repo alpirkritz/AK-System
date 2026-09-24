@@ -1740,3 +1740,18 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - **Compliance:** [x] Spec-first [x] tRPC client only (upload is multipart by design) [x] Both schemas mirrored [x] Consent enforced server-side [x] Email bodies not stored [x] No raw snippets in meeting prep
 - **Tests:** API 887/887 · web 233/233 · new e2e 4/4 (suite 82 pass / 23 fail = 22 baseline + flaky agent-config) · lint clean · web build pass · mobile tsc pass
 - **Performance notes:** Bootstrap DDL verified against drizzle ("No changes detected"). Native mobile recorder deferred: needs `expo-audio`, which would touch the in-progress Expo upgrade in `apps/mobile/package.json`.
+
+## 2026-09-24 · EC2 deploy (Life Context Ledger steps 1–3) + native mobile recorder
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md` (Voice → Recorders → Mobile)
+- **Actions:**
+  - Backed up EC2 SQLite (`~/backups/ak_system-20260924-145313.sqlite`, copy in `~/ak-backups/` on the Mac).
+  - Rehearsed container-start `drizzle-kit push` and bootstrap on a copy. Push aborts harmlessly on a drizzle "not-null" false alarm; `getDb()` creates all ledger tables.
+  - `SKIP_CI=1 pnpm deploy:ec2`, cron reinstalled. First email-sync: 65 threads for 18 people, no account errors.
+  - Mobile: `expo-audio` recorder screen `/record` (consent, timer, meter, pause/resume, upload progress, result/attach/retry). Entry points on the person screen and the meetings tab.
+  - Built APK 1.0.2 (versionCode 3) locally with `eas build --local`, same signing key as 1.0.1.
+- **Outputs:** `~/Desktop/ARO-1.0.2.apk`, `reports/email-voice-commitments-hugo.md` (follow-up section, APPROVED WITH NITS)
+- **Compliance:** [x] Backup before deploy [x] Consent gate on device and server [x] tRPC client for data, multipart only for audio [x] No background recording
+- **Tests:** mobile voice-format 4/4 · API voice suite 13/13 · mobile tsc clean · production upload probe (bearer → 400 too short, none → 401)
+- **Performance notes:** `pnpm-lock.yaml` left uncommitted because it mixes `expo-audio` with the owner's in-progress Expo upgrade. Commit it together with that upgrade.

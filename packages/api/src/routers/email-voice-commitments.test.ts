@@ -200,6 +200,20 @@ describe('voice capture', () => {
     expect(await db.select().from(voiceRecordings)).toHaveLength(0)
   })
 
+  it('accepts the mobile recorder format (AAC in MP4) as .m4a', async () => {
+    const db = getTestDb()
+    const { recordingId } = await saveVoiceUpload(db, {
+      audio: Buffer.from('m4a-bytes'),
+      mimeType: 'audio/mp4',
+      durationSeconds: 42,
+      consentConfirmed: true,
+      personIds: ['p1'],
+    })
+    const [stored] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
+    expect(stored).toMatchObject({ mimeType: 'audio/mp4', duration: 42, status: 'uploaded' })
+    expect(stored.audioPath.endsWith('.m4a')).toBe(true)
+  })
+
   it('stores the file, then analyzes a standalone recording into a placeholder meeting with voice commitments', async () => {
     const db = getTestDb()
     const { recordingId } = await upload(['p1'])

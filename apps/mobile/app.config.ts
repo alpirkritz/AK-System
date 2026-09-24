@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     name: 'ARO',
     slug: 'helm',
     owner: 'alpir',
-    version: '1.0.0',
+    version: '1.0.2',
     orientation: 'default',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -28,6 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     },
     android: {
       package: 'com.alpir.helm',
+      versionCode: 3,
       // Resize the window when the keyboard opens so the chat composer stays visible.
       softwareKeyboardLayoutMode: 'resize',
       adaptiveIcon: {
@@ -56,6 +57,13 @@ export default ({ config }: ConfigContext): ExpoConfig =>
         {
           icon: './assets/icon.png',
           color: '#2dd4bf',
+        },
+      ],
+      [
+        'expo-audio',
+        {
+          microphonePermission: 'ARO צריך גישה למיקרופון כדי להקליט שיחות שכל המשתתפים הסכימו להקליט.',
+          enableBackgroundRecording: false,
         },
       ],
       'expo-secure-store',
