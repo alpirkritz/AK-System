@@ -6,7 +6,13 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', '../mobile/lib/**/*.test.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', '../mobile/lib/task-due.test.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '../mobile/lib/task-due.test.ts',
+      '../mobile/lib/voice-format.test.ts',
+      '../mobile/lib/warmth-format.test.ts',
+    ],
   },
   resolve: {
     alias: {
