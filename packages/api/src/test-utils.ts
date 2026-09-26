@@ -6,6 +6,8 @@ import {
   meetingNotes,
   meetingNotePeople,
   meetingNoteProjects,
+  projects,
+  projectPeople,
   meetingAnalyses,
   meetingSeries,
   meetingTypes,
@@ -68,6 +70,8 @@ export async function resetDb() {
   await db.delete(meetingAnalyses)
   await db.delete(meetingNotePeople)
   await db.delete(meetingNoteProjects)
+  await db.delete(projectPeople)
+  await db.delete(projects)
   await db.delete(meetingNotes)
   await db.delete(meetingPeople)
   await db.delete(meetings)
