@@ -18,6 +18,10 @@ import {
   whatsappPersonLinks,
   duplicateReviews,
   commitments,
+  personTraitEvidence,
+  personTraits,
+  personObservations,
+  personSourceScans,
   whatsappDmSummaries,
   whatsappDmMessages,
   personEmailThreads,
@@ -46,6 +50,10 @@ export async function createTestCaller() {
  */
 export async function resetDb() {
   const db = getTestDb()
+  await db.delete(personTraitEvidence)
+  await db.delete(personTraits)
+  await db.delete(personObservations)
+  await db.delete(personSourceScans)
   await db.delete(commitments)
   await db.delete(personEmailThreads)
   await db.delete(voiceRecordingPeople)

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { commitmentsForDate } from '../services/commitments'
 import { pushDmAllowlist } from '../services/whatsapp-dm'
@@ -28,6 +29,20 @@ import {
   unlinkWhatsappSender,
   unlinkedWhatsappSenders,
 } from '../services/person-context'
+import { relationshipBoard, relationshipFlags, setWarmthNote } from '../services/warmth'
+import {
+  dismissPersonTrait,
+  readPersonTraitDetail,
+  readPersonTraits,
+  restorePersonTrait,
+  writePersonTraits,
+} from '../services/person-portrait'
+
+function traitError(err: unknown): TRPCError {
+  const message = err instanceof Error ? err.message : 'לא הצלחנו לנתח. התכונות הקודמות נשמרו. נסה שוב.'
+  if (message === 'NOT_FOUND') return new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+  return new TRPCError({ code: 'BAD_REQUEST', message })
+}
 
 const meetingNotesInput = z
   .object({
@@ -382,6 +397,7 @@ export const insightsRouter = router({
         .where(eq(personExternalIds.personId, input.personId))
 
       const extras = await buildPersonContext(ctx.db, input.personId)
+      const traits = await readPersonTraits(ctx.db, input.personId)
 
       return {
         lastContactAt,
@@ -390,7 +406,46 @@ export const insightsRouter = router({
         recentMeetingNotes,
         identitySources,
         meetingCount: personMeetings.length,
+        traits,
         ...extras!,
+      }
+    }),
+
+  personTraits: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => readPersonTraits(ctx.db, input.personId)),
+
+  personTraitDetail: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => readPersonTraitDetail(ctx.db, input.personId)),
+
+  writePersonTraits: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await writePersonTraits(ctx.db, input.personId)
+      } catch (err) {
+        throw traitError(err)
+      }
+    }),
+
+  dismissPersonTrait: protectedProcedure
+    .input(z.object({ traitId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await dismissPersonTrait(ctx.db, input.traitId)
+      } catch (err) {
+        throw traitError(err)
+      }
+    }),
+
+  restorePersonTrait: protectedProcedure
+    .input(z.object({ traitId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await restorePersonTrait(ctx.db, input.traitId)
+      } catch (err) {
+        throw traitError(err)
       }
     }),
 
@@ -401,6 +456,23 @@ export const insightsRouter = router({
   coolingForDate: protectedProcedure
     .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ ctx, input }) => coolingFlagsForDate(ctx.db, input.date)),
+
+  /** People whose relationship is warming or cooling, for the list — not per opened card. */
+  relationshipFlags: protectedProcedure.query(async ({ ctx }) => relationshipFlags(ctx.db)),
+
+  relationshipBoard: protectedProcedure.query(async ({ ctx }) => relationshipBoard(ctx.db)),
+
+  setWarmthNote: protectedProcedure
+    .input(z.object({
+      subject: z.enum(['person', 'circle']),
+      id: z.string().min(1),
+      note: z.string().max(280).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const saved = await setWarmthNote(ctx.db, input.subject, input.id, input.note)
+      if (!saved) throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+      return saved
+    }),
 
   /** Morning brief: open commitments of today's attendees, plus my other open ones. */
   commitmentsForDate: protectedProcedure

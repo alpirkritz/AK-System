@@ -491,10 +491,25 @@ export async function fetchPersonRelated(token: string, id: string): Promise<unk
   return client.people.getRelated.query({ id })
 }
 
+export interface MobileWarmthPoint {
+  meetingId: string
+  date: string
+  title: string
+  score: number | null
+  sentiment: number
+}
+
 export interface MobilePersonContext {
   recommendation: string | null
   warmthTrend: 'warming' | 'cooling' | 'stable' | null
-  openLoops: { content: string; meetingDate: string }[]
+  warmth: {
+    trend: 'warming' | 'cooling' | 'stable' | null
+    recentAvg: number | null
+    olderAvg: number | null
+    count: number
+    timeline: MobileWarmthPoint[]
+  }
+  openLoops: { content: string; meetingId: string; meetingDate: string }[]
   whatsappSinceCount: number
   lastNotionMeetingDate: string | null
   circles: { seriesId: string; seriesTitle: string }[]
@@ -504,14 +519,74 @@ export interface MobilePersonContext {
   proposedCommitmentCount: number
   emailThreads: { id: string; subject: string; date: string; snippet: string | null; gmailUrl: string | null }[]
   voiceRecordings: { id: string; createdAt: string; duration: number; status: string; topic: string | null; meetingId: string | null }[]
+  traits: MobileTraitSummary
+}
+
+export interface MobileTraitSummary {
+  traits: { id: string; label: string; line: string; supportCount: number }[]
+  traitsAt: string | null
+  stale: boolean
+  hasSources: boolean
+  sourceCount: number
+  evidenceCount: number
+}
+
+export interface MobileTraitDetail {
+  shown: { id: string; label: string; reasoning: string; supportCount: number; evidence: { observationId: string; sourceKind: string; sourceDate: string; quote: string | null; href: string | null }[] }[]
+  once: { id: string; label: string; evidence: { sourceKind: string; sourceDate: string; quote: string | null }[] }[]
+}
+
+export interface MobileRelationshipFlag {
+  personId: string
+  name: string
+  trend: 'warming' | 'cooling'
+  recentAvg: number | null
+  olderAvg: number | null
+}
+
+export interface MobileBoardCard {
+  id: string
+  name: string
+  trend: 'warming' | 'cooling'
+  recentAvg: number | null
+  olderAvg: number | null
+  dataReason: string
+  note: string | null
+  timeline: { meetingId: string; date: string; title: string; score: number | null; sentiment: number }[]
+}
+
+export async function fetchRelationshipBoard(token: string): Promise<{ people: MobileBoardCard[]; circles: MobileBoardCard[] }> {
+  const client = createTrpcClient(token)
+  const res = (await client.insights.relationshipBoard.query()) as { people: MobileBoardCard[]; circles: MobileBoardCard[] }
+  return { people: res.people ?? [], circles: res.circles ?? [] }
+}
+
+export async function saveWarmthNote(
+  token: string,
+  input: { subject: 'person' | 'circle'; id: string; note: string | null },
+): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.insights.setWarmthNote.mutate(input)
+}
+
+export async function fetchRelationshipFlags(token: string): Promise<{ cooling: MobileRelationshipFlag[]; warming: MobileRelationshipFlag[] }> {
+  const client = createTrpcClient(token)
+  const res = (await client.insights.relationshipFlags.query()) as {
+    cooling: MobileRelationshipFlag[]
+    warming: MobileRelationshipFlag[]
+  }
+  return {
+    cooling: res.cooling ?? [],
+    warming: res.warming ?? [],
+  }
 }
 
 export async function fetchPersonContext(token: string, personId: string): Promise<MobilePersonContext | null> {
   const client = createTrpcClient(token)
   const ctx = (await client.insights.personContext.query({ personId })) as {
     recommendation: string | null
-    warmth: { trend: MobilePersonContext['warmthTrend'] }
-    openLoopsForPerson: { content: string; meetingDate: string }[]
+    warmth: MobilePersonContext['warmth']
+    openLoopsForPerson: { content: string; meetingId: string; meetingDate: string }[]
     whatsappSinceMeeting: unknown[]
     lastNotionMeetingDate: string | null
     circles: { seriesId: string; seriesTitle: string }[]
@@ -521,12 +596,26 @@ export async function fetchPersonContext(token: string, personId: string): Promi
     proposedCommitments: unknown[]
     emailThreads?: MobilePersonContext['emailThreads']
     voiceRecordings?: MobilePersonContext['voiceRecordings']
+    traits?: MobileTraitSummary
   } | null
   if (!ctx) return null
   return {
     recommendation: ctx.recommendation,
     warmthTrend: ctx.warmth.trend,
-    openLoops: ctx.openLoopsForPerson.map((l) => ({ content: l.content, meetingDate: l.meetingDate })),
+    warmth: {
+      trend: ctx.warmth.trend,
+      recentAvg: ctx.warmth.recentAvg,
+      olderAvg: ctx.warmth.olderAvg,
+      count: ctx.warmth.count,
+      timeline: ctx.warmth.timeline.map((p) => ({
+        meetingId: p.meetingId,
+        date: p.date,
+        title: p.title,
+        score: p.score,
+        sentiment: p.sentiment,
+      })),
+    },
+    openLoops: ctx.openLoopsForPerson.map((l) => ({ content: l.content, meetingId: l.meetingId, meetingDate: l.meetingDate })),
     whatsappSinceCount: ctx.whatsappSinceMeeting.length,
     lastNotionMeetingDate: ctx.lastNotionMeetingDate,
     circles: ctx.circles.map((c) => ({ seriesId: c.seriesId, seriesTitle: c.seriesTitle })),
@@ -543,7 +632,28 @@ export async function fetchPersonContext(token: string, personId: string): Promi
       topic: r.topic,
       meetingId: r.meetingId,
     })),
+    traits: ctx.traits ?? { traits: [], traitsAt: null, stale: false, hasSources: false, sourceCount: 0, evidenceCount: 0 },
   }
+}
+
+export async function writePersonTraits(token: string, personId: string): Promise<MobileTraitSummary> {
+  const client = createTrpcClient(token)
+  return (await client.insights.writePersonTraits.mutate({ personId })) as MobileTraitSummary
+}
+
+export async function fetchPersonTraitDetail(token: string, personId: string): Promise<MobileTraitDetail> {
+  const client = createTrpcClient(token)
+  return (await client.insights.personTraitDetail.query({ personId })) as MobileTraitDetail
+}
+
+export async function dismissPersonTrait(token: string, traitId: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.insights.dismissPersonTrait.mutate({ traitId })
+}
+
+export async function restorePersonTrait(token: string, traitId: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.insights.restorePersonTrait.mutate({ traitId })
 }
 
 export async function setCaptureWhatsapp(token: string, id: string, enabled: boolean): Promise<boolean> {
@@ -632,6 +742,77 @@ export async function fetchProjects(token: string): Promise<MobileProject[]> {
 export async function fetchProject(token: string, id: string): Promise<MobileProject | null> {
   const client = createTrpcClient(token)
   return (await client.projects.getById.query({ id })) as MobileProject | null
+}
+
+export type MobileProjectTimelinePoint = {
+  meetingId: string
+  date: string
+  title: string
+  score: number | null
+  scoreRationale: string | null
+  mood: string | null
+  subtext: string | null
+  keyInsight: string | null
+}
+
+export type MobileProjectPerson = {
+  personId: string
+  name: string
+  color: string | null
+  trend: 'warming' | 'cooling' | 'stable' | null
+  text: string
+}
+
+export type MobileProjectWarmth = {
+  dataReason: string
+  scoreText: string
+  people: MobileProjectPerson[]
+  timeline: MobileProjectTimelinePoint[]
+}
+
+export type MobileProjectStanding = {
+  brief: string | null
+  briefAt: string | null
+  stale: boolean
+}
+
+export type MobileProjectRelated = {
+  warmth: MobileProjectWarmth
+  standing: MobileProjectStanding
+}
+
+export async function fetchProjectRelated(token: string, id: string): Promise<MobileProjectRelated> {
+  const client = createTrpcClient(token)
+  const related = await client.projects.getRelated.query({ id })
+  return {
+    warmth: {
+      dataReason: related.warmth.dataReason,
+      scoreText: related.warmth.scoreText,
+      people: related.warmth.people.map((person) => ({
+        personId: person.personId,
+        name: person.name,
+        color: person.color,
+        trend: person.trend,
+        text: person.text,
+      })),
+      timeline: related.warmth.timeline.map((point) => ({
+        meetingId: point.meetingId,
+        date: point.date,
+        title: point.title,
+        score: point.score,
+        scoreRationale: point.scoreRationale,
+        mood: point.mood,
+        subtext: point.subtext,
+        keyInsight: point.keyInsight,
+      })),
+    },
+    standing: related.standing,
+  }
+}
+
+export async function writeProjectStanding(token: string, id: string): Promise<MobileProjectStanding> {
+  const client = createTrpcClient(token)
+  return client.projects.writeStanding.mutate({ id })
 }
 
 export async function createProject(

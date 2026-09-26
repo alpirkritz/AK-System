@@ -15,18 +15,238 @@ import { FormSheetScaffold } from '../../components/FormSheetScaffold'
 import { useAuth } from '../../lib/auth'
 import {
   deletePerson,
+  dismissPersonTrait,
   fetchPerson,
   fetchPersonContext,
   fetchPersonRelated,
+  fetchPersonTraitDetail,
+  restorePersonTrait,
   setCaptureWhatsapp,
   updatePerson,
+  writePersonTraits,
   type MobilePersonContext,
+  type MobileTraitDetail,
+  type MobileTraitSummary,
+  type MobileWarmthPoint,
 } from '../../lib/data'
 import { colors } from '../../lib/theme'
+import { formatSentiment, WARMTH_TREND_LABEL } from '../../lib/warmth-format'
 
 function shortDate(iso: string): string {
   const d = new Date(iso)
   return `${d.getDate()}.${d.getMonth() + 1}`
+}
+
+const SOURCE_LABEL: Record<string, string> = { meeting_analysis: 'פגישה', whatsapp_dm_summary: 'וואטסאפ', email_thread: 'מייל' }
+
+function traitClause(label: string, line: string): string {
+  return line.startsWith(label) ? line.slice(label.length).trim() : line
+}
+
+function jerusalemDay(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric' }).formatToParts(new Date(iso))
+  return `${Number(parts.find((p) => p.type === 'day')?.value)}.${Number(parts.find((p) => p.type === 'month')?.value)}`
+}
+
+function shortDay(isoDate: string): string {
+  const [, m, d] = isoDate.slice(0, 10).split('-')
+  return d && m ? `${Number(d)}.${Number(m)}` : isoDate
+}
+
+function TraitsBlock({
+  token,
+  personId,
+  summary,
+  onChange,
+  onOpen,
+}: {
+  token: string
+  personId: string
+  summary: MobileTraitSummary
+  onChange: (next: MobileTraitSummary) => void
+  onOpen: (href: string) => void
+}) {
+  const [writing, setWriting] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [detail, setDetail] = useState<MobileTraitDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [undo, setUndo] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!undo) return
+    const timer = setTimeout(() => setUndo(null), 5000)
+    return () => clearTimeout(timer)
+  }, [undo])
+
+  const run = async () => {
+    setWriting(true)
+    setError(null)
+    try {
+      onChange(await writePersonTraits(token, personId))
+      if (open) setDetail(await fetchPersonTraitDetail(token, personId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'לא הצלחנו לנתח. התכונות הקודמות נשמרו. נסה שוב.')
+    } finally {
+      setWriting(false)
+    }
+  }
+
+  const toggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (next && !detail) {
+      try { setDetail(await fetchPersonTraitDetail(token, personId)) } catch { setError('לא הצלחנו לטעון את הפירוט.') }
+    }
+  }
+
+  if (!summary.hasSources && summary.traits.length === 0) return <Text style={styles.contextMuted}>אין עדיין שיחות לנתח.</Text>
+
+  return (
+    <View style={styles.contextCard}>
+      <Text style={styles.contextTitle}>אופי</Text>
+      {summary.traits.length === 0 ? (
+        <>
+          <Text style={styles.contextLine}>עוד אין תכונות.</Text>
+          <Pressable onPress={() => void run()} disabled={writing} style={styles.traitButton} accessibilityRole="button">
+            <Text style={styles.traitButtonText}>{writing ? 'מנתח…' : summary.traitsAt ? 'נתח שוב' : 'נתח אופי'}</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          {summary.traits.map((trait) => (
+            <Text key={trait.id} style={styles.traitLine}>
+              <Text style={styles.traitLabel}>{trait.label}</Text>
+              {traitClause(trait.label, trait.line) ? <Text style={styles.contextLine}> {traitClause(trait.label, trait.line)}</Text> : null}
+            </Text>
+          ))}
+          {summary.traits.length < 3 ? <Text style={styles.contextMuted}>צריך עוד שיחות כדי לתאר אותו בביטחון.</Text> : null}
+          {summary.traitsAt ? <Text style={styles.contextMuted}>לפי {summary.sourceCount} שיחות · {jerusalemDay(summary.traitsAt)}</Text> : null}
+          {summary.stale ? (
+            <Pressable onPress={() => void run()} disabled={writing} accessibilityRole="button">
+              <Text style={styles.contextMuted}>{writing ? 'מנתח…' : 'יש שיחות חדשות · נתח שוב'}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable onPress={() => void toggle()} style={styles.detailRow} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+            <Text style={styles.contextLine}>פירוט תכונות</Text>
+            <Text style={styles.countPill}>{summary.evidenceCount}</Text>
+            <Text style={styles.contextMuted}>{open ? '▴' : '▾'}</Text>
+          </Pressable>
+          {open && detail ? detail.shown.map((trait) => (
+            <View key={trait.id} style={styles.traitGroup}>
+              <Text style={styles.traitLabel}>{trait.label}</Text>
+              <Text style={styles.contextLine}>{trait.reasoning}</Text>
+              <Text style={styles.contextMuted}>{trait.supportCount} שיחות</Text>
+              {trait.evidence.map((ev) => (
+                <Pressable key={ev.observationId} disabled={!ev.href} onPress={() => ev.href && onOpen(ev.href)} accessibilityRole="link">
+                  <Text style={styles.contextMuted}>
+                    {SOURCE_LABEL[ev.sourceKind] ?? ev.sourceKind} · {shortDay(ev.sourceDate)}{ev.quote ? ` · "${ev.quote}"` : ''}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable onPress={() => {
+                void dismissPersonTrait(token, trait.id).then(() => {
+                  setUndo(trait.id)
+                  onChange({ ...summary, traits: summary.traits.filter((t) => t.id !== trait.id), evidenceCount: Math.max(0, summary.evidenceCount - trait.evidence.length) })
+                  setDetail({ ...detail, shown: detail.shown.filter((t) => t.id !== trait.id) })
+                }).catch(() => setError('לא הצלחנו להסתיר.'))
+              }} accessibilityRole="button">
+                <Text style={styles.contextMuted}>הסתר תכונה</Text>
+              </Pressable>
+            </View>
+          )) : null}
+          {open && detail && detail.once.length > 0 ? (
+            <View>
+              <Text style={styles.contextMuted}>נראה פעם אחת ({detail.once.length})</Text>
+              {detail.once.map((trait) => (
+                <Text key={trait.id} style={styles.contextMuted}>
+                  {trait.label}{trait.evidence[0] ? ` · ${SOURCE_LABEL[trait.evidence[0].sourceKind] ?? ''} · ${shortDay(trait.evidence[0].sourceDate)}` : ''}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {open && summary.hasSources ? (
+            <Pressable onPress={() => void run()} disabled={writing} accessibilityRole="button">
+              <Text style={styles.contextMuted}>{writing ? 'מנתח…' : 'נתח שוב'}</Text>
+            </Pressable>
+          ) : null}
+        </>
+      )}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {undo ? (
+        <Pressable onPress={() => {
+          void restorePersonTrait(token, undo).then(async () => {
+            setUndo(null)
+            const ctx = await fetchPersonContext(token, personId)
+            if (ctx) onChange(ctx.traits)
+            setDetail(await fetchPersonTraitDetail(token, personId))
+          }).catch(() => setError('לא הצלחנו לבטל.'))
+        }} accessibilityRole="button">
+          <Text style={styles.contextLine}>התכונה הוסתרה · בטל</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}
+
+function WarmthCard({
+  warmth,
+  onOpen,
+}: {
+  warmth: MobilePersonContext['warmth']
+  onOpen: (meetingId: string) => void
+}) {
+  const ordered = [...warmth.timeline].reverse()
+  const trend = warmth.trend
+  return (
+    <View style={styles.contextCard}>
+      <View style={styles.contextHeader}>
+        <Text style={styles.contextTitle}>קשר</Text>
+        {trend ? (
+          <Text style={[styles.warmth, trend === 'cooling' ? styles.cooling : trend === 'warming' ? styles.warming : styles.contextMuted]}>
+            {trend === 'cooling' ? '↓' : trend === 'warming' ? '↑' : '·'} {WARMTH_TREND_LABEL[trend]}
+          </Text>
+        ) : (
+          <Text style={styles.contextMuted}>אין עדיין מספיק שיחות למגמה</Text>
+        )}
+      </View>
+      <SentimentChart points={ordered} />
+      <Text style={styles.contextMuted}>
+        ממוצע אחרון {formatSentiment(warmth.recentAvg)} · ממוצע קודם {formatSentiment(warmth.olderAvg)}
+      </Text>
+      {warmth.timeline.map((p) => (
+        <Pressable key={p.meetingId} onPress={() => onOpen(p.meetingId)} accessibilityRole="link" style={styles.pointRow}>
+          <Text style={styles.pointDate}>{shortDate(p.date)}</Text>
+          <Text style={styles.pointTitle} numberOfLines={1}>{p.title}</Text>
+          {p.score != null ? <Text style={styles.pointScore}>{p.score}/10</Text> : null}
+          <Text style={[styles.pointSentiment, p.sentiment < 0 ? styles.cooling : styles.warming]}>{formatSentiment(p.sentiment)}</Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+}
+
+function SentimentChart({ points }: { points: MobileWarmthPoint[] }) {
+  return (
+    <View style={styles.chart}>
+      <View style={styles.zeroLine} />
+      {points.map((p) => {
+        const mag = Math.min(1, Math.abs(p.sentiment))
+        const height = Math.max(3, mag * 28)
+        const up = p.sentiment >= 0
+        return (
+          <View key={p.meetingId} style={styles.barSlot}>
+            <View
+              style={[
+                styles.bar,
+                { height, backgroundColor: up ? colors.success : '#facc15' },
+                up ? { bottom: 32 } : { top: 32 },
+              ]}
+            />
+          </View>
+        )
+      })}
+    </View>
+  )
 }
 
 function durationLabel(seconds: number): string {
@@ -170,16 +390,36 @@ export default function PersonDetailScreen() {
         </View>
       )}
 
+      {context && token && id ? (
+        <TraitsBlock
+          token={token}
+          personId={id}
+          summary={context.traits}
+          onChange={(traits) => setContext({ ...context, traits })}
+          onOpen={(href) => {
+            if (href.startsWith('http')) void Linking.openURL(href).catch(() => Alert.alert('שגיאה', 'לא ניתן לפתוח'))
+            else if (href.startsWith('/meetings/')) router.push(`/meeting/${href.slice('/meetings/'.length)}` as Href)
+          }}
+        />
+      ) : null}
+
+      {context && context.warmth.timeline.length > 0 ? (
+        <WarmthCard
+          warmth={context.warmth}
+          onOpen={(meetingId) => router.push(`/meeting/${meetingId}` as Href)}
+        />
+      ) : null}
+
       {context && (context.recommendation || context.openLoops.length > 0 || context.circles.length > 0) ? (
         <View style={styles.contextCard}>
           <View style={styles.contextHeader}>
             <Text style={styles.contextTitle}>הקשר</Text>
-            {context.warmthTrend === 'cooling' ? <Text style={[styles.warmth, styles.cooling]}>↓ מתקרר</Text> : null}
-            {context.warmthTrend === 'warming' ? <Text style={[styles.warmth, styles.warming]}>↑ מתחמם</Text> : null}
           </View>
           {context.recommendation ? <Text style={styles.recommendation}>{context.recommendation}</Text> : null}
-          {context.openLoops.slice(0, 3).map((l, i) => (
-            <Text key={i} style={styles.contextLine}>• {l.content}</Text>
+          {context.openLoops.slice(0, 5).map((l, i) => (
+            <Pressable key={`${l.meetingId}-${i}`} onPress={() => router.push(`/meeting/${l.meetingId}` as Href)} accessibilityRole="link">
+              <Text style={styles.contextLine}>• {shortDate(l.meetingDate)} · {l.content}</Text>
+            </Pressable>
           ))}
           {context.whatsappSinceCount > 0 ? (
             <Text style={styles.contextMuted}>{context.whatsappSinceCount} הודעות וואטסאפ מאז הפגישה האחרונה</Text>
@@ -334,10 +574,26 @@ const styles = StyleSheet.create({
     borderRightColor: colors.accent,
     paddingRight: 8,
   },
+  traitLine: { textAlign: 'right', writingDirection: 'rtl', lineHeight: 22 },
+  traitLabel: { color: colors.text, fontSize: 15, fontWeight: '600', writingDirection: 'rtl' },
+  traitButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: colors.accent, marginTop: 8 },
+  traitButtonText: { color: '#0e1626', fontSize: 15, fontWeight: '700' },
+  detailRow: { minHeight: 44, flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  countPill: { color: colors.textMuted, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden', fontVariant: ['tabular-nums'] },
+  traitGroup: { gap: 2, marginTop: 8 },
   contextLine: { color: colors.text, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
   contextMuted: { color: colors.textMuted, fontSize: 12, textAlign: 'right', writingDirection: 'rtl' },
   captureRow: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between' },
   commitmentsLink: { color: colors.accent, fontSize: 13, textAlign: 'right', writingDirection: 'rtl', marginTop: 4 },
+  chart: { height: 64, flexDirection: 'row', alignItems: 'stretch', gap: 3, marginVertical: 4 },
+  zeroLine: { position: 'absolute', left: 0, right: 0, top: 31, height: 1, backgroundColor: colors.border },
+  barSlot: { flex: 1, position: 'relative' },
+  bar: { position: 'absolute', left: 1, right: 1, borderRadius: 2 },
+  pointRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, minHeight: 36 },
+  pointDate: { color: colors.textMuted, fontSize: 12, width: 36, textAlign: 'right' },
+  pointTitle: { flex: 1, color: colors.text, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
+  pointScore: { color: colors.textMuted, fontSize: 12 },
+  pointSentiment: { fontSize: 13, fontWeight: '700', width: 52, textAlign: 'left' },
   label: {
     color: colors.textMuted,
     fontSize: 13,

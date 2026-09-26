@@ -6,6 +6,7 @@ import { MessageCircle, Users, CheckSquare, FileText, Link2, X, Pin, Handshake, 
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
 import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
+import { PersonTraits } from './PersonTraits'
 
 const SINCE_SHOWN = 5
 
@@ -120,6 +121,10 @@ export function PersonContextCard({ personId }: { personId: string }) {
     <section className="mb-5" data-testid="person-context-card">
       <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">הקשר</h3>
       <div className="card p-3 space-y-4 text-xs">
+        <div data-testid="person-traits-block">
+          <h4 className="text-[11px] font-semibold text-[#5a688c] mb-1.5">אופי</h4>
+          <PersonTraits personId={personId} summary={ctx.traits} />
+        </div>
         <div className="flex flex-wrap items-start gap-2">
           <p
             className="flex-1 min-w-0 rounded-md px-2.5 py-2 leading-relaxed"

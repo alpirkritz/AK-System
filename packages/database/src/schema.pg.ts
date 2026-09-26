@@ -70,6 +70,10 @@ export const people = pgTable('people', {
   /** When capture was switched on; earlier messages are never stored */
   captureWhatsappSince: text('capture_whatsapp_since'),
   createdAt: text('created_at').notNull(),
+  warmthNote: text('warmth_note'),
+  warmthNoteUpdatedAt: text('warmth_note_updated_at'),
+  /** ISO time of the last character-trait write */
+  traitsAt: text('traits_at'),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),
@@ -104,6 +108,8 @@ export const projects = pgTable('projects', {
   notionPageId: text('notion_page_id'),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
   source: text('source').notNull().default('manual'),
+  standingBrief: text('standing_brief'),
+  standingBriefAt: text('standing_brief_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -174,6 +180,8 @@ export const meetingSeries = pgTable('meeting_series', {
   rosterDismissedSig: text('roster_dismissed_sig'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  warmthNote: text('warmth_note'),
+  warmthNoteUpdatedAt: text('warmth_note_updated_at'),
 }, (table) => ({
   googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
   titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
@@ -335,6 +343,8 @@ export const meetingAnalyses = pgTable('meeting_analyses', {
   status: text('status').notNull().default('pending'),
   error: text('error'),
   consentConfirmedAt: text('consent_confirmed_at'),
+  /** Set after the learning WhatsApp for this analysis was sent */
+  whatsappNotifiedAt: text('whatsapp_notified_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -1136,6 +1146,64 @@ export const voiceRecordingPeople = pgTable('voice_recording_people', {
   recordingIdIdx: index('idx_voice_recording_people_recording_id').on(table.recordingId),
   personIdIdx: index('idx_voice_recording_people_person_id').on(table.personId),
   pairUq: uniqueIndex('uq_voice_recording_people_pair').on(table.recordingId, table.personId),
+}))
+
+export const PERSON_TRAIT_STATUSES = ['shown', 'once', 'dismissed'] as const
+export type PersonTraitStatus = (typeof PERSON_TRAIT_STATUSES)[number]
+
+export const PERSON_TRAIT_SOURCE_KINDS = ['meeting_analysis', 'whatsapp_dm_summary', 'email_thread'] as const
+export type PersonTraitSourceKind = (typeof PERSON_TRAIT_SOURCE_KINDS)[number]
+
+/** An artifact already read for character traits, so a re-run does not send it again. */
+export const personSourceScans = pgTable('person_source_scans', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  sourceKind: text('source_kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceUpdatedAt: text('source_updated_at').notNull(),
+  scannedAt: text('scanned_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_source_scans_person_id').on(table.personId),
+  sourceUq: uniqueIndex('uq_person_source_scans').on(table.personId, table.sourceKind, table.sourceId),
+}))
+
+/** One observed behaviour from a single conversation artifact. */
+export const personObservations = pgTable('person_observations', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  claim: text('claim').notNull(),
+  quote: text('quote'),
+  sourceKind: text('source_kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceDate: text('source_date').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_observations_person_id').on(table.personId),
+}))
+
+/** A character line folded from observations. `shown` needs two sources; `once` is detail-only. */
+export const personTraits = pgTable('person_traits', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  line: text('line').notNull(),
+  reasoning: text('reasoning').notNull(),
+  supportCount: integer('support_count').notNull(),
+  latestSourceDate: text('latest_source_date').notNull(),
+  status: text('status').notNull().default('shown'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_traits_person_id').on(table.personId),
+}))
+
+export const personTraitEvidence = pgTable('person_trait_evidence', {
+  id: text('id').primaryKey(),
+  traitId: text('trait_id').notNull().references(() => personTraits.id, { onDelete: 'cascade' }),
+  observationId: text('observation_id').notNull().references(() => personObservations.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  traitIdIdx: index('idx_person_trait_evidence_trait_id').on(table.traitId),
+  pairUq: uniqueIndex('uq_person_trait_evidence_pair').on(table.traitId, table.observationId),
 }))
 
 export type PersonEmailThread = typeof personEmailThreads.$inferSelect

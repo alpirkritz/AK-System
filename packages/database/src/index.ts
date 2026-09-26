@@ -190,6 +190,50 @@ const WHATSAPP_DM_TABLES = [
   'CREATE INDEX IF NOT EXISTS idx_commitments_task_id ON commitments(task_id)',
 ]
 
+const PERSON_TRAIT_TABLES = [
+  `CREATE TABLE IF NOT EXISTS person_source_scans (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_updated_at TEXT NOT NULL,
+    scanned_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_person_source_scans_person_id ON person_source_scans(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_source_scans ON person_source_scans(person_id, source_kind, source_id)',
+  `CREATE TABLE IF NOT EXISTS person_observations (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    claim TEXT NOT NULL,
+    quote TEXT,
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_date TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_person_observations_person_id ON person_observations(person_id)',
+  `CREATE TABLE IF NOT EXISTS person_traits (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    line TEXT NOT NULL,
+    reasoning TEXT NOT NULL,
+    support_count INTEGER NOT NULL,
+    latest_source_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'shown',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_person_traits_person_id ON person_traits(person_id)',
+  `CREATE TABLE IF NOT EXISTS person_trait_evidence (
+    id TEXT PRIMARY KEY NOT NULL,
+    trait_id TEXT NOT NULL REFERENCES person_traits(id) ON DELETE CASCADE,
+    observation_id TEXT NOT NULL REFERENCES person_observations(id) ON DELETE CASCADE
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_person_trait_evidence_trait_id ON person_trait_evidence(trait_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_trait_evidence_pair ON person_trait_evidence(trait_id, observation_id)',
+]
+
 const EMAIL_VOICE_TABLES = [
   `CREATE TABLE IF NOT EXISTS person_email_threads (
     id TEXT PRIMARY KEY NOT NULL,
@@ -283,6 +327,8 @@ const CONTACT_GRAPH_TABLES = [
   'ALTER TABLE projects ADD COLUMN notion_page_id TEXT',
   'ALTER TABLE projects ADD COLUMN company_id TEXT',
   "ALTER TABLE projects ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+  'ALTER TABLE projects ADD COLUMN standing_brief TEXT',
+  'ALTER TABLE projects ADD COLUMN standing_brief_at TEXT',
   'CREATE INDEX IF NOT EXISTS idx_projects_notion_page_id ON projects(notion_page_id)',
   'CREATE INDEX IF NOT EXISTS idx_projects_company_id ON projects(company_id)',
   `CREATE TABLE IF NOT EXISTS project_people (
@@ -1170,8 +1216,18 @@ export function getDb() {
   for (const sql of AGENT_RUNTIME_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
-  for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES]) {
+  for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES, ...PERSON_TRAIT_TABLES]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
+  }
+  for (const sql of [
+    'ALTER TABLE people ADD COLUMN warmth_note TEXT',
+    'ALTER TABLE people ADD COLUMN warmth_note_updated_at TEXT',
+    'ALTER TABLE meeting_series ADD COLUMN warmth_note TEXT',
+    'ALTER TABLE meeting_series ADD COLUMN warmth_note_updated_at TEXT',
+    'ALTER TABLE meeting_analyses ADD COLUMN whatsapp_notified_at TEXT',
+    'ALTER TABLE people ADD COLUMN traits_at TEXT',
+  ]) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
 }
@@ -1211,6 +1267,12 @@ export const COMMITMENT_STATUSES = schemaPg.COMMITMENT_STATUSES
 export const COMMITMENT_SOURCES = schemaPg.COMMITMENT_SOURCES
 export const COMMITMENT_OWNERS = schemaPg.COMMITMENT_OWNERS
 export const personEmailThreads = schema.personEmailThreads
+export const personSourceScans = schema.personSourceScans
+export const personObservations = schema.personObservations
+export const personTraits = schema.personTraits
+export const personTraitEvidence = schema.personTraitEvidence
+export const PERSON_TRAIT_STATUSES = schemaPg.PERSON_TRAIT_STATUSES
+export const PERSON_TRAIT_SOURCE_KINDS = schemaPg.PERSON_TRAIT_SOURCE_KINDS
 export const voiceRecordings = schema.voiceRecordings
 export const voiceRecordingPeople = schema.voiceRecordingPeople
 export const VOICE_RECORDING_STATUSES = schemaPg.VOICE_RECORDING_STATUSES
