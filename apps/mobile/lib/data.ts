@@ -783,31 +783,7 @@ export type MobileProjectRelated = {
 
 export async function fetchProjectRelated(token: string, id: string): Promise<MobileProjectRelated> {
   const client = createTrpcClient(token)
-  const related = await client.projects.getRelated.query({ id })
-  return {
-    warmth: {
-      dataReason: related.warmth.dataReason,
-      scoreText: related.warmth.scoreText,
-      people: related.warmth.people.map((person) => ({
-        personId: person.personId,
-        name: person.name,
-        color: person.color,
-        trend: person.trend,
-        text: person.text,
-      })),
-      timeline: related.warmth.timeline.map((point) => ({
-        meetingId: point.meetingId,
-        date: point.date,
-        title: point.title,
-        score: point.score,
-        scoreRationale: point.scoreRationale,
-        mood: point.mood,
-        subtext: point.subtext,
-        keyInsight: point.keyInsight,
-      })),
-    },
-    standing: related.standing,
-  }
+  return (await client.projects.getRelated.query({ id })) as MobileProjectRelated
 }
 
 export async function writeProjectStanding(token: string, id: string): Promise<MobileProjectStanding> {
