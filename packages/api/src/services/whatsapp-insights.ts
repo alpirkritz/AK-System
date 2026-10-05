@@ -268,7 +268,11 @@ export const DIGEST_NARRATIVE_FALLBACK = 'לא הצלחתי לנסח את הסי
 export interface DailyDigestModel {
   actions: { text: string; source: string }[]
   narrative: string
+  /** True when a saved prompt owns headings/bullets; skip the JSON story renderer. */
+  passthrough?: boolean
 }
+
+export type DigestPromptContract = 'json' | 'freeform'
 
 export interface DailyDigestGroupPrompt {
   name: string
@@ -281,17 +285,50 @@ function asText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-const DIGEST_JSON_CONTRACT = [
+export const DIGEST_JSON_CONTRACT = [
   'Respond in JSON only, no markdown fences, with this shape:',
   '{"actions":[{"text":"<one concrete thing the user must do, bring, approve, pay, confirm, or answer>","source":"<exact group name, or exact label name if the same ask appears in more than one group of that label>"}],"narrative":"<spoken Hebrew story, a few short sentences, under 900 characters>"}',
-  'narrative is concise spoken prose. No bullets, no label headings. A sentence or two per active group, more only when something actually happened. State a repeated event once. Do not mention a group that is not in the blocks below.',
+  'narrative is concise spoken prose. No bullets, no label headings. A sentence or two per active group, more only when something actually happened. A single emoji may start a group or event beat; no emoji chains. State a repeated event once. Do not mention a group that is not in the blocks below.',
   'Include an action only when the messages contain a request, an unanswered question, a deadline, or something to bring, approve, pay, or confirm.',
   'A decision already made with nothing left to do is not an action. If unsure, omit the action. Do not invent.',
   'Copy source exactly from a group name or label in the input.',
 ].join('\n')
 
-/** Storytelling instruction plus the fixed JSON contract. Empty groups are left out. */
-export function buildDailyDigestPrompt(instructions: string, groups: DailyDigestGroupPrompt[]): string {
+const DIGEST_FREEFORM_CONTRACT = [
+  'Write the briefing now in the format given above.',
+  'Do not wrap the answer in JSON. Do not wrap it in markdown fences.',
+  'Use only the groups listed below. Do not add a group that is not listed. Empty groups are already omitted.',
+  'Do not invent facts that are not in the messages.',
+].join('\n')
+
+export function stripModelFence(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json|markdown|md|text)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+}
+
+/** Saved-prompt replies are markdown. Unwrap JSON only if the model ignored that. */
+export function parseFreeformDigestText(raw: string): string {
+  const text = stripModelFence(raw)
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text) as { narrative?: unknown }
+    const narrative = asText(parsed?.narrative)
+    if (narrative) return narrative
+  } catch {
+    /* use the markdown/plain body */
+  }
+  return text
+}
+
+/** Instruction plus either the JSON contract or a freeform follow-through. Empty groups are left out. */
+export function buildDailyDigestPrompt(
+  instructions: string,
+  groups: DailyDigestGroupPrompt[],
+  options?: { contract?: DigestPromptContract },
+): string {
   const withMessages = groups.filter((g) => g.messages.length > 0)
   const priorityLabel = (p: number) => (p >= 2 ? 'קריטי' : p === 1 ? 'חשוב' : 'רגיל')
   const blocks = withMessages
@@ -301,10 +338,12 @@ export function buildDailyDigestPrompt(instructions: string, groups: DailyDigest
     })
     .join('\n\n')
 
+  const contract = options?.contract === 'freeform' ? DIGEST_FREEFORM_CONTRACT : DIGEST_JSON_CONTRACT
+
   return [
     instructions.trim(),
     '',
-    DIGEST_JSON_CONTRACT,
+    contract,
     '',
     'Groups and messages:',
     blocks,
@@ -312,22 +351,35 @@ export function buildDailyDigestPrompt(instructions: string, groups: DailyDigest
 }
 
 /**
- * One JSON briefing over every followed group that had messages today.
- * The server owns whether "צריך אותך" appears and clips the story.
+ * One briefing over every followed group that had messages today.
+ * JSON contract: the server owns the to-do block and clips the story.
+ * Freeform: a saved prompt owns headings and bullets.
  */
 export async function generateDailyDigestModel(
   groups: DailyDigestGroupPrompt[],
   instructions: string,
+  options?: { contract?: DigestPromptContract },
 ): Promise<DailyDigestModel> {
   const withMessages = groups.filter((g) => g.messages.length > 0)
   if (withMessages.length === 0) {
     return { actions: [], narrative: '' }
   }
 
+  const contract = options?.contract === 'freeform' ? 'freeform' : 'json'
   const model = getModel()
-  const prompt = buildDailyDigestPrompt(instructions, withMessages)
+  const prompt = buildDailyDigestPrompt(instructions, withMessages, { contract })
   const result = await model.generateContent(prompt)
-  const raw = result.response.text().trim().replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()
+  const raw = stripModelFence(result.response.text())
+
+  if (contract === 'freeform') {
+    const narrative = parseFreeformDigestText(raw)
+    return {
+      actions: [],
+      narrative: narrative || DIGEST_NARRATIVE_FALLBACK,
+      passthrough: true,
+    }
+  }
+
   let parsed: {
     actions?: { text?: unknown; source?: unknown }[]
     narrative?: unknown

@@ -1,3 +1,4 @@
+import * as path from 'path'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq } from 'drizzle-orm'
@@ -9,7 +10,9 @@ import {
   getVoiceRecording,
   listVoiceRecordings,
   processVoiceRecording,
+  voiceStorageDir,
 } from '../services/voice'
+import { deleteVoicePrint, enrollVoicePrint, getVoicePrintStatus, VoiceEnrollmentError } from '../services/voice-diarization'
 
 const STUCK_PROCESSING_MS = 10 * 60_000
 
@@ -49,6 +52,7 @@ export const voiceRouter = router({
       recordingId: z.string().min(1),
       personIds: z.array(z.string().min(1)),
       meetingId: z.string().min(1).optional(),
+      projectId: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       try {
@@ -98,4 +102,28 @@ export const voiceRouter = router({
         error: a.error,
       }
     }),
+
+  // Self-voice enrollment (see docs/specs/recording-background-and-speaker-id.md). MVP: a single
+  // enrolled voiceprint (Alpir's own); no per-contact enrollment yet.
+  getVoicePrintStatus: protectedProcedure.query(async ({ ctx }) => getVoicePrintStatus(ctx.db)),
+
+  enrollVoicePrint: protectedProcedure
+    .input(z.object({ audioBase64: z.string().min(1), mimeType: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await enrollVoicePrint(
+          ctx.db,
+          { audio: Buffer.from(input.audioBase64, 'base64'), mimeType: input.mimeType },
+          path.join(voiceStorageDir(), 'enrollment'),
+        )
+      } catch (err) {
+        if (err instanceof VoiceEnrollmentError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+        throw err
+      }
+    }),
+
+  deleteVoicePrint: protectedProcedure.mutation(async ({ ctx }) => {
+    await deleteVoicePrint(ctx.db)
+    return { deleted: true }
+  }),
 })

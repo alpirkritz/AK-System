@@ -29,6 +29,8 @@ const JOBS = [
   ['whatsapp-message-retention', 1440],
   ['people-duplicates', 1440],
   ['whatsapp-dm-summary', 1440],
+  ['whatsapp-dm-commitments', 10],
+  ['whatsapp-group-commitments', 10],
   ['email-sync', 60],
 ]
 
@@ -57,4 +59,4 @@ setInterval(() => {
   for (const [route, every] of JOBS) if (minute % every === 0) hit(route)
 }, 60_000)
 // fire the sync-ish jobs once on boot so the day starts consistent
-for (const route of ['calendar-sync', 'morning-briefing', 'pre-meeting-briefing', 'scheduled-agents']) hit(route)
+for (const route of ['calendar-sync', 'morning-briefing', 'pre-meeting-briefing', 'scheduled-agents', 'whatsapp-dm-commitments']) hit(route)

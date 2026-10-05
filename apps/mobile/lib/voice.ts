@@ -9,7 +9,9 @@ export type MobileVoiceRecording = {
   error: string | null
   meetingId: string | null
   meetingTitle: string | null
+  matchedAutomatically: boolean
   topic: string | null
+  project: { id: string; name: string } | null
   people: { id: string; name: string }[]
 }
 
@@ -26,17 +28,34 @@ export type MobileAttachCandidate = { id: string; title: string; time: string; e
  */
 export function uploadVoiceRecording(
   token: string,
-  input: { uri: string; durationSeconds: number; personIds: string[]; meetingId?: string },
+  input: {
+    uri: string
+    durationSeconds: number
+    personIds: string[]
+    meetingId?: string
+    projectId?: string | null
+    /** 'live' (default, in-app recording) or 'imported' (picked/shared external file, e.g. a call recording) */
+    source?: 'live' | 'imported'
+    /** File name/mime as picked — imported files aren't always m4a like the in-app recorder's output */
+    fileName?: string
+    mimeType?: string
+  },
   onProgress: (fraction: number) => void,
 ): Promise<{ recordingId: string }> {
   if (!API_URL) return Promise.reject(new ApiError('EXPO_PUBLIC_API_URL is not configured', 0))
   const form = new FormData()
   // React Native's FormData takes a { uri, name, type } descriptor for files.
-  form.append('audio', { uri: input.uri, name: 'recording.m4a', type: 'audio/mp4' } as unknown as Blob)
+  form.append('audio', {
+    uri: input.uri,
+    name: input.fileName ?? 'recording.m4a',
+    type: input.mimeType ?? 'audio/mp4',
+  } as unknown as Blob)
   form.append('durationSeconds', String(Math.round(input.durationSeconds)))
   form.append('consentConfirmed', 'true')
   form.append('personIds', input.personIds.join(','))
+  form.append('source', input.source ?? 'live')
   if (input.meetingId) form.append('meetingId', input.meetingId)
+  if (input.projectId) form.append('projectId', input.projectId)
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -80,7 +99,7 @@ export async function fetchAttachCandidates(token: string, recordingId: string):
 
 export async function attachVoiceToMeeting(
   token: string,
-  input: { recordingId: string; personIds: string[]; meetingId?: string },
+  input: { recordingId: string; personIds: string[]; meetingId?: string; projectId?: string | null },
 ): Promise<{ meetingId: string | null }> {
   const client = createTrpcClient(token)
   return (await client.voice.attachToPeople.mutate(input)) as { meetingId: string | null }
@@ -89,4 +108,26 @@ export async function attachVoiceToMeeting(
 export async function retryVoiceRecording(token: string, recordingId: string): Promise<void> {
   const client = createTrpcClient(token)
   await client.voice.retry.mutate({ recordingId })
+}
+
+// Self-voice enrollment (see docs/specs/recording-background-and-speaker-id.md, MVP: Alpir only).
+
+export async function fetchVoicePrintStatus(token: string): Promise<{ enrolled: boolean; updatedAt: string | null }> {
+  const client = createTrpcClient(token)
+  return (await client.voice.getVoicePrintStatus.query()) as { enrolled: boolean; updatedAt: string | null }
+}
+
+/** Reads the sample file and sends it as base64 — enrollment clips are short (~20-30s), unlike full recordings. */
+export async function enrollVoicePrint(token: string, uri: string, mimeType: string): Promise<{ id: string }> {
+  const client = createTrpcClient(token)
+  // The `/legacy` entry point still has the simple string-based read API (SDK 56 default export
+  // moved to a File/Directory class API we don't otherwise need here).
+  const { readAsStringAsync, EncodingType } = await import('expo-file-system/legacy')
+  const audioBase64 = await readAsStringAsync(uri, { encoding: EncodingType.Base64 })
+  return (await client.voice.enrollVoicePrint.mutate({ audioBase64, mimeType })) as { id: string }
+}
+
+export async function deleteVoicePrint(token: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.voice.deleteVoicePrint.mutate()
 }

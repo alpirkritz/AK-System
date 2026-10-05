@@ -21,6 +21,7 @@ import {
   commitments,
   personEmailThreads,
   voiceRecordingPeople,
+  peopleNotionSources,
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
@@ -29,6 +30,14 @@ import { repointPersonExternalIds } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
 import { createNotification } from '../lib/notification-store'
 import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
+import {
+  resolveDatabases,
+  listNotionAccountLabels,
+  findNotionAccountToken,
+  extractNotionDatabaseId,
+  resolveDatabaseFieldMappings,
+} from '../services/notion-tasks-sync'
+import { fetchDatabaseInfo } from '../services/notion-people-directory'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
 
@@ -271,6 +280,8 @@ export const peopleRouter = router({
               id: tasks.id,
               title: tasks.title,
               done: tasks.done,
+              status: tasks.status,
+              priority: tasks.priority,
               dueDate: tasks.dueDate,
               meetingId: tasks.meetingId,
               projectId: tasks.projectId,
@@ -578,6 +589,12 @@ export const peopleRouter = router({
       notes: input.notes ?? null,
       createdAt,
     })
+    // A phone number at creation time is enough to opt this person into WhatsApp 1:1 capture by
+    // default — forward-only from now, no backfill, same semantics as toggling it on manually.
+    if (input.phone) {
+      await setCaptureWhatsapp(ctx.db, id, true)
+      await pushDmAllowlist(ctx.db)
+    }
     const [row] = await ctx.db.select().from(people).where(eq(people.id, id))
     return row!
   }),
@@ -624,6 +641,113 @@ export const peopleRouter = router({
       const bridge = await pushDmAllowlist(ctx.db)
       return { captureWhatsapp: !!state.capture, captureWhatsappSince: state.since, bridgeUpdated: bridge.pushed }
     }),
+
+  // ── Notion "people" sources: env-configured + self-service (Settings ← מקורות) ──
+
+  /** Account labels configured in NOTION_ACCOUNTS, for the "add source" account picker. */
+  notionAccounts: protectedProcedure.query(() => {
+    return listNotionAccountLabels().map((label) => ({ label }))
+  }),
+
+  /** Every database the People pass currently scans: env-configured (read-only) + custom (removable). */
+  notionSources: protectedProcedure.query(async ({ ctx }) => {
+    const env = resolveDatabases('people').map((d) => ({
+      source: 'env' as const,
+      id: null as string | null,
+      accountLabel: d.accountLabel,
+      notionDatabaseId: d.databaseId,
+      name: d.name,
+    }))
+    const customRows = await ctx.db.select().from(peopleNotionSources)
+    const custom = customRows.map((r) => ({
+      source: 'custom' as const,
+      id: r.id as string | null,
+      accountLabel: r.accountLabel,
+      notionDatabaseId: r.notionDatabaseId,
+      name: r.notionDatabaseName ?? r.notionDatabaseId,
+    }))
+    return [...env, ...custom]
+  }),
+
+  /**
+   * Validates a pasted Notion database link/id against one account's token and previews its
+   * title, without writing anything yet — the UI shows this for confirmation before `addNotionSource`.
+   */
+  resolveNotionDatabaseLink: protectedProcedure
+    .input(z.object({ accountLabel: z.string().min(1), link: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const notionDatabaseId = extractNotionDatabaseId(input.link)
+      if (!notionDatabaseId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'לא זיהיתי מזהה בסיס נתונים בקישור הזה' })
+      }
+      const token = findNotionAccountToken(input.accountLabel)
+      if (!token) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      let info: Awaited<ReturnType<typeof fetchDatabaseInfo>>
+      try {
+        info = await fetchDatabaseInfo(token, notionDatabaseId)
+      } catch {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `האינטגרציה של ${input.accountLabel} לא משותפת לבסיס הנתונים הזה ב-Notion — שתף אותו קודם משם ונסה שוב`,
+        })
+      }
+      const alreadyEnv = resolveDatabases('people').some((d) => d.databaseId === notionDatabaseId)
+      const [existingCustom] = await ctx.db
+        .select({ id: peopleNotionSources.id })
+        .from(peopleNotionSources)
+        .where(eq(peopleNotionSources.notionDatabaseId, notionDatabaseId))
+      return {
+        notionDatabaseId,
+        name: info.title || notionDatabaseId,
+        alreadyAdded: alreadyEnv || !!existingCustom,
+        fieldMappings: resolveDatabaseFieldMappings(info.properties),
+      }
+    }),
+
+  addNotionSource: protectedProcedure
+    .input(z.object({
+      accountLabel: z.string().min(1),
+      notionDatabaseId: z.string().min(1),
+      notionDatabaseName: z.string().min(1),
+      phonePropertyName: z.string().nullable().optional(),
+      rolePropertyName: z.string().nullable().optional(),
+      companyPropertyName: z.string().nullable().optional(),
+      linkedinPropertyName: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!findNotionAccountToken(input.accountLabel)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      const alreadyEnv = resolveDatabases('people').some((d) => d.databaseId === input.notionDatabaseId)
+      const [existingCustom] = await ctx.db
+        .select()
+        .from(peopleNotionSources)
+        .where(eq(peopleNotionSources.notionDatabaseId, input.notionDatabaseId))
+      if (alreadyEnv || existingCustom) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'בסיס הנתונים כבר רשום כמקור אנשים' })
+      }
+      const id = 'pns' + Date.now() + Math.random().toString(36).slice(2, 7)
+      await ctx.db.insert(peopleNotionSources).values({
+        id,
+        phonePropertyName: input.phonePropertyName ?? null,
+        rolePropertyName: input.rolePropertyName ?? null,
+        companyPropertyName: input.companyPropertyName ?? null,
+        linkedinPropertyName: input.linkedinPropertyName ?? null,
+        accountLabel: input.accountLabel,
+        notionDatabaseId: input.notionDatabaseId,
+        notionDatabaseName: input.notionDatabaseName.trim() || null,
+        createdAt: new Date().toISOString(),
+      })
+      const [row] = await ctx.db.select().from(peopleNotionSources).where(eq(peopleNotionSources.id, id))
+      return row!
+    }),
+
+  removeNotionSource: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await ctx.db.delete(peopleNotionSources).where(eq(peopleNotionSources.id, input.id))
+    return { ok: true }
+  }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await ctx.db.delete(people).where(eq(people.id, input.id))

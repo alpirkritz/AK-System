@@ -1,10 +1,10 @@
-import { useRouter, type Href } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ListRow } from '../components/ListRow'
-import { useAuth } from '../lib/auth'
-import { fetchAgentConfigs } from '../lib/data'
-import { colors } from '../lib/theme'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { useCallback, useRef, useState } from 'react'
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ListRow } from '../../components/ListRow'
+import { useAuth } from '../../lib/auth'
+import { fetchAgentConfigs } from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 export default function AgentsScreen() {
   const { token } = useAuth()
@@ -13,25 +13,35 @@ export default function AgentsScreen() {
     Array<{ agentId: string; name: string; role: string; enabled: boolean }>
   >([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
 
-  const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetchAgentConfigs(token)
-      setAgents(res.agents)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token])
+  const load = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (!token) return
+      mode === 'refresh' ? setRefreshing(true) : setLoading(true)
+      setError(null)
+      try {
+        const res = await fetchAgentConfigs(token)
+        setAgents(res.agents)
+        hasLoadedOnce.current = true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'טעינה נכשלה')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [token],
+  )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   if (loading) {
     return (
@@ -42,7 +52,13 @@ export default function AgentsScreen() {
   }
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
+      }
+    >
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.group}>

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -9,15 +10,16 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { ListRow } from '../../components/ListRow'
-import { useAuth } from '../../lib/auth'
+import { ListRow } from '../../../components/ListRow'
+import { useBringFocusedFieldIntoView } from '../../../components/KeyboardSafe'
+import { useAuth } from '../../../lib/auth'
 import {
   createWorkspace,
   deleteWorkspace,
   fetchWorkspaces,
   type MobileWorkspace,
-} from '../../lib/data'
-import { colors } from '../../lib/theme'
+} from '../../../lib/data'
+import { colors } from '../../../lib/theme'
 
 export default function WorkspacesSettingsScreen() {
   const { token } = useAuth()
@@ -26,6 +28,8 @@ export default function WorkspacesSettingsScreen() {
   const [busy, setBusy] = useState(false)
   const [newName, setNewName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const scrollRef = useRef<ScrollView>(null)
+  useBringFocusedFieldIntoView(scrollRef)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -40,9 +44,12 @@ export default function WorkspacesSettingsScreen() {
     }
   }, [token])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load()
+    }, [token, load]),
+  )
 
   const onCreate = async () => {
     const name = newName.trim()
@@ -91,7 +98,12 @@ export default function WorkspacesSettingsScreen() {
   }
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.flex}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.group}>

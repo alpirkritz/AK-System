@@ -624,6 +624,20 @@ export const agentSchedules = pgTable('agent_schedules', {
   updatedAt: text('updated_at').notNull(),
 })
 
+/**
+ * Daily snapshot of the Tier 1 QA scan (tests + linked bugs), one row per
+ * Jerusalem calendar date — used for day-over-day diffing in the WhatsApp
+ * update. See notion-tier1-qa.ts / docs/specs/tier1-qa-whatsapp-agent.md.
+ */
+export const tier1QaSnapshots = pgTable('tier1_qa_snapshots', {
+  id: text('id').primaryKey(),
+  snapshotDate: text('snapshot_date').notNull().unique(),
+  testsSnapshot: text('tests_snapshot').notNull(),
+  bugsSnapshot: text('bugs_snapshot').notNull(),
+  summaryStats: text('summary_stats').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
 export const healthMetrics = pgTable('health_metrics', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),

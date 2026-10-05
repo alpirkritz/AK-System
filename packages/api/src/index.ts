@@ -81,8 +81,18 @@ export {
   getBridgeWatchedGroups,
   summarizeGroup,
   summarizeCluster,
+  sendBridgeGroupText,
   type GroupRulePayload,
 } from './services/whatsapp-bridge-client'
+export {
+  runTier1QaScan,
+  formatIncompleteMessage,
+  formatGroundingMessage,
+  saveSnapshot as saveTier1QaSnapshot,
+  deliverTier1QaGroupUpdate,
+  TIER1_QA_NOTIFICATION_TYPE_ID,
+  type Tier1QaScanResult,
+} from './services/notion-tier1-qa'
 export {
   partitionDueSummaries,
   formatClusterSummaryMessage,

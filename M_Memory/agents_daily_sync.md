@@ -1755,3 +1755,122 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - **Compliance:** [x] Backup before deploy [x] Consent gate on device and server [x] tRPC client for data, multipart only for audio [x] No background recording
 - **Tests:** mobile voice-format 4/4 · API voice suite 13/13 · mobile tsc clean · production upload probe (bearer → 400 too short, none → 401)
 - **Performance notes:** `pnpm-lock.yaml` left uncommitted because it mixes `expo-audio` with the owner's in-progress Expo upgrade. Commit it together with that upgrade.
+
+## 2026-09-24 · Voice recorder: consent default, participants and project
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md`
+- **Actions:** Consent checkbox starts checked on web and mobile. The recording screen can add, edit and remove participants and one project; the project is stored on the recording and copied onto its meeting. Removing a participant removes them from the placeholder meeting.
+- **Production:** Backup `~/backups/ak_system-20260924-162341.sqlite`. Deployed. `voice_recordings.project_id` added. APK `~/Desktop/ARO-1.0.3.apk` (versionCode 4), local build.
+- **Tests:** API voice suite 14/14 · mobile tsc clean
+
+## 2026-09-24 · Relationship flags on the people list
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/mobile-person-warmth.md`
+- **Actions:** `insights.relationshipFlags` lists confirmed people who are warming or cooling. The people page (web and ARO) shows a דגלים block with both averages, and opens the person. The ARO person screen shows the −1…+1 bar graph and the meeting rows.
+- **Production:** Backup `~/backups/ak_system-20260924-171140.sqlite`. Deployed. APK `~/Desktop/ARO-1.0.4.apk` (versionCode 5).
+- **Tests:** person-context suite 10/10 · warmth-format 2/2 · mobile tsc clean
+
+## 2026-09-25 · Relationship flags on the dashboard
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/mobile-person-warmth.md`
+- **Actions:** The web dashboard and the ARO home screen show the warming/cooling flags under the greeting when any exist, and stay quiet when none do. On the web, a flag opens the person drawer.
+- **Production:** Backup `~/backups/ak_system-20260924-211031.sqlite`. Deployed. APK `~/Desktop/ARO-1.0.5.apk` (versionCode 6).
+
+## 2026-09-25 · Relationships page
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/relationships-attention.md`
+- **Actions:** `/relationships` lists warming and cooling people and circles, with the score sentence and an editable "למה אני חושב כך". Dashboard shows the strongest shift. People rows keep a pill.
+- **Production:** Backup `~/backups/ak_system-20260925-052311.sqlite`. Deployed. Columns `warmth_note` on people and meeting_series. APK `~/Desktop/ARO-1.0.6.apk`.
+- **Tests:** person-context suite 12/12
+
+## 2026-10-02 · WhatsApp group commitments — bugfix sweep
+
+- **Agent:** Dev pipeline (bug investigation & fix)
+- **Spec:** `docs/specs/whatsapp-group-commitment-scan.md` (feature already APPROVED)
+- **Root cause investigation:** User reported commitments from groups like "טכני" not appearing. Found 4 bugs in the implemented feature:
+  1. **selfJid fallback missing** — when the WhatsApp bridge is briefly offline during the `whatsapp-group-commitments` cron run, `getBridgeStatus()` fails → `selfJid = null` → the owner's own messages in groups can't be attributed to `ensureSelfPerson` (which has no phone) → silently skipped.
+  2. **Gemini returns messageId with brackets** — prompt shows `[3EB0C7...]` and LLM occasionally returns `"[3EB0C7...]"` with brackets, causing `ids.has(messageId)` to fail → commitment silently dropped.
+  3. **`.slice(-80)` truncation** — `classifyMessagesWithModel` sent only the last 80 messages to Gemini. On first run (cursor=0) with many historical messages, commitments in earlier messages were permanently skipped.
+  4. **Verb heuristic too narrow** — the regex fallback (used when Gemini fails) covered ~12 verbs; missed common ones like אקנה, אביא, אנסה, אסיים, אבצע, etc.
+- **Actions:**
+  - Added `whatsapp_self_jid TEXT` column to `user_settings` (schema.pg.ts, schema.ts, index.ts ALTER).
+  - `setGroupCommitmentCursor` now accepts and persists `selfJid` when freshly fetched from the bridge.
+  - Added `getCachedSelfJid(db)` — reads back the last-known selfJid from `user_settings` as fallback.
+  - `scanGroupCommitments` uses cached selfJid when bridge is offline; sets `selfJidFromBridge` flag to only update cache when live.
+  - `classifyMessagesWithModel`: strip brackets from returned messageId (`.replace(/^\[|\]$/g, '')`); increased message window from 80 → 200; updated prompt to say "copy verbatim without the brackets".
+  - Expanded SELF_PROMISE, PRESENT_PROMISE, PLURAL_PROMISE, REQUEST regexes with ~25 additional Hebrew verbs.
+- **Build:** `pnpm --filter @ak-system/web build` ✓ (exit 0). Pre-existing Drizzle union-type TS errors unchanged.
+- **Compliance:** ✓ no PII, no new tRPC procedures, no behavioral change to existing scan logic beyond fixing silent drops.
+- **Next:** Deploy (`pnpm deploy:ec2`) so production server gets the fixes. Verify `whatsapp_messages` table is non-empty for "טכני" by calling `/api/cron/whatsapp-group-commitments` manually.
+
+## 2026-09-30 · Relationships board — backfill and full picture
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/relationships-board-backfill.md`
+- **Root cause:** `/relationships` was empty because almost no meeting had an analysis — the cron only analysed meetings that ended in the last 30 minutes and the Notion `meeting_page_summary` notes never triggered analysis — and the board dropped every person who was not warming or cooling.
+- **Actions:** New `analysis-backlog` service drains unanalysed notes (180 days, ≥100 chars) — 3 per `transcript-analysis` cron run, or up to 5 from the "נתח עכשיו" button on the page, silently (no WhatsApp/push/commitments). Board now returns every confirmed person with analysed data (cooling / warming / stable / no trend yet), with average score, last meeting, latest mood and insight, and a summary strip. Person trend falls back to newest-half vs older-half when all meetings sit inside 90 days. Circles no longer require `rosterSavedAt`.
+- **Tests:** analysis-backlog 2/2 · person-context suite 13/13 (API suite 1041 pass; 3 pre-existing voice failures unrelated).
+
+---
+
+## 2026-10-04 — Dev pipeline — whatsapp-digest-heading-and-emoji
+
+**Workflow:** `docs/specs/whatsapp-digest-heading-and-emoji.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Rename the daily WhatsApp digest from `צריך אותך` and add a few emojis so it reads as a briefing.
+- **Context:** Owner asked to change the digest name and make the message more interesting.
+
+### Actions Taken
+1. Spec at `docs/specs/whatsapp-digest-heading-and-emoji.md`.
+2. Date header + push title → `💬 סיכום וואטסאפ יומי`; action heading → `📌 לטפל`.
+3. Default digest prompt + JSON contract: one emoji per group/event beat.
+4. Updated formatter tests (25/25 targeted).
+
+### Output
+- `packages/api/src/services/whatsapp-daily-digest.ts`
+- `packages/api/src/services/whatsapp-insights.ts`
+- `packages/api/src/services/whatsapp-daily-digest.test.ts`
+- `reports/qa-whatsapp-digest-heading-and-emoji.md`
+- `reports/whatsapp-digest-heading-and-emoji.md`
+
+### Compliance
+✓ informal WhatsApp copy (owner requested emojis); no PII; no ABC formal artifact.
+
+### Performance notes
+- Saved custom prompts are unchanged until reset in `/settings/whatsapp`.
+- Next digest (cron or **סכם עכשיו**) uses the new header immediately.
+
+---
+
+## 2026-10-04 — Dev pipeline — whatsapp-digest-custom-prompt-format
+
+**Workflow:** `docs/specs/whatsapp-digest-custom-prompt-format.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Make a saved daily-digest prompt control the actual WhatsApp briefing.
+- **Context:** Owner saved an executive-briefing template with Action Items and label sections; **סכם עכשיו את כל הקבוצות במעקב** still produced the old spoken story because the server appended a JSON contract (no bullets) and rebuilt the message.
+
+### Actions Taken
+1. Customized prompt → `contract: 'freeform'`; model markdown is sent as the body.
+2. Default (null) prompt still uses JSON + 900-char story renderer.
+3. Settings hint updated: saved text sets structure, not only tone.
+
+### Output
+- `packages/api/src/services/whatsapp-insights.ts`
+- `packages/api/src/services/whatsapp-daily-digest.ts`
+- `apps/web/src/app/settings/whatsapp/page.tsx`
+- `packages/api/src/services/whatsapp-daily-digest.test.ts` (12/12)
+
+### Compliance
+✓ no PII; owner-authored prompt stored as today.
+
+### Performance notes
+- Needs deploy. Saved prompt is already in DB; production code still overrides it until then.
+

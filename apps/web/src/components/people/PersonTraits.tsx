@@ -74,7 +74,7 @@ export function PersonTraits({ personId, summary }: { personId: string; summary:
   if (summary.traits.length === 0) {
     return (
       <div data-testid="person-traits">
-        <p className="text-[#b8c4dc] mb-2">עוד אין תכונות.</p>
+        <p className="text-[#b8c4dc] mb-2">{summary.traitsAt ? 'השיחות נקראו, ועדיין אין תכונה שחוזרת על עצמה.' : 'עוד אין תכונות.'}</p>
         <button type="button" className="btn" disabled={write.isPending} onClick={run}>
           {write.isPending ? 'מנתח…' : summary.traitsAt ? 'נתח שוב' : 'נתח אופי'}
         </button>

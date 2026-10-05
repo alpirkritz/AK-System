@@ -1,27 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
   Linking,
-  Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native'
-import { FilterChips } from '../components/FilterChips'
-import { useAuth } from '../lib/auth'
+import { FilterChips } from '../../components/FilterChips'
+import { useBringFocusedFieldIntoView } from '../../components/KeyboardSafe'
+import { useAuth } from '../../lib/auth'
 import {
   createReadingListItem,
   deleteReadingListItem,
   fetchReadingList,
   markReadingListItemRead,
   type MobileReadingListItem,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 function domainOf(url: string): string {
   const match = /^https?:\/\/([^/?#]+)/i.exec(url)
@@ -34,10 +36,14 @@ function isValidUrl(value: string): boolean {
 
 export default function ReadingListScreen() {
   const { token } = useAuth()
+  const formRef = useRef<ScrollView>(null)
+  useBringFocusedFieldIntoView(formRef)
 
   const [items, setItems] = useState<MobileReadingListItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -62,22 +68,30 @@ export default function ReadingListScreen() {
     return items.filter((i) => i.status === statusFilter)
   }, [items, statusFilter])
 
-  const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      setItems(await fetchReadingList(token))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token])
+  const load = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (!token) return
+      mode === 'refresh' ? setRefreshing(true) : setLoading(true)
+      setError(null)
+      try {
+        setItems(await fetchReadingList(token))
+        hasLoadedOnce.current = true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'טעינה נכשלה')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [token],
+  )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const resetForm = () => {
     setUrl('')
@@ -167,10 +181,7 @@ export default function ReadingListScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.container}>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
@@ -181,7 +192,12 @@ export default function ReadingListScreen() {
       />
 
       {formOpen ? (
-        <View style={styles.form}>
+        <ScrollView
+          ref={formRef}
+          style={styles.formScroll}
+          contentContainerStyle={styles.form}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={styles.label}>קישור</Text>
           <TextInput
             value={url}
@@ -240,7 +256,7 @@ export default function ReadingListScreen() {
               <Text style={styles.primaryBtnText}>{saving ? 'שומר…' : 'שמור לרשימה'}</Text>
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       ) : (
         <Pressable
           onPress={() => setFormOpen(true)}
@@ -267,6 +283,9 @@ export default function ReadingListScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
+          }
           renderItem={({ item }) => {
             const read = item.status === 'read'
             return (
@@ -314,12 +333,13 @@ export default function ReadingListScreen() {
           }}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  formScroll: { flexGrow: 0, flexShrink: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   list: { padding: 16, gap: 10 },
   label: {

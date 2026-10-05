@@ -17,6 +17,7 @@ type MoreEntry = {
  */
 const AREAS: MoreEntry[] = [
   { icon: '👥', label: 'אנשים', route: '/people' as Href },
+  { icon: '💛', label: 'קשרים', route: '/relationships' as Href },
   { icon: '🤝', label: 'התחייבויות', route: '/commitments' as Href },
   { icon: '📁', label: 'פרויקטים', route: '/projects' as Href },
   { icon: '📅', label: 'יומן', route: '/calendar' as Href },
@@ -24,6 +25,7 @@ const AREAS: MoreEntry[] = [
   { icon: '📰', label: 'עדכונים', route: '/updates' as Href },
   { icon: '🤖', label: 'סוכנים', route: '/agents' as Href },
   { icon: '🧠', label: 'זיכרון', route: '/memory' as Href },
+  { icon: '📥', label: 'ייבוא הקלטה', route: '/import-recording' as Href },
 ]
 
 const SETTINGS: MoreEntry[] = [
@@ -32,6 +34,7 @@ const SETTINGS: MoreEntry[] = [
   { icon: '🗂️', label: 'סביבות עבודה', route: '/settings/workspaces' as Href },
   { icon: '🏷️', label: 'סוגי פגישות', route: '/settings/meeting-types' as Href },
   { icon: '🔧', label: 'מפתחים', route: '/settings/developer' as Href },
+  { icon: '🎙️', label: 'זיהוי קולי אוטומטי', route: '/settings/voice-print' as Href },
 ]
 
 export default function MoreScreen() {

@@ -35,7 +35,8 @@ export async function getAgentCalendarContext(
 function eventLine(ev: GoogleCalendarEvent): string {
   const cal = ev.calendarName ? ` [${ev.calendarName}]` : ''
   const when = ev.isAllDay ? 'כל היום' : formatLocalRange(ev.start, ev.end)
-  return `- ${when} ${ev.title}${cal}`
+  const freeTag = ev.transparency === 'transparent' ? ' (מסומן כפנוי)' : ''
+  return `- ${when} ${ev.title}${cal}${freeTag}`
 }
 
 /** Hebrew prompt block with today's Google Calendar events (agent scope applied). */
@@ -47,6 +48,7 @@ export function formatAgentCalendarContextForPrompt(ctx: AgentCalendarContext): 
     '**Use this block as source of truth for today\'s schedule load, conflicts, and meeting hours.**',
     'Do NOT report 0 hours or an empty day when events are listed below.',
     'List EVERY event below in your day schedule — never omit any event. Personal time blocks (e.g. "אבא וצף" on the personal calendar) are real commitments: include them in the schedule and in the load. NOTE: attendee lists are often empty in this data even for real meetings, so judge conflicts by event title/type/calendar (1:1s, syncs, trainings) — do NOT assume "no attendees" means it is not a real meeting.',
+    'Events tagged "(מסומן כפנוי)" are marked Free in Google Calendar: mention them in the schedule for awareness, but do NOT count them toward meeting-load hours, do NOT flag them as double-bookings/conflicts, and do NOT use them to justify an overloaded day — treat them like a DNS/focus block.',
   ]
 
   if (hasErrors) {
@@ -70,7 +72,7 @@ export function formatAgentCalendarContextForPrompt(ctx: AgentCalendarContext): 
   )
 
   const meetingHours = ctx.events
-    .filter((e) => !e.isAllDay && e.start.includes('T'))
+    .filter((e) => !e.isAllDay && e.start.includes('T') && e.transparency !== 'transparent')
     .reduce((sum, e) => {
       const ms = new Date(e.end).getTime() - new Date(e.start).getTime()
       return sum + Math.max(0, ms) / 3_600_000

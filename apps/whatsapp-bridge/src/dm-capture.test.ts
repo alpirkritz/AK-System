@@ -3,7 +3,7 @@ import { describe, expect, it, beforeEach } from 'vitest'
 process.env.BRIDGE_SECRET = process.env.BRIDGE_SECRET || 'test'
 process.env.AUTH_STATE_PATH = process.env.AUTH_STATE_PATH || '/tmp/ak-bridge-dm-test'
 
-const { reloadDmConfig, resolveCapturedDm, phoneJidForLid, enqueueDmMessage, drainDmQueue } = await import('./dm-capture.js')
+const { reloadDmConfig, resolveCapturedDm, phoneJidForLid, enqueueDmMessage, drainDmQueue, clearLearnedLids, noteLidPhoneFromStanza } = await import('./dm-capture.js')
 
 const PN = '972501234567@s.whatsapp.net'
 const LID = '11122233344455@lid'
@@ -12,6 +12,7 @@ const isSelf = (jid: string) => jid.startsWith('972500000000')
 
 describe('resolveCapturedDm', () => {
   beforeEach(() => {
+    clearLearnedLids()
     reloadDmConfig([PN])
   })
 
@@ -22,6 +23,23 @@ describe('resolveCapturedDm', () => {
   it('resolves an @lid chat to the phone JID through the contact store', () => {
     expect(phoneJidForLid(LID, [{ id: PN, lid: LID }])).toBe(PN)
     expect(resolveCapturedDm(LID, [{ id: PN, lid: LID }], isSelf)).toEqual({ jid: PN, altJid: LID })
+  })
+
+  it('resolves an @lid chat from the phone number on the stanza', () => {
+    noteLidPhoneFromStanza({ from: LID, sender_pn: PN })
+    expect(resolveCapturedDm(LID, [], isSelf)).toEqual({ jid: PN, altJid: LID })
+  })
+
+  it('pairs each lid with its own phone, not the other side of the stanza', () => {
+    const other = '99988877766655@lid'
+    noteLidPhoneFromStanza({
+      from: LID,
+      sender_pn: '972509999999@s.whatsapp.net',
+      recipient: other,
+      peer_recipient_pn: PN,
+    })
+    expect(resolveCapturedDm(LID, [], isSelf)).toBeNull()
+    expect(resolveCapturedDm(other, [], isSelf)).toEqual({ jid: PN, altJid: other })
   })
 
   it('ignores chats that are not allowlisted, groups, and self-chat', () => {

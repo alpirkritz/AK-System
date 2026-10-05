@@ -148,3 +148,23 @@ export async function sendBridgeText(text: string): Promise<{ ok: boolean; error
   }
   return { ok: true }
 }
+
+/**
+ * Send into a specific WhatsApp group — only works for a JID the bridge has
+ * allow-listed via WHATSAPP_ALLOWED_GROUP_JIDS (see apps/whatsapp-bridge's
+ * `/send-group` route). Distinct from `sendBridgeText`, which is self-chat
+ * only. See docs/specs/tier1-qa-whatsapp-agent.md §5.
+ */
+export async function sendBridgeGroupText(
+  groupJid: string,
+  text: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { ok, data } = await bridgeFetch<{ error?: string }>('/send-group', {
+    method: 'POST',
+    body: JSON.stringify({ to: groupJid, text: text.slice(0, 65000) }),
+  })
+  if (!ok) {
+    return { ok: false, error: (data as { error?: string }).error || 'Group send failed' }
+  }
+  return { ok: true }
+}

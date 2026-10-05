@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { KeyboardSafe } from './KeyboardSafe'
 import { colors, PRIORITY_COLOR, PRIORITY_LABEL } from '../lib/theme'
 import { useState, useEffect } from 'react'
 import { createTrpcClient } from '../lib/trpc'
@@ -137,6 +138,7 @@ export function BatchTaskModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardSafe style={styles.modalFill}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <Text style={styles.title}>צור משימות מאקשן אייטמס</Text>
@@ -258,11 +260,13 @@ export function BatchTaskModal({
           )}
         </Pressable>
       </Pressable>
+      </KeyboardSafe>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
+  modalFill: { flex: 1 },
   overlay: {
     flex: 1,
     backgroundColor: '#00000099',

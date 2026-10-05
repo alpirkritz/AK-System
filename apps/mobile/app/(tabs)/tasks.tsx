@@ -25,6 +25,7 @@ import {
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
+import { groupTasksByDueState, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { dueDay, isOverdueOpenTask } from '../../lib/task-due'
 import { colors, PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR } from '../../lib/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -186,7 +187,7 @@ export default function TasksScreen() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return tasks.filter((t) => {
+    const filtered = tasks.filter((t) => {
       const st = effectiveStatus(t)
       if (filter === 'overdue' && !isOverdueOpenTask(t)) return false
       if (filter === 'open' && (st === 'done' || st === 'cancelled')) return false
@@ -196,6 +197,17 @@ export default function TasksScreen() {
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
+    const showHeaders = filter === 'open' || filter === 'all'
+    const groups = groupTasksByDueState(sortTasksByPriorityThenDue(filtered))
+    const rows: Array<
+      | { kind: 'header'; id: string; label: string }
+      | { kind: 'task'; id: string; task: MobileTask }
+    > = []
+    for (const group of groups) {
+      if (showHeaders) rows.push({ kind: 'header', id: `header-${group.key}`, label: group.label })
+      for (const task of group.tasks) rows.push({ kind: 'task', id: task.id, task })
+    }
+    return rows
   }, [tasks, filter, workspaceId, search])
 
   const filters: FilterChipItem[] = [
@@ -272,7 +284,7 @@ export default function TasksScreen() {
 
       <FlatList
         data={visible}
-        keyExtractor={(t) => t.id}
+        keyExtractor={(row) => row.id}
         contentContainerStyle={[styles.list, { paddingBottom: 88 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
@@ -292,55 +304,59 @@ export default function TasksScreen() {
           />
         }
         renderItem={({ item }) => {
-          const st = effectiveStatus(item)
+          if (item.kind === 'header') {
+            return <Text style={styles.groupLabel}>{item.label}</Text>
+          }
+          const task = item.task
+          const st = effectiveStatus(task)
           const isCancelled = st === 'cancelled'
-          const workspace = item.workspaceId ? workspaceById.get(item.workspaceId) : null
+          const workspace = task.workspaceId ? workspaceById.get(task.workspaceId) : null
           return (
             <View style={styles.taskRow}>
               <Pressable
                 onPress={() => {
-                  void onToggle(item.id)
+                  void onToggle(task.id)
                 }}
                 hitSlop={8}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: item.done }}
+                accessibilityState={{ checked: task.done }}
                 accessibilityLabel={
                   isCancelled
                     ? 'שחזר משימה שבוטלה'
-                    : item.done
+                    : task.done
                       ? 'סמן כלא בוצע'
                       : 'סמן כבוצע'
                 }
                 style={[
                   styles.checkbox,
-                  item.done && styles.checkboxChecked,
+                  task.done && styles.checkboxChecked,
                   isCancelled && styles.checkboxCancelled,
                 ]}
               >
-                {item.done ? (
+                {task.done ? (
                   <Text style={styles.checkMark}>{isCancelled ? '✕' : '✓'}</Text>
                 ) : null}
               </Pressable>
               <Pressable
                 style={styles.taskBody}
-                onPress={() => router.push(`/task/${item.id}` as Href)}
-                onLongPress={() => onDelete(item)}
+                onPress={() => router.push(`/task/${task.id}` as Href)}
+                onLongPress={() => onDelete(task)}
                 accessibilityRole="button"
-                accessibilityLabel={`פרטי משימה: ${item.title}`}
+                accessibilityLabel={`פרטי משימה: ${task.title}`}
                 accessibilityHint="לחיצה ארוכה למחיקה"
               >
-                <Text style={[styles.taskTitle, item.done && styles.taskTitleDone]}>
-                  {item.title}
+                <Text style={[styles.taskTitle, task.done && styles.taskTitleDone]}>
+                  {task.title}
                 </Text>
                 <View style={styles.metaRow}>
                   <StatusPill status={st} />
                   {workspace ? (
                     <Text style={styles.taskMeta}>{workspace.name}</Text>
                   ) : null}
-                  {dueDay(item.dueDate) ? (
-                    <Text style={[styles.taskMeta, isOverdueOpenTask(item) && styles.taskMetaOverdue]}>
-                      {isOverdueOpenTask(item) ? 'באיחור · ' : ''}
-                      {new Date(`${dueDay(item.dueDate)}T00:00:00`).toLocaleDateString('he-IL')}
+                  {dueDay(task.dueDate) ? (
+                    <Text style={[styles.taskMeta, isOverdueOpenTask(task) && styles.taskMetaOverdue]}>
+                      {isOverdueOpenTask(task) ? 'באיחור · ' : ''}
+                      {new Date(`${dueDay(task.dueDate)}T00:00:00`).toLocaleDateString('he-IL')}
                     </Text>
                   ) : null}
                 </View>
@@ -348,10 +364,10 @@ export default function TasksScreen() {
               <View
                 style={[
                   styles.priorityDot,
-                  { backgroundColor: PRIORITY_COLOR[item.priority] ?? colors.textMuted },
+                  { backgroundColor: PRIORITY_COLOR[task.priority] ?? colors.textMuted },
                 ]}
               />
-              <Text style={styles.priorityLabel}>{PRIORITY_LABEL[item.priority] ?? ''}</Text>
+              <Text style={styles.priorityLabel}>{PRIORITY_LABEL[task.priority] ?? ''}</Text>
             </View>
           )
         }}
@@ -444,6 +460,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
+  },
+  groupLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 14,
+    marginBottom: 4,
+    paddingHorizontal: 16,
   },
   taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
   taskMetaOverdue: { color: colors.coral },

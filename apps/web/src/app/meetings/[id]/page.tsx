@@ -9,6 +9,7 @@ import { WorkspacePill } from '@/components/WorkspacePill'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
+import { MeetingInsight } from '../components/MeetingInsight'
 import { MeetingAttendees } from '../components/MeetingAttendees'
 import { NotionSummaryCard } from '../components/NotionSummaryCard'
 import { CircleCard } from '../components/CircleCard'
@@ -344,6 +345,7 @@ export default function MeetingDetailPage() {
 
           {/* Conversation Analysis */}
           <div className="mt-4">
+            <MeetingInsight meetingId={id} />
             <ConversationAnalysis meetingId={id} />
           </div>
 

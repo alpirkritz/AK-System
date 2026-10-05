@@ -79,7 +79,7 @@ interface ClusterTrait {
 }
 
 export interface PortraitModel {
-  extract(artifacts: Artifact[]): Promise<{ sourceId: string; claim: string; quote: string | null }[]>
+  extract(input: { name: string; artifacts: Artifact[] }): Promise<{ sourceId: string; claim: string; quote: string | null }[]>
   cluster(input: {
     name: string
     observations: { id: string; claim: string; sourceDate: string }[]
@@ -189,6 +189,7 @@ async function loadArtifacts(db: Db, personId: string): Promise<{ artifacts: Art
       subtext: meetingAnalyses.subtext,
       keyInsight: meetingAnalyses.keyInsight,
       scoreRationale: meetingAnalyses.scoreRationale,
+      transcriptText: meetingAnalyses.transcriptText,
     })
     .from(meetingAnalyses)
     .innerJoin(meetings, eq(meetings.id, meetingAnalyses.meetingId))
@@ -224,7 +225,7 @@ async function loadArtifacts(db: Db, personId: string): Promise<{ artifacts: Art
       sourceId: a.id,
       sourceUpdatedAt: a.updatedAt,
       sourceDate: a.date.slice(0, 10),
-      text: [a.title, a.date, a.mood, a.subtext, a.keyInsight, a.scoreRationale].filter(Boolean).join('\n'),
+      text: [a.title, a.date, a.mood, a.subtext, a.keyInsight, a.scoreRationale, a.transcriptText ? clip(a.transcriptText, 6000) : ''].filter(Boolean).join('\n'),
     })),
     ...summaries.map((s) => ({
       sourceKind: 'whatsapp_dm_summary' as const,
@@ -246,10 +247,11 @@ async function loadArtifacts(db: Db, personId: string): Promise<{ artifacts: Art
 
 function geminiModel(): PortraitModel {
   return {
-    async extract(artifacts) {
+    async extract({ name, artifacts }) {
       const parsed = await generateJson([
-        'חלץ תצפיות על ההתנהגות של האדם מהשיחות. אפס עד שלוש תצפיות לכל פריט.',
-        'כל תצפית היא משפט עברי אחד על מה שהוא עושה, לא אבחון ולא סוג אישיות.',
+        `חלץ תצפיות רק על ההתנהגות של ${name}. אפס עד שלוש תצפיות לכל פריט.`,
+        `כל תצפית היא משפט עברי אחד על מה ש${name} עושה, לא אבחון ולא סוג אישיות.`,
+        `אל תכתוב על המשתתפים כקבוצה, על אדם אחר, או על הפגישה כולה. אם אין בטקסט התנהגות של ${name}, החזר אפס תצפיות לפריט.`,
         'quote חייב להיות ציטוט מתוך הטקסט של אותו פריט. אם אין ציטוט, השאר ריק.',
         'החזר JSON: {"observations":[{"sourceId":"","claim":"","quote":""}]}',
         JSON.stringify(artifacts.map((a) => ({ sourceId: a.sourceId, sourceKind: a.sourceKind, date: a.sourceDate, text: a.text }))),
@@ -395,10 +397,14 @@ export async function writePersonTraits(db: Db, personId: string, model: Portrai
 
   const scans = await db.select().from(personSourceScans).where(eq(personSourceScans.personId, personId))
   const scanByKey = new Map(scans.map((s) => [`${s.sourceKind}:${s.sourceId}`, s]))
-  const dirty = artifacts.filter((a) => {
-    const scan = scanByKey.get(`${a.sourceKind}:${a.sourceId}`)
-    return !scan || a.sourceUpdatedAt > scan.sourceUpdatedAt
-  })
+  const storedTraits = await db.select({ status: personTraits.status }).from(personTraits).where(eq(personTraits.personId, personId))
+  const hasPortrait = storedTraits.some((t) => t.status === 'shown' || t.status === 'once')
+  const dirty = hasPortrait
+    ? artifacts.filter((a) => {
+        const scan = scanByKey.get(`${a.sourceKind}:${a.sourceId}`)
+        return !scan || a.sourceUpdatedAt > scan.sourceUpdatedAt
+      })
+    : artifacts
   const kept = await db.select().from(personObservations).where(eq(personObservations.personId, personId))
   const windowKeys = new Set(artifacts.map((a) => `${a.sourceKind}:${a.sourceId}`))
   const dirtyKeys = new Set(dirty.map((a) => `${a.sourceKind}:${a.sourceId}`))
@@ -409,7 +415,7 @@ export async function writePersonTraits(db: Db, personId: string, model: Portrai
   const bySource = new Map(artifacts.map((a) => [a.sourceId, a]))
   let fresh: ObservationDraft[] = []
   if (dirty.length > 0) {
-    const extracted = await callModel(() => model.extract(dirty))
+    const extracted = await callModel(() => model.extract({ name: person.name, artifacts: dirty }))
     const counts = new Map<string, number>()
     fresh = extracted.flatMap((row) => {
       const artifact = bySource.get(row.sourceId)
@@ -473,19 +479,21 @@ export async function writePersonTraits(db: Db, personId: string, model: Portrai
       await db.insert(personTraitEvidence).values(trait.observationIds.map((observationId) => ({ id: nid('pte'), traitId: id, observationId })))
     }
   }
-  for (const artifact of dirty) {
-    const existing = scanByKey.get(`${artifact.sourceKind}:${artifact.sourceId}`)
-    if (existing) {
-      await db.update(personSourceScans).set({ sourceUpdatedAt: artifact.sourceUpdatedAt, scannedAt: now }).where(eq(personSourceScans.id, existing.id))
-    } else {
-      await db.insert(personSourceScans).values({
-        id: nid('ps'),
-        personId,
-        sourceKind: artifact.sourceKind,
-        sourceId: artifact.sourceId,
-        sourceUpdatedAt: artifact.sourceUpdatedAt,
-        scannedAt: now,
-      })
+  if (classified.length > 0) {
+    for (const artifact of dirty) {
+      const existing = scanByKey.get(`${artifact.sourceKind}:${artifact.sourceId}`)
+      if (existing) {
+        await db.update(personSourceScans).set({ sourceUpdatedAt: artifact.sourceUpdatedAt, scannedAt: now }).where(eq(personSourceScans.id, existing.id))
+      } else {
+        await db.insert(personSourceScans).values({
+          id: nid('ps'),
+          personId,
+          sourceKind: artifact.sourceKind,
+          sourceId: artifact.sourceId,
+          sourceUpdatedAt: artifact.sourceUpdatedAt,
+          scannedAt: now,
+        })
+      }
     }
   }
   await db.update(people).set({ traitsAt: now }).where(eq(people.id, personId))

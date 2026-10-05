@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { meetingAnalyses, meetingPeople, meetings, people, personTraits } from '@ak-system/database'
+import { meetingAnalyses, meetingPeople, meetings, people, personSourceScans, personTraits } from '@ak-system/database'
 import { getTestDb, resetDb } from '../test-utils'
 import {
   buildTraitLine,
@@ -16,7 +16,7 @@ const NOW = '2026-09-01T10:00:00.000Z'
 
 function model(log: { extract: number }, failCluster = false): PortraitModel {
   return {
-    async extract(artifacts) {
+    async extract({ artifacts }) {
       log.extract += 1
       return artifacts.map((a) => ({ sourceId: a.sourceId, claim: 'בודק כל פרט', quote: a.text.slice(0, 12) }))
     },
@@ -113,6 +113,40 @@ describe('person traits', () => {
     await db.update(personTraits).set({ status: 'dismissed' }).where(eq(personTraits.id, trait!.id))
     const again = await writePersonTraits(db, 'p_traits', model(log))
     expect(again.traits.map((t) => t.label)).not.toContain('יסודי')
+  })
+
+  it('sends the person name and the clipped briefing, and rereads when no trait was stored', async () => {
+    const db = getTestDb()
+    await db.insert(people).values({ id: 'p_brief', name: 'שני', status: 'confirmed', source: 'manual', createdAt: NOW })
+    await db.insert(meetings).values({ id: 'm_brief', title: 'שיחה', date: '2026-09-03', time: '10:00', createdAt: NOW, updatedAt: NOW })
+    await db.insert(meetingPeople).values({ meetingId: 'm_brief', personId: 'p_brief' })
+    const briefing = `${'א'.repeat(5990)}סוףקרוב${'ב'.repeat(200)}אחריהחיתוך`
+    await db.insert(meetingAnalyses).values({
+      id: 'a_brief', meetingId: 'm_brief', source: 'transcript', status: 'completed',
+      mood: 'ישיר', transcriptText: briefing, createdAt: NOW, updatedAt: NOW,
+    })
+    await db.insert(personSourceScans).values({
+      id: 'ps_old', personId: 'p_brief', sourceKind: 'meeting_analysis', sourceId: 'a_brief',
+      sourceUpdatedAt: NOW, scannedAt: NOW,
+    })
+    const seen: { name: string; text: string }[] = []
+    const empty: PortraitModel = {
+      async extract({ name, artifacts }) {
+        seen.push({ name, text: artifacts[0]?.text ?? '' })
+        return [{ sourceId: artifacts[0]!.sourceId, claim: 'מבקשת הבהרה', quote: null }]
+      },
+      async cluster() { return [] },
+    }
+    const first = await writePersonTraits(db, 'p_brief', empty)
+    expect(first.traits).toEqual([])
+    expect(first.traitsAt).toBeTruthy()
+    expect(seen[0]?.name).toBe('שני')
+    expect(seen[0]?.text).toContain('סוףקרוב')
+    expect(seen[0]?.text).not.toContain('אחריהחיתוך')
+    expect(await db.select().from(personSourceScans)).toHaveLength(1)
+
+    await writePersonTraits(db, 'p_brief', empty)
+    expect(seen).toHaveLength(2)
   })
 
   it('marks the portrait stale after a newer analysis', async () => {

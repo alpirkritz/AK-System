@@ -85,6 +85,37 @@ export async function fetchDatabaseProperties(
   return data.properties ?? {}
 }
 
+export interface NotionDatabaseInfo {
+  title: string
+  properties: Record<string, { type?: string; relation?: { database_id?: string } }>
+}
+
+/**
+ * GET one database's title + properties. Used to validate/preview a pasted Notion database
+ * link before registering it as a people source (see `notion-people-source-manager` spec).
+ * A non-2xx response (404/403 both look the same from Notion) means either the id is wrong
+ * or the integration behind `token` hasn't been shared into that database — the caller decides
+ * how to phrase that to the user.
+ */
+export async function fetchDatabaseInfo(token: string, databaseId: string): Promise<NotionDatabaseInfo> {
+  const res = await fetch(`https://api.notion.com/v1/databases/${databaseId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Notion-Version': NOTION_VERSION,
+    },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Notion API ${res.status}: ${body.slice(0, 200)}`)
+  }
+  const data = (await res.json()) as {
+    title?: Array<{ plain_text?: string }>
+    properties?: Record<string, { type?: string; relation?: { database_id?: string } }>
+  }
+  const title = (data.title ?? []).map((t) => t.plain_text ?? '').join('').trim()
+  return { title, properties: data.properties ?? {} }
+}
+
 /**
  * Full index for one people directory: name→id for write-back, pageId→title for pull-sync.
  * Cached per database id for SCHEMA_TTL_MS.

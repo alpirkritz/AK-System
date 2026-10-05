@@ -16,6 +16,10 @@ fi
 
 API_URL="$(grep '^NEXT_PUBLIC_APP_URL=' "$WEB_ENV" | cut -d= -f2- | tr -d '"')"
 GOOGLE_ID="$(grep '^GOOGLE_CLIENT_ID=' "$WEB_ENV" | cut -d= -f2- | tr -d '"')"
+ANDROID_ID="$(grep '^GOOGLE_ANDROID_CLIENT_ID=' "$WEB_ENV" | cut -d= -f2- | tr -d '"' || true)"
+if [ -z "$ANDROID_ID" ] && [ -f "$ROOT/deploy/production.env" ]; then
+  ANDROID_ID="$(grep '^GOOGLE_ANDROID_CLIENT_ID=' "$ROOT/deploy/production.env" | cut -d= -f2- | tr -d '"' || true)"
+fi
 
 if [[ "$API_URL" == http://localhost:* ]] || [[ "$API_URL" == "http://localhost:3000" ]]; then
   if [ -f /tmp/ak-tunnel.log ]; then
@@ -35,6 +39,7 @@ fi
 cat > "$MOBILE/.env" <<EOF
 EXPO_PUBLIC_API_URL=${API_URL}
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=${GOOGLE_ID}
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=${ANDROID_ID}
 EOF
 
 echo "→ Ensuring pnpm dependencies..."
@@ -50,6 +55,10 @@ fi
 GRADLE_PROPS="$MOBILE/android/gradle.properties"
 set_prop() {
   local key="$1" val="$2"
+  # A prebuild file can end without a newline; appending would glue the next key onto it.
+  if [ -s "$GRADLE_PROPS" ] && [ -n "$(tail -c 1 "$GRADLE_PROPS")" ]; then
+    echo >> "$GRADLE_PROPS"
+  fi
   if grep -q "^${key}=" "$GRADLE_PROPS" 2>/dev/null; then
     sed -i '' "s|^${key}=.*|${key}=${val}|" "$GRADLE_PROPS"
   else
@@ -84,6 +93,8 @@ echo "→ Gradle assembleDebug (Docker amd64, single-threaded, ~20–40 min)..."
 # CMAKE_BUILD_PARALLEL_LEVEL=1 → one clang process at a time (keeps peak RAM low)
 docker run --rm --platform linux/amd64 \
   -v "$ROOT:/monorepo" \
+  -v helm-ndk:/opt/android-sdk/ndk \
+  -v helm-gradle:/root/.gradle \
   -w /monorepo/apps/mobile/android \
   -e GRADLE_OPTS="-Xmx1536m -Dorg.gradle.daemon=false" \
   -e CMAKE_BUILD_PARALLEL_LEVEL=1 \

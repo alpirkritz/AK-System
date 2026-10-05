@@ -303,7 +303,14 @@ function GoogleAccountsCard() {
     }
     const health = healthByEmail.get(email.toLowerCase())
     if (!health || health.status === 'ok') {
-      return <span className="text-xs text-[#34d399]">פעיל ✓</span>
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#34d399]">פעיל ✓</span>
+          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(email)}`} className="btn btn-ghost text-[10px] py-1 px-2">
+            חבר מחדש
+          </a>
+        </div>
+      )
     }
     return (
       <div className="flex flex-col items-end gap-1 max-w-[220px]">
@@ -334,7 +341,7 @@ function GoogleAccountsCard() {
       <div className="px-5 py-3 text-xs text-[#5a688c] leading-relaxed">
         {connected.size === 0
           ? 'אין חשבונות מחוברים — לחץ "חבר" ואשר גישה ליומן ול-Gmail.'
-          : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל.`}
+          : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל. מילוי טלפונים משתמש בחשבון האישי.`}
       </div>
     </Section>
   )
@@ -1004,7 +1011,7 @@ export default function SettingsPage() {
           </svg>
         }
         title="יומנים לסוכנים"
-        description="הוגו, אופטי וסיכומי בוקר יתייחסו רק ליומנים שסימנת"
+        description="הוגו, אופטי, סיכומי בוקר וזיהוי אוטומטי של הקלטות יתייחסו רק ליומנים שסימנת"
       >
         <div>
           <div className="px-5 pt-4 pb-2">

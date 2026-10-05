@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { config, isSelfChatJid } from './config.js'
+import { config, isAllowedGroupJid, isSelfChatJid } from './config.js'
 import { listEnabledGroupJids, reloadGroupConfig, type GroupRule } from './group-config.js'
 import { listWatchedGroupsWithCounts } from './group-buffer.js'
 import { dmAllowlistSize, reloadDmConfig } from './dm-capture.js'
@@ -14,6 +14,7 @@ import {
   getStatus,
   requestClusterSummary,
   requestGroupSummary,
+  sendWhatsAppGroupMessage,
   sendWhatsAppMessage,
 } from './whatsapp-client.js'
 
@@ -72,6 +73,32 @@ export function createServer(): express.Application {
         return
       }
       await sendWhatsAppMessage(to, text)
+      res.json({ ok: true, to })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Send failed'
+      res.status(503).json({ error: msg })
+    }
+  })
+
+  /**
+   * Narrowly-scoped exception to the self-chat-only guard above: sends only
+   * to a JID in WHATSAPP_ALLOWED_GROUP_JIDS. Does not touch `/send`'s guard
+   * or `isSelfChatJid` — a completely separate route and allow-list.
+   * See docs/specs/tier1-qa-whatsapp-agent.md §5.
+   */
+  app.post('/send-group', requireAuth, async (req, res) => {
+    try {
+      const text = String(req.body?.text ?? '').trim()
+      const to = String(req.body?.to ?? '').trim()
+      if (!text || !to) {
+        res.status(400).json({ error: 'to and text are required' })
+        return
+      }
+      if (!isAllowedGroupJid(to)) {
+        res.status(403).json({ error: `Outbound send blocked — ${to} is not in WHATSAPP_ALLOWED_GROUP_JIDS` })
+        return
+      }
+      await sendWhatsAppGroupMessage(to, text)
       res.json({ ok: true, to })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Send failed'

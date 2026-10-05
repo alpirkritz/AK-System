@@ -11,6 +11,8 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
  * forwarded; the AK ingest checks the list again on its side.
  */
 let allowlist = new Set<string>()
+/** `@lid` chat → phone JID, learned from the stanza WhatsApp attaches to each message. */
+const lidToPhone = new Map<string, string>()
 
 export interface DmQueuedMessage {
   id: string
@@ -29,6 +31,10 @@ function persistPath(): string {
   return join(config.authStatePath, 'dm-config.json')
 }
 
+function lidMapPath(): string {
+  return join(config.authStatePath, 'dm-lid-map.json')
+}
+
 export function loadPersistedDmConfig(): void {
   try {
     const file = persistPath()
@@ -39,6 +45,17 @@ export function loadPersistedDmConfig(): void {
     logger.info({ count: allowlist.size }, 'Restored DM capture allowlist')
   } catch (err) {
     logger.error({ err }, 'Failed to load DM capture allowlist')
+  }
+  try {
+    const raw = JSON.parse(readFileSync(lidMapPath(), 'utf8')) as unknown
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
+    for (const [lid, phone] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof phone !== 'string') continue
+      rememberLidPhone(lid, phone, false)
+    }
+    logger.info({ count: lidToPhone.size }, 'Restored DM lid map')
+  } catch {
+    // No map yet.
   }
 }
 
@@ -56,6 +73,49 @@ export function reloadDmConfig(jids: string[]): number {
 
 export function dmAllowlistSize(): number {
   return allowlist.size
+}
+
+export function clearLearnedLids(): void {
+  lidToPhone.clear()
+}
+
+/** Remember that an `@lid` chat is this phone. Ignores anything that is not that pair. */
+export function rememberLidPhone(lid: string, phone: string, persist = true): void {
+  const bareLid = bareUserJid(lid)
+  const barePhone = bareUserJid(phone)
+  if (!bareLid.endsWith('@lid') || !barePhone.endsWith('@s.whatsapp.net')) return
+  if (lidToPhone.get(bareLid) === barePhone) return
+  lidToPhone.set(bareLid, barePhone)
+  if (!persist) return
+  try {
+    const file = lidMapPath()
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(Object.fromEntries(lidToPhone)), 'utf8')
+  } catch (err) {
+    logger.error({ err }, 'Failed to persist LID map')
+  }
+}
+
+/**
+ * Pair the hidden chat id on a raw WhatsApp stanza with the phone number WhatsApp
+ * sends beside it. `sender_pn` belongs to `from`, `peer_recipient_pn` to `recipient`.
+ */
+export function noteLidPhoneFromStanza(attrs: Record<string, string | undefined>): void {
+  const before = lidToPhone.size
+  const pairs: Array<[string | undefined, string | undefined]> = [
+    [attrs.from, attrs.sender_pn],
+    [attrs.recipient, attrs.peer_recipient_pn],
+    [attrs.participant, attrs.participant_pn],
+  ]
+  for (const [lid, phone] of pairs) {
+    if (lid && phone) rememberLidPhone(lid, phone)
+  }
+  const from = attrs.from ? bareUserJid(attrs.from) : ''
+  if (from.endsWith('@lid') && !lidToPhone.has(from)) {
+    logger.info({ attrs: Object.keys(attrs) }, 'LID chat without a phone pair')
+  } else if (lidToPhone.size > before) {
+    logger.info({ mapped: lidToPhone.size }, 'Learned a private-chat phone')
+  }
 }
 
 export interface ContactLike {
@@ -84,7 +144,7 @@ export function resolveCapturedDm(
   if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || isSelfChat(remoteJid)) return null
   if (allowlist.size === 0) return null
   const bare = bareUserJid(remoteJid)
-  const phone = bare.endsWith('@lid') ? phoneJidForLid(bare, contacts) : null
+  const phone = bare.endsWith('@lid') ? (phoneJidForLid(bare, contacts) ?? lidToPhone.get(bare) ?? null) : null
   if (phone && allowlist.has(phone)) return { jid: phone, altJid: bare }
   if (allowlist.has(bare)) return { jid: bare, altJid: phone }
   return null

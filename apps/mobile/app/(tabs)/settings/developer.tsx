@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
-import { API_URL, registerFcmPushToken, sendTestPush } from '../../lib/api'
-import { useAuth } from '../../lib/auth'
-import { ensurePushPermissions, getFcmPushToken } from '../../lib/notifications'
-import { colors } from '../../lib/theme'
+import { API_URL, registerFcmPushToken, sendTestPush } from '../../../lib/api'
+import { useAuth } from '../../../lib/auth'
+import { ensurePushPermissions, getFcmPushToken } from '../../../lib/notifications'
+import { colors } from '../../../lib/theme'
 
 export default function DeveloperSettingsScreen() {
   const { token } = useAuth()

@@ -10,6 +10,7 @@ import {
 } from '@ak-system/database'
 import { createTestCaller, getTestDb, resetDb } from '../test-utils'
 import { personRecommendation } from '../services/person-context'
+import { dataReason } from '../services/warmth'
 
 const NOW = new Date().toISOString()
 
@@ -191,5 +192,122 @@ describe('insights.coolingForDate', () => {
     expect(flags).toEqual([
       { meetingId: 'today', calendarEventId: 'ev1', title: 'Today sync', coolingPeople: ['Cool Person'], circleCooling: false },
     ])
+  })
+})
+
+describe('insights.relationshipFlags', () => {
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('lists cooling and warming people without opening a card', async () => {
+    const db = getTestDb()
+    const today = new Date()
+    const iso = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86_400_000).toISOString().slice(0, 10)
+    await db.insert(people).values([
+      { id: 'cool', name: 'Cool Person', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'warm', name: 'Warm Person', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'quiet', name: 'Too Few', status: 'confirmed', source: 'manual', createdAt: NOW },
+    ])
+    const history: [string, number, number][] = [
+      ['cool', 10, 3], ['cool', 20, 3], ['cool', 120, 9], ['cool', 150, 9],
+      ['warm', 10, 9], ['warm', 20, 9], ['warm', 120, 3], ['warm', 150, 3],
+      ['quiet', 10, 9],
+    ]
+    for (const [i, [personId, daysAgo, score]] of history.entries()) {
+      await db.insert(meetings).values({ id: `f${i}`, title: 'Past', date: iso(daysAgo), time: '10:00', createdAt: NOW, updatedAt: NOW })
+      await db.insert(meetingPeople).values({ meetingId: `f${i}`, personId })
+      await db.insert(meetingAnalyses).values({ id: `fa${i}`, meetingId: `f${i}`, source: 'transcript', score, status: 'completed', createdAt: NOW, updatedAt: NOW })
+    }
+    const flags = await (await createTestCaller()).insights.relationshipFlags()
+    expect(flags.cooling.map((f) => f.personId)).toEqual(['cool'])
+    expect(flags.warming.map((f) => f.personId)).toEqual(['warm'])
+    expect(flags.cooling[0]?.recentAvg).toBeLessThan(flags.cooling[0]?.olderAvg ?? 0)
+  })
+})
+
+describe('relationship board', () => {
+  it('states the score drop and the latest mood', () => {
+    const text = dataReason(
+      [{ date: '2026-09-12', score: 3, mood: 'מתוחה', scoreRationale: null }],
+      [{ date: '2026-06-01', score: 9, mood: null, scoreRationale: null }],
+    )
+    expect(text).toBe('הציון ירד מ־9 ל־3. ב־12.9 האווירה תוארה כמתוחה.')
+  })
+
+  it('saves and clears the owner sentence on a cooling person', async () => {
+    await resetDb()
+    const db = getTestDb()
+    const today = new Date()
+    const iso = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86_400_000).toISOString().slice(0, 10)
+    await db.insert(people).values({ id: 'cool', name: 'Cool Person', status: 'confirmed', source: 'manual', createdAt: NOW })
+    const history: [number, number][] = [[10, 3], [20, 3], [120, 9], [150, 9]]
+    for (const [i, [daysAgo, score]] of history.entries()) {
+      await db.insert(meetings).values({ id: `b${i}`, title: 'Past', date: iso(daysAgo), time: '10:00', createdAt: NOW, updatedAt: NOW })
+      await db.insert(meetingPeople).values({ meetingId: `b${i}`, personId: 'cool' })
+      await db.insert(meetingAnalyses).values({
+        id: `ba${i}`, meetingId: `b${i}`, source: 'transcript', score, mood: i === 0 ? 'מתוחה' : null, status: 'completed', createdAt: NOW, updatedAt: NOW,
+      })
+    }
+    const caller = await createTestCaller()
+    const board = await caller.insights.relationshipBoard()
+    expect(board.people.map((p) => p.id)).toEqual(['cool'])
+    expect(board.people[0]?.dataReason).toContain('הציון ירד')
+    expect(board.people[0]?.dataReason).toContain('מתוחה')
+
+    const saved = await caller.insights.setWarmthNote({ subject: 'person', id: 'cool', note: '  הוא מתרחק  ' })
+    expect(saved.note).toBe('הוא מתרחק')
+    expect((await caller.insights.relationshipBoard()).people[0]?.note).toBe('הוא מתרחק')
+
+    const cleared = await caller.insights.setWarmthNote({ subject: 'person', id: 'cool', note: '   ' })
+    expect(cleared).toEqual({ note: null, noteUpdatedAt: null })
+  })
+
+  it('shows stable and early relationships, and finds a trend inside one quarter', async () => {
+    await resetDb()
+    const db = getTestDb()
+    const today = new Date()
+    const iso = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86_400_000).toISOString().slice(0, 10)
+    await db.insert(people).values([
+      { id: 'busy', name: 'Busy Cooling', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'steady', name: 'Steady', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'early', name: 'Early', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'ghost', name: 'Unconfirmed', status: 'unconfirmed', source: 'manual', createdAt: NOW },
+    ])
+    // Every meeting inside the last 90 days — no older window, so the halves are compared.
+    const history: [string, number, number, string | null][] = [
+      ['busy', 5, 3, 'מתוחה'], ['busy', 15, 3, null], ['busy', 40, 9, null], ['busy', 60, 9, null],
+      ['steady', 5, 7, null], ['steady', 30, 7, null], ['steady', 100, 7, null], ['steady', 130, 7, null],
+      ['early', 3, 8, 'חמה'], ['early', 12, 6, null],
+      ['ghost', 3, 8, null], ['ghost', 12, 6, null],
+    ]
+    for (const [i, [personId, daysAgo, score, mood]] of history.entries()) {
+      await db.insert(meetings).values({ id: `s${i}`, title: `Talk ${i}`, date: iso(daysAgo), time: '10:00', createdAt: NOW, updatedAt: NOW })
+      await db.insert(meetingPeople).values({ meetingId: `s${i}`, personId })
+      await db.insert(meetingAnalyses).values({
+        id: `sa${i}`, meetingId: `s${i}`, source: 'backfill', score, mood, keyInsight: i === 8 ? 'רוצה להוביל את הפרויקט' : null,
+        status: 'completed', createdAt: NOW, updatedAt: NOW,
+      })
+    }
+    const board = await (await createTestCaller()).insights.relationshipBoard()
+    expect(board.people.map((p) => [p.id, p.trend])).toEqual([
+      ['busy', 'cooling'],
+      ['steady', 'stable'],
+      ['early', null],
+    ])
+    const busy = board.people[0]!
+    expect(busy.dataReason).toContain('הציון ירד מ־9 ל־3')
+    expect(busy.avgScore).toBe(6)
+    expect(busy.lastDate).toBe(iso(5))
+    const early = board.people[2]!
+    expect(early.minForTrend).toBe(4)
+    expect(early.count).toBe(2)
+    expect(early.latestMood).toBe('חמה')
+    expect(early.latestInsight).toBe('רוצה להוביל את הפרויקט')
+    expect(early.dataReason).toContain('אחרי 4')
+    expect(board.summary).toMatchObject({ analysedMeetings: 10, peopleWithData: 3, pendingBacklog: 0 })
+
+    const flags = await (await createTestCaller()).insights.relationshipFlags()
+    expect(flags.cooling.map((f) => f.personId)).toEqual(['busy'])
   })
 })

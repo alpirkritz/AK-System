@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native'
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
@@ -62,6 +62,7 @@ export default function MeetingsScreen() {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -70,6 +71,7 @@ export default function MeetingsScreen() {
       setError(null)
       try {
         setMeetings(await fetchMeetings(token))
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הפגישות נכשלה')
       } finally {
@@ -80,9 +82,12 @@ export default function MeetingsScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const upcoming = useMemo(() => {
     const end = meetingWindow ? endDateForWindow(meetingWindow) : null

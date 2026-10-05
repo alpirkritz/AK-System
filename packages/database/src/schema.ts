@@ -739,6 +739,20 @@ export const agentSchedules = sqliteTable('agent_schedules', {
 export type AgentSchedule = typeof agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof agentSchedules.$inferInsert
 
+// ─── Tier 1 QA daily snapshot (for day-over-day diffing) ──────────────────────
+
+export const tier1QaSnapshots = sqliteTable('tier1_qa_snapshots', {
+  id: text('id').primaryKey(),
+  snapshotDate: text('snapshot_date').notNull().unique(), // Jerusalem YYYY-MM-DD
+  testsSnapshot: text('tests_snapshot').notNull(), // JSON
+  bugsSnapshot: text('bugs_snapshot').notNull(), // JSON
+  summaryStats: text('summary_stats').notNull(), // JSON
+  createdAt: text('created_at').notNull(),
+})
+
+export type Tier1QaSnapshot = typeof tier1QaSnapshots.$inferSelect
+export type NewTier1QaSnapshot = typeof tier1QaSnapshots.$inferInsert
+
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 
 export const healthMetrics = sqliteTable('health_metrics', {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
+import { AttentionBanner } from '@/components/relationship/AttentionBanner'
 import { PRIORITY_COLORS, PRIORITY_LABELS, DAYS_HE } from '@ak-system/types'
 import dynamic from 'next/dynamic'
 const ConflictsWidget = dynamic(() => import('@/components/ConflictsWidget').then((m) => m.ConflictsWidget), { ssr: false })
@@ -18,6 +19,7 @@ import {
   type SortPref,
 } from '@/lib/sort-keys'
 import { ThenBySort } from '@/components/ThenBySort'
+import { groupTasksByDueState, limitTaskGroups } from '@/lib/sort-tasks'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
 
 function isoDate(d: Date) {
@@ -186,8 +188,12 @@ export default function DashboardPage() {
   )
   const calendarHref = `/calendar?view=${calRange === 'today' ? 'day' : 'week'}`
 
-  const previewTasks = openTasks.slice(0, DASHBOARD_TASK_PREVIEW)
-  const moreOpenTasks = Math.max(0, openTasks.length - previewTasks.length)
+  const previewGroups = useMemo(
+    () => limitTaskGroups(groupTasksByDueState(openTasks), DASHBOARD_TASK_PREVIEW),
+    [openTasks],
+  )
+  const previewCount = previewGroups.reduce((sum, group) => sum + group.tasks.length, 0)
+  const moreOpenTasks = Math.max(0, openTasks.length - previewCount)
 
   return (
     <div className="space-y-8 min-w-0 max-w-full">
@@ -205,6 +211,8 @@ export default function DashboardPage() {
           })}
         </p>
       </header>
+
+      <AttentionBanner />
 
       {/* ── KPI Strip ───────────────────────────────────────────── */}
       <section aria-label="סיכום מהיר">
@@ -382,7 +390,10 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-2 min-w-0 max-w-full">
-              {previewTasks.map((t) => {
+              {previewGroups.map((group) => (
+                <div key={group.key}>
+                  <div className="text-xs font-semibold text-[#7a89ab] mb-1">{group.label}</div>
+                  {group.tasks.map((t) => {
                 const priorityKey = t.priority as keyof typeof PRIORITY_COLORS
                 const priorityColor = PRIORITY_COLORS[priorityKey] ?? PRIORITY_COLORS.medium
                 const priorityLabel = PRIORITY_LABELS[priorityKey] ?? PRIORITY_LABELS.medium
@@ -425,7 +436,9 @@ export default function DashboardPage() {
                     />
                   </div>
                 )
-              })}
+                  })}
+                </div>
+              ))}
               {moreOpenTasks > 0 && (
                 <Link
                   href="/tasks"

@@ -106,7 +106,7 @@ function TraitsBlock({
       <Text style={styles.contextTitle}>אופי</Text>
       {summary.traits.length === 0 ? (
         <>
-          <Text style={styles.contextLine}>עוד אין תכונות.</Text>
+          <Text style={styles.contextLine}>{summary.traitsAt ? 'השיחות נקראו, ועדיין אין תכונה שחוזרת על עצמה.' : 'עוד אין תכונות.'}</Text>
           <Pressable onPress={() => void run()} disabled={writing} style={styles.traitButton} accessibilityRole="button">
             <Text style={styles.traitButtonText}>{writing ? 'מנתח…' : summary.traitsAt ? 'נתח שוב' : 'נתח אופי'}</Text>
           </Pressable>

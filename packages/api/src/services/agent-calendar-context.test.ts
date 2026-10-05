@@ -75,6 +75,54 @@ describe('formatAgentCalendarContextForPrompt', () => {
     expect(text).toContain('attendee lists are often empty')
   })
 
+  it('tags events marked Free (transparency: transparent) and excludes them from load hours', () => {
+    const text = formatAgentCalendarContextForPrompt({
+      today: '2026-09-29',
+      errors: [],
+      events: [
+        {
+          id: 'busy-1',
+          title: 'Real sync',
+          start: '2026-09-29T09:00:00+03:00',
+          end: '2026-09-29T10:00:00+03:00',
+          isAllDay: false,
+          transparency: 'opaque',
+        },
+        {
+          id: 'free-1',
+          title: 'Tentative hold',
+          start: '2026-09-29T11:00:00+03:00',
+          end: '2026-09-29T13:00:00+03:00',
+          isAllDay: false,
+          transparency: 'transparent',
+        },
+      ],
+    })
+    expect(text).toContain('Real sync')
+    expect(text).toContain('Tentative hold (מסומן כפנוי)')
+    // Only the 1h opaque event counts — the 2h free event is excluded.
+    expect(text).toContain('Timed meeting hours (approx): 1.0h')
+    expect(text).toContain('do NOT count them toward meeting-load hours')
+  })
+
+  it('treats events with no transparency field as busy (no regression)', () => {
+    const text = formatAgentCalendarContextForPrompt({
+      today: '2026-09-29',
+      errors: [],
+      events: [
+        {
+          id: 'apple-1',
+          title: 'Apple calendar event',
+          start: '2026-09-29T09:00:00+03:00',
+          end: '2026-09-29T10:00:00+03:00',
+          isAllDay: false,
+        },
+      ],
+    })
+    expect(text).toContain('- 09:00–10:00 Apple calendar event\n')
+    expect(text).toContain('Timed meeting hours (approx): 1.0h')
+  })
+
   it('warns about partial data when errors coexist with events', () => {
     const text = formatAgentCalendarContextForPrompt({
       today: '2026-07-12',

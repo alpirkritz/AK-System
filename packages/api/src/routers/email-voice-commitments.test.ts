@@ -8,6 +8,7 @@ import {
   meetingPeople,
   meetings,
   people,
+  projects,
   personEmailThreads,
   personExternalIds,
   tasks,
@@ -22,6 +23,7 @@ import {
   localDateTime,
   processVoiceRecording,
   saveVoiceUpload,
+  VOICE_MAX_BYTES,
   VoiceUploadError,
 } from '../services/voice'
 import { commitmentSourceUrl, commitmentsForDate, proposeCommitmentsFromAnalysis } from '../services/commitments'
@@ -200,6 +202,23 @@ describe('voice capture', () => {
     expect(await db.select().from(voiceRecordings)).toHaveLength(0)
   })
 
+  it('accepts a recording over the old 19MB inline cap, rejects only above the new app-level ceiling', async () => {
+    const db = getTestDb()
+    const overOldCap = Buffer.alloc(20 * 1024 * 1024) // 20MB — used to be a hard reject
+    const { recordingId } = await saveVoiceUpload(db, {
+      audio: overOldCap,
+      mimeType: 'audio/webm',
+      durationSeconds: 2400,
+      consentConfirmed: true,
+    })
+    expect((await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId)))[0].sizeBytes).toBe(overOldCap.length)
+
+    const tooBig = Buffer.alloc(VOICE_MAX_BYTES + 1)
+    await expect(
+      saveVoiceUpload(db, { audio: tooBig, mimeType: 'audio/webm', durationSeconds: 60, consentConfirmed: true }),
+    ).rejects.toThrow('גדולה מדי')
+  })
+
   it('accepts the mobile recorder format (AAC in MP4) as .m4a', async () => {
     const db = getTestDb()
     const { recordingId } = await saveVoiceUpload(db, {
@@ -212,6 +231,34 @@ describe('voice capture', () => {
     const [stored] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
     expect(stored).toMatchObject({ mimeType: 'audio/mp4', duration: 42, status: 'uploaded' })
     expect(stored.audioPath.endsWith('.m4a')).toBe(true)
+  })
+
+  it('keeps the chosen project on the recording and on the meeting, and can clear it', async () => {
+    const db = getTestDb()
+    await db.insert(projects).values({ id: 'prj', name: 'Helm', source: 'manual', createdAt: NOW, updatedAt: NOW })
+    const { recordingId } = await saveVoiceUpload(db, {
+      audio: Buffer.from('x'),
+      mimeType: 'audio/webm',
+      durationSeconds: 60,
+      consentConfirmed: true,
+      personIds: ['p1'],
+      projectId: 'missing',
+    })
+    expect((await db.select().from(voiceRecordings))[0].projectId).toBeNull()
+
+    await db.update(voiceRecordings).set({ projectId: 'prj' }).where(eq(voiceRecordings.id, recordingId))
+    await processVoiceRecording(db, recordingId, {
+      transcribe: async () => 'דובר 1: שלום',
+      analyze: async () => analysis([]),
+    })
+    const [meeting] = await db.select().from(meetings)
+    expect(meeting.projectId).toBe('prj')
+
+    await attachVoiceRecording(db, { recordingId, personIds: ['p2'], projectId: null })
+    expect((await db.select().from(voiceRecordings))[0].projectId).toBeNull()
+    expect((await db.select().from(meetings))[0].projectId).toBeNull()
+    const linked = await db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, meeting.id))
+    expect(linked.map((l) => l.personId)).toEqual(['p2'])
   })
 
   it('stores the file, then analyzes a standalone recording into a placeholder meeting with voice commitments', async () => {
@@ -259,7 +306,7 @@ describe('voice capture', () => {
     expect(await db.select().from(meetingAnalyses)).toHaveLength(1)
   })
 
-  it('attaching to a real meeting moves analysis, people and commitments and drops the placeholder', async () => {
+  it('auto-attaches to the sole overlapping calendar meeting at process time, no placeholder created', async () => {
     const db = getTestDb()
     const local = localDateTime(Date.now() - 5 * 60_000)
     await db.insert(meetings).values({
@@ -269,6 +316,27 @@ describe('voice capture', () => {
     const rec = await processVoiceRecording(db, recordingId, {
       transcribe: async () => 'שיחה',
       analyze: async () => analysis([{ content: 'לשלוח הצעת מחיר', owner: 'Dana' }]),
+    })
+    expect(rec).toMatchObject({ meetingId: 'mtg', createdMeetingId: null, matchedAutomatically: true })
+    expect(await db.select().from(meetings)).toHaveLength(1)
+    const [a] = await db.select().from(meetingAnalyses)
+    expect(a.meetingId).toBe('mtg')
+    const [c] = await db.select().from(commitments)
+    expect(c.sourceId).toBe('mtg')
+  })
+
+  it('manually attaching to a real meeting moves analysis, people and commitments and drops the placeholder', async () => {
+    const db = getTestDb()
+    const { recordingId } = await upload(['p1'])
+    const rec = await processVoiceRecording(db, recordingId, {
+      transcribe: async () => 'שיחה',
+      analyze: async () => analysis([{ content: 'לשלוח הצעת מחיר', owner: 'Dana' }]),
+    })
+    expect(rec.matchedAutomatically).toBe(false)
+
+    const local = localDateTime(Date.now() - 5 * 60_000)
+    await db.insert(meetings).values({
+      id: 'mtg', title: 'Weekly with Dana', date: local.date, time: '00:00', endTime: '23:59', source: 'calendar', createdAt: NOW, updatedAt: NOW,
     })
     expect((await attachCandidates(db, recordingId)).map((m) => m.id)).toEqual(['mtg'])
 

@@ -22,7 +22,7 @@ import {
   participantKey,
   type CalendarParticipant,
 } from '../lib/calendar-participants'
-import { seriesWarmth, type WarmthResult } from './warmth'
+import { seriesInsight, seriesWarmth, type WarmthResult } from './warmth'
 
 type Db = ReturnType<typeof getDb>
 
@@ -484,6 +484,7 @@ export async function getCircle(db: Db, seriesId: string): Promise<CircleView> {
       trend: warmth.trend,
     }),
     warmth,
+    insight: await seriesInsight(db, seriesId),
   }
 }
 

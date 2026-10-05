@@ -21,6 +21,7 @@ import {
   inferDueDate,
   ingestDmMessages,
   runDmRetention,
+  scanDmCommitments,
   summarizeDmChats,
 } from '../services/whatsapp-dm'
 
@@ -162,6 +163,24 @@ describe('commitment detection', () => {
     ])
   })
 
+  it('treats present-tense and plural promises as commitments, not another person\'s verb', () => {
+    const ts = new Date('2026-09-25T14:15:00Z').getTime()
+    const found = detectCommitmentsHeuristic([
+      { id: 'a', fromMe: false, text: 'חלום, מזמין כוסות חדשות', ts },
+      { id: 'b', fromMe: true, text: 'אני מזמינה מחר', ts },
+      { id: 'c', fromMe: true, text: 'נטפל בזה אחרי החגים', ts },
+      { id: 'd', fromMe: false, text: 'הוא מזמין כוסות', ts },
+      { id: 'e', fromMe: false, text: 'את מזמינה את זה', ts },
+      { id: 'f', fromMe: false, text: 'שולחת לך את הקובץ', ts },
+    ])
+    expect(found.map((c) => [c.sourceMessageId, c.owner, c.dueInferred])).toEqual([
+      ['a', 'them', null],
+      ['b', 'me', '2026-09-26'],
+      ['c', 'me', null],
+      ['f', 'them', null],
+    ])
+  })
+
   it('reads relative Hebrew dates', () => {
     const ts = new Date('2026-09-24T10:00:00Z').getTime()
     expect(inferDueDate('נדבר מחרתיים', ts)).toBe('2026-09-26')
@@ -187,11 +206,16 @@ describe('DM summaries and commitments queue', () => {
       commitments: [{ owner: 'me' as const, content: 'לשלוח לדנה את המצגת', dueInferred: null, sourceMessageId: messages[0].id }],
     })
 
-    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 1 })
-    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 0, summaries: 0, commitments: 0 })
+    expect(await summarizeDmChats(db, { generate, now })).toEqual({
+      people: 1,
+      summaries: 1,
+      commitments: 1,
+      proposed: [{ label: 'Dana Levi', content: 'לשלוח לדנה את המצגת' }],
+    })
+    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 0, summaries: 0, commitments: 0, proposed: [] })
 
     await ingestDmMessages(db, [msg('s3', 'עוד משהו', now - 1000)])
-    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 0 })
+    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 0, proposed: [] })
 
     const [c] = await db.select().from(commitments)
     expect(c).toMatchObject({ personId: 'p1', owner: 'me', source: 'whatsapp_dm', status: 'proposed', sourceSnippet: 'אשלח לך את המצגת' })
@@ -201,6 +225,42 @@ describe('DM summaries and commitments queue', () => {
     const ctx = await caller.insights.personContext({ personId: 'p1' })
     expect(ctx?.latestDmSummary?.summary).toBe('דיברנו על המצגת.')
     expect(ctx?.proposedCommitments.map((x) => x.content)).toEqual(['לשלוח לדנה את המצגת'])
+  })
+
+  it('scans new promises into commitments without a summary, and does not repeat them', async () => {
+    const db = getTestDb()
+    const now = Date.now()
+    await ingestDmMessages(db, [msg('g1', 'חלום, מזמין כוסות חדשות', now - 60_000, false)])
+
+    const first = await scanDmCommitments(db, now)
+    expect(first).toMatchObject({ people: 1, commitments: 1 })
+    expect(first.proposed).toEqual([{ label: 'Dana Levi', content: 'חלום, מזמין כוסות חדשות' }])
+    expect(await scanDmCommitments(db, now)).toEqual({ people: 1, commitments: 0, proposed: [] })
+    expect(await db.select().from(whatsappDmSummaries)).toHaveLength(0)
+
+    const [c] = await db.select().from(commitments)
+    expect(c).toMatchObject({ personId: 'p1', owner: 'them', source: 'whatsapp_dm', status: 'proposed' })
+    expect(c.content).toContain('מזמין כוסות')
+
+    const generate = async () => ({ summary: 'סיכום היום.', commitments: [] })
+    expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 0, proposed: [] })
+    expect(await db.select().from(whatsappDmSummaries)).toHaveLength(1)
+  })
+
+  it('uses an injected classifier (e.g. Gemini) to catch phrasing the regex misses, with correct owner attribution', async () => {
+    const db = getTestDb()
+    const now = Date.now()
+    await ingestDmMessages(db, [msg('m1', 'אל תשכח להביא לה בשישי', now - 60_000, false)])
+
+    // ingestDmMessages assigns its own row id, so the classifier must key off whatever id it's handed.
+    const classify = async (msgs: { id: string }[]) => msgs.map((m) => ({ messageId: m.id, kind: 'request' as const, content: 'להביא לה משהו בשישי', due: '2026-10-03' }))
+    const result = await scanDmCommitments(db, now, { classify })
+    expect(result).toMatchObject({ people: 1, commitments: 1 })
+    expect(result.proposed).toEqual([{ label: 'Dana Levi', content: 'להביא לה משהו בשישי' }])
+
+    const [c] = await db.select().from(commitments)
+    // Dana asked (fromMe=false, kind='request') => the commitment is mine, not hers.
+    expect(c).toMatchObject({ personId: 'p1', owner: 'me', source: 'whatsapp_dm', content: 'להביא לה משהו בשישי', dueInferred: '2026-10-03' })
   })
 
   it('accepts into a task (assignee and project follow the person) and dismisses', async () => {

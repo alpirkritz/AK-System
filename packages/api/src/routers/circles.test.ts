@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { meetingAnalyses, meetings, meetingSeries, people, seriesRoster } from '@ak-system/database'
 import { createTestCaller, getTestDb, resetDb } from '../test-utils'
-import { analysisSentiment, compareTrend } from '../services/warmth'
+import { analysisSentiment, compareTrend, personInProjectCopy, projectMoodCopy, projectScoreCopy } from '../services/warmth'
 
 const NOW = new Date().toISOString()
 
@@ -159,6 +159,24 @@ describe('warmth helpers', () => {
   it('maps score and mood into [-1, 1]', () => {
     expect(analysisSentiment({ score: 10, mood: 'focused and collaborative', subtext: null })).toBeGreaterThan(0.8)
     expect(analysisSentiment({ score: 1, mood: 'tense with urgency', subtext: null })).toBeLessThan(-0.8)
+  })
+
+  it('describes a person from the meetings they sat in', () => {
+    expect(personInProjectCopy('דנה', [0.5], [-0.4], 4).text).toBe('הקשר עם דנה מתחמם.')
+    expect(personInProjectCopy('דנה', [], [], 0).text).toBe('רשום בפרויקט, עוד לא בשיחה מנותחת.')
+    expect(personInProjectCopy('דנה', [0], [], 2).text).toBe('2 שיחות בפרויקט. מגמה אחרי 4.')
+  })
+
+  it('reads room mood without treating a missing signal as calm', () => {
+    expect(projectMoodCopy([0.4], [-0.4], 4)).toEqual({ trend: 'warming', text: 'האווירה בחדר מתחממת.' })
+    expect(projectMoodCopy([0, 0], [0, 0], 4)).toEqual({ trend: null, text: '' })
+    expect(projectMoodCopy([1], [], 2).text).toBe('אחרי 4 שיחות אפשר לראות אם האווירה זזה.')
+  })
+
+  it('describes a project score change out of 10, without mood text', () => {
+    expect(projectScoreCopy([6, 6], [8, 7], 4)).toBe('הציון ירד מ־7.5 ל־6 מתוך 10.')
+    expect(projectScoreCopy([8], [6], 4)).toBe('הציון עלה מ־6 ל־8 מתוך 10.')
+    expect(projectScoreCopy([6], [], 2)).toBe('נותחו 2 שיחות. המגמה תופיע אחרי 4.')
   })
 
   it('needs a 0.2 shift to call a trend', () => {

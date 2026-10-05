@@ -21,7 +21,9 @@ type Db = ReturnType<typeof getDb>
 
 export const WHATSAPP_DAILY_DIGEST_TYPE = 'whatsapp_daily_digest'
 const OTHER_SECTION = 'אחר'
-const ACTION_HEADING = 'צריך אותך'
+export const DIGEST_DISPLAY_NAME = 'סיכום וואטסאפ יומי'
+export const DIGEST_TITLE = `💬 ${DIGEST_DISPLAY_NAME}`
+export const ACTION_HEADING = '📌 לטפל'
 const WA_CAP = 4000
 const MAX_ACTIONS = 5
 const SETTINGS_ID = 'default'
@@ -34,6 +36,7 @@ export const DEFAULT_DAILY_DIGEST_PROMPT = [
   'כתוב עברית מדוברת, כמו שיחה על כוס קפה — לא דוח, בלי בולטים ובלי תוויות כמו "נושא:".',
   'ספר רק על קבוצות שיש בהן הודעות. אל תזכיר קבוצה שלא קרה בה כלום.',
   'לכל קבוצה פעילה: כמה משפטים קצרים על מה דיברו, מה עלה, ואם הוחלט משהו. תהיה תמציתי — משפט או שניים כשזה מספיק, יותר רק אם באמת קרה משהו. כל הסיפור עד 900 תווים.',
+  'בתחילת כל מקטע על קבוצה או אירוע שים אימוג׳י אחד שמתאים (🏫 גן, 👨‍👩‍👧 משפחה, 💼 עבודה, 📅 אירוע, ✅ החלטה, ⚠️ דחיפות, 🎉 חדשות טובות). אימוג׳י אחד לנקודה — בלי שרשראות ובלי אימוג׳י בכל משפט.',
   'אם אותו אירוע עלה בכמה קבוצות של אותה תווית — ספר אותו פעם אחת. ציין שם קבוצה רק כשהפרט שייך לה לבד.',
   'אל תמציא עובדות ואל תצטט הודעות ארוכות.',
   'ב-actions שים רק משהו שהמשתמש צריך לעשות: בקשה, שאלה פתוחה, דדליין, או דבר להביא, לאשר, לשלם או לענות. החלטה שכבר התקבלה בלי משימה פתוחה אינה action.',
@@ -58,6 +61,8 @@ export interface ArrangedDigest {
   actions: DigestAction[]
   narrative: string
   emptyDay: boolean
+  /** Saved prompt owns the body; do not rebuild 📌 לטפל or clip to 900 chars. */
+  passthrough?: boolean
 }
 
 export interface DigestRunResult {
@@ -137,6 +142,17 @@ export function arrangeDailyDigest(input: {
     }
   }
 
+  if (input.model?.passthrough) {
+    const rawNarrative = input.model.narrative?.trim() ?? ''
+    return {
+      dateLabel: input.dateLabel,
+      actions: [],
+      narrative: rawNarrative || DIGEST_NARRATIVE_FALLBACK,
+      emptyDay: false,
+      passthrough: true,
+    }
+  }
+
   const priorityOf = new Map<string, number>()
   for (const g of groups) {
     priorityOf.set(g.name, Math.max(priorityOf.get(g.name) ?? 0, g.priority))
@@ -171,7 +187,7 @@ export function arrangeDailyDigest(input: {
 }
 
 function headerLine(dateLabel: string): string {
-  return `מה היה היום — ${dateLabel}`
+  return `${DIGEST_TITLE} — ${dateLabel}`
 }
 
 export function renderDailyDigestPlain(digest: ArrangedDigest): string {
@@ -180,7 +196,7 @@ export function renderDailyDigestPlain(digest: ArrangedDigest): string {
   }
 
   const lines: string[] = [headerLine(digest.dateLabel), '']
-  if (digest.actions.length > 0) {
+  if (!digest.passthrough && digest.actions.length > 0) {
     lines.push(ACTION_HEADING)
     for (const action of digest.actions) {
       lines.push(`• ${action.text} — ${action.source}`)
@@ -206,7 +222,7 @@ export function renderDailyDigestMarkdown(digest: ArrangedDigest): string {
   }
 
   const lines: string[] = [`# ${headerLine(digest.dateLabel)}`, '']
-  if (digest.actions.length > 0) {
+  if (!digest.passthrough && digest.actions.length > 0) {
     lines.push(`## ${ACTION_HEADING}`)
     for (const action of digest.actions) {
       lines.push(`- ${action.text} — ${action.source}`)
@@ -217,8 +233,8 @@ export function renderDailyDigestMarkdown(digest: ArrangedDigest): string {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-export function digestTitle(digest: ArrangedDigest): string {
-  return digest.actions.length > 0 ? ACTION_HEADING : 'מה היה היום'
+export function digestTitle(_digest: ArrangedDigest): string {
+  return DIGEST_TITLE
 }
 
 export function digestPushBody(plain: string): string {
@@ -396,7 +412,7 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
   let model: DailyDigestModel | null = null
   if (busy.length > 0) {
     try {
-      const { prompt } = await getDailyDigestPrompt(db)
+      const { prompt, customized } = await getDailyDigestPrompt(db)
       model = await generateDailyDigestModel(
         busy.map((g) => ({
           name: g.name,
@@ -405,6 +421,7 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
           messages: g.messages,
         })),
         prompt,
+        { contract: customized ? 'freeform' : 'json' },
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Daily digest failed'

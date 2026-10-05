@@ -31,7 +31,7 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 ## Stage 1: Categorize
 
 ### Step 1.1 — Classify Events
-- **Action:** Work = Dragontail/yum.com + Daz (daz.guru). Personal/Family = Family/Home calendars unrelated to work. Private (alpirkritz@gmail.com) busy events (isTransparent: false) = treat as potential conflicts with work meetings.
+- **Action:** Work = Dragontail/yum.com + Daz (daz.guru). Personal/Family = Family/Home calendars unrelated to work. Private (alpirkritz@gmail.com) busy events (isTransparent: false) = treat as potential conflicts with work meetings. Events marked Free (transparency: transparent), on any calendar = still shown in the brief, but excluded from load hours, conflict detection, and the overload threshold (same tier as DNS/focus blocks).
 - **Output:** Categorized calendar
 
 ---
@@ -39,11 +39,11 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 ## Stage 2: Detect
 
 ### Step 2.1 — Double Bookings
-- **Action:** Find overlaps. Real conflicts = meetings with participants. Events with no participants (focus blocks, DNS, reminders) = flag for awareness, not actionable.
+- **Action:** Find overlaps. Real conflicts = meetings with participants. Events with no participants (focus blocks, DNS, reminders) = flag for awareness, not actionable. Same for events marked Free (transparency: transparent) — awareness only.
 - **Output:** Conflict list + awareness overlaps
 
 ### Step 2.2 — Overloaded Days
-- **Action:** Flag any day with more than 4 hours of meetings
+- **Action:** Flag any day with more than 4 hours of meetings. Events marked Free (transparency: transparent) do not count toward this total.
 - **Output:** Load assessment
 
 ### Step 2.3 — Recent Meeting History
@@ -92,3 +92,4 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 | 2026-06-28 | System | Imported from AI Instructions doc (Calendar Optimizer) |
 | 2026-07-19 | System | Secretary brief on all channels — no Markdown tables |
 | 2026-07-22 | System | Notion-parity brief (WhatsApp-safe): rich sections, calendars primary |
+| 2026-09-29 | System | Free-marked (transparency: transparent) events shown for awareness only — excluded from load hours, conflicts, overload threshold |

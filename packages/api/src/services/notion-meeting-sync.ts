@@ -198,9 +198,10 @@ export async function triggerAnalysisIfNeeded(
 
       const { proposeCommitmentsFromAnalysis } = await import('./commitments')
       await proposeCommitmentsFromAnalysis(db, analysisId)
-
-      // Note: WhatsApp notification is sent by the cron job that polls for new analyses
-      // (apps/web/src/app/api/cron/transcript-analysis/route.ts)
+      const { notifyAnalysisOnWhatsApp } = await import('./analysis-whatsapp')
+      await notifyAnalysisOnWhatsApp(db, analysisId).catch((err) => {
+        console.warn('[notion-sync] analysis WhatsApp failed:', err)
+      })
     } catch (err) {
       console.error('[notion-sync] Auto-analysis failed:', err)
       // Try to mark as failed in DB

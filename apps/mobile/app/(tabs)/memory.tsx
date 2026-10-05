@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -12,10 +11,11 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { SectionHeader } from '../components/SectionHeader'
-import { useAuth } from '../lib/auth'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { useBringFocusedFieldIntoView } from '../../components/KeyboardSafe'
+import { SectionHeader } from '../../components/SectionHeader'
+import { useAuth } from '../../lib/auth'
 import {
   createMemory,
   deleteMemory,
@@ -24,8 +24,8 @@ import {
   setHugoInstructions,
   toggleMemoryPin,
   type MobileMemory,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 export default function MemoryScreen() {
   const { token } = useAuth()
@@ -42,6 +42,9 @@ export default function MemoryScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const listRef = useRef<FlatList<MobileMemory>>(null)
+  useBringFocusedFieldIntoView(listRef as never)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -53,8 +56,13 @@ export default function MemoryScreen() {
           fetchHugoInstructions(token),
           fetchMemories(token),
         ])
-        setInstructions(inst.content ?? '')
-        setInstructionsEnabled(inst.enabled ?? true)
+        // Only apply the instructions text on the true first load — a focus-
+        // triggered background refresh must not clobber text the user is
+        // mid-typing (or already saved locally) in the instructions box.
+        if (mode === 'initial') {
+          setInstructions(inst.content ?? '')
+          setInstructionsEnabled(inst.enabled ?? true)
+        }
         const sorted = [...mems].sort((a, b) => {
           const ap = a.pinned ? 1 : 0
           const bp = b.pinned ? 1 : 0
@@ -62,6 +70,7 @@ export default function MemoryScreen() {
           return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
         })
         setMemories(sorted)
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינה נכשלה')
       } finally {
@@ -72,9 +81,12 @@ export default function MemoryScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const flash = (msg: string) => {
     setNotice(msg)
@@ -164,14 +176,12 @@ export default function MemoryScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.flex}>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
       <FlatList
+        ref={listRef}
         data={memories}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -256,7 +266,7 @@ export default function MemoryScreen() {
           </Card>
         )}
       />
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 

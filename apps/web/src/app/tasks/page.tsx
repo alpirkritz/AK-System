@@ -10,13 +10,12 @@ import { StatusPill } from '@/components/StatusPill'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import {
   sortTasksByKeys,
-  getTaskPrimaryGroup,
   TASK_SORT_KEYS,
   TASK_SORT_LABELS,
   type TaskSortKey,
   type SortPref,
-  type TaskPrimaryGroup,
 } from '@/lib/sort-keys'
+import { groupTasksByDueState } from '@/lib/sort-tasks'
 import { ThenBySort } from '@/components/ThenBySort'
 import { LS } from '@/lib/ls-keys'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
@@ -115,7 +114,6 @@ function TasksPageContent() {
 
   const effectiveSort = taskSort ?? serverDefault ?? { primary: 'priority_high' as TaskSortKey, thenBy: 'due_asc' as TaskSortKey }
   const hasOverride = taskSort !== null
-  const primaryGroup = getTaskPrimaryGroup(effectiveSort.primary)
 
   const setTaskSortAndPersist = (value: SortPref<TaskSortKey>) => {
     setTaskSort(value)
@@ -157,25 +155,17 @@ function TasksPageContent() {
   }, [filtered, effectiveSort])
 
   const grouped = useMemo(() => {
-    if (primaryGroup === 'priority') {
-      // Group by priority
-      return {
-        type: 'priority' as const,
-        groups: ['high', 'medium', 'low'].map((prio) => ({
-          key: prio,
-          label: `עדיפות ${PRIORITY_LABELS[prio as keyof typeof PRIORITY_LABELS]}`,
-          color: PRIORITY_COLORS[prio as keyof typeof PRIORITY_COLORS],
-          tasks: sorted.filter((t) => t.priority === prio),
-        })),
-      }
-    } else {
-      // Flat list for all other sort keys
-      return {
-        type: 'flat' as const,
-        tasks: sorted,
-      }
+    const tone: Record<string, string> = {
+      overdue: '#fb7185',
+      upcoming: '#2dd4bf',
+      done: '#647399',
+      cancelled: '#94a3b8',
     }
-  }, [sorted, primaryGroup])
+    return groupTasksByDueState(sorted).map((group) => ({
+      ...group,
+      color: tone[group.key],
+    }))
+  }, [sorted])
 
   const hasActiveFilter = status !== 'open' || !!projectId || !!meetingId || !!workspaceId || !!search
 
@@ -343,8 +333,8 @@ function TasksPageContent() {
             + משימה חדשה
           </button>
         </div>
-      ) : grouped.type === 'priority' ? (
-        grouped.groups.map((group) => {
+      ) : (
+        grouped.map((group) => {
           if (!group.tasks.length) return null
           return (
             <div key={group.key} className="mb-7">
@@ -377,6 +367,12 @@ function TasksPageContent() {
                       >
                         {t.done && <span className="text-[10px]">{isCancelled ? '✕' : '✓'}</span>}
                       </button>
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: priorityColor }}
+                        title={`עדיפות ${priorityLabel}`}
+                        aria-label={`עדיפות ${priorityLabel}`}
+                      />
                       <div
                         className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
                         style={{
@@ -425,82 +421,6 @@ function TasksPageContent() {
             </div>
           )
         })
-      ) : (
-        // Flat list for non-priority sorts
-        <div className="card py-1 px-4">
-          {grouped.tasks.map((t) => {
-            const meeting = getMeeting(t.meetingId ?? '')
-            const isCancelled =
-              effectiveStatus(t as { status?: string | null; done?: boolean | null }) === 'cancelled'
-            const priorityKey = t.priority as keyof typeof PRIORITY_COLORS
-            const priorityColor = PRIORITY_COLORS[priorityKey] ?? PRIORITY_COLORS.medium
-            const priorityLabel = PRIORITY_LABELS[priorityKey] ?? PRIORITY_LABELS.medium
-            return (
-              <div key={t.id} className="task-row">
-                <button
-                  type="button"
-                  className="checkbox-btn"
-                  role="checkbox"
-                  aria-checked={t.done}
-                  aria-label={
-                    isCancelled ? 'שחזר משימה שבוטלה' : t.done ? 'סמן כלא בוצע' : 'סמן כבוצע'
-                  }
-                  onClick={() => toggleTask.mutate({ id: t.id })}
-                >
-                  {t.done && <span className="text-[10px]">{isCancelled ? '✕' : '✓'}</span>}
-                </button>
-                {/* Priority dot — visible in flat mode */}
-                <div
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ background: priorityColor }}
-                  title={`עדיפות ${priorityLabel}`}
-                  aria-label={`עדיפות ${priorityLabel}`}
-                />
-                <div
-                  className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
-                  style={{
-                    textDecoration: t.done ? 'line-through' : 'none',
-                    color: t.done ? '#5a688c' : '#eef3fb',
-                  }}
-                  onClick={() => {
-                    setEditingTaskId(t.id)
-                    setTaskModalOpen(true)
-                  }}
-                  title="ערוך משימה"
-                >
-                  {t.title}
-                  {formatDueLabel(t) && (
-                    <span className="text-[11px] text-[#647399] mr-2"> · {formatDueLabel(t)}</span>
-                  )}
-                </div>
-                <StatusPill status={(t as { status?: string | null }).status} />
-                <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
-                {t.projectId && getProject(t.projectId) && (
-                  <Link href={`/projects/${t.projectId}`}>
-                    <span className="pill cursor-pointer text-[11px]">📁 {getProject(t.projectId)?.name}</span>
-                  </Link>
-                )}
-                {meeting && (
-                  <Link href={`/meetings/${meeting.id}`}>
-                    <span className="pill cursor-pointer">◈ {meeting.title}</span>
-                  </Link>
-                )}
-                {t.assigneeId && (
-                  <div
-                    className="avatar w-6 h-6 text-[10px] border"
-                    style={{
-                      background: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '22',
-                      color: getPerson(t.assigneeId!)?.color ?? '#2dd4bf',
-                      borderColor: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '33',
-                    }}
-                  >
-                    {getPerson(t.assigneeId!)?.name[0]}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
       )}
 
       <TaskModal

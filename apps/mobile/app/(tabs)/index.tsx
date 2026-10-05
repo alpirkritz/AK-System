@@ -1,5 +1,5 @@
-import { useRouter, type Href } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Pressable,
@@ -17,13 +17,16 @@ import { useAuth } from '../../lib/auth'
 import {
   fetchDashboardPrefs,
   fetchMeetings,
+  fetchRelationshipBoard,
   fetchTasks,
   toggleTaskDone,
+  type MobileBoardCard,
   type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
 } from '../../lib/data'
 import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
+import { groupTasksByDueState, limitTaskGroups, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
 import { colors } from '../../lib/theme'
 
@@ -52,6 +55,14 @@ function isPast(date: string, time: string): boolean {
   return dt < new Date()
 }
 
+function topShift(cards: MobileBoardCard[]): { name: string; verb: string; rest: number } | null {
+  if (cards.length === 0) return null
+  const gap = (c: MobileBoardCard) => Math.abs((c.recentAvg ?? 0) - (c.olderAvg ?? 0))
+  const top = [...cards].sort((a, b) => gap(b) - gap(a))[0]
+  if (!top) return null
+  return { name: top.name, verb: top.trend === 'cooling' ? 'מתקרר' : 'מתחמם', rest: cards.length - 1 }
+}
+
 export default function DashboardScreen() {
   const { token, user } = useAuth()
   const router = useRouter()
@@ -65,6 +76,8 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [attention, setAttention] = useState<{ name: string; verb: string; rest: number } | null>(null)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -72,14 +85,17 @@ export default function DashboardScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [p, t, m] = await Promise.all([
+        const [p, t, m, relationship] = await Promise.all([
           fetchDashboardPrefs(token),
           fetchTasks(token),
           fetchMeetings(token),
+          fetchRelationshipBoard(token).catch(() => ({ people: [], circles: [] })),
         ])
         setPrefs(p)
         setTasks(t)
         setMeetings(m)
+        setAttention(topShift([...relationship.people, ...relationship.circles]))
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
       } finally {
@@ -90,9 +106,12 @@ export default function DashboardScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
 
@@ -114,11 +133,11 @@ export default function DashboardScreen() {
   }, [meetings, prefs.meetingWindow])
 
   const windowTasks = useMemo(() => {
-    if (prefs.taskWindow === 'all') return openTasks
-    const today = todayKey()
-    return openTasks.filter(
-      (t) => !t.dueDate || t.dueDate <= today,
-    )
+    const inWindow =
+      prefs.taskWindow === 'all'
+        ? openTasks
+        : openTasks.filter((t) => !t.dueDate || t.dueDate <= todayKey())
+    return limitTaskGroups(groupTasksByDueState(sortTasksByPriorityThenDue(inWindow)), 8)
   }, [openTasks, prefs.taskWindow])
 
   const onToggleTask = async (task: MobileTask) => {
@@ -154,6 +173,16 @@ export default function DashboardScreen() {
       {user?.name ? <Text style={styles.subGreeting}>{user.name}</Text> : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {attention ? (
+        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשרים שזזים">
+          <Text style={styles.attentionLabel}>קשרים</Text>
+          <Text style={styles.itemTitle}>
+            {attention.name} {attention.verb}
+            {attention.rest > 0 ? ` · ועוד ${attention.rest}` : ''}
+          </Text>
+        </Card>
+      ) : null}
 
       <View style={styles.kpiRow}>
         <KpiCard
@@ -211,33 +240,38 @@ export default function DashboardScreen() {
         {windowTasks.length === 0 ? (
           <EmptyState text="הכול נקי ✓" compact />
         ) : (
-          windowTasks.slice(0, 8).map((t) => (
-            <Card key={t.id} style={styles.item} accessibilityLabel={`משימה: ${t.title}`}>
-              <View style={styles.taskRow}>
-                <Pressable
-                  onPress={() => router.push(`/task/${t.id}` as Href)}
-                  style={styles.taskBody}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.itemTitle}>{t.title}</Text>
-                  {dueDay(t.dueDate) ? (
-                    <Text style={[styles.itemMeta, isOverdueOpenTask(t) && styles.itemMetaOverdue]}>
-                      {isOverdueOpenTask(t) ? 'באיחור · ' : ''}
-                      {new Date(dueDay(t.dueDate) + 'T00:00:00').toLocaleDateString('he-IL')}
-                    </Text>
-                  ) : null}
-                </Pressable>
-                <Pressable
-                  onPress={() => void onToggleTask(t)}
-                  disabled={togglingId === t.id}
-                  style={styles.checkBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="סמן כהושלם"
-                >
-                  <Text style={styles.checkIcon}>{togglingId === t.id ? '…' : '○'}</Text>
-                </Pressable>
-              </View>
-            </Card>
+          windowTasks.map((group) => (
+            <View key={group.key}>
+              <Text style={styles.groupLabel}>{group.label}</Text>
+              {group.tasks.map((t) => (
+                <Card key={t.id} style={styles.item} accessibilityLabel={`משימה: ${t.title}`}>
+                  <View style={styles.taskRow}>
+                    <Pressable
+                      onPress={() => router.push(`/task/${t.id}` as Href)}
+                      style={styles.taskBody}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.itemTitle}>{t.title}</Text>
+                      {dueDay(t.dueDate) ? (
+                        <Text style={[styles.itemMeta, isOverdueOpenTask(t) && styles.itemMetaOverdue]}>
+                          {isOverdueOpenTask(t) ? 'באיחור · ' : ''}
+                          {new Date(dueDay(t.dueDate) + 'T00:00:00').toLocaleDateString('he-IL')}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => void onToggleTask(t)}
+                      disabled={togglingId === t.id}
+                      style={styles.checkBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel="סמן כהושלם"
+                    >
+                      <Text style={styles.checkIcon}>{togglingId === t.id ? '…' : '○'}</Text>
+                    </Pressable>
+                  </View>
+                </Card>
+              ))}
+            </View>
           ))
         )}
       </View>
@@ -260,6 +294,14 @@ const styles = StyleSheet.create({
   kpiRow: { flexDirection: 'row-reverse', gap: 10, marginTop: 20 },
   section: { marginTop: 12 },
   sectionHeader: { paddingHorizontal: 0, paddingTop: 12, paddingBottom: 10 },
+  groupLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 6,
+  },
   item: { marginBottom: 8 },
   itemTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   itemMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
@@ -274,4 +316,6 @@ const styles = StyleSheet.create({
   },
   checkIcon: { color: colors.accent, fontSize: 22, fontWeight: '600' },
   error: { color: colors.error, textAlign: 'center', padding: 8, marginTop: 8, writingDirection: 'rtl' },
+  attention: { marginTop: 16 },
+  attentionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl', marginBottom: 4 },
 })

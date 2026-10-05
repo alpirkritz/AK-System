@@ -141,7 +141,9 @@ function DigestPromptCard({ setMessage }: { setMessage: (message: string | null)
       {open && !query.isError ? (
         <div className="mt-4">
           <label className="label" htmlFor="whatsapp-digest-prompt-text">איך לספר את היום</label>
-          <p className="text-[11px] text-[#5a688c] mb-2">ההודעות של היום מתווספות אוטומטית. כאן קובעים רק את הסגנון.</p>
+          <p className="text-[11px] text-[#5a688c] mb-2">
+            ההודעות של היום מתווספות אוטומטית. הניסוח ששמרת קובע את מבנה ההודעה, כולל כותרות ובולטים.
+          </p>
           <textarea
             id="whatsapp-digest-prompt-text"
             data-testid="whatsapp-digest-prompt-text"

@@ -46,6 +46,14 @@ export const config = {
   selfLid: process.env.SELF_LID || '',
   allowedJids: optionalList('ALLOWED_JIDS'),
   watchGroupJids: new Set(optionalList('WATCH_GROUP_JIDS')),
+  /**
+   * Narrow, explicit allow-list for the one new outbound capability that isn't
+   * self-chat: a daily agent (Tier 1 QA) posting into a specific WhatsApp
+   * group. Separate from `allowedJids`/`isSelfChatJid` on purpose — the
+   * self-chat-only guard on `/send` and `sendWhatsAppMessage` is untouched for
+   * every other caller. See docs/specs/tier1-qa-whatsapp-agent.md §5.
+   */
+  allowedGroupJids: new Set(optionalList('WHATSAPP_ALLOWED_GROUP_JIDS')),
   deviceName: optional('DEVICE_NAME', 'ARO'),
   akGroupSummaryUrl: process.env.AK_GROUP_SUMMARY_URL || '',
   akGroupClusterSummaryUrl: process.env.AK_GROUP_CLUSTER_SUMMARY_URL || '',
@@ -81,6 +89,13 @@ export function isSelfChatJid(jid: string): boolean {
 
 export function isAllowedJid(jid: string): boolean {
   return isSelfChatJid(jid)
+}
+
+/** Explicit allow-list check for the group-send capability — never true for an empty list. */
+export function isAllowedGroupJid(jid: string): boolean {
+  if (config.allowedGroupJids.size === 0) return false
+  const base = bareUserJid(jid)
+  return Array.from(config.allowedGroupJids).some((allowed) => base === bareUserJid(allowed))
 }
 
 export function getSelfChatTarget(): string {

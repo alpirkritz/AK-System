@@ -33,7 +33,9 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "/var/folders/6g/nbcn7pc10gb2mzpy1pmz5_640000gp/T/ak-system-next/types/**/*.ts"
+    "/var/folders/6g/nbcn7pc10gb2mzpy1pmz5_640000gp/T/ak-system-next/types/**/*.ts",
+    "/sessions/hopeful-serene-franklin/tmp/ak-system-next/types/**/*.ts",
+    "/sessions/elegant-hopeful-keller/tmp/ak-system-next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

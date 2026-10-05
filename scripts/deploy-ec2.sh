@@ -4,7 +4,8 @@
 #   1. Run local CI gate (lint, test, e2e, build)   — skip with SKIP_CI=1
 #   2. rsync the repo to the instance               — over SSH
 #   3. Copy deploy/production.env to the instance
-#   4. docker compose up -d --build (web by default)
+#   4. docker compose up -d --build on the instance (image built THERE from the
+#      rsynced tree + the Mac-built .next) — then verify BUILD_ID matches
 #   5. Health check
 #
 # Config: deploy/ec2.env (copy from deploy/ec2.env.example).
@@ -68,6 +69,7 @@ fi
 
 # ── 2. Sync code ──────────────────────────────────────────────────────────────
 step "Sync code → ${REMOTE}:${DEPLOY_PATH}"
+echo "→ source: $ROOT_DIR"
 ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo mkdir -p '$DEPLOY_PATH' && sudo chown \$(whoami):\$(whoami) '$DEPLOY_PATH'"
 rsync -az --delete \
   --exclude '.git' \
@@ -96,14 +98,41 @@ if [ -f "$ROOT_DIR/deploy/whatsapp-bridge.env" ]; then
 fi
 
 # ── 4. Build + start ──────────────────────────────────────────────────────────
-step "docker compose up -d --build"
+# --force-recreate matters here: Compose's default `up` only recreates a
+# container when the *compose file* config changed, not when a referenced
+# env_file's contents changed (production.env / whatsapp-bridge.env, both
+# scp'd fresh above every deploy). Without it, a new env var (e.g.
+# TIER1_QA_WHATSAPP_GROUP_JID, WHATSAPP_ALLOWED_GROUP_JIDS) can sit in the
+# scp'd file while the already-running container keeps its old environment
+# indefinitely — deploy reports success, the app looks unchanged, and the
+# only symptom is the new env-dependent behavior silently not working.
+#
+# --build is REQUIRED. Only the Next.js bundle (apps/web/.next) is built on the
+# Mac (step 1); the Docker *image* is built here on the instance from the
+# rsynced tree (deploy/Dockerfile.runtime copies that .next plus packages/ and
+# A_Agents/ etc. into the image). Without --build, compose reuses the last
+# image forever: rsync delivers new code to /opt/ak-system, --force-recreate
+# restarts the container, and it runs the OLD image — deploy says ✓, nothing
+# changes. (Happened 2026-10-04→05: web image stuck at 10-04 17:05 for a day.)
+# The build is fast when pnpm-lock.yaml is unchanged (install layer cached).
+step "docker compose up -d --build --force-recreate"
 COMPOSE_PROFILES=""
 if [ -f "$ROOT_DIR/deploy/whatsapp-bridge.env" ] || [ "${ENABLE_WHATSAPP:-0}" = "1" ]; then
   COMPOSE_PROFILES="--profile whatsapp"
   echo "→ Including WhatsApp bridge profile"
 fi
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
-  "cd '$DEPLOY_PATH' && (docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build || sudo docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build) && (docker compose -f '$COMPOSE_FILE' ps || sudo docker compose -f '$COMPOSE_FILE' ps)"
+  "cd '$DEPLOY_PATH' && (docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build --force-recreate || sudo docker compose -f '$COMPOSE_FILE' $COMPOSE_PROFILES up -d --build --force-recreate) && (docker compose -f '$COMPOSE_FILE' ps || sudo docker compose -f '$COMPOSE_FILE' ps)"
+
+# Verify the running web container serves the bundle we just built — catches a
+# stale image (the failure above) instead of printing "Deploy complete" over it.
+LOCAL_BUILD_ID="$(cat "$ROOT_DIR/apps/web/.next/BUILD_ID" 2>/dev/null || echo none)"
+REMOTE_BUILD_ID="$(ssh "${SSH_OPTS[@]}" "$REMOTE" "cd '$DEPLOY_PATH' && (docker compose -f '$COMPOSE_FILE' exec -T web cat apps/web/.next/BUILD_ID 2>/dev/null || sudo docker compose -f '$COMPOSE_FILE' exec -T web cat apps/web/.next/BUILD_ID)" 2>/dev/null || echo unknown)"
+if [ "$LOCAL_BUILD_ID" != "$REMOTE_BUILD_ID" ]; then
+  echo "✗  Running web container has BUILD_ID '$REMOTE_BUILD_ID', expected '$LOCAL_BUILD_ID' — the image was not rebuilt."
+  exit 1
+fi
+echo "✓  web container BUILD_ID matches local build ($LOCAL_BUILD_ID)"
 
 # ── 5. Health check ───────────────────────────────────────────────────────────
 step "Health check"

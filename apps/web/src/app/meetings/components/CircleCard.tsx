@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Users, UserPlus, UserMinus, RotateCcw, X, CheckSquare, FileText } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
+import { InsightStrands } from '@/components/relationship/InsightStrands'
 
 const ROSTER_PREVIEW = 8
 
@@ -51,7 +52,19 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
         </div>
         <WarmthBadge warmth={circle.warmth} scope="circle" />
       </div>
-
+      {circle.insight && (
+        <InsightStrands
+          atmosphereText={circle.insight.atmosphereText}
+          atmosphere={circle.insight.atmosphere}
+          people={circle.insight.people}
+          scoreText={circle.insight.scoreText}
+          scores={circle.insight.scores}
+          insights={circle.insight.insights}
+          projectId={circle.insight.projectId}
+          peopleHint="מי שמשתתף בסדרה. המגמה מכל השיחות שלו שקשורות לפרויקט."
+          embedded
+        />
+      )}
       {!saved ? (
         <div className="space-y-2">
           <p className="text-sm text-[#97a4c2]">

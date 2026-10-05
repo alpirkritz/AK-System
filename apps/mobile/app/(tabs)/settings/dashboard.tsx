@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
-import { ListRow } from '../../components/ListRow'
-import { SectionHeader } from '../../components/SectionHeader'
-import { useAuth } from '../../lib/auth'
+import { ListRow } from '../../../components/ListRow'
+import { SectionHeader } from '../../../components/SectionHeader'
+import { useAuth } from '../../../lib/auth'
 import {
   fetchDashboardPrefs,
   setDashboardPrefs,
   type MobileDashboardPrefs,
-} from '../../lib/data'
-import { colors } from '../../lib/theme'
+} from '../../../lib/data'
+import { colors } from '../../../lib/theme'
 
 const MEETING_OPTIONS: Array<{
   value: MobileDashboardPrefs['meetingWindow']
@@ -33,6 +34,7 @@ export default function DashboardSettingsScreen() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -40,6 +42,7 @@ export default function DashboardSettingsScreen() {
     setError(null)
     try {
       setPrefs(await fetchDashboardPrefs(token))
+      hasLoadedOnce.current = true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'טעינה נכשלה')
     } finally {
@@ -47,9 +50,12 @@ export default function DashboardSettingsScreen() {
     }
   }, [token])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load()
+    }, [token, load]),
+  )
 
   const saveMeetingWindow = async (meetingWindow: MobileDashboardPrefs['meetingWindow']) => {
     if (!token || !prefs || prefs.meetingWindow === meetingWindow || saving) return

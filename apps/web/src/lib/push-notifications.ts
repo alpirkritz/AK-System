@@ -31,7 +31,7 @@ function deriveTitle(text: string): string {
 export async function pushAssistantMessage(
   text: string,
   source: 'cron' | 'whatsapp' = 'cron',
-  options?: { title?: string; url?: string; typeId?: string },
+  options?: { title?: string; url?: string; typeId?: string; whatsapp?: boolean },
 ): Promise<{ telegram: boolean; whatsapp: boolean; webPush: number; fcmPush: number; skipped?: boolean }> {
   const channels = options?.typeId
     ? await resolveNotificationChannels(options.typeId)
@@ -79,7 +79,7 @@ export async function pushAssistantMessage(
     telegram = true
   }
 
-  if (channels.whatsapp && isWhatsAppConfigured()) {
+  if (options?.whatsapp !== false && channels.whatsapp && isWhatsAppConfigured()) {
     whatsapp = await sendWhatsAppMessage(text)
   }
 

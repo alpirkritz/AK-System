@@ -11,7 +11,7 @@ import { WorkspacePill } from '@/components/WorkspacePill'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
 import { CreatableMultiSelect } from '@/components/ui/CreatableMultiSelect'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
-import { sortTasksOpenThenDueAsc } from '@/lib/sort-tasks'
+import { groupTasksByDueState, sortTasksByPriorityThenDue } from '@/lib/sort-tasks'
 import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { PersonContextCard } from './PersonContextCard'
 
@@ -24,6 +24,8 @@ type RelatedTask = {
   id: string
   title: string
   done: boolean
+  status?: string | null
+  priority?: string | null
   dueDate?: string | null
   meetingTitle?: string | null
   meetingDate?: string | null
@@ -72,10 +74,11 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
 
-  const sortedTasks = useMemo(
-    () => sortTasksOpenThenDueAsc((related?.tasks ?? []) as RelatedTask[]),
+  const taskGroups = useMemo(
+    () => groupTasksByDueState(sortTasksByPriorityThenDue((related?.tasks ?? []) as RelatedTask[])),
     [related?.tasks],
   )
+  const taskCount = taskGroups.reduce((sum, group) => sum + group.tasks.length, 0)
 
   const utils = trpc.useUtils()
   const update = trpc.people.update.useMutation({
@@ -625,14 +628,17 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
           )}
 
           {/* Related tasks */}
-          {sortedTasks.length > 0 && (
+          {taskCount > 0 && (
             <section>
               <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <CheckSquare className="w-3.5 h-3.5" />
-                משימות ({sortedTasks.length})
+                משימות ({taskCount})
               </h3>
               <div className="space-y-2">
-                {sortedTasks.map((task) => (
+                {taskGroups.map((group) => (
+                  <div key={group.key}>
+                    <div className="text-[11px] font-semibold text-[#7a89ab] mt-2">{group.label}</div>
+                    {group.tasks.map((task) => (
                   <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                     <div className="flex items-center gap-3">
                       <button
@@ -686,6 +692,8 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                         )}
                       </div>
                     )}
+                  </div>
+                    ))}
                   </div>
                 ))}
               </div>

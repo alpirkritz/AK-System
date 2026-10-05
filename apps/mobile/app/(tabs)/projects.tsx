@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -9,12 +9,12 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useRouter, type Href } from 'expo-router'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { useAuth } from '../lib/auth'
-import { createProject, fetchProjects, type MobileProject } from '../lib/data'
-import { colors } from '../lib/theme'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { useAuth } from '../../lib/auth'
+import { createProject, fetchProjects, type MobileProject } from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 export default function ProjectsScreen() {
   const { token } = useAuth()
@@ -25,6 +25,7 @@ export default function ProjectsScreen() {
   const [error, setError] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -33,6 +34,7 @@ export default function ProjectsScreen() {
       setError(null)
       try {
         setProjects(await fetchProjects(token))
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הפרויקטים נכשלה')
       } finally {
@@ -43,9 +45,12 @@ export default function ProjectsScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const onCreate = async () => {
     if (!token || creating) return

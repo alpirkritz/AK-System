@@ -1,4 +1,4 @@
-import { useRouter, useLocalSearchParams, type Href } from 'expo-router'
+import { useFocusEffect, useRouter, useLocalSearchParams, type Href } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -7,12 +7,13 @@ import {
   Modal,
   PanResponder,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
-import type { AppNotification } from '../lib/api'
+import type { AppNotification } from '../../lib/api'
 import {
   archiveAllNotifications,
   archiveNotification,
@@ -22,11 +23,11 @@ import {
   markNotificationRead,
   mobileRouteForNotificationUrl,
   notificationPreview,
-} from '../lib/api'
-import { parseNotificationBody } from '../lib/notification-format'
-import { useUnread } from '../lib/unread'
-import { useAuth } from '../lib/auth'
-import { colors } from '../lib/theme'
+} from '../../lib/api'
+import { parseNotificationBody } from '../../lib/notification-format'
+import { useUnread } from '../../lib/unread'
+import { useAuth } from '../../lib/auth'
+import { colors } from '../../lib/theme'
 
 const TYPE_ICONS: Record<string, string> = {
   cron: '⏰',
@@ -146,6 +147,7 @@ export default function NotificationsScreen() {
   const params = useLocalSearchParams<{ id?: string }>()
   const [items, setItems] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<AppNotification | null>(null)
   const [undoId, setUndoId] = useState<string | null>(null)
@@ -154,6 +156,8 @@ export default function NotificationsScreen() {
   const bulkUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Deep link opens once. Re-running on list changes reopened the sheet after Archive. */
   const openedParamId = useRef<string | null>(null)
+  /** First load shows the full-screen spinner; focus/pull refreshes use RefreshControl instead. */
+  const hasLoadedOnce = useRef(false)
 
   const { refresh: refreshUnread } = useUnread()
 
@@ -175,25 +179,38 @@ export default function NotificationsScreen() {
     }
   }, [token, refreshUnread])
 
-  const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await fetchNotifications(token)
-      setItems(data.notifications)
-      // Don't auto-refresh unread here - it causes unnecessary re-renders
-      // Refresh unread only after explicit user actions (archive, mark read)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token])  // Removed refreshUnread from dependencies
+  const load = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (!token) return
+      mode === 'refresh' ? setRefreshing(true) : setLoading(true)
+      setError(null)
+      try {
+        const data = await fetchNotifications(token)
+        setItems(data.notifications)
+        hasLoadedOnce.current = true
+        // Keep the header badge in sync too — a focus/pull refresh can race
+        // ahead of (or behind) its own 30s poll; this makes sure they agree.
+        void refreshUnread()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'טעינה נכשלה')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [token, refreshUnread],
+  )
 
-  useEffect(() => {
-    load()
-  }, [load])
+  // Refetch on every focus, not just on mount. Expo Router keeps tab screens
+  // mounted, so without this the list goes stale (e.g. still shows 2 items)
+  // while the header badge — which polls separately every 30s — keeps
+  // counting new arrivals (e.g. shows 8), and the two visibly disagree.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   // Open notification detail from deep link — once per id, not on every list change.
   useEffect(() => {
@@ -359,6 +376,13 @@ export default function NotificationsScreen() {
           data={items}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load('refresh')}
+              tintColor={colors.gold}
+            />
+          }
           renderItem={({ item }) => (
             <SwipeableNotification
               item={item}

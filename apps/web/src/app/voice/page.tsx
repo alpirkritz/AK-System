@@ -102,8 +102,11 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
   const { data: analysis } = trpc.voice.getAnalysis.useQuery({ recordingId }, { enabled: done })
   const { data: candidates = [] } = trpc.voice.attachCandidates.useQuery({ recordingId }, { enabled: done })
   const [people, setPeople] = useState<PersonOption[] | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [projectTouched, setProjectTouched] = useState(false)
   const [meetingId, setMeetingId] = useState<string>('')
   const [saved, setSaved] = useState(false)
+  const [showCandidates, setShowCandidates] = useState(false)
   const invalidate = () => {
     utils.voice.invalidate()
     utils.insights.personContext.invalidate()
@@ -116,6 +119,7 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
     },
   })
   const retry = trpc.voice.retry.useMutation({ onSuccess: invalidate })
+  const { data: projects = [] } = trpc.projects.list.useQuery()
 
   if (!rec) return <div className="card text-sm text-[#5a688c]">טוען הקלטה…</div>
   const chosen = people ?? rec.people
@@ -172,14 +176,47 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
           onSubmit={(e) => {
             e.preventDefault()
             setSaved(false)
-            attach.mutate({ recordingId, personIds: chosen.map((p) => p.id), ...(meetingId ? { meetingId } : {}) })
+            attach.mutate({
+              recordingId,
+              personIds: chosen.map((p) => p.id),
+              projectId: projectTouched ? projectId : rec.project?.id ?? null,
+              ...(meetingId ? { meetingId } : {}),
+            })
           }}
         >
           <div>
-            <label className="label" htmlFor="attach-people">לאיזה אנשים לקשר?</label>
+            <label className="label" htmlFor="attach-people">משתתפים</label>
             <PeoplePicker inputId="attach-people" selected={chosen} onChange={setPeople} />
           </div>
-          {candidates.length > 0 && (
+          <div>
+            <label className="label" htmlFor="attach-project">פרויקט</label>
+            <select
+              id="attach-project"
+              className="select w-full"
+              value={projectTouched ? projectId ?? '' : rec.project?.id ?? ''}
+              onChange={(e) => {
+                setProjectTouched(true)
+                setProjectId(e.target.value || null)
+              }}
+            >
+              <option value="">ללא פרויקט</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          {rec.matchedAutomatically && rec.meetingId && !showCandidates && (
+            <div className="rounded-md border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-3 py-2 text-xs text-[#b8c4dc] flex flex-wrap items-center gap-2">
+              <span>
+                זוהתה אוטומטית: <span className="text-[#eef3fb] font-medium">{rec.meetingTitle}</span>
+                {chosen.length > 0 && <span> — {chosen.map((p) => p.name).join(', ')}</span>}
+              </span>
+              <button type="button" className="btn-ghost text-[11px]" onClick={() => setShowCandidates(true)}>
+                לא נכון? בחר פגישה אחרת
+              </button>
+            </div>
+          )}
+          {candidates.length > 0 && (!rec.matchedAutomatically || showCandidates) && (
             <fieldset>
               <legend className="label">פגישה שהסתיימה עכשיו</legend>
               <div className="space-y-1">
@@ -222,10 +259,16 @@ function VoicePageInner() {
   const recorder = useRecorder()
   const { data: everyone = [] } = trpc.people.list.useQuery()
   const { data: recent } = trpc.voice.list.useQuery({ limit: 10 })
-  const [consent, setConsent] = useState(false)
+  const [consent, setConsent] = useState(true)
   const [people, setPeople] = useState<PersonOption[]>([])
+  const [projectId, setProjectId] = useState('')
+  const { data: projects = [] } = trpc.projects.list.useQuery()
   const [upload, setUpload] = useState<{ progress: number } | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [showGuide, setShowGuide] = useState(false)
+  // Kept when an upload fails, so the user can resend the exact same audio without re-recording
+  // (see docs/specs/voice-upload-retry-without-rerecording.md). Cleared on success or discard.
+  const [failedUpload, setFailedUpload] = useState<{ blob: Blob; durationSeconds: number } | null>(null)
   const recordingId = params.get('recording')
   const presetPerson = params.get('person')
 
@@ -237,6 +280,30 @@ function VoicePageInner() {
 
   const active = recorder.state !== 'idle'
 
+  const doUpload = async (blob: Blob, durationSeconds: number) => {
+    const form = new FormData()
+    const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm'
+    form.append('audio', blob, `recording.${ext}`)
+    form.append('durationSeconds', String(durationSeconds))
+    form.append('consentConfirmed', 'true')
+    form.append('personIds', people.map((p) => p.id).join(','))
+    if (projectId) form.append('projectId', projectId)
+    setMessage(null)
+    setUpload({ progress: 0 })
+    try {
+      const { recordingId: id } = await uploadRecording(form, (progress) => setUpload({ progress }))
+      setUpload(null)
+      setFailedUpload(null)
+      setConsent(true)
+      utils.voice.list.invalidate()
+      router.replace(`/voice?recording=${id}`)
+    } catch (err) {
+      setUpload(null)
+      setFailedUpload({ blob, durationSeconds })
+      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
+    }
+  }
+
   const stopAndUpload = async () => {
     const result = await recorder.stop()
     if (!result) return
@@ -244,23 +311,19 @@ function VoicePageInner() {
       setMessage(`ההקלטה קצרה מ-${MIN_SECONDS} שניות ולא נשמרה`)
       return
     }
-    const form = new FormData()
-    const ext = result.blob.type.includes('mp4') ? 'm4a' : result.blob.type.includes('ogg') ? 'ogg' : 'webm'
-    form.append('audio', result.blob, `recording.${ext}`)
-    form.append('durationSeconds', String(result.durationSeconds))
-    form.append('consentConfirmed', 'true')
-    form.append('personIds', people.map((p) => p.id).join(','))
-    setUpload({ progress: 0 })
-    try {
-      const { recordingId: id } = await uploadRecording(form, (progress) => setUpload({ progress }))
-      setUpload(null)
-      setConsent(false)
-      utils.voice.list.invalidate()
-      router.replace(`/voice?recording=${id}`)
-    } catch (err) {
-      setUpload(null)
-      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
-    }
+    await doUpload(result.blob, result.durationSeconds)
+  }
+
+  const retryUpload = async () => {
+    if (!failedUpload) return
+    await doUpload(failedUpload.blob, failedUpload.durationSeconds)
+  }
+
+  const startFresh = () => {
+    if (failedUpload && !window.confirm('יש הקלטה שממתינה לשליחה — להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?')) return
+    setFailedUpload(null)
+    setMessage(null)
+    void recorder.start()
   }
 
   return (
@@ -273,9 +336,53 @@ function VoicePageInner() {
         {!active && !upload && (
           <>
             <div>
-              <label className="label" htmlFor="record-people">עם מי השיחה?</label>
+              <label className="label" htmlFor="record-people">משתתפים</label>
               <PeoplePicker inputId="record-people" selected={people} onChange={setPeople} />
             </div>
+            <div>
+              <label className="label" htmlFor="record-project">פרויקט</label>
+              <select id="record-project" className="select w-full" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                <option value="">ללא פרויקט</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="record-device">התקן קלט</label>
+              <select
+                id="record-device"
+                className="select w-full"
+                value={recorder.selectedDeviceId ?? ''}
+                onChange={(e) => recorder.setSelectedDeviceId(e.target.value || null)}
+              >
+                <option value="">ברירת המחדל של המערכת</option>
+                {recorder.devices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `התקן ${d.deviceId.slice(0, 6)}`}</option>
+                ))}
+              </select>
+            </div>
+            {recorder.displayAudioSupported && (
+              <label className="flex items-center gap-2 text-[#b8c4dc] text-xs">
+                <input
+                  type="checkbox"
+                  checked={recorder.captureMode === 'tab'}
+                  onChange={(e) => recorder.setCaptureMode(e.target.checked ? 'tab' : 'mic')}
+                />
+                גם הקלטת אודיו מטאב/מסך משותף (למשל Google Meet בדפדפן)
+              </label>
+            )}
+            <button type="button" className="text-xs text-[#e8c547] underline underline-offset-2 w-fit" onClick={() => setShowGuide((v) => !v)}>
+              איך מקליטים שיחת זום/Meet במלואה (כולל הצד השני)?
+            </button>
+            {showGuide && (
+              <div className="rounded-md border border-[#223052] bg-[#131c33] p-3 text-xs text-[#97a4c2] space-y-1.5">
+                <p className="text-[#b8c4dc] font-medium">אם השיחה רצה באפליקציית Zoom/Teams נפרדת (לא בדפדפן):</p>
+                <p>המיקרופון של המחשב שומע רק מה שנשמע פיזית בחדר — אם את/ה על אוזניות, הצד השני לא נקלט בכלל. הפתרון: להתקין דרייבר אודיו וירטואלי חינמי (BlackHole), ליצור &quot;Multi-Output Device&quot; ב-Audio MIDI Setup שמשמיע גם לרמקולים וגם ל-BlackHole, להגדיר אותו כפלט במערכת/ב-Zoom, ואז לבחור את BlackHole כ&quot;התקן קלט&quot; למעלה.</p>
+                <p className="text-[#b8c4dc] font-medium pt-1">אם השיחה רצה בדפדפן (למשל Google Meet):</p>
+                <p>אפשר לסמן למעלה &quot;גם הקלטת אודיו מטאב/מסך משותף&quot; — בלי שום התקנה. שימו לב: באפשרות ל&quot;שתף מסך&quot; יש לוודא שמסמנים גם &quot;שיתוף אודיו&quot;.</p>
+              </div>
+            )}
             <label className="flex items-start gap-2 text-[#eef3fb]">
               <input
                 type="checkbox"
@@ -295,10 +402,7 @@ function VoicePageInner() {
               type="button"
               className="btn btn-primary inline-flex items-center gap-2"
               disabled={!consent}
-              onClick={() => {
-                setMessage(null)
-                void recorder.start()
-              }}
+              onClick={startFresh}
               data-testid="voice-start"
             >
               <Mic className="w-4 h-4" aria-hidden />
@@ -324,6 +428,16 @@ function VoicePageInner() {
                 <span key={i} className="flex-1 rounded-sm bg-[#e8c547]" style={{ height: `${Math.max(6, l * 100)}%`, opacity: 0.35 + l * 0.65 }} />
               ))}
             </div>
+            <p className="text-xs text-[#5a688c]">
+              {recorder.wakeLockSupported
+                ? 'ההקלטה ממשיכה גם אם עוברים לטאב אחר. מצב שינה מלא של המחשב עדיין יעצור אותה.'
+                : 'ההקלטה ממשיכה גם אם עוברים לטאב אחר, אבל הדפדפן הזה לא תומך במניעת שינה — מומלץ להשאיר את המחשב ער.'}
+            </p>
+            {recorder.noCallSignal && (
+              <p className="text-xs text-amber-400" role="alert">
+                לא מזוהה אודיו ממקור השיחה (ההתקן שנבחר / הטאב המשותף) — ייתכן שרק הקול שלך נקלט. כדאי לבדוק את ההגדרות.
+              </p>
+            )}
             <div className="flex gap-2">
               {recorder.state === 'recording' ? (
                 <button type="button" className="btn btn-ghost inline-flex items-center gap-1" onClick={recorder.pause}>
@@ -354,7 +468,14 @@ function VoicePageInner() {
         )}
 
         {(recorder.error || message) && (
-          <p className="text-xs text-red-400" role="alert">{recorder.error ?? message}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-red-400" role="alert">{recorder.error ?? message}</p>
+            {failedUpload && !upload && (
+              <button type="button" className="btn btn-ghost text-xs py-1 px-3" onClick={() => void retryUpload()}>
+                שלח שוב
+              </button>
+            )}
+          </div>
         )}
       </section>
 

@@ -65,6 +65,22 @@ describe('abc-agents workflow get/save', () => {
     expect(getAgentWorkflowContent('01_Hugo_orchestrator')).toContain('Stage 7: Reply')
   })
 
+  it('maps Tier 1 QA Reporter (10) to wf_tier1_qa_reporter', async () => {
+    fs.writeFileSync(path.join(tmpRoot, 'A_Agents', '10_tier1_qa_reporter.md'), '# Tier 1 QA Reporter\n', 'utf-8')
+    fs.writeFileSync(path.join(tmpRoot, 'S_Skills', 'wf_tier1_qa_reporter.md'), '# Workflow: Tier 1 QA Reporter\n', 'utf-8')
+    const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
+    expect(getAgentWorkflowFile('10_tier1_qa_reporter')).toBe('wf_tier1_qa_reporter.md')
+    expect(getAgentWorkflowContent('10_tier1_qa_reporter')).toContain('Workflow: Tier 1 QA Reporter')
+  })
+
+  it('finds an unmapped agent workflow by naming convention (wf_<id without NN_>.md)', async () => {
+    fs.writeFileSync(path.join(tmpRoot, 'A_Agents', '11_new_agent.md'), '# New Agent\n', 'utf-8')
+    fs.writeFileSync(path.join(tmpRoot, 'S_Skills', 'wf_new_agent.md'), '# Workflow: New Agent\n', 'utf-8')
+    const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
+    expect(getAgentWorkflowFile('11_new_agent')).toBe('wf_new_agent.md')
+    expect(getAgentWorkflowContent('11_new_agent')).toContain('Workflow: New Agent')
+  })
+
   it('returns null workflow for agents without a mapping', async () => {
     const { getAgentWorkflowFile, getAgentWorkflowContent } = await loadAbc()
     expect(getAgentWorkflowFile('02_agent_trainer')).toBeNull()

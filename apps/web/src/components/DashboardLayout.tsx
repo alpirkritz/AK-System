@@ -48,6 +48,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/meetings', label: 'פגישות', icon: CalendarCheck },
       { href: '/people', label: 'אנשים', icon: Users },
+      { href: '/relationships', label: 'קשרים', icon: Users },
       { href: '/tasks', label: 'משימות', icon: ListChecks },
       { href: '/commitments', label: 'התחייבויות', icon: Handshake },
       { href: '/voice', label: 'הקלטות', icon: Mic },
@@ -92,6 +93,7 @@ const PRIMARY_TABS: NavItem[] = [
 
 const MORE_ITEMS: NavItem[] = [
   { href: '/people', label: 'אנשים', icon: Users },
+  { href: '/relationships', label: 'קשרים', icon: Users },
   { href: '/commitments', label: 'התחייבויות', icon: Handshake },
   { href: '/voice', label: 'הקלטות', icon: Mic },
   { href: '/projects', label: 'פרויקטים', icon: FolderKanban },

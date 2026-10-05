@@ -1,14 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
-import { FilterChips } from '../components/FilterChips'
-import { useAuth } from '../lib/auth'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
+import { useFocusEffect } from 'expo-router'
+import { FilterChips } from '../../components/FilterChips'
+import { useAuth } from '../../lib/auth'
 import {
   acceptCommitment,
   dismissCommitment,
   fetchProposedCommitments,
   type MobileCommitment,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 type OwnerFilter = 'all' | 'me' | 'them'
 
@@ -23,8 +33,10 @@ export default function CommitmentsScreen() {
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const [items, setItems] = useState<MobileCommitment[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
 
   const chips = useMemo(
     () => [
@@ -35,22 +47,37 @@ export default function CommitmentsScreen() {
     [],
   )
 
-  const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      setItems(await fetchProposedCommitments(token, owner))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token, owner])
+  const load = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (!token) return
+      mode === 'refresh' ? setRefreshing(true) : setLoading(true)
+      setError(null)
+      try {
+        setItems(await fetchProposedCommitments(token, owner))
+        hasLoadedOnce.current = true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'טעינה נכשלה')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [token, owner],
+  )
 
+  // Initial load, and reload whenever the owner filter changes.
   useEffect(() => {
     void load()
   }, [load])
+
+  // Refetch on every focus — accepting/dismissing here or creating a
+  // commitment elsewhere must not leave a stale list after navigating back.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoadedOnce.current) return
+      void load('refresh')
+    }, [token, load]),
+  )
 
   const act = async (id: string, action: 'accept' | 'dismiss') => {
     if (!token) return
@@ -80,6 +107,9 @@ export default function CommitmentsScreen() {
           data={items}
           keyExtractor={(c) => c.id}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
+          }
           ListEmptyComponent={<Text style={styles.empty}>אין התחייבויות ממתינות</Text>}
           renderItem={({ item: c }) => (
             <View style={styles.card}>

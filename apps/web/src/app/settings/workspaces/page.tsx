@@ -9,6 +9,10 @@ const WorkspaceModal = dynamic(
   () => import('@/components/Modals/WorkspaceModal').then((m) => m.WorkspaceModal),
   { ssr: false },
 )
+const AddPeopleSourceModal = dynamic(
+  () => import('@/components/Modals/AddPeopleSourceModal').then((m) => m.AddPeopleSourceModal),
+  { ssr: false },
+)
 
 export default function WorkspacesSettingsPage() {
   const { data: workspaces = [], isLoading } = trpc.workspaces.list.useQuery()
@@ -126,6 +130,82 @@ export default function WorkspacesSettingsPage() {
         }}
         editingId={editingId}
       />
+
+      <PeopleNotionSources />
+    </div>
+  )
+}
+
+/** Self-service registration of additional Notion "people" databases — see docs/specs/notion-people-source-manager.md */
+function PeopleNotionSources() {
+  const utils = trpc.useUtils()
+  const { data: accounts = [] } = trpc.people.notionAccounts.useQuery()
+  const { data: sources = [], isLoading } = trpc.people.notionSources.useQuery()
+  const [addOpen, setAddOpen] = useState(false)
+  const remove = trpc.people.removeNotionSource.useMutation({
+    onSuccess: () => utils.people.notionSources.invalidate(),
+  })
+
+  return (
+    <div className="mt-8">
+      <div className="mb-2">
+        <h2 className="text-sm font-bold text-[#b8c4dc]">בסיסי נתונים של אנשים ב-Notion</h2>
+        <p className="text-xs text-[#5a688c] mt-1">
+          כל בסיס נתונים כאן נסרק כשמסנכרנים אנשים מ-Notion (בעמוד אנשים ובקרון האוטומטי כל 30 דקות).
+        </p>
+      </div>
+
+      {accounts.length === 0 ? (
+        <div className="card text-center py-8">
+          <div className="text-sm text-[#647399]">Notion לא מוגדר</div>
+        </div>
+      ) : isLoading ? (
+        <div className="card">
+          <div className="skeleton h-5 w-1/2" />
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-end mb-2">
+            <button type="button" className="btn btn-secondary text-xs py-1 px-3" onClick={() => setAddOpen(true)}>
+              + הוסף בסיס נתונים
+            </button>
+          </div>
+          {sources.length === 0 ? (
+            <div className="card text-center py-8">
+              <div className="text-sm text-[#647399]">לא נמצא אף בסיס נתונים של אנשים.</div>
+            </div>
+          ) : (
+            <div className="card py-1 px-4">
+              {sources.map((s) => (
+                <div key={s.notionDatabaseId} className="task-row">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-[#eef3fb]">{s.name}</div>
+                    <div className="text-[11px] text-[#647399] truncate">{s.accountLabel}</div>
+                  </div>
+                  {s.source === 'env' ? (
+                    <span className="pill text-[11px]">מוגדר בקוד</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      aria-label={`הסר את ${s.name}`}
+                      disabled={remove.isPending}
+                      onClick={() => {
+                        if (!window.confirm(`להסיר את "${s.name}" ממקורות האנשים?`)) return
+                        remove.mutate({ id: s.id! })
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <AddPeopleSourceModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
   )
 }

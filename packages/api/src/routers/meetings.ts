@@ -716,6 +716,7 @@ export const meetingsRouter = router({
               recurring: isRecurring ? 'weekly' : null,
               recurrenceDay,
               calendarParticipants,
+              calendarId: ev.calendarId ?? null,
               updatedAt: now,
             })
             .where(eq(meetings.id, existing.id))
@@ -734,6 +735,7 @@ export const meetingsRouter = router({
           location: ev.location ?? null,
           calendarEventId: ev.id,
           calendarSource: source,
+          calendarId: ev.calendarId ?? null,
           notes: null,
           projectId: null,
           seriesId,
@@ -861,6 +863,10 @@ export const meetingsRouter = router({
 
         const { proposeCommitmentsFromAnalysis } = await import('../services/commitments')
         await proposeCommitmentsFromAnalysis(ctx.db, analysisId)
+        const { notifyAnalysisOnWhatsApp } = await import('../services/analysis-whatsapp')
+        await notifyAnalysisOnWhatsApp(ctx.db, analysisId).catch((err) => {
+          console.warn('[meetings] analysis WhatsApp failed:', err)
+        })
 
         return { analysisId }
       } catch (error) {
@@ -876,6 +882,13 @@ export const meetingsRouter = router({
 
         throw new Error(`Analysis failed: ${errorMessage}`)
       }
+    }),
+
+  getInsight: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const { meetingInsight } = await import('../services/warmth')
+      return meetingInsight(ctx.db, input.meetingId)
     }),
 
   getAnalysis: protectedProcedure

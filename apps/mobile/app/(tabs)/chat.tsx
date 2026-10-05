@@ -1,10 +1,8 @@
-import { useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  Keyboard,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -28,7 +26,6 @@ import {
 import { useAuth } from '../../lib/auth'
 import { syncPushToken } from '../../lib/notifications'
 import { SELECTED_AGENT_KEY, storage } from '../../lib/storage'
-import { composerLiftPx } from '../../lib/composer-keyboard'
 import { colors, layout } from '../../lib/theme'
 
 type Row = ChatMessage | { id: string; role: 'typing'; content: string; createdAt: string }
@@ -38,8 +35,7 @@ export default function ChatScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
-  const { width, height: windowHeight } = useWindowDimensions()
-  const restingWindowHeight = useRef(windowHeight)
+  const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Row>>(null)
   const { message: messageParam, agent: agentParam } = useLocalSearchParams<{
     message?: string
@@ -57,7 +53,7 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pushNotice, setPushNotice] = useState<string | null>(null)
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const hasLoadedHistoryOnce = useRef(false)
 
   const contentWidth = Math.min(width - 24, layout.maxContentWidth)
   const isGeneral = selectedId === GENERAL_AGENT_ID
@@ -118,38 +114,40 @@ export default function ChatScreen() {
     await storage.setItem(SELECTED_AGENT_KEY, id)
   }
 
-  const loadHistory = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
-    try {
-      const rows = isGeneral
-        ? await fetchChatHistory(token)
-        : await fetchAgentHistory(token, selectedId)
-      setMessages(rows)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'טעינת היסטוריה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [token, selectedId, isGeneral])
+  const loadHistory = useCallback(
+    async (mode: 'initial' | 'silent' = 'initial') => {
+      if (!token) return
+      if (mode === 'initial') setLoading(true)
+      setError(null)
+      try {
+        const rows = isGeneral
+          ? await fetchChatHistory(token)
+          : await fetchAgentHistory(token, selectedId)
+        setMessages(rows)
+        hasLoadedHistoryOnce.current = true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'טעינת היסטוריה נכשלה')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [token, selectedId, isGeneral],
+  )
 
+  // Switching agent (or the initial mount) always shows the loading state.
   useEffect(() => {
-    void loadHistory()
+    hasLoadedHistoryOnce.current = false
+    void loadHistory('initial')
   }, [loadHistory])
 
-  useEffect(() => {
-    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
-    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
-    const shown = Keyboard.addListener(show, (e) => {
-      setKeyboardHeight(e.endCoordinates.height)
-    })
-    const hidden = Keyboard.addListener(hide, () => setKeyboardHeight(0))
-    return () => {
-      shown.remove()
-      hidden.remove()
-    }
-  }, [])
+  // Refetch quietly on every focus too — must not reset the in-progress
+  // compose text (`input`, untouched here) or flash the full loading state.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoadedHistoryOnce.current) return
+      void loadHistory('silent')
+    }, [token, loadHistory]),
+  )
 
   useEffect(() => {
     if (!token) return
@@ -257,16 +255,10 @@ export default function ChatScreen() {
     )
   }
 
-  useEffect(() => {
-    if (keyboardHeight === 0) restingWindowHeight.current = windowHeight
-  }, [windowHeight, keyboardHeight])
-
-  const windowShrink = Math.max(0, restingWindowHeight.current - windowHeight)
-  const liftForKeyboard = composerLiftPx(keyboardHeight, windowShrink)
-  const composerPad = keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 8)
+  const composerPad = Math.max(insets.bottom, 8)
 
   return (
-    <View style={[styles.flex, liftForKeyboard > 0 ? { paddingBottom: liftForKeyboard } : null]}>
+    <View style={styles.flex}>
       <Pressable
         style={styles.agentBar}
         onPress={() => setPickerOpen(true)}

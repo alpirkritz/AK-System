@@ -1,6 +1,6 @@
-import { useLocalSearchParams } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -10,10 +10,10 @@ import {
   Text,
   View,
 } from 'react-native'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { SegmentControl } from '../components/SegmentControl'
-import { useAuth } from '../lib/auth'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { SegmentControl } from '../../components/SegmentControl'
+import { useAuth } from '../../lib/auth'
 import {
   fetchCalendarConflicts,
   fetchCalendarEvents,
@@ -21,8 +21,8 @@ import {
   startGoogleCalendarOAuth,
   type GoogleAccountStatus,
   type MobileCalEvent,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 const OAUTH_REDIRECT = 'helm://calendar'
 
@@ -91,6 +91,7 @@ export default function CalendarScreen() {
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [oauthMsg, setOauthMsg] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
 
   const { startDate, endDate } = useMemo(() => {
     const today = new Date()
@@ -124,6 +125,7 @@ export default function CalendarScreen() {
         }
         setConflictIds(ids)
         setAccounts(googleAccounts)
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת היומן נכשלה')
       } finally {
@@ -134,9 +136,18 @@ export default function CalendarScreen() {
     [token, startDate, endDate],
   )
 
+  // Initial load, and reload whenever the day/3-day range changes.
   useEffect(() => {
     void load()
   }, [load])
+
+  // Refetch on every focus too (e.g. an event edited/created elsewhere).
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoadedOnce.current) return
+      void load('refresh')
+    }, [token, load]),
+  )
 
   useEffect(() => {
     void WebBrowser.warmUpAsync()

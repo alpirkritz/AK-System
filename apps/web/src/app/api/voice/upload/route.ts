@@ -8,7 +8,9 @@ export const runtime = 'nodejs'
 
 /**
  * Multipart upload of a consented recording: `audio` (file), `consentConfirmed` ("true"),
- * `durationSeconds`, optional `meetingId` and `personIds` (comma separated).
+ * `durationSeconds`, optional `meetingId`, `projectId`, `personIds` (comma separated) and
+ * `source` ("live", the default, or "imported" for a picked/shared external file — see
+ * docs/specs/recording-background-and-speaker-id.md).
  * Returns right after the file is stored; transcription and analysis continue in the background.
  */
 export async function POST(req: Request): Promise<NextResponse> {
@@ -23,7 +25,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const audio = form.get('audio')
   if (!(audio instanceof Blob)) return NextResponse.json({ error: 'חסר קובץ הקלטה' }, { status: 400 })
-  if (audio.size > VOICE_MAX_BYTES) return NextResponse.json({ error: 'ההקלטה גדולה מדי (עד 19MB, כ-40 דקות)' }, { status: 413 })
+  if (audio.size > VOICE_MAX_BYTES) return NextResponse.json({ error: 'ההקלטה גדולה מדי' }, { status: 413 })
 
   const db = getDb()
   try {
@@ -33,7 +35,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       durationSeconds: Number(form.get('durationSeconds')),
       consentConfirmed: form.get('consentConfirmed') === 'true',
       meetingId: (form.get('meetingId') as string | null) || null,
+      projectId: (form.get('projectId') as string | null) || null,
       personIds: String(form.get('personIds') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      source: form.get('source') === 'imported' ? 'imported' : 'live',
     })
     void processVoiceRecording(db, recordingId)
       .then(async (rec) => {

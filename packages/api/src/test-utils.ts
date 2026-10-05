@@ -14,6 +14,7 @@ import {
   tasks,
   workspaces,
   workspaceNotionDatabases,
+  peopleNotionSources,
   notionStatusOverrides,
   seriesRoster,
   meetingRosterExceptions,
@@ -29,6 +30,7 @@ import {
   personEmailThreads,
   voiceRecordingPeople,
   voiceRecordings,
+  voicePrints,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -58,6 +60,7 @@ export async function resetDb() {
   await db.delete(personSourceScans)
   await db.delete(commitments)
   await db.delete(personEmailThreads)
+  await db.delete(voicePrints)
   await db.delete(voiceRecordingPeople)
   await db.delete(voiceRecordings)
   await db.delete(whatsappDmSummaries)
@@ -80,5 +83,6 @@ export async function resetDb() {
   await db.delete(people)
   await db.delete(notionStatusOverrides)
   await db.delete(workspaceNotionDatabases)
+  await db.delete(peopleNotionSources)
   await db.delete(workspaces)
 }

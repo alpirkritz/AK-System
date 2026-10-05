@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
-import { summarizeDmChats } from '@ak-system/api'
+import { buildCommitmentNotification, summarizeDmChats } from '@ak-system/api'
 import { createNotification } from '@/lib/notification-store'
 
 /**
@@ -26,13 +26,9 @@ async function run(request: NextRequest): Promise<NextResponse> {
   }
   try {
     const result = await summarizeDmChats(getDb())
-    if (result.commitments > 0) {
-      await createNotification({
-        title: result.commitments === 1 ? 'התחייבות חדשה מהוואטסאפ' : `${result.commitments} התחייבויות חדשות מהוואטסאפ`,
-        body: 'עבור עליהן ואשר מה נכנס למשימות.',
-        url: '/commitments',
-        type: 'system',
-      })
+    if (result.proposed.length > 0) {
+      const { title, body } = buildCommitmentNotification(result.proposed)
+      await createNotification({ title, body, url: '/commitments', type: 'system' })
     }
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {

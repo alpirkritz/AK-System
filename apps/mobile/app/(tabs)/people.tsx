@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -9,32 +9,36 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useRouter, type Href } from 'expo-router'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { SectionHeader } from '../components/SectionHeader'
-import { useAuth } from '../lib/auth'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { SectionHeader } from '../../components/SectionHeader'
+import { useAuth } from '../../lib/auth'
 import {
   confirmPerson,
   fetchPeoplePaginated,
+  fetchRelationshipFlags,
   fetchReviewQueue,
   ignorePerson,
   type MobilePerson,
+  type MobileRelationshipFlag,
   type MobileReviewPerson,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 export default function PeopleScreen() {
   const { token } = useAuth()
   const router = useRouter()
   const [people, setPeople] = useState<MobilePerson[]>([])
   const [reviewQueue, setReviewQueue] = useState<MobileReviewPerson[]>([])
+  const [flags, setFlags] = useState<{ cooling: MobileRelationshipFlag[]; warming: MobileRelationshipFlag[] }>({ cooling: [], warming: [] })
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [acting, setActing] = useState<string | null>(null)
+  const hasLoadedOnce = useRef(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -47,12 +51,15 @@ export default function PeopleScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [paginated, queue] = await Promise.all([
+        const [paginated, queue, relationship] = await Promise.all([
           fetchPeoplePaginated(token, { search: debouncedSearch || undefined, pageSize: 100 }),
           fetchReviewQueue(token),
+          fetchRelationshipFlags(token).catch(() => ({ cooling: [], warming: [] })),
         ])
         setPeople(paginated.items)
         setReviewQueue(queue)
+        setFlags(relationship)
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת אנשי הקשר נכשלה')
       } finally {
@@ -63,9 +70,20 @@ export default function PeopleScreen() {
     [token, debouncedSearch],
   )
 
+  // Initial load, and reload whenever the (debounced) search term changes.
   useEffect(() => {
     void load()
   }, [load])
+
+  // Refetch on every focus too — e.g. coming back from editing a contact on
+  // person/[id].tsx via router.back() must not leave this list stale. Skipped
+  // on the very first focus since the effect above already covers that load.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoadedOnce.current) return
+      void load('refresh')
+    }, [token, load]),
+  )
 
   const onConfirm = async (id: string) => {
     if (!token || acting) return
@@ -92,6 +110,10 @@ export default function PeopleScreen() {
       setActing(null)
     }
   }
+
+  const warmthById = new Map<string, 'warming' | 'cooling'>()
+  for (const p of flags.cooling) warmthById.set(p.personId, 'cooling')
+  for (const p of flags.warming) warmthById.set(p.personId, 'warming')
 
   const reviewSection =
     reviewQueue.length === 0 ? null : (
@@ -181,7 +203,14 @@ export default function PeopleScreen() {
                   <Text style={[styles.avatarText, { color }]}>{item.name.charAt(0)}</Text>
                 </View>
                 <View style={styles.body}>
-                  <Text style={styles.name}>{item.name}</Text>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.name}>{item.name}</Text>
+                    {warmthById.get(item.id) ? (
+                      <Text style={[styles.pill, warmthById.get(item.id) === 'cooling' ? styles.pillCool : styles.pillWarm]}>
+                        {warmthById.get(item.id) === 'cooling' ? 'מתקרר' : 'מתחמם'}
+                      </Text>
+                    ) : null}
+                  </View>
                   {(item.role || item.company) && (
                     <Text style={styles.sub}>
                       {[item.role, item.company].filter(Boolean).join(' · ')}
@@ -251,7 +280,11 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 17, fontWeight: '700' },
   body: { flex: 1 },
+  nameRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   name: { color: colors.text, fontSize: 16, fontWeight: '600', textAlign: 'right', writingDirection: 'rtl' },
+  pill: { fontSize: 11, fontWeight: '700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
+  pillCool: { color: '#facc15', backgroundColor: 'rgba(234,179,8,0.12)' },
+  pillWarm: { color: colors.success, backgroundColor: 'rgba(34,197,94,0.12)' },
   sub: { color: colors.textMuted, fontSize: 13, textAlign: 'right', marginTop: 2 },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
 })

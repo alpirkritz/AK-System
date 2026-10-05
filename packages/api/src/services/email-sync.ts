@@ -210,13 +210,13 @@ export async function syncEmailThreads(
       })),
     )
     const snippetById = new Map(fresh.map((m) => [m.messageId, m.snippet]))
-    result.commitments += await proposeCommitments(
+    result.commitments += (await proposeCommitments(
       db,
       personId,
       'email',
       found.map((c) => ({ ...c, sourceSnippet: clip(snippetById.get(c.sourceMessageId ?? '') ?? '', 80) || null, sourceMessageId: threadKey })),
       syncedAt,
-    )
+    )).length
   }
   return result
 }

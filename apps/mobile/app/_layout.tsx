@@ -89,27 +89,11 @@ function RootNavigator() {
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="notifications" options={{ title: 'התראות' }} />
-        <Stack.Screen name="people" options={{ title: 'אנשים' }} />
-        <Stack.Screen name="reading-list" options={{ title: 'רשימת קריאה' }} />
-        <Stack.Screen name="commitments" options={{ title: 'התחייבויות לאישור' }} />
-        <Stack.Screen name="record" options={{ title: 'הקלטת שיחה' }} />
         <Stack.Screen name="account" options={{ title: 'החשבון שלי', ...formSheet }} />
-        <Stack.Screen name="agents" options={{ title: 'סוכנים' }} />
         <Stack.Screen name="agent/[id]" options={{ title: 'הגדרות סוכן', ...scrollableFormSheet }} />
-        <Stack.Screen name="projects" options={{ title: 'פרויקטים' }} />
         <Stack.Screen name="project/[id]" options={{ title: 'פרויקט', ...scrollableFormSheet }} />
         <Stack.Screen name="person/[id]" options={{ title: 'איש קשר', ...scrollableFormSheet }} />
         <Stack.Screen name="meeting/[id]" options={{ title: 'פגישה', ...scrollableFormSheet }} />
-        <Stack.Screen name="calendar" options={{ title: 'יומן' }} />
-        <Stack.Screen name="finance" options={{ title: 'פיננסים' }} />
-        <Stack.Screen name="memory" options={{ title: 'זיכרון' }} />
-        <Stack.Screen name="updates" options={{ title: 'עדכונים' }} />
-        <Stack.Screen name="settings/notifications" options={{ title: 'העדפות התראות' }} />
-        <Stack.Screen name="settings/dashboard" options={{ title: 'דשבורד' }} />
-        <Stack.Screen name="settings/developer" options={{ title: 'מפתחים' }} />
-        <Stack.Screen name="settings/workspaces" options={{ title: 'סביבות עבודה' }} />
-        <Stack.Screen name="settings/meeting-types" options={{ title: 'סוגי פגישות' }} />
         <Stack.Screen
           name="task/[id]"
           options={{

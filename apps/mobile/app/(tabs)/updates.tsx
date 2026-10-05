@@ -1,3 +1,4 @@
+import { useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -9,10 +10,10 @@ import {
   Text,
   View,
 } from 'react-native'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { FilterChips } from '../components/FilterChips'
-import { useAuth } from '../lib/auth'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { FilterChips } from '../../components/FilterChips'
+import { useAuth } from '../../lib/auth'
 import {
   fetchFeedDigest,
   fetchFeedItems,
@@ -20,7 +21,7 @@ import {
   syncFeed,
   type MobileFeedDigest,
   type MobileFeedItem,
-} from '../lib/data'
+} from '../../lib/data'
 import {
   FEED_CATEGORIES,
   FEED_CATEGORY_KEY,
@@ -30,9 +31,9 @@ import {
   isFeedCategory,
   type FeedCategory,
   type FeedListCategory,
-} from '../lib/feed'
-import { storage } from '../lib/storage'
-import { colors } from '../lib/theme'
+} from '../../lib/feed'
+import { storage } from '../../lib/storage'
+import { colors } from '../../lib/theme'
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -116,6 +117,14 @@ export default function UpdatesScreen() {
     hasLoaded.current = true
     void load(mode)
   }, [load, categoryReady])
+
+  // Refetch quietly on every focus too (e.g. a sync run from elsewhere).
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoaded.current) return
+      void load('silent')
+    }, [token, load]),
+  )
 
   const setCategoryAndSave = (key: string) => {
     if (!isFeedCategory(key)) return

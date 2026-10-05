@@ -8,9 +8,12 @@ import {
   people,
   meetingNotes,
   meetingNoteProjects,
+  companies,
 } from '@ak-system/database'
 import { eq, desc, inArray } from 'drizzle-orm'
 import { pushProjectPeople } from '../services/notion-task-writeback'
+import { projectWarmth } from '../services/warmth'
+import { readProjectStanding, writeProjectStanding } from '../services/project-standing'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -58,7 +61,23 @@ export const projectsRouter = router({
   }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
-    const [row] = await ctx.db.select().from(projects).where(eq(projects.id, input.id))
+    const [row] = await ctx.db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        color: projects.color,
+        notionPageId: projects.notionPageId,
+        companyId: projects.companyId,
+        companyName: companies.name,
+        source: projects.source,
+        standingBrief: projects.standingBrief,
+        standingBriefAt: projects.standingBriefAt,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+      })
+      .from(projects)
+      .leftJoin(companies, eq(projects.companyId, companies.id))
+      .where(eq(projects.id, input.id))
     return row ?? null
   }),
 
@@ -105,12 +124,44 @@ export const projectsRouter = router({
       .orderBy(desc(meetingNotes.date))
       .limit(50)
 
+    const warmth = await projectWarmth(ctx.db, input.id)
+    const standing = await readProjectStanding(ctx.db, input.id)
     return {
       people: relatedPeople,
       meetings: relatedMeetings,
       tasks: relatedTasks,
       meetingNotes: noteLinks,
+      warmth: {
+        trend: warmth.trend,
+        recentAvg: warmth.recentAvg,
+        olderAvg: warmth.olderAvg,
+        count: warmth.count,
+        dataReason: warmth.dataReason,
+        scoreText: warmth.scoreText,
+        recentScore: warmth.recentScore,
+        olderScore: warmth.olderScore,
+        people: warmth.people,
+        timeline: warmth.timeline.map((p) => ({
+          meetingId: p.meetingId,
+          date: p.date,
+          title: p.title,
+          score: p.score,
+          scoreRationale: p.scoreRationale,
+          mood: p.mood,
+          subtext: p.subtext,
+          keyInsight: p.keyInsight,
+        })),
+      },
+      standing,
     }
+  }),
+
+  getStanding: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
+    return readProjectStanding(ctx.db, input.id)
+  }),
+
+  writeStanding: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    return writeProjectStanding(ctx.db, input.id)
   }),
 
   setPeople: protectedProcedure

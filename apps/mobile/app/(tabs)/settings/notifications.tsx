@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { SectionHeader } from '../../components/SectionHeader'
-import { ToggleRow } from '../../components/ToggleRow'
-import { useAuth } from '../../lib/auth'
-import { fetchNotificationPrefs, upsertNotificationPref } from '../../lib/data'
-import { colors } from '../../lib/theme'
+import { SectionHeader } from '../../../components/SectionHeader'
+import { ToggleRow } from '../../../components/ToggleRow'
+import { useAuth } from '../../../lib/auth'
+import { fetchNotificationPrefs, upsertNotificationPref } from '../../../lib/data'
+import { colors } from '../../../lib/theme'
 
 type Channel = 'whatsapp' | 'push' | 'telegram'
 
@@ -54,9 +55,12 @@ export default function NotificationSettingsScreen() {
     }
   }, [token])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load()
+    }, [token, load]),
+  )
 
   const patchItem = (typeId: string, patch: Partial<NotificationPrefItem>) => {
     setItems((prev) =>

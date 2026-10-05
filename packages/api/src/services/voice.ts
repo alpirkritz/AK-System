@@ -5,6 +5,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { FileState, GoogleAIFileManager } from '@google/generative-ai/server'
 import { and, desc, eq, inArray, ne } from 'drizzle-orm'
 import {
   commitments,
@@ -13,6 +14,7 @@ import {
   meetingPeople,
   meetings,
   people,
+  projects,
   voiceRecordingPeople,
   voiceRecordings,
   type VoiceRecording,
@@ -20,11 +22,22 @@ import {
 } from '@ak-system/database'
 import { analyzeTranscript, type AnalysisResult, type AnalyzeTranscriptOptions } from './meeting-analysis'
 import { proposeCommitmentsFromAnalysis } from './commitments'
+import { runSelfVoiceDetection } from './voice-diarization'
+import { getAgentCalendarIds } from './agent-calendar-scope'
 
 type Db = ReturnType<typeof getDb>
 
-/** Gemini inline audio limit is 20 MB per request, leaving room for the prompt. */
-export const VOICE_MAX_BYTES = 19 * 1024 * 1024
+/**
+ * Gemini's inline-request audio limit is ~20MB per request; above this, `transcribeWithGemini`
+ * switches to the Files API (upload → poll → transcribe by reference → delete) instead of
+ * rejecting the recording. This is a Gemini platform limit, not a product choice — keep it here.
+ */
+const GEMINI_INLINE_MAX_BYTES = 19 * 1024 * 1024
+/** How long to wait for an uploaded Gemini file to leave the PROCESSING state. */
+const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 60_000
+const GEMINI_FILE_POLL_INTERVAL_MS = 2000
+/** App-level sanity ceiling on upload size — generous, effectively "don't accept absurd files". */
+export const VOICE_MAX_BYTES = 300 * 1024 * 1024
 export const VOICE_MIN_SECONDS = 10
 export const VOICE_PLACEHOLDER_TITLE = 'שיחה מוקלטת'
 const ATTACH_WINDOW_MIN = 15
@@ -39,6 +52,10 @@ const EXT_BY_MIME: Record<string, string> = {
   'audio/mpeg': 'mp3',
   'audio/wav': 'wav',
   'audio/x-wav': 'wav',
+  // Samsung/Android native call-recorder output, for imported (not live-recorded) files
+  'audio/3gpp': '3gp',
+  'audio/3gpp2': '3g2',
+  'audio/amr': 'amr',
 }
 
 export function voiceStorageDir(): string {
@@ -71,6 +88,12 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+async function existingProjectId(db: Db, id: string | null | undefined): Promise<string | null> {
+  if (!id) return null
+  const [row] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id))
+  return row?.id ?? null
+}
+
 async function existingPersonIds(db: Db, ids: string[]): Promise<string[]> {
   const unique = [...new Set(ids.filter(Boolean))]
   if (unique.length === 0) return []
@@ -92,13 +115,16 @@ export interface VoiceUploadInput {
   consentConfirmed: boolean
   personIds?: string[]
   meetingId?: string | null
+  projectId?: string | null
   now?: number
+  /** 'live' (recorded in-app, default) or 'imported' (e.g. a phone call recording picked/shared from device storage) */
+  source?: 'live' | 'imported'
 }
 
 export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<{ recordingId: string }> {
   if (!input.consentConfirmed) throw new VoiceUploadError('נדרש אישור שכל המשתתפים הסכימו להקלטה')
   if (input.audio.length === 0) throw new VoiceUploadError('קובץ ההקלטה ריק')
-  if (input.audio.length > VOICE_MAX_BYTES) throw new VoiceUploadError('ההקלטה גדולה מדי (עד 19MB, כ-40 דקות)')
+  if (input.audio.length > VOICE_MAX_BYTES) throw new VoiceUploadError('ההקלטה גדולה מדי')
   if (!Number.isFinite(input.durationSeconds) || input.durationSeconds < VOICE_MIN_SECONDS) {
     throw new VoiceUploadError('ההקלטה קצרה מדי (לפחות 10 שניות)')
   }
@@ -135,6 +161,8 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
     consentConfirmedAt: at,
     createdAt: at,
     updatedAt: at,
+    projectId: await existingProjectId(db, input.projectId),
+    source: input.source ?? 'live',
   })
   for (const personId of await existingPersonIds(db, input.personIds ?? [])) {
     await db.insert(voiceRecordingPeople).values({ recordingId: id, personId })
@@ -145,19 +173,53 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
 export type VoiceTranscriber = (audio: Buffer, mimeType: string) => Promise<string>
 export type VoiceAnalyzer = (options: AnalyzeTranscriptOptions) => Promise<AnalysisResult>
 
+const TRANSCRIBE_PROMPT = [
+  'Transcribe this recorded conversation verbatim, in its original language (usually Hebrew).',
+  'Start a new line for each change of speaker and label speakers "דובר 1", "דובר 2" when you can tell them apart.',
+  'Plain text only. No summary, no commentary.',
+].join('\n')
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Uploads a large file to Gemini, waits for it to leave PROCESSING, transcribes by reference, and always cleans up. */
+async function transcribeViaFilesApi(key: string, model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>, audio: Buffer, mimeType: string): Promise<string> {
+  const fileManager = new GoogleAIFileManager(key)
+  const uploaded = await fileManager.uploadFile(audio, { mimeType, displayName: 'ak-voice-recording' })
+  let file = uploaded.file
+  const deadline = Date.now() + GEMINI_FILE_ACTIVE_TIMEOUT_MS
+  try {
+    while (file.state === FileState.PROCESSING && Date.now() < deadline) {
+      await sleep(GEMINI_FILE_POLL_INTERVAL_MS)
+      file = await fileManager.getFile(file.name)
+    }
+    if (file.state === FileState.FAILED) throw new Error('עיבוד ההקלטה ב-Gemini נכשל')
+    if (file.state !== FileState.ACTIVE) throw new Error('עיבוד ההקלטה ב-Gemini נמשך זמן רב מדי')
+    const result = await model.generateContent([
+      { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
+      { text: TRANSCRIBE_PROMPT },
+    ])
+    const text = result.response.text().trim()
+    if (!text) throw new Error('Empty transcription')
+    return text
+  } finally {
+    await fileManager.deleteFile(file.name).catch((err) => {
+      console.warn('[voice] failed to delete Gemini file:', err)
+    })
+  }
+}
+
 export const transcribeWithGemini: VoiceTranscriber = async (audio, mimeType) => {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY not configured')
   const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' })
+
+  if (audio.length > GEMINI_INLINE_MAX_BYTES) return transcribeViaFilesApi(key, model, audio, mimeType)
+
   const result = await model.generateContent([
     { inlineData: { data: audio.toString('base64'), mimeType } },
-    {
-      text: [
-        'Transcribe this recorded conversation verbatim, in its original language (usually Hebrew).',
-        'Start a new line for each change of speaker and label speakers "דובר 1", "דובר 2" when you can tell them apart.',
-        'Plain text only. No summary, no commentary.',
-      ].join('\n'),
-    },
+    { text: TRANSCRIBE_PROMPT },
   ])
   const text = result.response.text().trim()
   if (!text) throw new Error('Empty transcription')
@@ -188,30 +250,51 @@ export async function processVoiceRecording(
       rec.transcriptText || (await (options.transcribe ?? transcribeWithGemini)(fs.readFileSync(rec.audioPath), rec.mimeType))
     await db.update(voiceRecordings).set({ transcriptText: transcript, updatedAt: stamp() }).where(eq(voiceRecordings.id, rec.id))
 
+    // Best-effort: never blocks transcription/analysis if it fails (see voice-diarization.ts).
+    await runSelfVoiceDetection(db, rec.id).catch((err) => {
+      console.warn('[voice] self-voice detection failed:', err)
+    })
+
     const attendees = await recordingPeople(db, rec.id)
+    const [fresh] = await db.select({ projectId: voiceRecordings.projectId }).from(voiceRecordings).where(eq(voiceRecordings.id, rec.id))
+    const projectId = fresh?.projectId ?? rec.projectId
     let meetingId = rec.meetingId
     let createdMeetingId = rec.createdMeetingId
+    let matchedAutomatically = false
     if (!meetingId) {
-      const startMs = Date.parse(rec.createdAt) - rec.duration * 1000
-      const start = localDateTime(startMs)
-      const end = localDateTime(Date.parse(rec.createdAt))
-      meetingId = newId('m_voice')
-      createdMeetingId = meetingId
-      await db.insert(meetings).values({
-        id: meetingId,
-        title: attendees.length > 0 ? `${VOICE_PLACEHOLDER_TITLE} · ${attendees.map((a) => a.name).join(', ')}` : VOICE_PLACEHOLDER_TITLE,
-        date: start.date,
-        time: start.time,
-        endTime: end.time,
-        source: 'voice',
-        createdAt: stamp(),
-        updatedAt: stamp(),
+      const auto = await findAutoMatchMeeting(db, rec).catch((err) => {
+        console.warn('[voice] auto-match failed:', err)
+        return null
       })
+      if (auto) {
+        meetingId = auto.id
+        matchedAutomatically = true
+        if (projectId) await db.update(meetings).set({ projectId, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
+      } else {
+        const startMs = Date.parse(rec.createdAt) - rec.duration * 1000
+        const start = localDateTime(startMs)
+        const end = localDateTime(Date.parse(rec.createdAt))
+        meetingId = newId('m_voice')
+        createdMeetingId = meetingId
+        await db.insert(meetings).values({
+          id: meetingId,
+          title: attendees.length > 0 ? `${VOICE_PLACEHOLDER_TITLE} · ${attendees.map((a) => a.name).join(', ')}` : VOICE_PLACEHOLDER_TITLE,
+          date: start.date,
+          time: start.time,
+          endTime: end.time,
+          source: 'voice',
+          projectId,
+          createdAt: stamp(),
+          updatedAt: stamp(),
+        })
+      }
+    } else if (projectId) {
+      await db.update(meetings).set({ projectId, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
     }
     await linkMeetingPeople(db, meetingId, attendees.map((a) => a.id))
     await db
       .update(voiceRecordings)
-      .set({ meetingId, createdMeetingId, updatedAt: stamp() })
+      .set({ meetingId, createdMeetingId, matchedAutomatically, updatedAt: stamp() })
       .where(eq(voiceRecordings.id, rec.id))
 
     const [meeting] = await db.select({ title: meetings.title, date: meetings.date }).from(meetings).where(eq(meetings.id, meetingId))
@@ -267,6 +350,10 @@ export async function processVoiceRecording(
       .set({ analysisId, status: 'completed', updatedAt: stamp() })
       .where(eq(voiceRecordings.id, rec.id))
     await proposeCommitmentsFromAnalysis(db, analysisId, 'voice')
+    const { notifyAnalysisOnWhatsApp } = await import('./analysis-whatsapp')
+    await notifyAnalysisOnWhatsApp(db, analysisId).catch((err) => {
+      console.warn('[voice] analysis WhatsApp failed:', err)
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (analysisId) {
@@ -287,7 +374,7 @@ export async function processVoiceRecording(
  */
 export async function attachVoiceRecording(
   db: Db,
-  input: { recordingId: string; personIds: string[]; meetingId?: string | null },
+  input: { recordingId: string; personIds: string[]; meetingId?: string | null; projectId?: string | null },
 ): Promise<{ attached: boolean; meetingId: string | null }> {
   const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, input.recordingId))
   if (!rec) throw new Error('Recording not found')
@@ -295,6 +382,7 @@ export async function attachVoiceRecording(
   await db.delete(voiceRecordingPeople).where(eq(voiceRecordingPeople.recordingId, rec.id))
   for (const personId of personIds) await db.insert(voiceRecordingPeople).values({ recordingId: rec.id, personId })
 
+  const projectId = input.projectId !== undefined ? await existingProjectId(db, input.projectId) : rec.projectId
   let meetingId = rec.meetingId
   let createdMeetingId = rec.createdMeetingId
   if (input.meetingId && input.meetingId !== rec.meetingId) {
@@ -311,11 +399,21 @@ export async function attachVoiceRecording(
     meetingId = target.id
     createdMeetingId = null
   }
-  if (meetingId) await linkMeetingPeople(db, meetingId, personIds)
+  if (meetingId) {
+    // A placeholder meeting belongs to this recording, so removed people leave it too.
+    // An existing meeting only gains people; its other attendees stay.
+    if (createdMeetingId === meetingId) {
+      await db.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
+    }
+    await linkMeetingPeople(db, meetingId, personIds)
+  }
   await db
     .update(voiceRecordings)
-    .set({ meetingId, createdMeetingId, updatedAt: new Date().toISOString() })
+    .set({ meetingId, createdMeetingId, projectId, updatedAt: new Date().toISOString() })
     .where(eq(voiceRecordings.id, rec.id))
+  if (meetingId && input.projectId !== undefined) {
+    await db.update(meetings).set({ projectId, updatedAt: new Date().toISOString() }).where(eq(meetings.id, meetingId))
+  }
   if (rec.analysisId) await proposeCommitmentsFromAnalysis(db, rec.analysisId, 'voice')
   return { attached: true, meetingId }
 }
@@ -347,6 +445,37 @@ export async function attachCandidates(db: Db, recordingId: string) {
     .sort((a, b) => b.time.localeCompare(a.time))
 }
 
+/**
+ * A single calendar-sourced meeting whose calendar is in the user's agent-calendar scope and whose
+ * time overlaps the recording — auto-attach only when unambiguous. Never picks among several
+ * candidates; that stays a manual choice via `attachCandidates`. See docs/specs/recording-auto-calendar-context.md.
+ */
+export async function findAutoMatchMeeting(
+  db: Db,
+  rec: Pick<VoiceRecording, 'createdAt' | 'duration'>,
+): Promise<{ id: string } | null> {
+  const endMs = Date.parse(rec.createdAt)
+  const start = localDateTime(endMs - rec.duration * 1000)
+  const end = localDateTime(endMs)
+  const rows = await db
+    .select({ id: meetings.id, time: meetings.time, endTime: meetings.endTime, calendarId: meetings.calendarId })
+    .from(meetings)
+    .where(and(eq(meetings.date, start.date), eq(meetings.source, 'calendar')))
+  if (rows.length === 0) return null
+
+  const scope = await getAgentCalendarIds()
+  const inScope = scope ? rows.filter((m) => !m.calendarId || scope.includes(m.calendarId)) : rows
+
+  const from = minutes(start.time) - ATTACH_WINDOW_MIN
+  const to = (start.date === end.date ? minutes(end.time) : 24 * 60) + ATTACH_WINDOW_MIN
+  const overlapping = inScope.filter((m) => {
+    const s = minutes(m.time)
+    const e = m.endTime ? minutes(m.endTime) : s + 60
+    return s <= to && e >= from
+  })
+  return overlapping.length === 1 ? { id: overlapping[0].id } : null
+}
+
 export interface VoiceRecordingSummary {
   id: string
   createdAt: string
@@ -355,8 +484,11 @@ export interface VoiceRecordingSummary {
   error: string | null
   meetingId: string | null
   meetingTitle: string | null
+  /** True when `meetingId` was set by automatic calendar-context matching, not manual attach or a placeholder */
+  matchedAutomatically: boolean
   analysisId: string | null
   topic: string | null
+  project: { id: string; name: string } | null
   people: { id: string; name: string }[]
 }
 
@@ -374,6 +506,12 @@ async function summarize(db: Db, rows: VoiceRecording[]): Promise<VoiceRecording
       ? (await db.select({ id: meetings.id, title: meetings.title }).from(meetings).where(inArray(meetings.id, meetingIds))).map((m) => [m.id, m.title])
       : [],
   )
+  const projectIds = rows.map((r) => r.projectId).filter((id): id is string => !!id)
+  const projectNames = new Map(
+    projectIds.length
+      ? (await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds))).map((p) => [p.id, p.name])
+      : [],
+  )
   const analysisIds = rows.map((r) => r.analysisId).filter((id): id is string => !!id)
   const topics = new Map(
     analysisIds.length
@@ -388,8 +526,10 @@ async function summarize(db: Db, rows: VoiceRecording[]): Promise<VoiceRecording
     error: r.error,
     meetingId: r.meetingId,
     meetingTitle: r.meetingId ? titles.get(r.meetingId) ?? null : null,
+    matchedAutomatically: Boolean(r.matchedAutomatically),
     analysisId: r.analysisId,
     topic: r.analysisId ? topics.get(r.analysisId) ?? null : null,
+    project: r.projectId && projectNames.has(r.projectId) ? { id: r.projectId, name: projectNames.get(r.projectId)! } : null,
     people: links.filter((l) => l.recordingId === r.id).map((l) => ({ id: l.id, name: l.name })),
   }))
 }

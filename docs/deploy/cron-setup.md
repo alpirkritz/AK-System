@@ -33,12 +33,20 @@ The template is [`deploy/crontab.example`](../../deploy/crontab.example). The in
 |-----|------------|----------|-------------------------|
 | Morning briefing | `0 4 * * *` | `/api/cron/morning-briefing` | 07:00 |
 | Calendar sync | `*/15 * * * *` | `/api/cron/calendar-sync` | every 15 min |
+| Notion sync (tasks/people + meeting-note bodies; auto-triggers conversation analysis + WhatsApp) | `*/10 * * * *` | `/api/cron/notion-sync` | every 10 min |
+| Transcript analysis (safety net + backlog: analyses `ANALYSIS_BACKFILL_PER_RUN` older notes per run, default 3, for `/relationships`) | `*/10 * * * *` | `/api/cron/transcript-analysis` | every 10 min |
 | Daily meeting summary | `0 17 * * *` | `/api/cron/daily-meeting-summary` | 20:00 |
 | Pre-meeting briefing | `*/5 * * * *` | `/api/cron/pre-meeting-briefing` | every 5 min |
 | Task reminder | `* * * * *` | `/api/cron/task-reminder` | every minute |
 | Feed sync | `0 */6 * * *` | `/api/cron/feed-sync` | every 6 hours |
 | WhatsApp group summary | `*/15 * * * *` | `/api/cron/whatsapp-group-summary` | every 15 min |
 | ABC agent triggers | `*/15 * * * *` | `/api/cron/agent-triggers` | every 15 min |
+
+**Note on real-time meeting analysis:** as of the change above, conversation analysis
++ automatic WhatsApp delivery can lag up to ~10 min after a Notion AI meeting note is
+ready (was up to 30 min). This still depends on Notion itself generating the note after
+the call ends, which is outside our control. See `docs/specs/` for the follow-up spec
+covering a dedicated, faster (~5 min) per-meeting poller.
 
 Adjust times in `deploy/crontab.example` if your instance timezone differs:
 

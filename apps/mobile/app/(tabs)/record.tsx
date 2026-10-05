@@ -4,13 +4,16 @@ import {
   Alert,
   AppState,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
+import { useBringFocusedFieldIntoView } from '../../components/KeyboardSafe'
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -19,8 +22,10 @@ import {
   useAudioRecorderState,
 } from 'expo-audio'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useAuth } from '../lib/auth'
-import { colors } from '../lib/theme'
+import { useAuth } from '../../lib/auth'
+import { fetchPeople, fetchProjects, type MobileProject } from '../../lib/data'
+import { storage } from '../../lib/storage'
+import { colors } from '../../lib/theme'
 import {
   attachVoiceToMeeting,
   fetchAttachCandidates,
@@ -31,7 +36,7 @@ import {
   type MobileAttachCandidate,
   type MobileVoiceAnalysis,
   type MobileVoiceRecording,
-} from '../lib/voice'
+} from '../../lib/voice'
 import {
   isVoicePending,
   isVoiceStuck,
@@ -40,11 +45,141 @@ import {
   voiceClock,
   VOICE_MIN_SECONDS,
   VOICE_STATUS_LABELS,
-} from '../lib/voice-format'
+} from '../../lib/voice-format'
 
 type Phase = 'consent' | 'recording' | 'paused' | 'uploading' | 'result'
+type Named = { id: string; name: string }
 
-// Mono speech at 48 kbps keeps ~40 minutes under the server's 19 MB Gemini inline cap.
+/**
+ * A recording whose upload failed, kept so the user can resend it without re-recording (see
+ * docs/specs/voice-upload-retry-without-rerecording.md). The audio file at `uri` already
+ * persists on device storage regardless — this just keeps the reference and enough context to
+ * resend, surviving an app restart via `storage` (SecureStore-backed).
+ */
+type PendingUpload = {
+  uri: string
+  durationSeconds: number
+  personIds: string[]
+  personNames: string[]
+  projectId?: string
+  projectName?: string
+  meetingId?: string
+}
+const PENDING_VOICE_UPLOAD_KEY = 'helm_pending_voice_upload'
+type PickerMode = { kind: 'person'; replaceId?: string } | { kind: 'project' }
+
+function RecordingContextEditor({
+  people,
+  project,
+  directory,
+  onChangePeople,
+  onChangeProject,
+}: {
+  people: Named[]
+  project: Named | null
+  directory: { people: Named[]; projects: MobileProject[] } | null
+  onChangePeople: (next: Named[]) => void
+  onChangeProject: (next: Named | null) => void
+}) {
+  const [mode, setMode] = useState<PickerMode | null>(null)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const personMatches = !directory || mode?.kind !== 'person'
+    ? []
+    : directory.people.filter((p) => !people.some((x) => x.id === p.id) && p.name.toLowerCase().includes(q)).slice(0, 6)
+  const projectMatches = !directory || mode?.kind !== 'project'
+    ? []
+    : directory.projects.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 6)
+
+  const open = (next: PickerMode) => {
+    setMode(next)
+    setQuery('')
+  }
+  const pickPerson = (person: Named) => {
+    if (mode?.kind === 'person' && mode.replaceId) {
+      onChangePeople(people.map((p) => (p.id === mode.replaceId ? person : p)))
+    } else {
+      onChangePeople([...people, person])
+    }
+    setMode(null)
+    setQuery('')
+  }
+  const pickProject = (next: Named) => {
+    onChangeProject(next)
+    setMode(null)
+    setQuery('')
+  }
+
+  return (
+    <View style={styles.block}>
+      <Text style={styles.sectionLabel}>משתתפים</Text>
+      {people.length === 0 ? <Text style={styles.muted}>עדיין אין משתתפים</Text> : null}
+      {people.map((p) => (
+        <View key={p.id} style={styles.itemRow}>
+          <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{p.name}</Text>
+          <Pressable onPress={() => open({ kind: 'person', replaceId: p.id })} hitSlop={8} accessibilityRole="button" accessibilityLabel={`ערוך את ${p.name}`}>
+            <Text style={styles.linkBtn}>ערוך</Text>
+          </Pressable>
+          <Pressable onPress={() => onChangePeople(people.filter((x) => x.id !== p.id))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`הסר את ${p.name}`}>
+            <Text style={styles.removeBtn}>הסר</Text>
+          </Pressable>
+        </View>
+      ))}
+      <Pressable onPress={() => open({ kind: 'person' })} accessibilityRole="button">
+        <Text style={styles.link}>הוסף משתתף</Text>
+      </Pressable>
+
+      <Text style={styles.sectionLabel}>פרויקט</Text>
+      {project ? (
+        <View style={styles.itemRow}>
+          <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{project.name}</Text>
+          <Pressable onPress={() => open({ kind: 'project' })} hitSlop={8} accessibilityRole="button" accessibilityLabel={`ערוך את ${project.name}`}>
+            <Text style={styles.linkBtn}>ערוך</Text>
+          </Pressable>
+          <Pressable onPress={() => onChangeProject(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`הסר את ${project.name}`}>
+            <Text style={styles.removeBtn}>הסר</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={() => open({ kind: 'project' })} accessibilityRole="button">
+          <Text style={styles.link}>הוסף פרויקט</Text>
+        </Pressable>
+      )}
+
+      {mode ? (
+        <View style={styles.block}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={mode.kind === 'person' ? 'חפש אדם' : 'חפש פרויקט'}
+            placeholderTextColor={colors.textMuted}
+            style={styles.search}
+            textAlign="right"
+            autoFocus
+            autoCorrect={false}
+          />
+          {(mode.kind === 'person' ? personMatches : projectMatches).map((item) => (
+            <Pressable
+              key={item.id}
+              style={styles.match}
+              onPress={() => (mode.kind === 'person' ? pickPerson(item) : pickProject(item))}
+              accessibilityRole="button"
+            >
+              <Text style={styles.body}>{item.name}</Text>
+            </Pressable>
+          ))}
+          {q && (mode.kind === 'person' ? personMatches : projectMatches).length === 0 ? (
+            <Text style={styles.muted}>אין תוצאות</Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+// Mono speech at 48 kbps: plenty for transcription quality and keeps file sizes small. Recordings
+// longer than ~40 minutes now go through Gemini's Files API server-side instead of being rejected
+// (see docs/specs/voice-large-recording-transcription.md) — this bitrate is just about efficiency.
 const RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
   numberOfChannels: 1,
@@ -62,6 +197,7 @@ function RecordingResult({ token, recordingId }: { token: string; recordingId: s
   const [saved, setSaved] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showCandidates, setShowCandidates] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -190,7 +326,19 @@ function RecordingResult({ token, recordingId }: { token: string; recordingId: s
         </View>
       ) : null}
 
-      {rec.status === 'completed' && candidates.length > 0 ? (
+      {rec.status === 'completed' && rec.matchedAutomatically && rec.meetingId && !showCandidates ? (
+        <View style={styles.autoMatchBanner}>
+          <Text style={styles.body}>
+            זוהתה אוטומטית: <Text style={styles.autoMatchTitle}>{rec.meetingTitle}</Text>
+            {rec.people.length > 0 ? ` — ${rec.people.map((p) => p.name).join(', ')}` : ''}
+          </Text>
+          <Pressable onPress={() => setShowCandidates(true)} accessibilityRole="button">
+            <Text style={styles.link}>לא נכון? בחר פגישה אחרת</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {rec.status === 'completed' && candidates.length > 0 && (!rec.matchedAutomatically || showCandidates) ? (
         <View style={styles.block}>
           <Text style={styles.sectionLabel}>פגישה שהסתיימה עכשיו</Text>
           {[{ id: '', title: 'בלי פגישה · שמור כשיחה עצמאית', time: '', endTime: null }, ...candidates].map((m) => {
@@ -247,24 +395,73 @@ export default function RecordScreen() {
   const recorder = useAudioRecorder(RECORDING_OPTIONS)
   const state = useAudioRecorderState(recorder, 200)
   const [phase, setPhase] = useState<Phase>('consent')
-  const [consent, setConsent] = useState(false)
+  const [consent, setConsent] = useState(true)
+  const [people, setPeople] = useState<Named[]>([])
+  const [project, setProject] = useState<Named | null>(null)
+  const [directory, setDirectory] = useState<{ people: Named[]; projects: MobileProject[] } | null>(null)
+  const [savingContext, setSavingContext] = useState(false)
+  const [savedContext, setSavedContext] = useState(false)
   const [levels, setLevels] = useState<number[]>([])
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  const [resending, setResending] = useState(false)
   const phaseRef = useRef(phase)
+  const scrollRef = useRef<ScrollView>(null)
+  useBringFocusedFieldIntoView(scrollRef)
   phaseRef.current = phase
 
   const elapsedSeconds = Math.floor(state.durationMillis / 1000)
+  const seededPerson = useRef(false)
+
+  useEffect(() => {
+    void storage.getItem(PENDING_VOICE_UPLOAD_KEY).then((raw) => {
+      if (!raw) return
+      try {
+        setPendingUpload(JSON.parse(raw) as PendingUpload)
+      } catch {
+        void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    void Promise.all([fetchPeople(token), fetchProjects(token)])
+      .then(([loadedPeople, loadedProjects]) => {
+        if (!cancelled) setDirectory({ people: loadedPeople, projects: loadedProjects })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (seededPerson.current || !params.personId) return
+    const known = directory?.people.find((p) => p.id === params.personId)
+    if (known) {
+      setPeople([known])
+      seededPerson.current = true
+    } else if (params.personName) {
+      setPeople([{ id: params.personId, name: params.personName }])
+      seededPerson.current = true
+    }
+  }, [directory, params.personId, params.personName])
 
   useEffect(() => {
     if (phase !== 'recording') return
     setLevels((prev) => pushLevel(prev, meterLevel(state.metering)))
   }, [phase, state.durationMillis, state.metering])
 
-  // No background-recording permission: pause instead of losing audio silently.
+  // Android has a foreground recording service (see app.config.ts, docs/specs/recording-background-and-speaker-id.md)
+  // and keeps recording when backgrounded. iOS doesn't have that background entitlement here,
+  // so it still pauses rather than losing audio silently.
   useEffect(() => {
+    if (Platform.OS === 'android') return
     const sub = AppState.addEventListener('change', (next) => {
       if (next !== 'active' && phaseRef.current === 'recording') {
         recorder.pause()
@@ -300,6 +497,23 @@ export default function RecordScreen() {
   }, [navigation, recorder])
 
   const start = async () => {
+    if (pendingUpload) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'יש הקלטה שממתינה לשליחה',
+          'להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?',
+          [
+            { text: 'ביטול', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'התחל חדשה ומחק', style: 'destructive', onPress: () => resolve(true) },
+          ],
+        )
+      })
+      if (!proceed) return
+      const uri = pendingUpload.uri
+      setPendingUpload(null)
+      void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
+      void import('expo-file-system/legacy').then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true })).catch(() => undefined)
+    }
     setMessage(null)
     setPermissionDenied(false)
     const permission = await requestRecordingPermissionsAsync()
@@ -308,7 +522,11 @@ export default function RecordScreen() {
       return
     }
     try {
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        ...(Platform.OS === 'android' ? { allowsBackgroundRecording: true } : {}),
+      })
       await recorder.prepareToRecordAsync()
       recorder.record()
       setLevels([])
@@ -354,8 +572,9 @@ export default function RecordScreen() {
         {
           uri,
           durationSeconds,
-          personIds: params.personId ? [params.personId] : [],
+          personIds: people.map((p) => p.id),
           meetingId: params.meetingId,
+          projectId: project?.id,
         },
         setProgress,
       )
@@ -363,23 +582,142 @@ export default function RecordScreen() {
       setRecordingId(id)
       setPhase('result')
     } catch (err) {
+      const pending: PendingUpload = {
+        uri,
+        durationSeconds,
+        personIds: people.map((p) => p.id),
+        personNames: people.map((p) => p.name),
+        projectId: project?.id,
+        projectName: project?.name,
+        meetingId: params.meetingId,
+      }
+      setPendingUpload(pending)
+      await storage.setItem(PENDING_VOICE_UPLOAD_KEY, JSON.stringify(pending))
       setPhase('consent')
       setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
     }
+  }
+
+  const retryPendingUpload = async () => {
+    if (!pendingUpload || !token) return
+    setMessage(null)
+    setProgress(0)
+    setResending(true)
+    setPhase('uploading')
+    try {
+      const { recordingId: id } = await uploadVoiceRecording(
+        token,
+        {
+          uri: pendingUpload.uri,
+          durationSeconds: pendingUpload.durationSeconds,
+          personIds: pendingUpload.personIds,
+          meetingId: pendingUpload.meetingId,
+          projectId: pendingUpload.projectId,
+        },
+        setProgress,
+      )
+      await storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
+      setPendingUpload(null)
+      setConsent(false)
+      setRecordingId(id)
+      setPhase('result')
+    } catch (err) {
+      setPhase('consent')
+      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
+    } finally {
+      setResending(false)
+    }
+  }
+
+  const discardPendingUpload = () => {
+    Alert.alert('למחוק את ההקלטה?', 'ההקלטה שממתינה לשליחה תימחק לצמיתות.', [
+      { text: 'ביטול', style: 'cancel' },
+      {
+        text: 'מחק',
+        style: 'destructive',
+        onPress: () => {
+          const uri = pendingUpload?.uri
+          setPendingUpload(null)
+          void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
+          if (uri) {
+            void import('expo-file-system/legacy')
+              .then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true }))
+              .catch(() => undefined)
+          }
+        },
+      },
+    ])
   }
 
   const active = phase === 'recording' || phase === 'paused'
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.flex}
       contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
-      {params.personName ? <Text style={styles.muted}>שיחה עם {params.personName}</Text> : null}
+      {(phase === 'recording' || phase === 'paused' || phase === 'uploading') && (people.length > 0 || project) ? (
+        <Text style={styles.muted}>
+          {[people.map((p) => p.name).join(', '), project?.name].filter(Boolean).join(' · ')}
+        </Text>
+      ) : null}
+
+      {phase === 'consent' && pendingUpload ? (
+        <View style={styles.autoMatchBanner}>
+          <Text style={styles.body}>
+            יש הקלטה ({voiceClock(pendingUpload.durationSeconds)}) שלא נשלחה
+            {pendingUpload.personNames.length > 0 ? ` — ${pendingUpload.personNames.join(', ')}` : ''}
+          </Text>
+          <View style={{ flexDirection: 'row-reverse', gap: 16 }}>
+            <Pressable onPress={() => void retryPendingUpload()} disabled={resending} accessibilityRole="button">
+              <Text style={styles.link}>{resending ? 'שולח…' : 'שלח שוב'}</Text>
+            </Pressable>
+            <Pressable onPress={discardPendingUpload} disabled={resending} accessibilityRole="button">
+              <Text style={[styles.link, { color: colors.error }]}>מחק</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {phase === 'consent' || phase === 'result' ? (
         <View style={styles.card}>
+          <RecordingContextEditor
+            people={people}
+            project={project}
+            directory={directory}
+            onChangePeople={(next) => {
+              setSavedContext(false)
+              setPeople(next)
+            }}
+            onChangeProject={(next) => {
+              setSavedContext(false)
+              setProject(next)
+            }}
+          />
+          {phase === 'result' && recordingId && token ? (
+            <Pressable
+              style={[styles.secondaryBtn, savingContext && styles.disabled]}
+              disabled={savingContext}
+              onPress={() => {
+                setSavingContext(true)
+                setMessage(null)
+                void attachVoiceToMeeting(token, {
+                  recordingId,
+                  personIds: people.map((p) => p.id),
+                  projectId: project?.id ?? null,
+                })
+                  .then(() => setSavedContext(true))
+                  .catch((err) => setMessage(err instanceof Error ? err.message : 'השמירה נכשלה'))
+                  .finally(() => setSavingContext(false))
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.secondaryBtnText}>{savingContext ? 'שומר…' : 'שמור משתתפים ופרויקט'}</Text>
+            </Pressable>
+          ) : null}
+          {savedContext ? <Text style={styles.success}>נשמר</Text> : null}
           <Pressable
             style={styles.consentRow}
             onPress={() => setConsent((c) => !c)}
@@ -484,6 +822,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   block: { gap: 8 },
+  autoMatchBanner: {
+    gap: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.accent + '4d',
+    backgroundColor: colors.accent + '1a',
+    padding: 10,
+  },
+  autoMatchTitle: { color: colors.text, fontWeight: '600' },
   body: { color: colors.text, fontSize: 15, lineHeight: 22, ...rtl },
   muted: { color: colors.textMuted, fontSize: 13, lineHeight: 19, ...rtl },
   sectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', ...rtl },
@@ -550,4 +897,19 @@ const styles = StyleSheet.create({
   radioRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 10, minHeight: 44 },
   radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border },
   radioOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  itemRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, minHeight: 44 },
+  itemName: { flex: 1 },
+  linkBtn: { color: colors.accent, fontSize: 14, fontWeight: '600', paddingVertical: 8 },
+  removeBtn: { color: colors.coral, fontSize: 14, fontWeight: '600', paddingVertical: 8 },
+  search: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    color: colors.text,
+    backgroundColor: colors.surface,
+    writingDirection: 'rtl',
+  },
+  match: { minHeight: 44, justifyContent: 'center' },
 })

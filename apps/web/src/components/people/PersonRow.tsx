@@ -32,11 +32,12 @@ function getContactHealth(lastContact: string | null, frequencyDays: number | nu
 interface Props {
   person: Person
   selected: boolean
+  warmth?: 'warming' | 'cooling' | null
   onToggleSelect: () => void
   onOpenDrawer: () => void
 }
 
-export const PersonRow = memo(function PersonRow({ person, selected, onToggleSelect, onOpenDrawer }: Props) {
+export const PersonRow = memo(function PersonRow({ person, selected, warmth, onToggleSelect, onOpenDrawer }: Props) {
   const tags = person.tags ? person.tags.split(',').map(t => t.trim()).filter(Boolean) : []
   const health = getContactHealth(person.lastContact, person.contactFrequencyDays)
 
@@ -81,6 +82,18 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
           <span className="font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
             {person.name}
           </span>
+          {warmth ? (
+            <span
+              className="pill text-[10px] shrink-0"
+              style={{
+                background: warmth === 'cooling' ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.12)',
+                color: warmth === 'cooling' ? '#facc15' : '#4ade80',
+                borderColor: warmth === 'cooling' ? 'rgba(234,179,8,0.35)' : 'rgba(34,197,94,0.35)',
+              }}
+            >
+              {warmth === 'cooling' ? 'מתקרר' : 'מתחמם'}
+            </span>
+          ) : null}
         </div>
       </td>
 

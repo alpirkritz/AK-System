@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { KeyboardSafe } from '../../components/KeyboardSafe'
 import { useAuth } from '../../lib/auth'
 import {
   createTask,
@@ -88,6 +88,7 @@ export default function TaskDetailScreen() {
   const isNew = !id || id === 'new'
   const { token } = useAuth()
   const router = useRouter()
+  const scrollRef = useRef<ScrollView>(null)
 
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -292,13 +293,9 @@ export default function TaskDetailScreen() {
         }}
       />
 
-      {/* iOS needs explicit padding; Android relies on softwareKeyboardLayoutMode: 'resize'
-          in app.config.ts, and stacking both causes double-adjustment inside a formSheet. */}
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardSafe style={styles.flex} scrollRef={scrollRef}>
         <ScrollView
+          ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -505,7 +502,7 @@ export default function TaskDetailScreen() {
             <Text style={styles.saveBtnText}>{saving ? 'שומר…' : 'שמור'}</Text>
           </Pressable>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafe>
 
       <Modal
         visible={assigneePickerOpen}
@@ -513,6 +510,7 @@ export default function TaskDetailScreen() {
         transparent
         onRequestClose={closeAssigneePicker}
       >
+        <KeyboardSafe style={styles.modalFill}>
         <Pressable style={styles.modalOverlay} onPress={closeAssigneePicker}>
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>אחראי</Text>
@@ -575,6 +573,7 @@ export default function TaskDetailScreen() {
             </Pressable>
           </Pressable>
         </Pressable>
+        </KeyboardSafe>
       </Modal>
     </>
   )
@@ -628,6 +627,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
+  modalFill: { flex: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: '#00000099',

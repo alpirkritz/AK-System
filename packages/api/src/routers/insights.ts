@@ -30,6 +30,7 @@ import {
   unlinkedWhatsappSenders,
 } from '../services/person-context'
 import { relationshipBoard, relationshipFlags, setWarmthNote } from '../services/warmth'
+import { analysisBacklogSummary, runAnalysisBacklog } from '../services/analysis-backlog'
 import {
   dismissPersonTrait,
   readPersonTraitDetail,
@@ -460,7 +461,21 @@ export const insightsRouter = router({
   /** People whose relationship is warming or cooling, for the list — not per opened card. */
   relationshipFlags: protectedProcedure.query(async ({ ctx }) => relationshipFlags(ctx.db)),
 
-  relationshipBoard: protectedProcedure.query(async ({ ctx }) => relationshipBoard(ctx.db)),
+  relationshipBoard: protectedProcedure.query(async ({ ctx }) => {
+    const [board, backlog] = await Promise.all([relationshipBoard(ctx.db), analysisBacklogSummary(ctx.db)])
+    return { ...board, summary: { ...board.summary, pendingBacklog: backlog.pending } }
+  }),
+
+  /** Meetings with a note body that were never analysed, inside the board's 180-day window. */
+  analysisBacklog: protectedProcedure.query(async ({ ctx }) => analysisBacklogSummary(ctx.db)),
+
+  /** Analyse a few backlog meetings now — sequential, no WhatsApp or push. */
+  runAnalysisBacklog: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(5).default(5) }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const r = await runAnalysisBacklog(ctx.db, { limit: input?.limit ?? 5 })
+      return { analysed: r.analysed, failed: r.failed, remaining: r.remaining }
+    }),
 
   setWarmthNote: protectedProcedure
     .input(z.object({

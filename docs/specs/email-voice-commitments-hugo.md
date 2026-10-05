@@ -240,15 +240,16 @@ Recorded before implementation (2026-09-24). Where these differ from the section
   - The upload returns as soon as the file is saved; processing runs in the background on the long-running Node server.
   - `status` is `uploaded` | `processing` | `completed` | `failed`, plus an `error` column.
   - `voice.retry` re-runs a failed recording.
-- **Consent.** Required on every upload. The server rejects uploads without `consentConfirmed=true` and stores `consentConfirmedAt`.
+- **Consent.** Required on every upload. The server rejects uploads without `consentConfirmed=true` and stores `consentConfirmedAt`. The checkbox starts checked; unchecking it disables recording.
 - **Recorders.**
   - Web: a browser recorder (MediaRecorder) at `/voice`, with the same consent, timer, pause and stop.
   - Mobile (approved by the owner, on top of the in-progress Expo upgrade): a stack screen `apps/mobile/app/record.tsx` using `expo-audio` (`RecordingPresets.HIGH_QUALITY` → `.m4a` / `audio/mp4`, metering on).
     - Entry points: "הקלט שיחה" on the person screen (presets that person) and next to "סנכרן מיומן" on the meetings tab. Optional `personId` / `meetingId` params.
-    - Flow: consent checkbox + disclaimer → recording (timer, level bars, pause/resume, "עצור ושלח") → upload with a progress bar (`XMLHttpRequest`, multipart, bearer) → status polled every 4 s via `voice.get` → result: key insight, action items, attach to a meeting that just ended (`voice.attachCandidates`) or keep standalone, retry when failed or stuck, link to the meeting.
+    - Flow: consent checkbox (checked by default) + disclaimer, participants and one project (add, edit, remove each) → recording (timer, level bars, pause/resume, "עצור ושלח") → upload with a progress bar (`XMLHttpRequest`, multipart, bearer) → status polled every 4 s via `voice.get` → result: key insight, action items, the same participant/project editor with "שמור משתתפים ופרויקט", attach to a meeting that just ended (`voice.attachCandidates`) or keep standalone, retry when failed or stuck, link to the meeting.
+    - `voice_recordings.project_id` is copied onto the meeting created for the recording. Removing a participant also removes them from that placeholder meeting. An existing meeting only gains participants.
     - Recordings shorter than 10 s are discarded with a message. Leaving the screen mid-recording asks for confirmation. Recording pauses with a message if the app goes to the background (no background recording permission), and "המשך" resumes it.
     - Microphone permission is requested on start; a denial shows a message pointing to system settings.
-    - The APK is built locally (`eas build --local`, same signing key), version 1.0.2.
+    - The APK is built locally (`eas build --local`, same signing key), version 1.0.3.
 - **Voice table columns added to the spec.** `status`, `error`, `mimeType`, `sizeBytes`, and `createdMeeting` (the placeholder meeting id, when one was created).
 
 ### Commitments

@@ -36,6 +36,31 @@ async function racePostLoginSelectors(page: PuppeteerPageLike, timeoutMs: number
 }
 
 /**
+ * Click "שלח קוד אימות" / "Send OTP" button if present (Otsar may require explicit click).
+ */
+async function clickSendOtpButton(page: PuppeteerPageLike): Promise<boolean> {
+  return page.evaluate(() => {
+    const buttons = Array.from(
+      document.querySelectorAll('button, a[role="button"], input[type="submit"]'),
+    ) as HTMLElement[]
+    
+    const sendOtpLabels = ['שלח קוד', 'שלח SMS', 'שלח סיסמה', 'קבל קוד', 'שלח קוד אימות']
+    
+    for (const label of sendOtpLabels) {
+      const btn = buttons.find((b) => {
+        const text = (b.textContent || (b as HTMLInputElement).value || '').trim()
+        return text === label || text.includes(label)
+      })
+      if (btn && !btn.hasAttribute('disabled')) {
+        btn.click()
+        return true
+      }
+    }
+    return false
+  })
+}
+
+/**
  * Poll for OTP or post-login dashboard until deadline.
  * Throws the same `#card-header` message the library uses when nothing matches.
  */
@@ -47,6 +72,10 @@ export async function waitForPostLoginWithOtp(
 
   while (Date.now() < deadline) {
     if (await pageLooksLikeOtp(page)) {
+      // Try clicking "send OTP" button first (Otsar may require explicit click before SMS arrives)
+      await clickSendOtpButton(page)
+      await sleep(1000)
+      
       const codePromise = waitForOtp(opts.connectionId)
       await opts.onAwaitingOtp?.()
       const code = await codePromise

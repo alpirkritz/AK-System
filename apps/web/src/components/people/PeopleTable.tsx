@@ -23,6 +23,7 @@ interface Props {
   onToggleSelect: (id: string) => void
   onSelectAll: (ids: string[]) => void
   onDeselectAll: () => void
+  warmthById?: Record<string, 'warming' | 'cooling'>
   onOpenDrawer: (id: string) => void
   onPageChange: (page: number) => void
   onAddPerson: () => void
@@ -92,6 +93,7 @@ export function PeopleTable({
   onToggleSelect,
   onSelectAll,
   onDeselectAll,
+  warmthById,
   onOpenDrawer,
   onPageChange,
   onAddPerson,
@@ -170,6 +172,7 @@ export function PeopleTable({
                   person={person}
                   selected={selectedIds.has(person.id)}
                   onToggleSelect={() => onToggleSelect(person.id)}
+                  warmth={warmthById?.[person.id] ?? null}
                   onOpenDrawer={() => onOpenDrawer(person.id)}
                 />
               ))

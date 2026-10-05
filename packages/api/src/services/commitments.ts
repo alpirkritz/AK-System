@@ -14,7 +14,7 @@ import {
 } from '@ak-system/database'
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { getSelfPersonName } from './self-person'
-import { inferDueDate, proposeCommitments } from './whatsapp-dm'
+import { inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
 
 type Db = ReturnType<typeof getDb>
 
@@ -29,6 +29,29 @@ export const COMMITMENT_SOURCE_LABELS: Record<CommitmentSource, string> = {
 
 export function sourceLabel(source: string): string {
   return COMMITMENT_SOURCE_LABELS[source as CommitmentSource] ?? source
+}
+
+const NOTIFICATION_LINE_LIMIT = 5
+
+/**
+ * Title/body for the "new commitment(s) proposed" notification. One item names the chat and
+ * shows its content; several items list up to 5 `chat: content` lines with a tail count.
+ */
+export function buildCommitmentNotification(items: ProposedCommitmentLabel[]): { title: string; body: string } {
+  if (items.length === 1) {
+    return {
+      title: `התחייבות חדשה מ${items[0].label}`,
+      body: `${items[0].content}\n\nעבור עליה ואשר אם נכנס למשימות.`,
+    }
+  }
+  const lines = items.slice(0, NOTIFICATION_LINE_LIMIT).map((i) => `${i.label}: ${i.content}`)
+  const rest = items.length - lines.length
+  if (rest > 0) lines.push(`ועוד ${rest} נוספות.`)
+  lines.push('עבור עליהן ואשר מה נכנס למשימות.')
+  return {
+    title: `${items.length} התחייבויות חדשות מהוואטסאפ`,
+    body: lines.join('\n'),
+  }
 }
 
 /** Gmail thread key is `accountEmail::threadId`. */
@@ -114,7 +137,7 @@ export async function proposeCommitmentsFromAnalysis(
     byPerson.set(personId, list)
   }
   let added = 0
-  for (const [personId, list] of byPerson) added += await proposeCommitments(db, personId, source, list)
+  for (const [personId, list] of byPerson) added += (await proposeCommitments(db, personId, source, list)).length
   return added
 }
 
