@@ -2,29 +2,28 @@
 
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
+import { pickAttentionShift } from '@/lib/attention-shift'
 
-/** One line on the dashboard: the strongest shift, then the relationships page. */
+/** Dashboard card only when a relationship actually warmed or cooled. */
 export function AttentionBanner() {
   const { data } = trpc.insights.relationshipBoard.useQuery(undefined, { staleTime: 60_000 })
   if (!data) return null
-  const all = [...data.people, ...data.circles]
-  if (all.length === 0) return null
-  const gap = (c: { recentAvg: number | null; olderAvg: number | null }) => Math.abs((c.recentAvg ?? 0) - (c.olderAvg ?? 0))
-  const top = [...all].sort((a, b) => gap(b) - gap(a))[0]
-  if (!top) return null
-  const rest = all.length - 1
-  const verb = top.trend === 'cooling' ? 'מתקרר' : 'מתחמם'
+  const shift = pickAttentionShift([...data.people, ...data.circles])
+  if (!shift) return null
   return (
     <Link
       href="/relationships"
       className="card block p-3 no-underline hover:border-[#2dd4bf]"
       data-testid="attention-banner"
     >
-      <span className="text-[11px] font-semibold text-[#5a688c]">קשרים</span>
+      <span className="text-[11px] font-semibold text-[#5a688c]">קשר שזז</span>
       <p className="text-sm text-[#eef3fb] mt-1">
-        {top.name} {verb}
-        {rest > 0 ? <span className="text-[#97a4c2]"> · ועוד {rest}</span> : null}
+        {shift.name} {shift.verb}
+        {shift.rest > 0 ? <span className="text-[#97a4c2]"> · ועוד {shift.rest}</span> : null}
       </p>
+      {shift.dataReason ? (
+        <p className="text-xs text-[#97a4c2] mt-1 line-clamp-2">{shift.dataReason}</p>
+      ) : null}
     </Link>
   )
 }

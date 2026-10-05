@@ -20,7 +20,6 @@ import {
   fetchRelationshipBoard,
   fetchTasks,
   toggleTaskDone,
-  type MobileBoardCard,
   type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
@@ -28,6 +27,7 @@ import {
 import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
 import { groupTasksByDueState, limitTaskGroups, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
+import { pickAttentionShift, type AttentionShift } from '../../lib/attention-shift'
 import { colors } from '../../lib/theme'
 
 function greeting(hour: number): string {
@@ -55,14 +55,6 @@ function isPast(date: string, time: string): boolean {
   return dt < new Date()
 }
 
-function topShift(cards: MobileBoardCard[]): { name: string; verb: string; rest: number } | null {
-  if (cards.length === 0) return null
-  const gap = (c: MobileBoardCard) => Math.abs((c.recentAvg ?? 0) - (c.olderAvg ?? 0))
-  const top = [...cards].sort((a, b) => gap(b) - gap(a))[0]
-  if (!top) return null
-  return { name: top.name, verb: top.trend === 'cooling' ? 'מתקרר' : 'מתחמם', rest: cards.length - 1 }
-}
-
 export default function DashboardScreen() {
   const { token, user } = useAuth()
   const router = useRouter()
@@ -76,7 +68,7 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [attention, setAttention] = useState<{ name: string; verb: string; rest: number } | null>(null)
+  const [attention, setAttention] = useState<AttentionShift | null>(null)
   const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
@@ -94,7 +86,7 @@ export default function DashboardScreen() {
         setPrefs(p)
         setTasks(t)
         setMeetings(m)
-        setAttention(topShift([...relationship.people, ...relationship.circles]))
+        setAttention(pickAttentionShift([...relationship.people, ...relationship.circles]))
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
@@ -175,12 +167,17 @@ export default function DashboardScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {attention ? (
-        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשרים שזזים">
-          <Text style={styles.attentionLabel}>קשרים</Text>
+        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשר שזז">
+          <Text style={styles.attentionLabel}>קשר שזז</Text>
           <Text style={styles.itemTitle}>
             {attention.name} {attention.verb}
             {attention.rest > 0 ? ` · ועוד ${attention.rest}` : ''}
           </Text>
+          {attention.dataReason ? (
+            <Text style={styles.itemMeta} numberOfLines={2}>
+              {attention.dataReason}
+            </Text>
+          ) : null}
         </Card>
       ) : null}
 
