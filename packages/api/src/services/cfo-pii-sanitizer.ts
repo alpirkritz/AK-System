@@ -9,8 +9,8 @@
  * statements when they match itemized credit card transactions, preventing double-counting.
  */
 
-/** Israeli ID (ת.ז.) — 9 digits, optionally with dashes/spaces */
-const ISRAELI_ID_PATTERN = /\b\d{1,3}[-\s]?\d{2}[-\s]?\d{4}\b/g
+/** Israeli ID (ת.ז.) — exactly 9 digits, plain or grouped 3-2-4. Not a prefix of a longer number. */
+const ISRAELI_ID_PATTERN = /\b\d{9}\b|\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g
 
 /** Credit card — 13-19 digits, optionally with spaces/dashes, basic Luhn validation */
 const CREDIT_CARD_PATTERN = /\b(?:\d{4}[-\s]?){3}\d{1,7}\b/g
@@ -78,21 +78,14 @@ export function sanitizePii(text: string): SanitizeResult {
     accountNumbers: 0,
   }
 
-  // 1. Israeli IDs (9 digits with optional separators)
-  const idMatches = Array.from(sanitized.matchAll(ISRAELI_ID_PATTERN))
-  for (const match of idMatches) {
-    sanitized = sanitized.replace(match[0], REDACTED)
-    breakdown.israeliIds++
-  }
-
-  // 2. IBANs (IL + 21 digits)
+  // 1. IBANs (IL + 21 digits)
   const ibanMatches = Array.from(sanitized.matchAll(ISRAELI_IBAN_PATTERN))
   for (const match of ibanMatches) {
     sanitized = sanitized.replace(match[0], REDACTED)
     breakdown.ibans++
   }
 
-  // 3. Credit cards (13-19 digits with Luhn validation)
+  // 2. Credit cards (13-19 digits with Luhn validation)
   const cardMatches = Array.from(sanitized.matchAll(CREDIT_CARD_PATTERN))
   for (const match of cardMatches) {
     if (isValidLuhn(match[0])) {
@@ -101,9 +94,8 @@ export function sanitizePii(text: string): SanitizeResult {
     }
   }
 
-  // 4. Generic bank account numbers (6-12 digits)
-  // Applied last to avoid redacting legitimate numbers (amounts, dates, etc.)
-  // Only redacts if preceded by keywords like "account" / "חשבון"
+  // 3. Bank account numbers after an explicit keyword, before the generic 9-digit ID
+  // scan, so "חשבון: 123456789" is an account and not also an ID.
   const accountPattern = /(?:account|חשבון|מס[׳']?\s*חשבון)[\s:]*(\d{6,12})/gi
   const accountMatches = Array.from(sanitized.matchAll(accountPattern))
   for (const match of accountMatches) {
@@ -111,6 +103,13 @@ export function sanitizePii(text: string): SanitizeResult {
     const numberPart = match[1]
     sanitized = sanitized.replace(numberPart, REDACTED)
     breakdown.accountNumbers++
+  }
+
+  // 4. Israeli IDs left after the more specific patterns
+  const idMatches = Array.from(sanitized.matchAll(ISRAELI_ID_PATTERN))
+  for (const match of idMatches) {
+    sanitized = sanitized.replace(match[0], REDACTED)
+    breakdown.israeliIds++
   }
 
   const redactedCount = Object.values(breakdown).reduce((sum, count) => sum + count, 0)

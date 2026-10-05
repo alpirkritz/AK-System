@@ -169,9 +169,10 @@ export function computeLiquiditySweep(
   const taxComparison = compareTaxYield(nominalDepositRate, mmfRealRate, projectedInflation)
 
   let warning: string | null = null
+  const emergencyTarget = baseline.fixed * 4
   if (currentBalance < baseline.minBalanceCushion) {
     warning = 'יתרה מתחת לכרית המינימום ההיסטורית'
-  } else if (partition.layer1 + partition.layer2 > currentBalance) {
+  } else if (currentBalance < partition.layer1 + emergencyTarget) {
     warning = 'יתרה לא מכסה קרן חירום מלאה'
   }
 
