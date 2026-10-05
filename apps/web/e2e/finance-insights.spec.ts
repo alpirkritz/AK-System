@@ -45,11 +45,11 @@ test.describe('Cash flow insights tab', () => {
     await expect(overview).toBeVisible({ timeout: 10000 })
     await expect(page.getByText('שערוך לפי עלות')).toBeVisible()
 
-    // Without a Gemini key the narrative fails quietly and offers a retry — the numbers stay.
+    // Opening the tab does not call Gemini. The panel offers a manual refresh of the saved reading.
     await expect(
       page
-        .getByRole('button', { name: 'נסה שוב' })
-        .or(page.getByRole('button', { name: 'רענן' })),
+        .getByRole('button', { name: 'צור ניתוח' })
+        .or(page.getByRole('button', { name: 'עדכן ניתוח' })),
     ).toBeVisible({ timeout: 20000 })
   })
 

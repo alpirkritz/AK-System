@@ -854,9 +854,15 @@ export async function fetchFinanceInsights(token: string, month?: string): Promi
   return client.finance.analytics.insights.query({ month: m })
 }
 
-export async function fetchFinanceNarrative(token: string): Promise<unknown> {
+export async function fetchFinanceNarrative(
+  token: string,
+  options?: { force?: boolean },
+): Promise<unknown> {
   const client = createTrpcClient(token)
-  return client.finance.analytics.narrative.query({ scope: 'cashflow' })
+  return client.finance.analytics.narrative.query({
+    scope: 'cashflow',
+    force: options?.force ?? false,
+  })
 }
 
 function currentMonthKey(): string {

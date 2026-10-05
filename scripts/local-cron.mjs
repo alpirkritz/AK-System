@@ -32,6 +32,7 @@ const JOBS = [
   ['whatsapp-dm-commitments', 10],
   ['whatsapp-group-commitments', 10],
   ['email-sync', 60],
+  ['finance-narrative', 1440],
 ]
 
 const headers = SECRET ? { Authorization: `Bearer ${SECRET}` } : {}

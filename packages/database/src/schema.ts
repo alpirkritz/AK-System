@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 /** CRM review status — unconfirmed people (e.g. unknown calendar attendees) stay out of the main list */
 export const PEOPLE_STATUSES = ['confirmed', 'unconfirmed', 'ignored'] as const
@@ -157,6 +157,31 @@ export const workspaceNotionDatabases = sqliteTable('workspace_notion_databases'
   notionDatabaseIdUq: uniqueIndex('uq_workspace_notion_databases_notion_database_id').on(table.notionDatabaseId),
 }))
 
+/**
+ * Self-service "people" Notion database registrations (Settings ← מקורות), additive to whatever
+ * is already configured via the `NOTION_ACCOUNTS` env var. Not workspace-scoped — people sync
+ * pulls from every registered directory regardless of workspace. `accountLabel` matches a label
+ * in `NOTION_ACCOUNTS`; the token itself is resolved from env at sync time, never stored here.
+ */
+export const peopleNotionSources = sqliteTable('people_notion_sources', {
+  id: text('id').primaryKey(),
+  accountLabel: text('account_label').notNull(),
+  notionDatabaseId: text('notion_database_id').notNull(),
+  notionDatabaseName: text('notion_database_name'),
+  /**
+   * Pinned per-field property names, chosen once (auto-detected or picked by the owner) when the
+   * source is added — see notion-people-full-field-sync. Null means "skip this field for this
+   * source", not "fall back to a heuristic": pinning is all-or-nothing per source.
+   */
+  phonePropertyName: text('phone_property_name'),
+  rolePropertyName: text('role_property_name'),
+  companyPropertyName: text('company_property_name'),
+  linkedinPropertyName: text('linkedin_property_name'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  notionDatabaseIdUq: uniqueIndex('uq_people_notion_sources_notion_database_id').on(table.notionDatabaseId),
+}))
+
 /** Canonical task status values (Notion-faithful) — orthogonal to the derived `done` boolean */
 export const TASK_STATUSES = ['not_started', 'pending', 'in_progress', 'blocked', 'done', 'cancelled'] as const
 export type TaskStatusValue = (typeof TASK_STATUSES)[number]
@@ -266,6 +291,8 @@ export const meetings = sqliteTable('meetings', {
   typeId: text('type_id').references(() => meetingTypes.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
   calendarSource: text('calendar_source'),
+  /** The connected calendar's own id (e.g. from `fetchGoogleCalendarEvents`), used to scope calendar-based features like recording auto-linking; null for non-calendar-sourced meetings or rows synced before this column existed */
+  calendarId: text('calendar_id'),
   /** Notion Meetings page id when synced from a Notion meetings database */
   notionPageId: text('notion_page_id'),
   /** Source of this meeting: 'calendar' | 'notion_note' | 'manual' */
@@ -549,6 +576,64 @@ export const financeInsightNarratives = sqliteTable('finance_insight_narratives'
   scopeHashUq: uniqueIndex('uq_finance_insight_narratives_scope_hash').on(table.scopeKey, table.inputHash),
 }))
 
+// ─── Personal CFO Module Tables ────────────────────────────────────────────
+
+/**
+ * User-defined debts for the Debt Avalanche engine: overdrafts, credit loans, installments.
+ * Enables tracking and optimal payoff schedule calculation.
+ */
+export const financeDebts = sqliteTable('finance_debts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(), // e.g. "משיכת יתר בנק הפועלים"
+  balance: text('balance').notNull(), // current debt balance
+  apr: text('apr').notNull(), // annual percentage rate (decimal, e.g. "0.15" for 15%)
+  minPayment: text('min_payment').notNull(), // minimum monthly payment
+  debtType: text('debt_type').notNull(), // 'overdraft' | 'credit_loan' | 'installment'
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_debts_user_id').on(table.userId),
+}))
+
+/**
+ * Pension & long-term savings policies for audit and fee benchmarking.
+ * Tracks deposit fees, accumulation fees, and policy activity status.
+ */
+export const financePensionPolicies = sqliteTable('finance_pension_policies', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  provider: text('provider').notNull(), // e.g. "מיטב דש", "הראל"
+  policyType: text('policy_type').notNull(), // 'pension' | 'keren_hishtalmut' | 'gemel_lehaskaa' | 'bituach_managers'
+  balance: text('balance').notNull(), // current accumulated balance
+  depositFeePct: text('deposit_fee_pct').notNull(), // management fee on deposits (decimal)
+  accumFeePct: text('accum_fee_pct').notNull(), // management fee on accumulated balance (decimal)
+  monthlyDeposit: text('monthly_deposit').notNull(), // average monthly deposit
+  retirementAge: integer('retirement_age').notNull().default(67), // target retirement age
+  isActive: integer('is_active').notNull().default(1), // 0/1 for duplicate detection
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_pension_policies_user_id').on(table.userId),
+}))
+
+/**
+ * Cache of LLM-generated CFO reports: leak negotiation letters, pension fee-reduction
+ * requests, monthly review summaries. Keyed by scopeKey + inputHash to avoid regeneration.
+ */
+export const financeCfoReports = sqliteTable('finance_cfo_reports', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  reportMonth: text('report_month').notNull(), // YYYY-MM
+  scopeKey: text('scope_key').notNull(), // 'leak' | 'debt' | 'liquidity' | 'pension' | 'monthly'
+  inputHash: text('input_hash').notNull(), // hash of facts sent to LLM
+  reportJson: text('report_json').notNull(), // JSON: { headline, body, actionItems, formalLetter? }
+  model: text('model'), // Gemini model ID
+  generatedAt: text('generated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_cfo_reports_user_id').on(table.userId),
+  scopeHashUq: uniqueIndex('uq_finance_cfo_reports_scope_hash').on(table.userId, table.scopeKey, table.inputHash),
+}))
+
 // ─── Feed (עדכוני כלכלה וחדשות) ───────────────────────────────────────────
 
 export const feedSources = sqliteTable('feed_sources', {
@@ -661,6 +746,8 @@ export const userSettings = sqliteTable('user_settings', {
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
   duplicatesNotifiedPairs: text('duplicates_notified_pairs'), // JSON string[] "idA|idB" already announced by the duplicates cron
   whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'), // null = code default for the evening digest
+  whatsappGroupCommitmentScanCursor: text('whatsapp_group_commitment_scan_cursor'), // ms ts (as text) of the newest whatsapp_messages row already scanned for group commitments
+  whatsappSelfJid: text('whatsapp_self_jid'), // bridge's own JID cached after last successful getBridgeStatus — fallback when bridge is offline during group-commitment scan
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -739,14 +826,20 @@ export const agentSchedules = sqliteTable('agent_schedules', {
 export type AgentSchedule = typeof agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof agentSchedules.$inferInsert
 
-// ─── Tier 1 QA daily snapshot (for day-over-day diffing) ──────────────────────
-
+/**
+ * One row per successful Tier 1 QA daily-agent run. Powers day-over-day
+ * diffing for the WhatsApp update (docs/specs/tier1-qa-whatsapp-agent.md).
+ * `snapshotDate` is the Asia/Jerusalem calendar day, unique.
+ */
 export const tier1QaSnapshots = sqliteTable('tier1_qa_snapshots', {
   id: text('id').primaryKey(),
-  snapshotDate: text('snapshot_date').notNull().unique(), // Jerusalem YYYY-MM-DD
-  testsSnapshot: text('tests_snapshot').notNull(), // JSON
-  bugsSnapshot: text('bugs_snapshot').notNull(), // JSON
-  summaryStats: text('summary_stats').notNull(), // JSON
+  snapshotDate: text('snapshot_date').notNull().unique(),
+  // JSON: { testId, statusBdika, done, testedBy, hasResultLink, linkedBugIds[] }[]
+  testsSnapshot: text('tests_snapshot').notNull(),
+  // JSON: { bugId, status, priority, assignee, due, archived, deleted }[]
+  bugsSnapshot: text('bugs_snapshot').notNull(),
+  // JSON: computed aggregate counts, for audit/debug without re-deriving
+  summaryStats: text('summary_stats').notNull(),
   createdAt: text('created_at').notNull(),
 })
 
@@ -1321,6 +1414,13 @@ export const voiceRecordings = sqliteTable('voice_recordings', {
   updatedAt: text('updated_at').notNull(),
   /** Optional project this conversation is about; copied onto the voice meeting */
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  /** skipped | pending | completed | failed — self-voice diarization pass, independent of transcription status */
+  diarizationStatus: text('diarization_status').notNull().default('skipped'),
+  diarizationError: text('diarization_error'),
+  /** live (recorded in-app) | imported (e.g. a phone call recording picked/shared from device storage) */
+  source: text('source').notNull().default('live'),
+  /** True when `meetingId` was set by automatic calendar-context matching rather than manual attach or placeholder creation */
+  matchedAutomatically: integer('matched_automatically', { mode: 'boolean' }).notNull().default(false),
 }, (table) => ({
   meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
   analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
@@ -1331,10 +1431,31 @@ export const voiceRecordings = sqliteTable('voice_recordings', {
 export const voiceRecordingPeople = sqliteTable('voice_recording_people', {
   recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
   personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** True when this person was tagged by automatic self-voice matching rather than a manual "attach person" action */
+  matchedAutomatically: integer('matched_automatically', { mode: 'boolean' }).notNull().default(false),
+  /** Cosine-similarity score (0-1) that produced the automatic match; null for manual tags */
+  confidence: real('confidence'),
 }, (table) => ({
   recordingIdIdx: index('idx_voice_recording_people_recording_id').on(table.recordingId),
   personIdIdx: index('idx_voice_recording_people_person_id').on(table.personId),
   pairUq: uniqueIndex('uq_voice_recording_people_pair').on(table.recordingId, table.personId),
+}))
+
+/** A single enrolled voice embedding used for automatic self-voice matching in recordings. MVP: one row (Alpir's own). */
+export const voicePrints = sqliteTable('voice_prints', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** JSON-encoded float array */
+  embedding: text('embedding').notNull(),
+  /** Path to the enrollment sample audio, kept for re-enrollment/debugging */
+  sampleAudioPath: text('sample_audio_path'),
+  /** Embedding extraction method + version, so a model upgrade can invalidate old rows */
+  model: text('model').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_voice_prints_person_id').on(table.personId),
+  personIdUq: uniqueIndex('uq_voice_prints_person_id').on(table.personId),
 }))
 
 export const PERSON_TRAIT_STATUSES = ['shown', 'once', 'dismissed'] as const

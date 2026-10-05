@@ -1,36 +1,54 @@
 'use client'
 
 /**
- * The LLM paragraph over the deterministic engines.
+ * The last saved Gemini paragraph over the deterministic engines.
  *
- * Kept visually distinct from the insight cards and given its own loading/error state: when
- * Gemini is unavailable the numbers below are still correct, so this panel fails quietly
- * instead of taking the tab down with it.
+ * Opening the tab only reads what was already stored. Gemini runs when the user
+ * presses the button. A failure to refresh leaves the previous text on screen.
  */
 
 export interface NarrativeData {
-  headline: string
-  body: string
+  available: boolean
+  headline: string | null
+  body: string | null
   connections: string[]
   watchlist: string[]
-  generatedAt: string
+  generatedAt: string | null
   cached: boolean
+  stale: boolean
+}
+
+function formatGeneratedAt(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 export function NarrativePanel({
   data,
   isLoading,
   isError,
+  onGenerate,
   onRetry,
   isRefreshing = false,
+  refreshError = false,
 }: {
   data: NarrativeData | null
   isLoading: boolean
   isError: boolean
+  onGenerate: () => void
   onRetry: () => void
   isRefreshing?: boolean
+  refreshError?: boolean
 }) {
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <div className="card mb-5">
         <div className="skeleton h-4 w-2/3 rounded mb-3" />
@@ -40,14 +58,27 @@ export function NarrativePanel({
     )
   }
 
-  if (isError || !data) {
+  if (isError && !data?.available) {
     return (
       <div className="card mb-5 flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs text-[#97a4c2]">
-          לא הצלחתי לנסח את התמונה הכוללת כרגע. התובנות והמספרים למטה מחושבים ללא תלות בזה.
+          לא הצלחתי לטעון את הניתוח השמור. המספרים למטה מחושבים ללא תלות בזה.
         </span>
         <button className="btn btn-ghost text-xs" onClick={onRetry} disabled={isRefreshing}>
-          {isRefreshing ? 'מנסה שוב…' : 'נסה שוב'}
+          נסה שוב
+        </button>
+      </div>
+    )
+  }
+
+  if (!data?.available) {
+    return (
+      <div className="card mb-5 flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs text-[#97a4c2]">
+          {refreshError ? 'לא הצלחתי לעדכן את הניתוח' : 'אין עדיין ניתוח שמור'}
+        </span>
+        <button className="btn btn-ghost text-xs" onClick={onGenerate} disabled={isRefreshing}>
+          {isRefreshing ? 'מעדכן…' : 'צור ניתוח'}
         </button>
       </div>
     )
@@ -62,11 +93,10 @@ export function NarrativePanel({
         <h3 className="text-sm font-bold text-[#eef3fb] leading-snug">{data.headline}</h3>
         <button
           className="btn btn-ghost text-[11px] shrink-0"
-          onClick={onRetry}
+          onClick={onGenerate}
           disabled={isRefreshing}
-          aria-label="רענן ניתוח"
         >
-          {isRefreshing ? 'מרענן…' : 'רענן'}
+          {isRefreshing ? 'מעדכן…' : 'עדכן ניתוח'}
         </button>
       </div>
 
@@ -97,8 +127,12 @@ export function NarrativePanel({
       )}
 
       <p className="text-[11px] text-[#647399] mt-3">
-        נוסח על בסיס המספרים המחושבים בלבד{data.cached ? ' · מתוך מטמון' : ''}
+        {data.generatedAt ? `עודכן ${formatGeneratedAt(data.generatedAt)}` : 'עודכן'}
+        {data.stale ? ' · הנתונים השתנו מאז הניתוח' : ''}
       </p>
+      {refreshError && (
+        <p className="text-[11px] text-[#fb7185] mt-2">לא הצלחתי לעדכן את הניתוח</p>
+      )}
     </div>
   )
 }

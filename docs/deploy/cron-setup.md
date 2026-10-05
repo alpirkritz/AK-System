@@ -41,6 +41,7 @@ The template is [`deploy/crontab.example`](../../deploy/crontab.example). The in
 | Feed sync | `0 */6 * * *` | `/api/cron/feed-sync` | every 6 hours |
 | WhatsApp group summary | `*/15 * * * *` | `/api/cron/whatsapp-group-summary` | every 15 min |
 | ABC agent triggers | `*/15 * * * *` | `/api/cron/agent-triggers` | every 15 min |
+| Cash-flow narrative | `30 2 * * *` | `/api/cron/finance-narrative` | 05:30 |
 
 **Note on real-time meeting analysis:** as of the change above, conversation analysis
 + automatic WhatsApp delivery can lag up to ~10 min after a Notion AI meeting note is

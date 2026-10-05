@@ -124,3 +124,11 @@ export type {
   DocumentTotals,
   DocumentStrings,
 } from './sales'
+
+export {
+  IL_FINANCE_2026,
+  PENSION_POLICY_TYPE_LABELS,
+  DEBT_TYPE_LABELS,
+  LIQUIDITY_LAYER_LABELS,
+  LEAK_ACTION_LABELS,
+} from './il-finance-2026'

@@ -29,6 +29,7 @@ import { contactsRouter } from './routers/contacts'
 import { insightsRouter } from './routers/insights'
 import { emailRouter } from './routers/email'
 import { voiceRouter } from './routers/voice'
+import { cfoRouter } from './routers/cfo'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -107,10 +108,19 @@ export {
   ingestDmMessages,
   pushDmAllowlist,
   summarizeDmChats,
+  scanDmCommitments,
+  scanGroupCommitments,
   runDmRetention,
+  defaultClassify,
   type DmIngestMessage,
+  type ProposedCommitmentLabel,
+  type DmSummaryRunResult,
+  type DmCommitmentScanResult,
+  type GroupCommitmentScanResult,
+  type MessageClassifier,
+  type ModelClassification,
 } from './services/whatsapp-dm'
-export { proposeCommitmentsFromAnalysis } from './services/commitments'
+export { proposeCommitmentsFromAnalysis, buildCommitmentNotification } from './services/commitments'
 export { syncEmailThreads, type EmailSyncResult } from './services/email-sync'
 export {
   saveVoiceUpload,
@@ -156,6 +166,8 @@ export {
   formatImportReport,
   type IbkrImportResult,
 } from './services/ibkr-import-service'
+export { formatAnalysisMessage } from './services/analysis-message'
+export { notifyAnalysisOnWhatsApp } from './services/analysis-whatsapp'
 export {
   analyzeTranscript,
   derivePriorityFromContext,
@@ -170,6 +182,7 @@ export {
   triggerAnalysisIfNeeded,
   type EnsureMeetingResult,
 } from './services/notion-meeting-sync'
+export { listAnalysisBacklog, runAnalysisBacklog, analysisBacklogSummary } from './services/analysis-backlog'
 
 export const appRouter = router({
   people: peopleRouter,
@@ -202,6 +215,7 @@ export const appRouter = router({
   insights: insightsRouter,
   email: emailRouter,
   voice: voiceRouter,
+  cfo: cfoRouter,
 })
 
 export type AppRouter = typeof appRouter

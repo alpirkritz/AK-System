@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -10,14 +11,14 @@ import {
   Text,
   View,
 } from 'react-native'
-import { Card } from '../components/Card'
-import { EmptyState } from '../components/EmptyState'
-import { KpiCard } from '../components/KpiCard'
-import { ListRow } from '../components/ListRow'
-import { SectionHeader } from '../components/SectionHeader'
-import { SegmentControl, type SegmentItem } from '../components/SegmentControl'
-import { SimpleBars } from '../components/SimpleBars'
-import { useAuth } from '../lib/auth'
+import { Card } from '../../components/Card'
+import { EmptyState } from '../../components/EmptyState'
+import { KpiCard } from '../../components/KpiCard'
+import { ListRow } from '../../components/ListRow'
+import { SectionHeader } from '../../components/SectionHeader'
+import { SegmentControl, type SegmentItem } from '../../components/SegmentControl'
+import { SimpleBars } from '../../components/SimpleBars'
+import { useAuth } from '../../lib/auth'
 import {
   fetchAccountsSnapshot,
   fetchFinanceCoverage,
@@ -28,8 +29,8 @@ import {
   fetchTradingJournal,
   fetchVatPeriodSummary,
   setTransactionCategory,
-} from '../lib/data'
-import { colors } from '../lib/theme'
+} from '../../lib/data'
+import { colors } from '../../lib/theme'
 
 type SegmentKey = 'summary' | 'cashflow' | 'insights' | 'trading' | 'accounts' | 'vat'
 
@@ -80,6 +81,20 @@ function fmtMoney(v: unknown): string {
   return `${Math.round(n).toLocaleString('he-IL')} ₪`
 }
 
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
+}
+
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -126,10 +141,13 @@ export default function FinanceScreen() {
   const [transactions, setTransactions] = useState<TxnRow[]>([])
   const [insightsRaw, setInsightsRaw] = useState<unknown>(null)
   const [narrativeRaw, setNarrativeRaw] = useState<unknown>(null)
+  const [narrativeBusy, setNarrativeBusy] = useState(false)
+  const [narrativeError, setNarrativeError] = useState(false)
   const [coverageRaw, setCoverageRaw] = useState<unknown>(null)
   const [journal, setJournal] = useState<Record<string, unknown> | null>(null)
   const [accountsRaw, setAccountsRaw] = useState<unknown>(null)
   const [vatRaw, setVatRaw] = useState<unknown>(null)
+  const hasLoadedOnce = useRef(false)
 
   const vatPeriod = useMemo(() => currentVatPeriod(), [])
 
@@ -154,6 +172,7 @@ export default function FinanceScreen() {
             ])
             setInsightsRaw(ins)
             setNarrativeRaw(nar)
+            setNarrativeError(false)
             setCoverageRaw(cov)
             break
           }
@@ -167,6 +186,7 @@ export default function FinanceScreen() {
             setVatRaw(await fetchVatPeriodSummary(token, vatPeriod.year, vatPeriod.period))
             break
         }
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינה נכשלה')
       } finally {
@@ -177,9 +197,19 @@ export default function FinanceScreen() {
     [token, vatPeriod.period, vatPeriod.year],
   )
 
+  // Initial load, and reload whenever the segment (sub-tab) changes.
   useEffect(() => {
     void loadSegment(segment)
   }, [segment, loadSegment])
+
+  // Refetch the current segment on every focus too (e.g. a new transaction
+  // categorized elsewhere shouldn't require leaving and returning to see).
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !hasLoadedOnce.current) return
+      void loadSegment(segment, 'refresh')
+    }, [token, segment, loadSegment]),
+  )
 
   const onRefresh = () => void loadSegment(segment, 'refresh')
 
@@ -323,10 +353,27 @@ export default function FinanceScreen() {
     />
   )
 
+  const refreshNarrative = async () => {
+    if (!token || narrativeBusy) return
+    setNarrativeBusy(true)
+    setNarrativeError(false)
+    try {
+      setNarrativeRaw(await fetchFinanceNarrative(token, { force: true }))
+    } catch {
+      setNarrativeError(true)
+    } finally {
+      setNarrativeBusy(false)
+    }
+  }
+
   const renderInsights = () => {
     const insightsList = insightLines(recordField(insightsRaw, 'insights'))
     const headline = recordField<string>(narrativeRaw, 'headline')
     const body = recordField<string>(narrativeRaw, 'body')
+    const available = recordField<boolean>(narrativeRaw, 'available')
+    const stale = recordField<boolean>(narrativeRaw, 'stale')
+    const generatedAt = recordField<string>(narrativeRaw, 'generatedAt')
+    const hasNarrative = available === true || (available == null && !!(headline || body))
     const uncategorized = asNum(recordField(coverageRaw, 'uncategorizedCount'))
     const uncShare = asNum(recordField(coverageRaw, 'uncategorizedShare'))
 
@@ -343,17 +390,38 @@ export default function FinanceScreen() {
           </Card>
         ) : null}
 
-        {(headline || body) ? (
-          <Card style={styles.block}>
-            <SectionHeader title="נרטיב" style={styles.sectionInline} />
-            {headline ? <Text style={styles.narrativeHeadline}>{headline}</Text> : null}
-            {body ? <Text style={styles.narrativeBody}>{body}</Text> : null}
-          </Card>
-        ) : (
-          <Card style={styles.block}>
-            <Text style={styles.muted}>נרטיב לא זמין (ייתכן ש-GEMINI_API_KEY לא מוגדר).</Text>
-          </Card>
-        )}
+        <Card style={styles.block}>
+          <SectionHeader title="נרטיב" style={styles.sectionInline} />
+          {hasNarrative ? (
+            <>
+              {headline ? <Text style={styles.narrativeHeadline}>{headline}</Text> : null}
+              {body ? <Text style={styles.narrativeBody}>{body}</Text> : null}
+              {generatedAt ? (
+                <Text style={styles.narrativeMeta}>עודכן {fmtDateTime(generatedAt)}</Text>
+              ) : null}
+              {stale ? <Text style={styles.narrativeMeta}>הנתונים השתנו מאז הניתוח</Text> : null}
+            </>
+          ) : (
+            <Text style={styles.muted}>אין עדיין ניתוח שמור</Text>
+          )}
+          {narrativeError ? (
+            <Text style={styles.narrativeError}>לא הצלחתי לעדכן את הניתוח</Text>
+          ) : null}
+          <Pressable
+            onPress={() => void refreshNarrative()}
+            disabled={narrativeBusy}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.narrativeButton,
+              pressed && styles.pressed,
+              narrativeBusy && styles.narrativeButtonDisabled,
+            ]}
+          >
+            <Text style={styles.narrativeButtonText}>
+              {narrativeBusy ? 'מעדכן…' : hasNarrative ? 'עדכן ניתוח' : 'צור ניתוח'}
+            </Text>
+          </Pressable>
+        </Card>
 
         <SectionHeader title="תובנות" style={styles.sectionInline} />
         {insightsList.length === 0 ? (
@@ -574,6 +642,38 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     lineHeight: 22,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  narrativeMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 8,
+  },
+  narrativeError: {
+    color: colors.error,
+    fontSize: 12,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 8,
+  },
+  narrativeButton: {
+    alignSelf: 'flex-end',
+    marginTop: 12,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  narrativeButtonDisabled: { opacity: 0.6 },
+  narrativeButtonText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
     textAlign: 'right',
     writingDirection: 'rtl',
   },

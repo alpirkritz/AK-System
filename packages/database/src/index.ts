@@ -37,6 +37,7 @@ const CALENDAR_COLUMNS = [
   'ALTER TABLE meetings ADD COLUMN source_note_id TEXT REFERENCES meeting_notes(id) ON DELETE SET NULL',
   'CREATE INDEX IF NOT EXISTS idx_meetings_source ON meetings(source)',
   'CREATE INDEX IF NOT EXISTS idx_meetings_source_note_id ON meetings(source_note_id)',
+  'ALTER TABLE meetings ADD COLUMN calendar_id TEXT',
 ]
 
 const MEETING_STRUCTURE_TABLES = [
@@ -267,20 +268,43 @@ const EMAIL_VOICE_TABLES = [
     consent_confirmed_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    diarization_status TEXT DEFAULT 'skipped' NOT NULL,
+    diarization_error TEXT,
+    source TEXT DEFAULT 'live' NOT NULL,
+    matched_automatically INTEGER DEFAULT 0 NOT NULL
   )`,
   'ALTER TABLE voice_recordings ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL',
+  "ALTER TABLE voice_recordings ADD COLUMN diarization_status TEXT DEFAULT 'skipped' NOT NULL",
+  'ALTER TABLE voice_recordings ADD COLUMN diarization_error TEXT',
+  "ALTER TABLE voice_recordings ADD COLUMN source TEXT DEFAULT 'live' NOT NULL",
+  'ALTER TABLE voice_recordings ADD COLUMN matched_automatically INTEGER DEFAULT 0 NOT NULL',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_meeting_id ON voice_recordings(meeting_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_project_id ON voice_recordings(project_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_analysis_id ON voice_recordings(analysis_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_created_at ON voice_recordings(created_at)',
   `CREATE TABLE IF NOT EXISTS voice_recording_people (
     recording_id TEXT NOT NULL REFERENCES voice_recordings(id) ON DELETE CASCADE,
-    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    matched_automatically INTEGER DEFAULT 0 NOT NULL,
+    confidence REAL
   )`,
+  'ALTER TABLE voice_recording_people ADD COLUMN matched_automatically INTEGER DEFAULT 0 NOT NULL',
+  'ALTER TABLE voice_recording_people ADD COLUMN confidence REAL',
   'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_recording_id ON voice_recording_people(recording_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_person_id ON voice_recording_people(person_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_recording_people_pair ON voice_recording_people(recording_id, person_id)',
+  `CREATE TABLE IF NOT EXISTS voice_prints (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    embedding TEXT NOT NULL,
+    sample_audio_path TEXT,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_voice_prints_person_id ON voice_prints(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_prints_person_id ON voice_prints(person_id)',
 ]
 
 const PEOPLE_COLUMNS = [
@@ -401,6 +425,29 @@ const WORKSPACE_NOTION_DATABASES_TABLE = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_notion_databases_workspace_id ON workspace_notion_databases(workspace_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_notion_databases_notion_database_id ON workspace_notion_databases(notion_database_id)`,
+]
+
+const PEOPLE_NOTION_SOURCES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS people_notion_sources (
+    id TEXT PRIMARY KEY,
+    account_label TEXT NOT NULL,
+    notion_database_id TEXT NOT NULL,
+    notion_database_name TEXT,
+    phone_property_name TEXT,
+    role_property_name TEXT,
+    company_property_name TEXT,
+    linkedin_property_name TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_people_notion_sources_notion_database_id ON people_notion_sources(notion_database_id)`,
+]
+
+// Idempotent ALTERs for a table created before the field-mapping columns existed.
+const PEOPLE_NOTION_SOURCES_COLUMNS = [
+  'ALTER TABLE people_notion_sources ADD COLUMN phone_property_name TEXT',
+  'ALTER TABLE people_notion_sources ADD COLUMN role_property_name TEXT',
+  'ALTER TABLE people_notion_sources ADD COLUMN company_property_name TEXT',
+  'ALTER TABLE people_notion_sources ADD COLUMN linkedin_property_name TEXT',
 ]
 
 const NOTION_STATUS_OVERRIDES_TABLE = [
@@ -647,6 +694,54 @@ const FINANCE_INSIGHT_NARRATIVES_TABLE = [
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_finance_insight_narratives_scope_hash ON finance_insight_narratives(scope_key, input_hash)`,
 ]
 
+// Personal CFO Module Tables
+const FINANCE_DEBTS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_debts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    balance TEXT NOT NULL,
+    apr TEXT NOT NULL,
+    min_payment TEXT NOT NULL,
+    debt_type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_finance_debts_user_id ON finance_debts(user_id)`,
+]
+
+const FINANCE_PENSION_POLICIES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_pension_policies (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    policy_type TEXT NOT NULL,
+    balance TEXT NOT NULL,
+    deposit_fee_pct TEXT NOT NULL,
+    accum_fee_pct TEXT NOT NULL,
+    monthly_deposit TEXT NOT NULL,
+    retirement_age INTEGER NOT NULL DEFAULT 67,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_finance_pension_policies_user_id ON finance_pension_policies(user_id)`,
+]
+
+const FINANCE_CFO_REPORTS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS finance_cfo_reports (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    report_month TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    model TEXT,
+    generated_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_finance_cfo_reports_user_id ON finance_cfo_reports(user_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_finance_cfo_reports_scope_hash ON finance_cfo_reports(user_id, scope_key, input_hash)`,
+]
+
 const BANK_TABLES = [
   `CREATE TABLE IF NOT EXISTS bank_connections (
     id TEXT PRIMARY KEY,
@@ -836,6 +931,8 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN auto_create_action_item_tasks INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE user_settings ADD COLUMN whatsapp_daily_digest_prompt TEXT',
+  'ALTER TABLE user_settings ADD COLUMN whatsapp_group_commitment_scan_cursor TEXT',
+  'ALTER TABLE user_settings ADD COLUMN whatsapp_self_jid TEXT',
 ]
 
 const AGENT_RUNTIME_TABLES = [
@@ -1112,6 +1209,12 @@ export function getDb() {
   for (const sql of WORKSPACE_NOTION_DATABASES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of PEOPLE_NOTION_SOURCES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of PEOPLE_NOTION_SOURCES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of NOTION_STATUS_OVERRIDES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1158,6 +1261,15 @@ export function getDb() {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of FINANCE_INSIGHT_NARRATIVES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of FINANCE_DEBTS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of FINANCE_PENSION_POLICIES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of FINANCE_CFO_REPORTS_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
   for (const sql of PUSH_SUBSCRIPTIONS_TABLE) {
@@ -1254,6 +1366,7 @@ export const projects = schema.projects
 export const projectPeople = schema.projectPeople
 export const workspaces = schema.workspaces
 export const workspaceNotionDatabases = schema.workspaceNotionDatabases
+export const peopleNotionSources = schema.peopleNotionSources
 export const notionStatusOverrides = schema.notionStatusOverrides
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
@@ -1288,6 +1401,7 @@ export const PERSON_TRAIT_STATUSES = schemaPg.PERSON_TRAIT_STATUSES
 export const PERSON_TRAIT_SOURCE_KINDS = schemaPg.PERSON_TRAIT_SOURCE_KINDS
 export const voiceRecordings = schema.voiceRecordings
 export const voiceRecordingPeople = schema.voiceRecordingPeople
+export const voicePrints = schema.voicePrints
 export const VOICE_RECORDING_STATUSES = schemaPg.VOICE_RECORDING_STATUSES
 export const SERIES_ROSTER_SOURCES = schemaPg.SERIES_ROSTER_SOURCES
 export const ROSTER_EXCEPTION_KINDS = schemaPg.ROSTER_EXCEPTION_KINDS
@@ -1350,10 +1464,10 @@ export type AgentTrigger = typeof schemaPg.agentTriggers.$inferSelect
 export type NewAgentTrigger = typeof schemaPg.agentTriggers.$inferInsert
 export type AgentSchedule = typeof schemaPg.agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof schemaPg.agentSchedules.$inferInsert
-export type Tier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferSelect
-export type NewTier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
+export type Tier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferSelect
+export type NewTier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect
 export type NewPushSubscription = typeof schemaPg.pushSubscriptions.$inferInsert
 export type Person = typeof schemaPg.people.$inferSelect
@@ -1364,6 +1478,8 @@ export type Workspace = typeof schemaPg.workspaces.$inferSelect
 export type NewWorkspace = typeof schemaPg.workspaces.$inferInsert
 export type WorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferSelect
 export type NewWorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferInsert
+export type PeopleNotionSource = typeof schemaPg.peopleNotionSources.$inferSelect
+export type NewPeopleNotionSource = typeof schemaPg.peopleNotionSources.$inferInsert
 export type NotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferSelect
 export type NewNotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferInsert
 export const TASK_STATUSES = schemaPg.TASK_STATUSES
@@ -1396,6 +1512,7 @@ export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
 export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect
 export type VoiceRecording = typeof schemaPg.voiceRecordings.$inferSelect
 export type VoiceRecordingStatus = (typeof schemaPg.VOICE_RECORDING_STATUSES)[number]
+export type VoicePrint = typeof schemaPg.voicePrints.$inferSelect
 export type SeriesRosterSource = (typeof schemaPg.SERIES_ROSTER_SOURCES)[number]
 export type RosterExceptionKind = (typeof schemaPg.ROSTER_EXCEPTION_KINDS)[number]
 export type Task = typeof schemaPg.tasks.$inferSelect
@@ -1414,6 +1531,12 @@ export type FinanceCustomCategory = typeof schemaPg.financeCustomCategories.$inf
 export type NewFinanceCustomCategory = typeof schemaPg.financeCustomCategories.$inferInsert
 export type FinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferSelect
 export type NewFinanceInsightNarrative = typeof schemaPg.financeInsightNarratives.$inferInsert
+export type FinanceDebt = typeof schemaPg.financeDebts.$inferSelect
+export type NewFinanceDebt = typeof schemaPg.financeDebts.$inferInsert
+export type FinancePensionPolicy = typeof schemaPg.financePensionPolicies.$inferSelect
+export type NewFinancePensionPolicy = typeof schemaPg.financePensionPolicies.$inferInsert
+export type FinanceCfoReport = typeof schemaPg.financeCfoReports.$inferSelect
+export type NewFinanceCfoReport = typeof schemaPg.financeCfoReports.$inferInsert
 export const BANK_PROVIDERS = schemaPg.BANK_PROVIDERS
 export const BANK_CONNECTION_STATUSES = schemaPg.BANK_CONNECTION_STATUSES
 export type { BankProvider, BankConnectionStatus } from './schema.pg'

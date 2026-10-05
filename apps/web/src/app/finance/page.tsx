@@ -13,6 +13,7 @@ const VatTab = lazy(() => import('./VatTab'))
 const TradingJournalTab = lazy(() => import('./TradingJournalTab'))
 const AccountsTab = lazy(() => import('./AccountsTab'))
 const DocumentsTab = lazy(() => import('./DocumentsTab'))
+const CfoTab = lazy(() => import('./CfoTab'))
 
 const TABS = [
   'insights',
@@ -23,6 +24,7 @@ const TABS = [
   'import',
   'documents',
   'vat',
+  'cfo',
 ] as const
 type Tab = (typeof TABS)[number]
 
@@ -898,6 +900,11 @@ function FinancePageContent() {
       {tab === 'vat' && (
         <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
           <VatTab />
+        </Suspense>
+      )}
+      {tab === 'cfo' && (
+        <Suspense fallback={<div className="text-[#5a688c] text-sm">טוען...</div>}>
+          <CfoTab />
         </Suspense>
       )}
     </div>
