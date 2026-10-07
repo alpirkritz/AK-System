@@ -2,7 +2,7 @@
  * WhatsApp 1:1 capture for allowlisted people: which JIDs the bridge may forward, what the ingest
  * stores, nightly summaries with proposed commitments, and DM retention.
  */
-import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm'
 import {
   commitments,
   meetingPeople,
@@ -18,6 +18,7 @@ import {
   type CommitmentSource,
   type getDb,
 } from '@ak-system/database'
+import { ownerIdentityPrompt } from './self-person'
 import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { bridgeFetch, getBridgeStatus, isBridgeConfigured } from './whatsapp-bridge-client'
 import { getModel } from './whatsapp-insights'
@@ -179,12 +180,26 @@ export interface ProposedCommitment {
   content: string
   dueInferred: string | null
   sourceMessageId: string | null
+  /** One sentence of why this is still a commitment. Stored as sourceReason. */
+  because?: string | null
+  senderJid?: string | null
+  senderName?: string | null
+  /** When the source message was sent, so the UI can show the conversation's own time. */
+  sourceTs?: number | null
+  /** Chat the message came from: group JID, or the other party's JID for a DM. */
+  sourceChatJid?: string | null
+  sourceChatName?: string | null
 }
 
 /** `{ label, content }` for one proposed commitment, for building notification text (label = chat/person name). */
 export interface ProposedCommitmentLabel {
   label: string
   content: string
+  because?: string | null
+  /** Body line uses "מספר לא מוכר" instead of `label`. The title still uses `label` (the chat name). */
+  unknownSender?: boolean
+  /** Lets the cron drop backfilled old messages from the notification without hiding them. */
+  sourceTs?: number | null
 }
 
 export interface DmChatDigest {
@@ -281,105 +296,149 @@ function asText(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
-/** One message's classification, from either the model or the regex fallback. */
-export interface ModelClassification {
-  messageId: string
-  kind: 'promise' | 'request'
-  content: string
-  due: string | null
+const MAX_COMMITMENTS_PER_CHAT = 3
+const PRIOR_CONTEXT_LIMIT = 20
+
+/** One line handed to the conversation classifier. `citable: false` is prior context. */
+export interface ConversationLine {
+  id: string
+  speakerLabel: string
+  text: string
+  ts: number
+  citable?: boolean
 }
 
-/** Regex fallback in the model's own output shape, so both paths feed the same downstream mapping. */
-function heuristicClassifications(messages: { id: string; text: string; ts: number }[]): ModelClassification[] {
-  const out: ModelClassification[] = []
-  for (const m of messages) {
-    const kind = classifyPromise(m.text)
-    if (!kind) continue
-    out.push({ messageId: m.id, kind, content: clip(m.text), due: inferDueDate(m.text, m.ts) })
+/** One standing commitment from the conversation classifier. */
+export interface ModelClassification {
+  messageId: string
+  owner: CommitmentOwner
+  content: string
+  due: string | null
+  because: string
+}
+
+/** The scan proposes nothing for this chat. Callers must not replace it with the verb regex. */
+export class ClassificationUnavailable extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ClassificationUnavailable'
   }
-  return out
+}
+
+function formatConversationLine(m: ConversationLine): string {
+  const stamp = new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')
+  return `[${m.id}] ${stamp} ${m.speakerLabel}: ${m.text}`
 }
 
 /**
- * Classifies a batch of messages (one DM chat, or one group) as promises/requests using the same
- * Gemini model as the nightly digest. `speakerLabel` is "אני" for the owner, else the other
- * person's/sender's display name — used only for prompt context, never trusted for identity.
- * Throws when no key is set or the call fails, so callers fall back to `heuristicClassifications`.
+ * One Gemini call per chat. Returns at most 3 commitments still standing at the end of the
+ * window. Prior lines (`citable: false`) are readable and cannot be cited as messageId.
  */
-async function classifyMessagesWithModel(
-  messages: { id: string; speakerLabel: string; text: string; ts: number }[],
-): Promise<ModelClassification[]> {
+async function classifyMessagesWithModel(messages: ConversationLine[]): Promise<ModelClassification[]> {
   const model = getModel()
-  const lines = messages
-    .slice(-200)
-    .map((m) => `[${m.id}] ${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')} ${m.speakerLabel}: ${m.text}`)
-    .join('\n')
+  const prior = messages.filter((m) => m.citable === false).slice(-PRIOR_CONTEXT_LIMIT)
+  const fresh = messages.filter((m) => m.citable !== false).slice(-(200 - prior.length))
   const prompt = [
-    'Read this WhatsApp conversation (Hebrew, unless mostly English).',
-    'For each message that is a promise (the speaker commits to do something) or a request (the speaker asks someone else to do something), output one entry.',
-    'kind is "promise" or "request". content is a short Hebrew description of the task, not a verbatim quote.',
-    'due is an ISO date only when the message names a day; otherwise null. messageId is the exact id shown in brackets — copy it verbatim without the brackets.',
-    'Do not invent messages or tasks that are not there. Skip small talk, questions, and acknowledgements that ask for nothing.',
+    ownerIdentityPrompt(),
+    'Read this WhatsApp conversation (Hebrew, unless it is mostly English).',
+    'speaker "אני" is Alpir Kritzler. owner "me" means he must act.',
+    'Return only commitments that are still standing at the end of the thread.',
+    'Merge restatements of the same task into one item. At most 3 items.',
+    'Be strict. Most conversations contain no commitment at all — returning an empty list is the normal answer.',
+    'Drop jokes, hedges, sarcasm, and complaints that are not a real ask. "חלום, מזמין כוסות חדשות" after a complaint is not a commitment.',
+    'Drop anything already settled in the thread. "נרשמתי" or "אני עניתי שלא" is done, not a task.',
+    'Drop personal and social logistics: invitations, RSVPs, weddings, parties, conferences, rides, "בא איתי?", and health talk such as "תבדוק קורונה" or "תמשיך לנוח".',
+    'Drop opinions, encouragement and small talk. If nobody is actually waiting on an outcome, it is not a commitment.',
+    'An item only counts when someone must do something concrete and it is not done yet.',
+    'content must be an abstracted short task, never the message text copied back. If the only thing you can write is the message itself, skip the item.',
+    'CONTEXT lines are older. Use them to understand the thread. messageId must be the id of a NEW line, copied verbatim without brackets.',
+    'owner is "me" when the account owner (speaker אני) must act, and "them" when someone else must act.',
+    'content is a short Hebrew task, not a quote. because is one Hebrew sentence of why this is still on someone.',
+    'due is YYYY-MM-DD only when a day is named; otherwise null.',
     'Respond in JSON only, no markdown fences:',
-    '{"items":[{"messageId":"...","kind":"promise|request","content":"...","due":null}]}',
+    '{"items":[{"messageId":"...","owner":"me","content":"...","because":"...","due":null}]}',
     '',
-    lines,
+    prior.length ? `CONTEXT (do not cite these ids):\n${prior.map(formatConversationLine).join('\n')}` : 'CONTEXT: (none)',
+    '',
+    `NEW:\n${fresh.map(formatConversationLine).join('\n')}`,
   ].join('\n')
   const result = await model.generateContent(prompt)
   const raw = result.response.text().trim().replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()
-  let parsed: { items?: { messageId?: unknown; kind?: unknown; content?: unknown; due?: unknown }[] }
+  let parsed: { items?: { messageId?: unknown; owner?: unknown; content?: unknown; due?: unknown; because?: unknown }[] }
   try {
     parsed = JSON.parse(raw) as typeof parsed
   } catch {
     throw new Error('Commitment classification JSON parse failed')
   }
-  const ids = new Set(messages.map((m) => m.id))
-  return (parsed.items ?? [])
-    .map((it) => ({
-      // Strip optional surrounding brackets the LLM may include (e.g. "[3EB0C7...]" → "3EB0C7...")
-      messageId: asText(it?.messageId).replace(/^\[|\]$/g, '').trim(),
-      kind: it?.kind === 'request' ? ('request' as const) : it?.kind === 'promise' ? ('promise' as const) : null,
-      content: clip(asText(it?.content)),
-      due: /^\d{4}-\d{2}-\d{2}$/.test(asText(it?.due)) ? asText(it?.due) : null,
-    }))
-    .filter((it): it is ModelClassification => it.kind !== null && !!it.content && ids.has(it.messageId))
+  const ids = new Set(fresh.map((m) => m.id))
+  const kept: ModelClassification[] = []
+  for (const it of parsed.items ?? []) {
+    if (kept.length >= MAX_COMMITMENTS_PER_CHAT) break
+    const messageId = asText(it?.messageId).replace(/^\[|\]$/g, '').trim()
+    const owner = it?.owner === 'me' || it?.owner === 'them' ? it.owner : null
+    const content = clip(asText(it?.content))
+    const because = clip(asText(it?.because), 240)
+    const dueRaw = it?.due
+    const dueText = asText(dueRaw)
+    const dueOk = dueRaw == null || dueText === '' || /^\d{4}-\d{2}-\d{2}$/.test(dueText)
+    if (!owner || !content || !because || !dueOk || !ids.has(messageId)) continue
+    kept.push({
+      messageId,
+      owner,
+      content,
+      because,
+      due: /^\d{4}-\d{2}-\d{2}$/.test(dueText) ? dueText : null,
+    })
+  }
+  return kept
 }
 
-export type MessageClassifier = (
-  messages: { id: string; speakerLabel: string; text: string; ts: number }[],
-) => Promise<ModelClassification[]>
+export type MessageClassifier = (messages: ConversationLine[]) => Promise<ModelClassification[]>
 
 /**
- * Real classifier used in production: Gemini when `GEMINI_API_KEY` is set, otherwise (or on any
- * failure) the Hebrew-verb regex. Exposed as a function so tests can inject a stand-in instead of
- * mocking the Gemini SDK — same DI shape as `summarizeDmChats`'s `generate` option.
+ * Gemini when `GEMINI_API_KEY` is set. A missing key or a failed call throws
+ * `ClassificationUnavailable` so the scan proposes nothing for that chat.
+ * Tests inject a stand-in instead of mocking the Gemini SDK.
  */
 export const defaultClassify: MessageClassifier = async (messages) => {
-  if (!process.env.GEMINI_API_KEY) return heuristicClassifications(messages)
+  if (!process.env.GEMINI_API_KEY) throw new ClassificationUnavailable('GEMINI_API_KEY is not set')
   try {
     return await classifyMessagesWithModel(messages)
   } catch (err) {
-    console.warn('[whatsapp-dm] model classification failed, using heuristic', err instanceof Error ? err.message : err)
-    return heuristicClassifications(messages)
+    const message = err instanceof Error ? err.message : 'classification failed'
+    console.warn('[whatsapp-dm] model classification failed', message)
+    throw new ClassificationUnavailable(message)
   }
 }
 
-/** Classifies one DM chat's new messages via `classify` (Gemini-or-heuristic by default). */
+/** Classifies one DM chat. `owner` is who must act; personId stays the other person. */
 async function classifyDmMessages(
-  messages: DmPromptMessage[],
+  messages: (DmPromptMessage & { citable?: boolean })[],
   personName: string,
   classify: MessageClassifier,
 ): Promise<ProposedCommitment[]> {
   const classifications = await classify(
-    messages.map((m) => ({ id: m.id, speakerLabel: m.fromMe ? 'אני' : personName, text: m.text, ts: m.ts })),
+    messages.map((m) => ({
+      id: m.id,
+      speakerLabel: m.fromMe ? 'אני' : personName,
+      text: m.text,
+      ts: m.ts,
+      citable: m.citable !== false,
+    })),
   )
-  const byId = new Map(messages.map((m) => [m.id, m]))
+  const byId = new Map(messages.filter((m) => m.citable !== false).map((m) => [m.id, m]))
   const out: ProposedCommitment[] = []
   for (const cls of classifications) {
     const src = byId.get(cls.messageId)
     if (!src) continue
-    const owner: CommitmentOwner = (cls.kind === 'promise') === src.fromMe ? 'me' : 'them'
-    out.push({ owner, content: cls.content, dueInferred: cls.due ?? inferDueDate(src.text, src.ts), sourceMessageId: cls.messageId })
+    out.push({
+      owner: cls.owner,
+      content: cls.content,
+      dueInferred: cls.due,
+      sourceMessageId: cls.messageId,
+      because: cls.because,
+      sourceTs: src.ts,
+    })
   }
   return out
 }
@@ -392,7 +451,8 @@ export async function generateDmDigest(personName: string, messages: DmPromptMes
     .map((m) => `[${m.id}] ${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')} ${m.fromMe ? 'אני' : personName}: ${m.text}`)
     .join('\n')
   const prompt = [
-    `Summarize the user's private WhatsApp chat with ${personName}.`,
+    ownerIdentityPrompt(),
+    `Summarize Alpir Kritzler's private WhatsApp chat with ${personName}. "אני" in the transcript is Alpir, not another person.`,
     'Write Hebrew (unless the chat is mostly English). 2-4 plain sentences: what was discussed and where it stands.',
     'Then list commitments: something one side said they would do, or was asked to do and agreed to.',
     'owner is "me" when the user must act, "them" when ' + personName + ' must act.',
@@ -511,9 +571,9 @@ export interface DmCommitmentScanResult {
 }
 
 /**
- * Proposes commitments from new 1:1 messages, classified by Gemini (falling back to the
- * Hebrew-verb regex when no API key is set or the call fails). Does not write a summary row, so
- * the nightly digest still sees the same window. Re-running skips messages already proposed.
+ * Proposes commitments from new 1:1 messages, one Gemini reading of the chat plus up to 20 older
+ * lines. A missing key or a failed call proposes nothing for that chat. Does not write a summary
+ * row, so the nightly digest still sees the same window.
  */
 export async function scanDmCommitments(
   db: Db,
@@ -545,57 +605,92 @@ export async function scanDmCommitments(
       .where(and(eq(whatsappDmMessages.personId, personId), gt(whatsappDmMessages.ts, from), sql`${whatsappDmMessages.text} != ${DM_EXPIRED_TEXT}`))
       .orderBy(asc(whatsappDmMessages.ts))
     if (rows.length === 0) continue
+    const priorRows = await db
+      .select({ id: whatsappDmMessages.id, fromMe: whatsappDmMessages.fromMe, text: whatsappDmMessages.text, ts: whatsappDmMessages.ts })
+      .from(whatsappDmMessages)
+      .where(and(eq(whatsappDmMessages.personId, personId), lte(whatsappDmMessages.ts, from), sql`${whatsappDmMessages.text} != ${DM_EXPIRED_TEXT}`))
+      .orderBy(desc(whatsappDmMessages.ts))
+      .limit(PRIOR_CONTEXT_LIMIT)
+    const messages = [
+      ...priorRows.reverse().map((r) => ({ id: r.id, fromMe: !!r.fromMe, text: r.text, ts: r.ts, citable: false as const })),
+      ...rows.map((r) => ({ id: r.id, fromMe: !!r.fromMe, text: r.text, ts: r.ts, citable: true as const })),
+    ]
+    let found: ProposedCommitment[]
+    try {
+      found = await classifyDmMessages(messages, person.name, classify)
+    } catch (err) {
+      if (err instanceof ClassificationUnavailable) continue
+      throw err
+    }
     result.people++
-    const messages = rows.map((r) => ({ id: r.id, fromMe: !!r.fromMe, text: r.text, ts: r.ts }))
-    const found = await classifyDmMessages(messages, person.name, classify)
     const textById = new Map(messages.map((m) => [m.id, m.text]))
     const added = await proposeCommitments(db, personId, 'whatsapp_dm', found.map((c) => ({
       ...c,
-      sourceSnippet: c.sourceMessageId ? clip(textById.get(c.sourceMessageId) ?? '', 80) : null,
+      sourceSnippet: c.sourceMessageId ? clip(textById.get(c.sourceMessageId) ?? '', 160) : null,
+      sourceChatName: person.name,
     })))
     result.commitments += added.length
-    for (const item of added) result.proposed.push({ label: person.name, content: item.content })
+    for (const item of added) {
+      result.proposed.push({ label: person.name, content: item.content, because: item.because ?? null, sourceTs: item.sourceTs ?? null })
+    }
   }
   return result
 }
 
 /**
- * Inserts proposed commitments, skipping any the person already has with the same text (or, for
- * whatsapp_dm/whatsapp_group, the same source message already proposed for that person). Returns
- * the items actually inserted.
+ * Inserts proposed commitments. Same text is skipped for a known person. WhatsApp sources also
+ * skip a source message that already has a row in any status, including a dismissed one.
+ * `personId` null stores an unknown group sender on the row itself.
  */
 export async function proposeCommitments(
   db: Db,
-  personId: string,
+  personId: string | null,
   source: CommitmentSource,
   items: (ProposedCommitment & { sourceSnippet: string | null })[],
   createdAt = new Date().toISOString(),
 ): Promise<ProposedCommitment[]> {
   if (items.length === 0) return []
-  const existingRows = await db
-    .select({ content: commitments.content, source: commitments.source, sourceId: commitments.sourceId })
-    .from(commitments)
-    .where(eq(commitments.personId, personId))
-  const existing = new Set(existingRows.map((c) => c.content))
+  const existingContent = new Set<string>()
+  if (personId) {
+    const existingRows = await db
+      .select({ content: commitments.content })
+      .from(commitments)
+      .where(eq(commitments.personId, personId))
+    for (const row of existingRows) existingContent.add(row.content)
+  }
   const dedupeBySourceId = source === 'whatsapp_dm' || source === 'whatsapp_group'
-  const existingSourceIds = dedupeBySourceId
-    ? new Set(existingRows.filter((c) => c.source === source && c.sourceId).map((c) => c.sourceId as string))
-    : null
+  const existingSourceIds = new Set<string>()
+  if (dedupeBySourceId) {
+    const ids = [...new Set(items.map((i) => i.sourceMessageId).filter((id): id is string => !!id))]
+    if (ids.length > 0) {
+      const taken = await db
+        .select({ sourceId: commitments.sourceId })
+        .from(commitments)
+        .where(and(eq(commitments.source, source), inArray(commitments.sourceId, ids)))
+      for (const row of taken) if (row.sourceId) existingSourceIds.add(row.sourceId)
+    }
+  }
   const added: ProposedCommitment[] = []
   for (const item of items) {
-    if (existing.has(item.content)) continue
-    if (existingSourceIds && item.sourceMessageId && existingSourceIds.has(item.sourceMessageId)) continue
-    existing.add(item.content)
-    if (existingSourceIds && item.sourceMessageId) existingSourceIds.add(item.sourceMessageId)
+    if (personId && existingContent.has(item.content)) continue
+    if (dedupeBySourceId && item.sourceMessageId && existingSourceIds.has(item.sourceMessageId)) continue
+    if (personId) existingContent.add(item.content)
+    if (item.sourceMessageId) existingSourceIds.add(item.sourceMessageId)
     await db.insert(commitments).values({
       id: `cm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
       personId,
+      senderJid: personId ? null : (item.senderJid ?? null),
+      senderName: personId ? null : (item.senderName ?? null),
       owner: item.owner,
       content: item.content,
       dueInferred: item.dueInferred,
       source,
       sourceId: item.sourceMessageId,
       sourceSnippet: item.sourceSnippet,
+      sourceTs: item.sourceTs ?? null,
+      sourceChatJid: item.sourceChatJid ?? null,
+      sourceChatName: item.sourceChatName ?? null,
+      sourceReason: item.because ?? null,
       status: 'proposed',
       taskId: null,
       createdAt,
@@ -690,8 +785,8 @@ async function findPersonByManualLink(db: Db, jid: string): Promise<string | nul
 
 /**
  * Resolves a group message's sender JID to a `people` row: the owner's own person when the JID is
- * the bridge's own JID, otherwise a phone or manual-link match. Returns null (skip) when neither
- * resolves — no commitment is guessed for an unidentified sender.
+ * the bridge's own JID, otherwise a phone or manual-link match. Null means the sender is not a
+ * contact yet; the scan still stores the commitment with personId empty.
  */
 export async function resolveGroupSenderPersonId(db: Db, senderJid: string, selfJid: string | null): Promise<string | null> {
   const bare = bareJid(senderJid)
@@ -713,11 +808,9 @@ export interface GroupCommitmentScanResult {
 }
 
 /**
- * Proposes commitments from new messages in enabled WhatsApp groups, one Gemini classification
- * call per group with new messages (falling back to the Hebrew-verb regex when no API key is set
- * or the call fails), same as the 1:1 scan. A message only becomes a commitment when its sender
- * resolves to a known person (self or a linked contact) — unidentified senders are skipped.
- * Advances a stored cursor so re-running only looks at messages newer than the last processed one.
+ * Proposes commitments from new messages in enabled WhatsApp groups, one Gemini reading per group
+ * plus up to 20 older lines. When the person who must act is not a contact, the row is stored with
+ * personId null. A failed call does not advance the cursor past that group's oldest new message.
  */
 export async function scanGroupCommitments(
   db: Db,
@@ -784,42 +877,100 @@ export async function scanGroupCommitments(
     return personId
   }
 
+  const isSelfSender = (senderJid: string) => !!selfJid && bareJid(senderJid) === bareJid(selfJid)
+  let retryBefore: number | null = null
+  let selfPersonId: string | null = null
+
   for (const [groupJid, msgs] of byGroup) {
-    result.groups++
     const groupName = nameByJid.get(groupJid) ?? groupJid
-    const isSelfSender = (senderJid: string) => !!selfJid && bareJid(senderJid) === bareJid(selfJid)
-    const classifications = await classify(
-      msgs.map((m) => ({ id: m.waMessageId, speakerLabel: isSelfSender(m.sender) ? 'אני' : m.senderName, text: m.text, ts: m.ts })),
-    )
+    const priorRows = await db
+      .select({
+        waMessageId: whatsappMessages.waMessageId,
+        sender: whatsappMessages.sender,
+        senderName: whatsappMessages.senderName,
+        text: whatsappMessages.text,
+        ts: whatsappMessages.ts,
+      })
+      .from(whatsappMessages)
+      .where(and(eq(whatsappMessages.groupJid, groupJid), lte(whatsappMessages.ts, cursor)))
+      .orderBy(desc(whatsappMessages.ts))
+      .limit(PRIOR_CONTEXT_LIMIT)
+    const lines: ConversationLine[] = [
+      ...priorRows.reverse().map((m) => ({
+        id: m.waMessageId,
+        speakerLabel: isSelfSender(m.sender) ? 'אני' : m.senderName,
+        text: m.text,
+        ts: m.ts,
+        citable: false,
+      })),
+      ...msgs.map((m) => ({
+        id: m.waMessageId,
+        speakerLabel: isSelfSender(m.sender) ? 'אני' : m.senderName,
+        text: m.text,
+        ts: m.ts,
+        citable: true,
+      })),
+    ]
+    let classifications: ModelClassification[]
+    try {
+      classifications = await classify(lines)
+    } catch (err) {
+      if (err instanceof ClassificationUnavailable) {
+        const oldest = Math.min(...msgs.map((m) => m.ts))
+        retryBefore = retryBefore == null ? oldest : Math.min(retryBefore, oldest)
+        continue
+      }
+      throw err
+    }
+    result.groups++
 
     const byMsgId = new Map(msgs.map((m) => [m.waMessageId, m]))
-    const byPerson = new Map<string, (ProposedCommitment & { sourceSnippet: string | null })[]>()
+    const buckets = new Map<string, { personId: string | null; items: (ProposedCommitment & { sourceSnippet: string | null })[] }>()
     for (const cls of classifications) {
       const m = byMsgId.get(cls.messageId)
       if (!m) continue
-      const personId = await resolveSender(m.sender)
-      if (!personId) continue
-      const owner: CommitmentOwner = (cls.kind === 'promise') === isSelfSender(m.sender) ? 'me' : 'them'
-      const list = byPerson.get(personId) ?? []
-      list.push({
-        owner,
+      let personId: string | null
+      if (cls.owner === 'me') {
+        selfPersonId ??= (await ensureSelfPerson(db)).id
+        personId = selfPersonId
+      } else {
+        personId = await resolveSender(m.sender)
+      }
+      const key = personId ?? `unknown:${bareJid(m.sender)}`
+      const bucket = buckets.get(key) ?? { personId, items: [] }
+      bucket.items.push({
+        owner: cls.owner,
         content: cls.content,
-        dueInferred: cls.due ?? inferDueDate(m.text, m.ts),
+        dueInferred: cls.due,
         sourceMessageId: m.waMessageId,
-        sourceSnippet: clip(m.text, 80),
+        sourceSnippet: clip(m.text, 160),
+        because: cls.because,
+        senderJid: personId ? null : bareJid(m.sender),
+        senderName: personId ? null : m.senderName,
+        sourceTs: m.ts,
+        sourceChatJid: groupJid,
+        sourceChatName: groupName,
       })
-      byPerson.set(personId, list)
+      buckets.set(key, bucket)
     }
-    for (const [personId, items] of byPerson) {
-      const added = await proposeCommitments(db, personId, 'whatsapp_group', items)
+    for (const bucket of buckets.values()) {
+      const added = await proposeCommitments(db, bucket.personId, 'whatsapp_group', bucket.items)
       result.commitments += added.length
-      for (const item of added) result.proposed.push({ label: groupName, content: item.content })
+      for (const item of added) {
+        result.proposed.push({
+          label: groupName,
+          content: item.content,
+          because: item.because ?? null,
+          unknownSender: !bucket.personId,
+          sourceTs: item.sourceTs ?? null,
+        })
+      }
     }
   }
 
-  // Persist cursor; also cache the live selfJid when we got it from the bridge
-  // so future runs can fall back to it if the bridge is briefly offline.
-  await setGroupCommitmentCursor(db, maxTs, selfJidFromBridge ? selfJid : undefined)
+  // A failed group keeps the cursor at or before its oldest new message so the next run retries it.
+  const advanceTo = retryBefore == null ? maxTs : Math.max(cursor, retryBefore - 1)
+  await setGroupCommitmentCursor(db, advanceTo, selfJidFromBridge ? selfJid : undefined)
   return result
 }
 

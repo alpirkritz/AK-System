@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
+import { ownerIdentityPrompt } from './self-person'
 
 export interface FeedDigestItemInput {
   title: string
@@ -54,7 +55,9 @@ export function formatFeedDigestItemLine(item: FeedDigestItemInput, index: numbe
 
 export function buildFeedDigestPrompt(items: FeedDigestItemInput[]): string {
   const lines = items.map((item, i) => formatFeedDigestItemLine(item, i + 1)).join('\n')
-  return `You are briefing Alpir, a Hebrew-speaking investor/trader, on his personal news+X feed.
+  return `${ownerIdentityPrompt()}
+
+You are briefing Alpir Kritzler, a Hebrew-speaking investor/trader, on his personal news+X feed.
 
 Read ALL of the numbered items. Write in Hebrew.
 

@@ -8,6 +8,7 @@ import { PRIORITY_COLORS, PRIORITY_LABELS, DAYS_HE } from '@ak-system/types'
 import dynamic from 'next/dynamic'
 const ConflictsWidget = dynamic(() => import('@/components/ConflictsWidget').then((m) => m.ConflictsWidget), { ssr: false })
 const FeedWidget = dynamic(() => import('@/components/FeedWidget').then((m) => m.FeedWidget))
+const HarnessWidget = dynamic(() => import('@/components/HarnessWidget').then((m) => m.HarnessWidget), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 import { LS } from '@/lib/ls-keys'
 import {
@@ -312,6 +313,9 @@ export default function DashboardPage() {
 
       {/* ── Alerts: Calendar Conflicts ──────────────────────────── */}
       <ConflictsWidget />
+
+      {/* ── Cross-domain insights from the harness ──────────────── */}
+      <HarnessWidget />
 
       {/* ── Content Grid — equal cols, minmax(0) so long titles cannot widen the page ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 min-w-0 w-full max-w-full overflow-x-hidden">

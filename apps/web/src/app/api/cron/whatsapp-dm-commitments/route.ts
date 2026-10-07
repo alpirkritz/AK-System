@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
-import { buildCommitmentNotification, scanDmCommitments } from '@ak-system/api'
+import { buildCommitmentNotification, freshCommitments, scanDmCommitments } from '@ak-system/api'
 import { createNotification } from '@/lib/notification-store'
 
 /**
@@ -26,8 +26,10 @@ async function run(request: NextRequest): Promise<NextResponse> {
   }
   try {
     const result = await scanDmCommitments(getDb())
-    if (result.proposed.length > 0) {
-      const { title, body } = buildCommitmentNotification(result.proposed)
+    // Backfilled messages still land in /commitments, they just don't push (COMMITMENT_FRESH_HOURS).
+    const fresh = freshCommitments(result.proposed)
+    if (fresh.length > 0) {
+      const { title, body } = buildCommitmentNotification(fresh)
       await createNotification({ title, body, url: '/commitments', type: 'system' })
     }
     return NextResponse.json({ ok: true, ...result })

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { usePeopleState } from '@/components/people/usePeopleState'
 import { PeopleTopBar } from '@/components/people/PeopleTopBar'
@@ -21,6 +22,30 @@ const PersonModal = dynamic(
   () => import('@/components/Modals/PersonModal').then(m => m.PersonModal),
   { ssr: false }
 )
+
+/**
+ * Opens a person's drawer from `/people?person=<id>`, the deep link the harness widget and
+ * notifications use. Isolated behind Suspense because `useSearchParams` needs a boundary
+ * above it, same as `OpenNewMeeting` on the meetings page.
+ */
+function OpenPersonFromQuery({ onOpen }: { onOpen: (personId: string) => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const opened = useRef(false)
+
+  useEffect(() => {
+    const personId = searchParams.get('person')
+    if (opened.current || !personId) return
+    opened.current = true
+    onOpenRef.current(personId)
+    // Drop the param so closing the drawer and refreshing does not reopen it.
+    router.replace('/people', { scroll: false })
+  }, [searchParams, router])
+
+  return null
+}
 
 export default function PeoplePage() {
   const state = usePeopleState()
@@ -54,6 +79,9 @@ export default function PeoplePage() {
 
   return (
     <div>
+      <Suspense fallback={null}>
+        <OpenPersonFromQuery onOpen={state.setDrawerPersonId} />
+      </Suspense>
       <PeopleTopBar
         total={total}
         search={state.filters.search}

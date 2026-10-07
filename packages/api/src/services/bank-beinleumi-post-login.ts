@@ -3,6 +3,7 @@
  * The library races on post-login selectors once; Otsar often shows SMS OTP first.
  */
 
+import { beginPageHandoff } from './bank-captcha-bridge'
 import { getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
 import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
 import { sleep } from './bank-chrome-launch'
@@ -68,6 +69,7 @@ export async function waitForPostLoginWithOtp(
   page: PuppeteerPageLike,
   opts: BeinleumiPostLoginOpts,
 ): Promise<void> {
+  await beginPageHandoff(opts.connectionId)
   const deadline = Date.now() + getOtpWaitMs() + 60_000
 
   while (Date.now() < deadline) {
@@ -99,8 +101,12 @@ export async function waitForPostLoginWithOtp(
 }
 
 type BeinleumiModule = {
+  default?: { prototype: { getLoginOptions?: (credentials: unknown) => LoginOptions } }
   waitForPostLogin: (page: PuppeteerPageLike) => Promise<void>
-  __akPatchedPostLogin?: boolean
+}
+
+type LoginOptions = {
+  postAction?: () => Promise<void>
 }
 
 function nodeRequire(): NodeRequire {
@@ -118,12 +124,22 @@ export function patchBeinleumiWaitForPostLogin(opts: BeinleumiPostLoginOpts): ()
     const mod = req(
       req.resolve('israeli-bank-scrapers/lib/scrapers/base-beinleumi-group.js'),
     ) as BeinleumiModule
-    const original = mod.waitForPostLogin.bind(mod)
-    mod.waitForPostLogin = async (page) => waitForPostLoginWithOtp(page, opts)
-    mod.__akPatchedPostLogin = true
+    // postAction closes over the library function, so replacing the export does nothing.
+    const proto = mod.default?.prototype
+    const original = proto?.getLoginOptions
+    if (!proto || !original) return () => {}
+    proto.getLoginOptions = function getLoginOptions(
+      this: { page: PuppeteerPageLike },
+      credentials: unknown,
+    ) {
+      const options = original.call(this, credentials)
+      options.postAction = async () => {
+        await waitForPostLoginWithOtp(this.page, opts)
+      }
+      return options
+    }
     return () => {
-      mod.waitForPostLogin = original
-      delete mod.__akPatchedPostLogin
+      proto.getLoginOptions = original
     }
   } catch {
     return () => {}

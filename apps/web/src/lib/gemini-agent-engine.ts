@@ -19,7 +19,7 @@ import {
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
-import { getAgentCalendarScopePromptBlock, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt } from '@ak-system/api'
+import { getAgentCalendarScopePromptBlock, getDefaultTimezone, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt, ownerIdentityPrompt } from '@ak-system/api'
 import { createRunLogger, type AgentRunLogData } from './agent-run-log'
 import { randomBytes } from 'node:crypto'
 
@@ -95,17 +95,31 @@ export function getMeetingPrepNotionParityOverride(): string {
     '2) שורה תחתונה — the outcome of this meeting, as a manager would say it. One sentence. What you walk in to get.',
     '3) על מה לדבר — at most 3. Each line: topic, the grounded fact (number, commitment, blocker, owner), and what to do with it in the room (החלטה / עדכון / שאלה). Order by what must be settled. If notes only support one real topic, write one — do not pad to three.',
     '4) פתוח — at most 2 related tasks, and only if they belong in the room. Omit if none.',
-    '5) מאז הפעם הקודמת — one or two lines: what you committed to, and whether it moved. If no note: `אין סיכום מהפגישה הקודמת`.',
+    '5) מאז הפעם הקודמת — one or two lines: what you committed to, and whether it moved. A prior meeting is the previous instance of THIS topic only (same topic token, project, or series). Shared attendees are not enough. Cite only a note that survived that filter. If none: `אין סיכום מהפגישה הקודמת`. Do not name a second product in שורה תחתונה when it is absent from the focused notes and from the meeting title.',
   ].join('\n')
 }
 
+/**
+ * Without an explicit `timeZone` this formats in the container's zone (UTC in production),
+ * which reports the previous day for anything after 21:00 Israel time.
+ */
 function formatDateLabel(): string {
-  const today = new Date()
-  return today.toLocaleDateString('he-IL', {
+  return new Date().toLocaleDateString('he-IL', {
+    timeZone: getDefaultTimezone(),
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+  })
+}
+
+/** Local wall clock as `HH:MM`. Agents greeted "בוקר טוב" at 15:07 without this. */
+function formatClockLabel(): string {
+  return new Date().toLocaleTimeString('en-GB', {
+    timeZone: getDefaultTimezone(),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
   })
 }
 
@@ -191,7 +205,10 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
 
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\` inside ARO.`,
-    `Today is ${formatDateLabel()} (${todayIso()}).`,
+    ownerIdentityPrompt(),
+    `Now: ${formatDateLabel()}, ${formatClockLabel()} (${todayIso()}, ${getDefaultTimezone()}).`,
+    'NEVER use a time-of-day greeting that contradicts that clock — no "בוקר טוב" in the afternoon. On a direct question, skip the greeting entirely and answer.',
+    'Day and week calendar tools return `now` plus four separate buckets: `inProgress`, `upcoming`, `allDay`, `past`. Use them exactly as given — an event from `past` is over, and one from `allDay` (birthday, WFH, trip) holds for the whole day and is NEVER past. Asked what is on today, answer from `inProgress` and `upcoming`; treat `past` as already done and `allDay` as one short line of background. Never let a list of birthdays crowd out the actual meetings.',
     `ABC workspace root: ${getAbcRootPath()}`,
     '',
     `## Delivery channel: ${channelLabel}`,
@@ -206,6 +223,23 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     'Be concise and structured. Use bullet points for lists.',
     'You have tools to read calendar, tasks, meetings, contacts, Gmail, WhatsApp groups, and more — use them when needed for your analysis.',
     'For on-demand WhatsApp group summaries (סיכום וואטסאפ / daily digest), use summarize_whatsapp_groups and include the returned summary text directly in your reply.',
+    '',
+    // Carried over from the former general-assistant prompt when the web chat and
+    // Telegram moved onto Hugo — these rules are channel-agnostic, so they belong here
+    // rather than in one agent card.
+    '## Output formatting',
+    'For task lists: group by priority (high first) and show the due date when set. Priority labels in Hebrew: גבוהה=high, בינונית=medium, נמוכה=low.',
+    'For meeting briefings: time, attendees with roles, project, open tasks, notes.',
+    'Format times as HH:MM and dates as day/month/year or in natural language.',
+    'If a calendar event has no linked record in the system database, still show the event details — mention the gap, do not drop the event.',
+    'When showing conflicts, describe each overlap explicitly with both event names and times.',
+    '',
+    '## WhatsApp query tools',
+    'query_whatsapp_group, summarize_whatsapp_groups and whatsapp_now return structured DB facts (message counts, top senders, recent lines) — YOU write the Hebrew briefing from them. When messageCount=0 or empty=true, say "אין הודעות [בטווח הזה]". Always state the rangeLabel.',
+    'Time-anchored WhatsApp questions MUST carry time arguments: "היום"/"today" → window="today"; "אתמול"/"yesterday" → window="yesterday"; "בין 14 ל-16" → sinceHour=14, untilHour=16 (24h, Israel time); "מהבוקר" → window="today", sinceHour=6.',
+    '',
+    '## Agent feedback',
+    'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
     '',
   ]
 
@@ -257,6 +291,8 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
       '',
       '### Multi-source scan (vague asks)',
       'On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar vague intent: call at least TWO of YOUR OWN tools from DIFFERENT domains before answering. Do NOT call run_abc_agent as the first action.',
+      'One of those MUST be get_harness_insights — it is the only source for links that span domains (a person going quiet while a commitment to them is open, a stale commitment, spend clustered around meetings, an unanswered thread). Each insight carries `basedOn`; cite it when you raise one, and do not restate an insight as a fact you verified yourself. For a named person, also call get_harness_insights with that personId.',
+      'MANDATORY when get_harness_insights returned one or more insights: the reply must contain a `קישורים בין תחומים:` section naming at least one of them with what it was based on. These links are invisible to every other tool — a calendar-and-tasks answer that silently drops them is a failed reply. If you judge that none of them deserve action right now, keep the section and write one line saying so and why. If the tool returned no insights, omit the section entirely — absence is not a finding.',
       '### Date grounding (CRITICAL — מחר / tomorrow)',
       'If the user asks about מחר / tomorrow / a specific date: you MUST call get_day_schedule with date "tomorrow" (or that YYYY-MM-DD) AND get_notion_meetings with range "tomorrow" (and get_notion_tasks filter "tomorrow" when tasks matter) BEFORE answering.',
       'NEVER use get_today_schedule or Notion range "today" for a tomorrow question. NEVER claim "אין פגישות מחר" / empty day unless those tool results for THAT date returned empty events/meetings AND calendarErrors is empty. If calendarErrors is present, say which calendars failed — do not invent an empty day.',
@@ -421,6 +457,27 @@ const DELEGATION_RETRY_PROMPT =
   'specialist format — then keep the facts and add CoS judgment. Do not say you will update later. ' +
   'Use the same language as the user.'
 
+/**
+ * Header the CoS reply must carry once the harness returned something. The guard below keys on
+ * this fixed string rather than on matching insight text, because source labels arrive
+ * transliterated (`Or Zelniker`) while the reply is Hebrew (`אור זלניקר`) — substring matching
+ * would fire retries on answers that did cite the link.
+ */
+const HARNESS_SECTION_HEADER = 'קישורים בין תחומים'
+
+const HARNESS_SURFACING_RETRY_PROMPT =
+  `CRITICAL: get_harness_insights returned open cross-domain insights and your reply omitted them. ` +
+  `Rewrite the full reply, adding a \`${HARNESS_SECTION_HEADER}:\` section that names at least one ` +
+  'insight and what it was based on. Those links exist in no other tool — dropping them silently ' +
+  'is a failed reply. If none deserve action now, keep the section and say so in one line with the ' +
+  'reason. Keep everything else you already wrote. Do not call any more tools. Same language as the user.'
+
+/** True when the harness tool produced at least one insight in this run. */
+function harnessReturnedInsights(toolResults: Map<string, unknown>): boolean {
+  const raw = toolResults.get('get_harness_insights') as { insights?: unknown[] } | undefined
+  return Array.isArray(raw?.insights) && raw.insights.length > 0
+}
+
 /** Own-tool names that mean CoS already did real work — do not force specialist routing. */
 const COS_OWN_WORK_TOOLS = [
   'get_today_schedule',
@@ -469,6 +526,32 @@ const MEETING_PREP_GROUNDING_RETRY_PROMPT =
 
 type FunctionCall = { name: string; args: ToolArgs }
 
+const FOCUS_TITLE_TOOLS = new Set(['get_notion_meeting_notes', 'get_notion_tasks'])
+
+/** The cron context has one `Meeting:` line. Day-wide prompts have none or many. */
+export function singleMeetingFocusTitle(message: string): string | null {
+  const matches = [...message.matchAll(/^Meeting:\s+(.+)$/gm)]
+  if (matches.length !== 1) return null
+  const title = matches[0]?.[1]?.trim()
+  return title || null
+}
+
+function withSingleMeetingFocus(
+  calls: FunctionCall[],
+  agentId: string,
+  message: string,
+): FunctionCall[] {
+  if (agentId !== MEETING_PREP_AGENT_ID) return calls
+  const title = singleMeetingFocusTitle(message)
+  if (!title) return calls
+  return calls.map((call) => {
+    if (!FOCUS_TITLE_TOOLS.has(call.name)) return call
+    const existing = call.args?.focusTitle
+    if (typeof existing === 'string' && existing.trim()) return call
+    return { ...call, args: { ...call.args, focusTitle: title } }
+  })
+}
+
 async function processToolCalls(
   calls: FunctionCall[],
   caller: Awaited<ReturnType<typeof createApiCaller>>,
@@ -499,12 +582,15 @@ async function runToolLoop(
   toolsCalled: Set<string>,
   toolResults: Map<string, unknown>,
   maxIterations: number,
+  agentId: string,
+  message: string,
 ): Promise<Awaited<ReturnType<typeof chat.sendMessage>>> {
   let result = initialResult
   let iterations = 0
   while (iterations < maxIterations) {
-    const calls = result.response.functionCalls() as FunctionCall[] | undefined
-    if (!calls || calls.length === 0) break
+    const rawCalls = result.response.functionCalls() as FunctionCall[] | undefined
+    if (!rawCalls || rawCalls.length === 0) break
+    const calls = withSingleMeetingFocus(rawCalls, agentId, message)
     const responses = await processToolCalls(calls, caller, toolCtx, toolsCalled, toolResults)
     result = await chat.sendMessage(responses)
     iterations++
@@ -544,7 +630,17 @@ async function runChatLoop(
   let geminiCalls = 1
 
   logger.log('Starting chat loop', { agentId, message: message.slice(0, 100), allowTools })
-  let result = await runToolLoop(chat, await chat.sendMessage(message), caller, toolCtx, toolsCalled, toolResults, allowTools ? 10 : 0)
+  let result = await runToolLoop(
+    chat,
+    await chat.sendMessage(message),
+    caller,
+    toolCtx,
+    toolsCalled,
+    toolResults,
+    allowTools ? 10 : 0,
+    agentId,
+    message,
+  )
 
   let inspection = inspectResponse(result)
   logger.log('Initial response', {
@@ -589,8 +685,36 @@ async function runChatLoop(
       toolsCalled,
       toolResults,
       5,
+      agentId,
+      message,
     )
     inspection = inspectResponse(result)
+  }
+
+  // Cross-domain links are the one thing no other tool can produce, and the model readily
+  // answers from the prefetched calendar/Notion context while ignoring them. One retry.
+  if (
+    agentId === HUGO_AGENT_ID &&
+    inspection.text &&
+    harnessReturnedInsights(toolResults) &&
+    !inspection.text.includes(HARNESS_SECTION_HEADER)
+  ) {
+    logger.log('CoS dropped harness insights — forcing surfacing retry')
+    geminiCalls++
+    result = await runToolLoop(
+      chat,
+      await chat.sendMessage(HARNESS_SURFACING_RETRY_PROMPT),
+      caller,
+      toolCtx,
+      toolsCalled,
+      toolResults,
+      0,
+      agentId,
+      message,
+    )
+    const retried = inspectResponse(result)
+    // Only take the retry if it actually produced text; never trade a good answer for an empty one.
+    if (retried.text) inspection = retried
   }
 
   // Meeting Prep Herald must ground its briefing in real data. If it answered without
@@ -609,6 +733,8 @@ async function runChatLoop(
       toolsCalled,
       toolResults,
       5,
+      agentId,
+      message,
     )
     inspection = inspectResponse(result)
   }

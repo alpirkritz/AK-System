@@ -10,6 +10,7 @@ import { trpc } from '@/lib/trpc'
 import { TaskModal } from '@/components/Modals/TaskModal'
 import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
+import { matchTaskAssigneeId } from '@ak-system/api'
 import { AddPersonControl } from './AddPersonControl'
 
 interface ConversationAnalysisProps {
@@ -137,10 +138,7 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
   }
 
   function matchPersonByName(ownerName: string | undefined): string {
-    if (!ownerName) return ''
-    const normalized = ownerName.trim().toLowerCase()
-    const match = people.find((p) => p.name.toLowerCase() === normalized)
-    return match?.id ?? ''
+    return matchTaskAssigneeId(ownerName, people)
   }
 
   const meetingPeopleIds: string[] = meeting?.peopleIds ?? []

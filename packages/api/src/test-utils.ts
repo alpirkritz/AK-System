@@ -9,6 +9,7 @@ import {
   projects,
   projectPeople,
   meetingAnalyses,
+  meetingPreps,
   meetingSeries,
   meetingTypes,
   tasks,
@@ -29,8 +30,13 @@ import {
   whatsappDmMessages,
   personEmailThreads,
   voiceRecordingPeople,
+  voiceSpeakerIdentities,
+  voiceTranscriptSegments,
   voiceRecordings,
   voicePrints,
+  harnessNodes,
+  harnessEdges,
+  harnessInsights,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -54,6 +60,9 @@ export async function createTestCaller() {
  */
 export async function resetDb() {
   const db = getTestDb()
+  await db.delete(harnessInsights)
+  await db.delete(harnessEdges)
+  await db.delete(harnessNodes)
   await db.delete(personTraitEvidence)
   await db.delete(personTraits)
   await db.delete(personObservations)
@@ -61,6 +70,8 @@ export async function resetDb() {
   await db.delete(commitments)
   await db.delete(personEmailThreads)
   await db.delete(voicePrints)
+  await db.delete(voiceSpeakerIdentities)
+  await db.delete(voiceTranscriptSegments)
   await db.delete(voiceRecordingPeople)
   await db.delete(voiceRecordings)
   await db.delete(whatsappDmSummaries)
@@ -70,6 +81,7 @@ export async function resetDb() {
   await db.delete(whatsappPersonLinks)
   await db.delete(duplicateReviews)
   await db.delete(tasks)
+  await db.delete(meetingPreps)
   await db.delete(meetingAnalyses)
   await db.delete(meetingNotePeople)
   await db.delete(meetingNoteProjects)

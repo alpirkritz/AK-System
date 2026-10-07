@@ -172,6 +172,7 @@ export default function TaskDetailScreen() {
     return ordered.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
+        (p.id === selfPersonId && 'אני'.includes(q)) ||
         (p.company ?? '').toLowerCase().includes(q) ||
         (p.role ?? '').toLowerCase().includes(q),
     )
@@ -331,14 +332,13 @@ export default function TaskDetailScreen() {
             onPress={() => setAssigneePickerOpen(true)}
             style={[styles.input, styles.assigneeField]}
             accessibilityRole="button"
-            accessibilityLabel={assignee ? `אחראי ${assignee.name}` : 'בחר אחראי'}
+            accessibilityLabel={
+              assignee ? `אחראי ${assignee.id === selfPersonId ? 'אני' : assignee.name}` : 'בחר אחראי'
+            }
           >
             <Text style={[styles.dateText, !assignee && styles.datePlaceholder]}>
-              {assignee ? assignee.name : 'ללא אחראי'}
+              {assignee ? (assignee.id === selfPersonId ? 'אני' : assignee.name) : 'ללא אחראי'}
             </Text>
-            {assignee && assignee.id === selfPersonId ? (
-              <Text style={styles.selfTag}>אני</Text>
-            ) : null}
           </Pressable>
 
           <Text style={styles.label}>סטטוס</Text>
@@ -551,9 +551,8 @@ export default function TaskDetailScreen() {
                       style={[styles.personName, active && styles.personNameActive]}
                       numberOfLines={1}
                     >
-                      {item.name}
+                      {item.id === selfPersonId ? 'אני' : item.name}
                     </Text>
-                    {item.id === selfPersonId ? <Text style={styles.selfTag}>אני</Text> : null}
                     {item.company ? (
                       <Text style={styles.personMeta} numberOfLines={1}>
                         {item.company}
@@ -615,17 +614,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 8,
-  },
-  selfTag: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '600',
-    borderWidth: 1,
-    borderColor: colors.accent + '55',
-    backgroundColor: colors.accent + '22',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
   },
   modalFill: { flex: 1 },
   modalOverlay: {

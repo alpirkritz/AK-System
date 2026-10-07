@@ -53,6 +53,8 @@ export interface RoutableEventSummary {
   scheduleTimes: string[]
   routedAgentId: string | null
   suggestedAgentId: string | null
+  /** Agent this event falls back to when `routedAgentId` is null. */
+  defaultAgentId: string | null
 }
 
 /** Event types that can hand their run over to an agent. */
@@ -156,6 +158,7 @@ export async function listAgentConfigs(
           stored.length > 0 ? stored : t.defaultTime ? [t.defaultTime] : [],
         routedAgentId: routing.get(t.id) ?? null,
         suggestedAgentId: t.suggestedAgentId ?? null,
+        defaultAgentId: t.defaultAgentId ?? null,
       }
     }),
   }

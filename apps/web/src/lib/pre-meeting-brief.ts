@@ -1,4 +1,4 @@
-import { formatLocalClock } from '@ak-system/api'
+import { formatLocalClock, topicTokens, titlesShareTopic } from '@ak-system/api'
 
 /** Calendar attendee as returned by Google/Apple calendar APIs. */
 export interface PreMeetingAttendee {
@@ -354,20 +354,9 @@ export function collectParticipantLabels(
   return out
 }
 
-const TITLE_STOP = new Set(
-  'follow up meeting sync weekly daily standup the and for with from into about this that next last connect'.split(
-    ' ',
-  ),
-)
-
-/** Significant tokens from a meeting title for light task matching (min length 4). */
+/** Distinctive topic tokens. Shared with the meeting-notes focus filter. */
 export function significantTitleTokens(title: string): string[] {
-  return title
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 4 && !TITLE_STOP.has(t))
+  return topicTokens(title)
 }
 
 /**
@@ -380,16 +369,12 @@ export function selectRelatedOpenTasks(
   meetingTitle?: string,
   limit = MAX_RELATED_TASKS,
 ): PreMeetingTask[] {
-  const tokens = meetingTitle ? significantTitleTokens(meetingTitle) : []
   const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
   const matched = allTasks.filter((t) => {
     if (t.done) return false
     if (linked?.id && t.meetingId === linked.id) return true
     if (linked?.projectId && t.projectId === linked.projectId) return true
-    if (tokens.length > 0) {
-      const hay = t.title.toLowerCase()
-      if (tokens.some((tok) => hay.includes(tok))) return true
-    }
+    if (meetingTitle && titlesShareTopic(t.title, meetingTitle)) return true
     return false
   })
   matched.sort(
@@ -398,17 +383,16 @@ export function selectRelatedOpenTasks(
   return matched.slice(0, limit)
 }
 
-/** Most recent past meeting with same title and non-empty notes. */
+/** Newest past notes that share a topic token with this meeting. Exact title is not required. */
 export function findPriorMeetingNotes(
   allMeetings: { title: string; date: string; notes?: string | null }[],
   title: string,
   todayIso: string,
 ): string | null {
-  const norm = title.trim().toLowerCase()
   const prior = allMeetings
     .filter(
       (m) =>
-        m.title.trim().toLowerCase() === norm &&
+        titlesShareTopic(m.title, title) &&
         m.date < todayIso &&
         Boolean(m.notes?.trim()),
     )

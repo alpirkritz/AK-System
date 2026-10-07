@@ -34,7 +34,7 @@ import {
   and,
   inArray,
 } from '@ak-system/database'
-import { ensureSelfPerson, getSelfPersonName } from './self-person'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
 import { upsertPersonExternalId } from './person-external-ids'
 import {
   fetchDatabaseProperties,
@@ -232,7 +232,38 @@ export function extractNotionDatabaseId(link: string): string | null {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-/** True when at least one Notion `tasks` database is configured. */
+/**
+ * `tasks` databases: env-configured ones plus any paste-a-link rows in
+ * `workspace_notion_databases` (see `notion-task-source-manager`). A custom row whose
+ * `accountLabel` no longer matches a configured account is skipped and reported in `errors`.
+ * Env ids are not duplicated. A link with a null `accountLabel` that is not in the env list
+ * is skipped with the same error — the row exists but the token cannot be resolved.
+ */
+export async function resolveTaskDatabases(db: Db): Promise<{ databases: NotionDb[]; errors: string[] }> {
+  const databases = resolveDatabases('tasks')
+  const errors: string[] = []
+  const known = new Set(databases.map((d) => d.databaseId))
+  const links = await db.select().from(workspaceNotionDatabases)
+  for (const row of links) {
+    if (known.has(row.notionDatabaseId)) continue
+    const name = row.notionDatabaseName ?? row.notionDatabaseId
+    const token = row.accountLabel ? findNotionAccountToken(row.accountLabel) : null
+    if (!token) {
+      errors.push(`task-source/${name}: לא נמצא חשבון Notion בשם "${row.accountLabel ?? ''}"`)
+      continue
+    }
+    databases.push({
+      token,
+      databaseId: row.notionDatabaseId,
+      name: row.notionDatabaseName ?? 'Notion',
+      accountLabel: row.accountLabel!,
+    })
+    known.add(row.notionDatabaseId)
+  }
+  return { databases, errors }
+}
+
+/** True when at least one Notion `tasks` database is configured in env (legacy check). */
 export function isNotionTasksConfigured(): boolean {
   return resolveDatabases('tasks').length > 0
 }
@@ -260,11 +291,12 @@ export function listConfiguredPeopleDatabaseIds(): string[] {
  * account label and database name at sync time; the name narrows it when one account owns
  * several task databases, but the label alone is enough to pick the token.
  */
-export function resolveTaskDatabaseTarget(
+export async function resolveTaskDatabaseTarget(
   accountLabel: string | null | undefined,
   dbName?: string | null,
-): { token: string; databaseId: string } | null {
-  const dbs = resolveDatabases('tasks')
+  db: Db = getDb(),
+): Promise<{ token: string; databaseId: string } | null> {
+  const { databases: dbs } = await resolveTaskDatabases(db)
   if (dbs.length === 0) return null
   const label = (accountLabel ?? '').trim().toLowerCase()
   const name = (dbName ?? '').trim().toLowerCase()
@@ -295,8 +327,16 @@ export async function resolveWorkspaceNotionTarget(
   if (!link) return null
 
   const hit = resolveDatabases('tasks').find((d) => d.databaseId === link.notionDatabaseId)
-  if (!hit) return null
-  return { token: hit.token, databaseId: hit.databaseId, accountLabel: hit.accountLabel, name: hit.name }
+  if (hit) return { token: hit.token, databaseId: hit.databaseId, accountLabel: hit.accountLabel, name: hit.name }
+
+  const token = link.accountLabel ? findNotionAccountToken(link.accountLabel) : null
+  if (!token || !link.accountLabel) return null
+  return {
+    token,
+    databaseId: link.notionDatabaseId,
+    accountLabel: link.accountLabel,
+    name: link.notionDatabaseName ?? 'Notion',
+  }
 }
 
 /**
@@ -782,7 +822,9 @@ export async function syncNotionTasks(
     errors: [],
   }
 
-  const taskDbs = resolveDatabases('tasks')
+  const taskResolution = await resolveTaskDatabases(db)
+  const taskDbs = taskResolution.databases
+  result.errors.push(...taskResolution.errors)
   if (taskDbs.length === 0) {
     throw new Error('לא הוגדר בסיס נתונים של משימות ב-Notion — הוסף אותו ל-NOTION_ACCOUNTS')
   }
@@ -1086,20 +1128,21 @@ export async function syncNotionTasks(
       const matched = new Map<string, PersonRow>()
       let userIsAssignee = false
       for (const n of assigneeNames) {
-        if (n.toLowerCase() === userName.toLowerCase()) {
+        if (n.toLowerCase() === userName.toLowerCase() || isSelfPersonName(n)) {
           userIsAssignee = true
-          matched.set(userPerson.id, userPerson)
           continue
         }
         const p = maps.byName.get(n.toLowerCase())
-        if (p) matched.set(p.id, p)
+        if (p && !isSelfPersonName(p.name)) matched.set(p.id, p)
       }
       for (const relId of relationIds) {
         const p = maps.byNotionId.get(relId)
-        if (p) {
-          matched.set(p.id, p)
-          if (p.id === userPerson.id) userIsAssignee = true
+        if (!p) continue
+        if (p.id === userPerson.id || isSelfPersonName(p.name)) {
+          userIsAssignee = true
+          continue
         }
+        matched.set(p.id, p)
       }
 
       // Keep task if it's the user's or belongs to at least one known person.

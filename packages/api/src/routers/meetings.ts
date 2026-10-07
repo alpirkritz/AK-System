@@ -38,7 +38,8 @@ import {
   seriesTitleKey,
   type CalendarParticipant,
 } from '../lib/calendar-participants'
-import { getSelfPersonName } from '../services/self-person'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
+import { getMeetingPrep } from '../services/meeting-preps'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -853,7 +854,7 @@ export const meetingsRouter = router({
             kaizenKeep: result.kaizenKeep,
             kaizenImprove: result.kaizenImprove,
             openQuestion: result.openQuestion,
-            participantsJson: JSON.stringify(result.participants),
+            participantsJson: JSON.stringify(omitSelfParticipants(result.participants ?? [])),
             actionItemsJson: JSON.stringify(result.actionItems),
             model: 'gemini-2.5-flash',
             status: 'completed',
@@ -920,7 +921,7 @@ export const meetingsRouter = router({
         kaizenImprove: analysis.kaizenImprove,
         openQuestion: analysis.openQuestion,
         participants: analysis.participantsJson
-          ? JSON.parse(analysis.participantsJson)
+          ? omitSelfParticipants(JSON.parse(analysis.participantsJson) as { name: string }[])
           : [],
         actionItems: analysis.actionItemsJson
           ? JSON.parse(analysis.actionItemsJson)
@@ -1047,15 +1048,18 @@ export const meetingsRouter = router({
       for (const item of itemsToCreate) {
         if (item.taskId) continue // Already created
 
-        // Try to match owner to existing person
+        // His own action items stay assigned to him. They are not a task of the
+        // Alpir Kritzler contact.
         let assigneeId: string | null = null
-        if (item.owner) {
+        if (item.owner && isSelfPersonName(item.owner)) {
+          assigneeId = (await ensureSelfPerson(ctx.db)).id
+        } else if (item.owner) {
           const [match] = await ctx.db
-            .select({ id: people.id })
+            .select({ id: people.id, name: people.name })
             .from(people)
             .where(eq(people.name, item.owner))
             .limit(1)
-          assigneeId = match?.id || null
+          assigneeId = match && !isSelfPersonName(match.name) ? match.id : null
         }
 
         const taskId = 't' + Date.now() + Math.random().toString(36).slice(2, 7)
@@ -1147,6 +1151,11 @@ export const meetingsRouter = router({
 
       return { linked }
     }),
+
+  /** The pre-meeting brief the herald stored for this meeting, or null when none was generated. */
+  getPrep: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => getMeetingPrep(ctx.db, input.meetingId)),
 
   linkOrphanedNotes: protectedProcedure.mutation(async () => {
     const { linkOrphanedNotes } = await import('../services/notion-meeting-sync')

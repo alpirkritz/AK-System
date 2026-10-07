@@ -232,15 +232,33 @@ describe('DM summaries and commitments queue', () => {
     const now = Date.now()
     await ingestDmMessages(db, [msg('g1', 'חלום, מזמין כוסות חדשות', now - 60_000, false)])
 
-    const first = await scanDmCommitments(db, now)
+    const classify = async (msgs: { id: string; text: string; citable?: boolean }[]) =>
+      msgs.filter((m) => m.citable !== false && m.text.includes('מזמין')).map((m) => ({
+        messageId: m.id,
+        owner: 'them' as const,
+        content: 'להזמין כוסות חדשות',
+        due: null,
+        because: 'איציק אמר שהוא מזמין',
+      }))
+    const first = await scanDmCommitments(db, now, { classify })
     expect(first).toMatchObject({ people: 1, commitments: 1 })
-    expect(first.proposed).toEqual([{ label: 'Dana Levi', content: 'חלום, מזמין כוסות חדשות' }])
-    expect(await scanDmCommitments(db, now)).toEqual({ people: 1, commitments: 0, proposed: [] })
+    expect(first.proposed).toEqual([
+      { label: 'Dana Levi', content: 'להזמין כוסות חדשות', because: 'איציק אמר שהוא מזמין', sourceTs: expect.any(Number) },
+    ])
+    expect(await scanDmCommitments(db, now, { classify })).toEqual({ people: 1, commitments: 0, proposed: [] })
     expect(await db.select().from(whatsappDmSummaries)).toHaveLength(0)
 
     const [c] = await db.select().from(commitments)
-    expect(c).toMatchObject({ personId: 'p1', owner: 'them', source: 'whatsapp_dm', status: 'proposed' })
-    expect(c.content).toContain('מזמין כוסות')
+    expect(c).toMatchObject({
+      personId: 'p1',
+      owner: 'them',
+      source: 'whatsapp_dm',
+      status: 'proposed',
+      content: 'להזמין כוסות חדשות',
+      sourceSnippet: 'חלום, מזמין כוסות חדשות',
+      sourceReason: 'איציק אמר שהוא מזמין',
+      sourceChatName: 'Dana Levi',
+    })
 
     const generate = async () => ({ summary: 'סיכום היום.', commitments: [] })
     expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 0, proposed: [] })
@@ -253,10 +271,12 @@ describe('DM summaries and commitments queue', () => {
     await ingestDmMessages(db, [msg('m1', 'אל תשכח להביא לה בשישי', now - 60_000, false)])
 
     // ingestDmMessages assigns its own row id, so the classifier must key off whatever id it's handed.
-    const classify = async (msgs: { id: string }[]) => msgs.map((m) => ({ messageId: m.id, kind: 'request' as const, content: 'להביא לה משהו בשישי', due: '2026-10-03' }))
+    const classify = async (msgs: { id: string; citable?: boolean }[]) => msgs.filter((m) => m.citable !== false).map((m) => ({ messageId: m.id, owner: 'me' as const, content: 'להביא לה משהו בשישי', due: '2026-10-03', because: 'היא ביקשה' }))
     const result = await scanDmCommitments(db, now, { classify })
     expect(result).toMatchObject({ people: 1, commitments: 1 })
-    expect(result.proposed).toEqual([{ label: 'Dana Levi', content: 'להביא לה משהו בשישי' }])
+    expect(result.proposed).toEqual([
+      { label: 'Dana Levi', content: 'להביא לה משהו בשישי', because: 'היא ביקשה', sourceTs: expect.any(Number) },
+    ])
 
     const [c] = await db.select().from(commitments)
     // Dana asked (fromMe=false, kind='request') => the commitment is mine, not hers.

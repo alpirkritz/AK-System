@@ -10,9 +10,25 @@ export type MobileVoiceRecording = {
   meetingId: string | null
   meetingTitle: string | null
   matchedAutomatically: boolean
+  /** How the recording got its meeting — see docs/specs/record-from-calendar-meeting.md */
+  meetingLink: 'chosen' | 'auto' | 'standalone' | null
   topic: string | null
   project: { id: string; name: string } | null
   people: { id: string; name: string }[]
+}
+
+/** A calendar meeting offered on the recording screen; tapping it records that meeting. */
+export type MobileMeetingChoice = {
+  id: string
+  title: string
+  date: string
+  time: string
+  endTime: string | null
+  location: string | null
+  projectId: string | null
+  projectName: string | null
+  people: { id: string; name: string }[]
+  state: 'now' | 'upcoming' | 'ended'
 }
 
 export type MobileVoiceAnalysis = {
@@ -95,6 +111,17 @@ export async function fetchVoiceAnalysis(token: string, recordingId: string): Pr
 export async function fetchAttachCandidates(token: string, recordingId: string): Promise<MobileAttachCandidate[]> {
   const client = createTrpcClient(token)
   return (await client.voice.attachCandidates.query({ recordingId })) as MobileAttachCandidate[]
+}
+
+export async function fetchMeetingChoices(token: string): Promise<MobileMeetingChoice[]> {
+  const client = createTrpcClient(token)
+  const res = (await client.voice.meetingChoices.query()) as { meetings: MobileMeetingChoice[] }
+  return res.meetings
+}
+
+export async function fetchMeetingChoice(token: string, meetingId: string): Promise<MobileMeetingChoice | null> {
+  const client = createTrpcClient(token)
+  return (await client.voice.meetingContext.query({ meetingId })) as MobileMeetingChoice | null
 }
 
 export async function attachVoiceToMeeting(

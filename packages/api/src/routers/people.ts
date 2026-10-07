@@ -25,7 +25,7 @@ import {
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
-import { ensureSelfPerson } from '../services/self-person'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from '../services/self-person'
 import { repointPersonExternalIds } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
 import { createNotification } from '../lib/notification-store'
@@ -225,6 +225,8 @@ export const peopleRouter = router({
   }),
 
   getRelated: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
+    const [subject] = await ctx.db.select({ name: people.name }).from(people).where(eq(people.id, input.id))
+    const ownerProfile = isSelfPersonName(subject?.name)
     const relatedMeetingIds = await ctx.db
       .select({ meetingId: meetingPeople.meetingId })
       .from(meetingPeople)
@@ -267,10 +269,14 @@ export const peopleRouter = router({
       .select()
       .from(tasks)
       .where(eq(tasks.assigneeId, input.id))
+    const mineIds = new Set(tasksAsAssignee.map((t) => t.id))
     const tasksAsLinked = linkedIds.length > 0
       ? await ctx.db.select().from(tasks).where(inArray(tasks.id, linkedIds))
       : []
-    const allTaskIds = [...new Set([...tasksAsAssignee.map(t => t.id), ...tasksAsLinked.map(t => t.id)])]
+    // The owner's own tasks belong to him, not to his contact card.
+    const visibleAssignee = ownerProfile ? [] : tasksAsAssignee
+    const visibleLinked = ownerProfile ? tasksAsLinked.filter((t) => !mineIds.has(t.id)) : tasksAsLinked
+    const allTaskIds = [...new Set([...visibleAssignee.map(t => t.id), ...visibleLinked.map(t => t.id)])]
 
     const tasksWithContext =
       allTaskIds.length === 0
@@ -568,6 +574,33 @@ export const peopleRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    if (isSelfPersonName(input.name)) {
+      const self = await ensureSelfPerson(ctx.db)
+      await ctx.db.update(people).set({
+        name: getSelfPersonName(),
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.phone !== undefined ? { phone: input.phone } : {}),
+        ...(input.company !== undefined ? { company: input.company } : {}),
+        ...(input.companyId !== undefined ? { companyId: input.companyId } : {}),
+        ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
+        ...(input.linkedin !== undefined ? { linkedin: input.linkedin } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(input.expertIn !== undefined ? { expertIn: input.expertIn } : {}),
+        ...(input.lastContact !== undefined ? { lastContact: input.lastContact } : {}),
+        ...(input.goal !== undefined ? { goal: input.goal } : {}),
+        ...(input.contactFrequencyDays !== undefined ? { contactFrequencyDays: input.contactFrequencyDays } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      }).where(eq(people.id, self.id))
+      if (input.phone) {
+        await setCaptureWhatsapp(ctx.db, self.id, true)
+        await pushDmAllowlist(ctx.db)
+      }
+      const [row] = await ctx.db.select().from(people).where(eq(people.id, self.id))
+      return row!
+    }
+
     const id = 'p' + Date.now()
     const createdAt = new Date().toISOString()
     await ctx.db.insert(people).values({

@@ -40,9 +40,11 @@ vi.mock('./notion', () => ({
 }))
 vi.mock('@ak-system/api', () => ({
   getAgentCalendarScopePromptBlock: vi.fn().mockResolvedValue(''),
+  getDefaultTimezone: () => 'Asia/Jerusalem',
   localTodayIso: () => '2026-07-22',
   getAgentCalendarContext: vi.fn().mockResolvedValue({}),
   formatAgentCalendarContextForPrompt: () => '',
+  ownerIdentityPrompt: () => 'The user is Alpir Kritzler (אלפיר קריצלר).',
 }))
 
 import {
@@ -134,6 +136,18 @@ describe('Chief of Staff primary interface', () => {
     expect(prompt).not.toContain('almost verbatim')
     expect(prompt).not.toContain('## Hugo orchestrator — primary interface')
   })
+
+  it('makes the harness a mandatory part of the multi-source scan, cited not restated', async () => {
+    const prompt = await buildAgentSystemInstruction('01_Hugo_orchestrator', 'whatsapp')
+    expect(prompt).toContain('One of those MUST be get_harness_insights')
+    expect(prompt).toContain('`basedOn`')
+    expect(prompt).toContain('absence is not a finding')
+  })
+
+  it('does not give the harness to a single-domain specialist', async () => {
+    const prompt = await buildAgentSystemInstruction('06_calendar_optimizer', 'web')
+    expect(prompt).not.toContain('get_harness_insights')
+  })
 })
 
 describe('morning brief day map', () => {
@@ -188,6 +202,8 @@ describe('meeting prep walk-in card (all channels)', () => {
     expect(override).toContain('the outcome of this meeting')
     expect(override).toContain('פתוח')
     expect(override).toContain('מאז הפעם הקודמת')
+    expect(override).toContain('Shared attendees are not enough')
+    expect(override).toContain('אין סיכום מהפגישה הקודמת')
     // No longer has separate stance section
     expect(override).not.toContain('recommended stance')
     expect(override).not.toContain('עמדה מומלצת')

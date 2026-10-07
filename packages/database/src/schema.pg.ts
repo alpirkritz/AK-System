@@ -142,6 +142,12 @@ export const workspaceNotionDatabases = pgTable('workspace_notion_databases', {
   workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
   notionDatabaseId: text('notion_database_id').notNull(),
   notionDatabaseName: text('notion_database_name'),
+  /**
+   * Set when the database was registered by paste-a-link (see notion-task-source-manager).
+   * Matches a `NOTION_ACCOUNTS` label; the token is resolved at sync time and never stored.
+   * Null on rows linked from the env checkbox list — those tokens come from `resolveDatabases('tasks')`.
+   */
+  accountLabel: text('account_label'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   workspaceIdIdx: index('idx_workspace_notion_databases_workspace_id').on(table.workspaceId),
@@ -380,6 +386,24 @@ export const meetingAnalyses = pgTable('meeting_analyses', {
   sourceIdx: index('idx_meeting_analyses_source').on(table.source),
 }))
 
+export const MEETING_PREP_SOURCES = ['agent', 'template'] as const
+export type MeetingPrepSource = (typeof MEETING_PREP_SOURCES)[number]
+
+/** The pre-meeting brief generated ~15 min before a meeting, kept so the meeting page can show it. */
+export const meetingPreps = pgTable('meeting_preps', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  /** Null when the built-in template produced the brief instead of an agent. */
+  agentId: text('agent_id'),
+  /** agent | template */
+  source: text('source').notNull(),
+  bodyText: text('body_text').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  meetingIdUq: uniqueIndex('uq_meeting_preps_meeting_id').on(table.meetingId),
+}))
+
 export const tasks = pgTable('tasks', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -474,6 +498,7 @@ export const BANK_CONNECTION_STATUSES = [
   'error',
   'disabled',
   'awaiting_otp',
+  'awaiting_captcha',
 ] as const
 export type BankConnectionStatus = (typeof BANK_CONNECTION_STATUSES)[number]
 
@@ -1166,7 +1191,11 @@ export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
 /** Something promised in a conversation; becomes a task only when the owner accepts it. */
 export const commitments = pgTable('commitments', {
   id: text('id').primaryKey(),
-  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** Null while a group sender is not a contact yet. */
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** Set only while personId is null. */
+  senderJid: text('sender_jid'),
+  senderName: text('sender_name'),
   /** me | them */
   owner: text('owner').notNull(),
   content: text('content').notNull(),
@@ -1175,8 +1204,16 @@ export const commitments = pgTable('commitments', {
   /** whatsapp_dm | whatsapp_group | meeting_analysis | email | voice */
   source: text('source').notNull(),
   sourceId: text('source_id'),
-  /** Short quote of the source message, kept after the raw text expires */
+  /** A short quote from the source message. */
   sourceSnippet: text('source_snippet'),
+  /** When the source message was actually sent, not when the scan ran. Null for non-message sources. */
+  sourceTs: integer('source_ts'),
+  /** Group JID, or the other party's JID for a DM. */
+  sourceChatJid: text('source_chat_jid'),
+  /** Group name, or the person's name for a DM. */
+  sourceChatName: text('source_chat_name'),
+  /** One Hebrew sentence from the classifier: why this is still standing. */
+  sourceReason: text('source_reason'),
   /** proposed | accepted | dismissed */
   status: text('status').notNull().default('proposed'),
   taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
@@ -1186,6 +1223,7 @@ export const commitments = pgTable('commitments', {
   personIdIdx: index('idx_commitments_person_id').on(table.personId),
   statusIdx: index('idx_commitments_status').on(table.status),
   taskIdIdx: index('idx_commitments_task_id').on(table.taskId),
+  sourceTsIdx: index('idx_commitments_source_ts').on(table.sourceTs),
 }))
 
 export type WhatsappDmMessage = typeof whatsappDmMessages.$inferSelect
@@ -1245,6 +1283,8 @@ export const voiceRecordings = pgTable('voice_recordings', {
   source: text('source').notNull().default('live'),
   /** True when `meetingId` was set by automatic calendar-context matching rather than manual attach or placeholder creation */
   matchedAutomatically: boolean('matched_automatically').notNull().default(false),
+  /** Set once the "who is speaking?" notification went out, so it is never sent twice */
+  speakerPromptSentAt: text('speaker_prompt_sent_at'),
 }, (table) => ({
   meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
   analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
@@ -1263,6 +1303,38 @@ export const voiceRecordingPeople = pgTable('voice_recording_people', {
   recordingIdIdx: index('idx_voice_recording_people_recording_id').on(table.recordingId),
   personIdIdx: index('idx_voice_recording_people_person_id').on(table.personId),
   pairUq: uniqueIndex('uq_voice_recording_people_pair').on(table.recordingId, table.personId),
+}))
+
+/** One speaker turn from the transcription, with the times needed to play it back as a voice sample. */
+export const voiceTranscriptSegments = pgTable('voice_transcript_segments', {
+  id: text('id').primaryKey(),
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  /** The label the model returned, e.g. `דובר 1` — relative to this recording only */
+  speakerLabel: text('speaker_label').notNull(),
+  startMs: integer('start_ms').notNull(),
+  endMs: integer('end_ms').notNull(),
+  text: text('text').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_transcript_segments_recording_id').on(table.recordingId),
+}))
+
+export const VOICE_SPEAKER_STATES = ['identified', 'skipped', 'auto'] as const
+export type VoiceSpeakerState = (typeof VOICE_SPEAKER_STATES)[number]
+
+/** Who a speaker label is: answered by the user, skipped by them, or resolved by self-voice matching. */
+export const voiceSpeakerIdentities = pgTable('voice_speaker_identities', {
+  id: text('id').primaryKey(),
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  speakerLabel: text('speaker_label').notNull(),
+  /** Null when the user skipped this speaker */
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** identified | skipped | auto */
+  state: text('state').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_speaker_identities_recording_id').on(table.recordingId),
+  speakerUq: uniqueIndex('uq_voice_speaker_identities_speaker').on(table.recordingId, table.speakerLabel),
 }))
 
 /** A single enrolled voice embedding used for automatic self-voice matching in recordings. MVP: one row (Alpir's own). */
@@ -1340,9 +1412,101 @@ export const personTraitEvidence = pgTable('person_trait_evidence', {
   pairUq: uniqueIndex('uq_person_trait_evidence_pair').on(table.traitId, table.observationId),
 }))
 
+/** Harness world model — one row per entity the cross-domain reasoner can reach. */
+export const HARNESS_NODE_KINDS = [
+  'person',
+  'meeting',
+  'commitment',
+  'financial_event',
+  'whatsapp_signal',
+  'voice_recording',
+  'email_thread',
+] as const
+export type HarnessNodeKind = (typeof HARNESS_NODE_KINDS)[number]
+
+export const HARNESS_EDGE_KINDS = [
+  'ATTENDED',
+  'HAS_COMMITMENT',
+  'MENTIONED_IN',
+  'TRIGGERED_SPEND',
+  'RELATED_TO',
+] as const
+export type HarnessEdgeKind = (typeof HARNESS_EDGE_KINDS)[number]
+
+export const HARNESS_INSIGHT_SEVERITIES = ['info', 'attention', 'urgent'] as const
+export type HarnessInsightSeverity = (typeof HARNESS_INSIGHT_SEVERITIES)[number]
+
+export const HARNESS_INSIGHT_STATUSES = ['open', 'dismissed', 'acted'] as const
+export type HarnessInsightStatus = (typeof HARNESS_INSIGHT_STATUSES)[number]
+
+export const harnessNodes = pgTable('harness_nodes', {
+  /** Deterministic `<kind>:<entityId>` so re-indexing upserts instead of duplicating. */
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  entityId: text('entity_id').notNull(),
+  label: text('label').notNull(),
+  /** One short line; this is what reaches the LLM prompt. */
+  summary: text('summary'),
+  /** JSON bag of kind-specific fields. */
+  attrs: text('attrs'),
+  /** ISO timestamp the underlying event happened; null for timeless nodes like people. */
+  occurredAt: text('occurred_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  kindIdx: index('idx_harness_nodes_kind').on(table.kind),
+  occurredAtIdx: index('idx_harness_nodes_occurred_at').on(table.occurredAt),
+  entityIdIdx: index('idx_harness_nodes_entity_id').on(table.entityId),
+}))
+
+export const harnessEdges = pgTable('harness_edges', {
+  /** Deterministic `<kind>:<fromId>:<toId>`. */
+  id: text('id').primaryKey(),
+  fromId: text('from_id').notNull(),
+  toId: text('to_id').notNull(),
+  kind: text('kind').notNull(),
+  weight: real('weight').notNull().default(1),
+  occurredAt: text('occurred_at'),
+  attrs: text('attrs'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  fromIdIdx: index('idx_harness_edges_from_id').on(table.fromId),
+  toIdIdx: index('idx_harness_edges_to_id').on(table.toId),
+  kindIdx: index('idx_harness_edges_kind').on(table.kind),
+}))
+
+export const harnessInsights = pgTable('harness_insights', {
+  id: text('id').primaryKey(),
+  /** Detector id, e.g. `silent_before_meeting`. */
+  kind: text('kind').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  severity: text('severity').notNull().default('info'),
+  score: real('score').notNull().default(0),
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** JSON `{ nodeId, kind, label }[]` — what the insight was derived from. */
+  sources: text('sources'),
+  status: text('status').notNull().default('open'),
+  /** A detector re-firing on the same facts updates this row instead of adding one. */
+  dedupeKey: text('dedupe_key').notNull(),
+  generatedAt: text('generated_at').notNull(),
+  expiresAt: text('expires_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  statusIdx: index('idx_harness_insights_status').on(table.status),
+  personIdIdx: index('idx_harness_insights_person_id').on(table.personId),
+  dedupeKeyUq: uniqueIndex('uq_harness_insights_dedupe_key').on(table.dedupeKey),
+}))
+
 export type PersonEmailThread = typeof personEmailThreads.$inferSelect
 export type VoiceRecording = typeof voiceRecordings.$inferSelect
+export type VoiceTranscriptSegment = typeof voiceTranscriptSegments.$inferSelect
+export type VoiceSpeakerIdentity = typeof voiceSpeakerIdentities.$inferSelect
 export type VoicePrint = typeof voicePrints.$inferSelect
+export type HarnessNode = typeof harnessNodes.$inferSelect
+export type HarnessEdge = typeof harnessEdges.$inferSelect
+export type HarnessInsight = typeof harnessInsights.$inferSelect
 
 // Personal CFO types
 export type FinanceDebt = typeof financeDebts.$inferSelect

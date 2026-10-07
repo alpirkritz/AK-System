@@ -7,12 +7,22 @@ import { router, protectedProcedure } from '../trpc'
 import {
   attachCandidates,
   attachVoiceRecording,
+  getMeetingChoice,
   getVoiceRecording,
+  listMeetingChoices,
   listVoiceRecordings,
   processVoiceRecording,
   voiceStorageDir,
 } from '../services/voice'
-import { deleteVoicePrint, enrollVoicePrint, getVoicePrintStatus, VoiceEnrollmentError } from '../services/voice-diarization'
+import {
+  deleteVoicePrint,
+  enrollVoicePrint,
+  getVoicePrintStatus,
+  identifySpeaker,
+  listRecordingSpeakers,
+  VoiceEnrollmentError,
+} from '../services/voice-diarization'
+import { omitSelfParticipants } from '../services/self-person'
 
 const STUCK_PROCESSING_MS = 10 * 60_000
 
@@ -46,6 +56,14 @@ export const voiceRouter = router({
   attachCandidates: protectedProcedure
     .input(z.object({ recordingId: z.string().min(1) }))
     .query(async ({ ctx, input }) => attachCandidates(ctx.db, input.recordingId)),
+
+  /** Today's meetings offered on the recording screen — tapping one records it directly. */
+  meetingChoices: protectedProcedure.query(async ({ ctx }) => ({ meetings: await listMeetingChoices(ctx.db) })),
+
+  /** One meeting for the "record this meeting" deep link, on any date. */
+  meetingContext: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => getMeetingChoice(ctx.db, input.meetingId)),
 
   attachToPeople: protectedProcedure
     .input(z.object({
@@ -96,12 +114,26 @@ export const voiceRouter = router({
         kaizenKeep: a.kaizenKeep,
         kaizenImprove: a.kaizenImprove,
         openQuestion: a.openQuestion,
-        participants: parseJson(a.participantsJson),
+        participants: omitSelfParticipants(parseJson(a.participantsJson) as { name: string }[]),
         actionItems: parseJson(a.actionItemsJson) as { content: string; owner?: string }[],
         status: a.status,
         error: a.error,
       }
     }),
+
+  // Speaker identification by the user (docs/specs/identify-unknown-speakers.md): the sample is
+  // played client-side out of the full audio file, so only times travel over the wire.
+  speakers: protectedProcedure
+    .input(z.object({ recordingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => listRecordingSpeakers(ctx.db, input.recordingId)),
+
+  identifySpeaker: protectedProcedure
+    .input(z.object({
+      recordingId: z.string().min(1),
+      speakerLabel: z.string().min(1),
+      personId: z.string().min(1).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => identifySpeaker(ctx.db, input)),
 
   // Self-voice enrollment (see docs/specs/recording-background-and-speaker-id.md). MVP: a single
   // enrolled voiceprint (Alpir's own); no per-contact enrollment yet.

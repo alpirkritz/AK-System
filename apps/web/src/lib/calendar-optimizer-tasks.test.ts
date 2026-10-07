@@ -23,7 +23,11 @@ vi.mock('./notion', () => ({
   getNotionTasks: vi.fn(),
   searchNotion: vi.fn(),
 }))
-vi.mock('@ak-system/api', () => ({
+vi.mock('@ak-system/api', async () => ({
+  // The time-status helpers come from the real module — the schedule buckets are the
+  // behaviour under test here, so stubbing them would test the stub.
+  ...(await vi.importActual<object>('../../../../packages/api/src/lib/event-time-status')),
+  getDefaultTimezone: () => 'Asia/Jerusalem',
   localTodayIso: () => '2026-09-23',
   localTomorrowIso: () => '2026-09-24',
   resolveLocalDayArg: (d: string) => (d === 'today' ? '2026-09-23' : d),
@@ -102,8 +106,8 @@ describe('calendar optimizer task tools', () => {
 
     const hidden = (await executeTool('get_today_schedule', {}, caller, {
       agentId: '06_calendar_optimizer',
-    })) as { events: unknown[]; dueTasks?: unknown }
-    expect(hidden.events).toHaveLength(1)
+    })) as { summary: { past: number }; past: unknown[]; dueTasks?: unknown }
+    expect(hidden.summary.past).toBe(1)
     expect(hidden).not.toHaveProperty('dueTasks')
 
     const shown = (await executeTool('get_today_schedule', {}, caller, {

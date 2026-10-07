@@ -1874,3 +1874,285 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 ### Performance notes
 - Needs deploy. Saved prompt is already in DB; production code still overrides it until then.
 
+---
+
+## 2026-10-06 — Dev pipeline — meeting-prep-topic-isolation
+
+**Workflow:** `docs/specs/meeting-prep-topic-isolation.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Stop a DD pre-meeting brief from citing Algo notes and tasks just because the same people were in both rooms.
+- **Context:** Owner approved the spec. "Follow up DD release discussion" was filled with Algo 4.0 milestones.
+
+### Actions Taken
+1. Added `topicTokens` / `titlesShareTopic`. `DD` stays, `release` / `4.0` drop.
+2. `insights.meetingNotes` accepts `focusTitle` and drops person-only matches.
+3. The 15-minute prep injects that title into `get_notion_meeting_notes` and `get_notion_tasks`.
+
+### Output
+- `docs/specs/meeting-prep-topic-isolation.md`
+- `packages/api/src/lib/topic-match.ts`
+- `packages/api/src/routers/insights.ts`
+
+### Compliance
+✓ no new PII; notes already stored for the owner.
+
+### Performance notes
+- Day-wide prep is unchanged. Needs a deploy before the next DD meeting uses it.
+
+
+---
+
+## 2026-10-06 — harness-agent-integration (Hugo / Dev pipeline)
+
+- **Goal:** Wire the Intelligence Harness into the agent layer. User asked what "פתח כרטיס" opens (answer: nothing — dead deep link) and decided the agents should read the cross-domain layer, recalling the original design where everything routes through Hugo.
+- **Actions Taken:** Confirmed Hugo's Chief-of-Staff orchestration is alive and actively tuned *against* over-delegation (`gemini-agent-engine.ts`). Added `get_harness_insights` tool gated to `01_Hugo_orchestrator` / `03_morning_briefing` / `04_meeting_prep_herald` + general chat; harness made a mandatory leg of Hugo's multi-source scan with cite-`basedOn` and "absence is not a finding" rules; new declarative `defaultAgentId` on notification types (distinct from display-only `suggestedAgentId`) routing `harness_insight` through Hugo, with template fallback on agent failure; honest picker label; fixed `/people?person=` deep link via Suspense-wrapped `OpenPersonFromQuery`.
+- **Outputs:** `docs/specs/harness-agent-integration.md`, `reports/harness-agent-integration.md` (APPROVED WITH NITS). Tests +16 (8 tool gating/executor, 6 event-runner default, 2 prompt).
+- **Compliance:** Spec written and both design decisions put to the user before coding, per dev-pipeline. Web 268/268, API 1178/1178, lint 0, build 0. Deployed to EC2 and verified on the box: harness cron `ok:true` (1736 nodes / 2785 edges / 14 insights).
+- **Blockers:** Hugo actually invoking the tool is unverified — no urgent insights to fire the cron's agent branch, and no auth bypass in production to trigger an agent run by curl. Needs a live "מה חשוב עכשיו" in the app.
+
+---
+
+## 2026-10-06 — agent-clock-and-harness-surfacing (Hugo / Dev pipeline)
+
+- **Goal:** User reported two defects in a live Hugo reply: "בוקר טוב" at 15:07, and an answer that looked calendar/Notion-only with no cross-domain content.
+- **Actions Taken:** Diagnosed from `agent_run_logs` — Hugo DID call `get_harness_insights` (first of two tools) but dropped the 12 returned insights from the reply. Added clock to the agent + chat system instructions with a rule against contradicting time-of-day greetings, and fixed `formatDateLabel` missing `timeZone` (latent: UTC container reported the previous day after 21:00 Israel). Added a mandatory `קישורים בין תחומים:` section to Hugo's judgment contract plus a bounded one-shot retry guard in `runChatLoop` keyed on that header (transliteration-proof, unlike matching insight text).
+- **Outputs:** `docs/specs/agent-clock-and-harness-surfacing.md`, `reports/agent-clock-and-harness-surfacing.md` (APPROVED). Tests +6; 6 existing suites needed `getDefaultTimezone` in their `@ak-system/api` mock.
+- **Compliance:** Spec before code per dev-pipeline. Web 274/274, lint 0, build 0. Deployed to EC2; verified container UTC 12:16 → agent-visible zoned clock 15:16.
+- **Blockers:** None. Watch for Hugo runs with `gemini_calls: 2` in `agent_run_logs` — if the surfacing retry fires routinely, switch to injecting insights into the prefetched context instead of relying on the tool call.
+
+
+---
+
+### 2026-10-06 — Harness email scope
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/harness-email-scope.md` (approved by user: "מאשר")
+- **Actions:** Added an `email` scope to the Intelligence Harness indexer. Gmail threads from
+  `person_email_threads` now become `email_thread` nodes (subject + snippet only, no bodies),
+  carrying a deep link into the thread in Gmail. Edges: `MENTIONED_IN` person → thread, and
+  `RELATED_TO` thread → commitment via the deterministic `source='email'` / `source_id` join.
+  Surfaced through `personSignals.emails`, Hugo's `get_harness_insights` tool, the
+  `unanswered_thread` detector's sources, and the dashboard widget's source labels.
+- **Outputs:** `reports/harness-email-scope.md` (APPROVED)
+- **Compliance:** Metadata-only indexing per the user's explicit choice; no message bodies are
+  read or stored. Gmail link points at the user's own mailbox.
+- **Verification:** 1185 API + 274 web tests pass; lint and build clean. Deployed to EC2 and ran
+  the harness cron there — 54 `email_thread` nodes indexed, and the specific gap the user
+  reported (Tovit Gal's correspondence missing from People/Commitments context) is closed.
+- **Performance note:** My first diagnosis searched for the person by Hebrew name and concluded
+  there was no correspondence. She is stored as "Tovit Gal" in English; the user corrected this.
+  Searching contact tables by email rather than display name would have avoided the detour.
+
+---
+
+### 2026-10-06 — Agent schedule time-awareness
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/agent-schedule-time-awareness.md`
+- **Trigger:** User reported Hugo answering about meetings that had already ended, and not
+  knowing what time the question was asked. Applies to all agents, not only Hugo.
+- **Actions:** Added `packages/api/src/lib/event-time-status.ts` as the single source of truth
+  for past / current / upcoming / all-day. The prefetched calendar prompt block now presents
+  today split by the clock, with all-day markers demoted to one inline background line; the
+  day/week calendar tool payloads return `now` plus pre-split buckets instead of a flat list.
+  Both agent system instructions describe the buckets and forbid a self-invented two-way split.
+- **Outputs:** `reports/agent-schedule-time-awareness.md` (APPROVED)
+- **Verification:** 1204 API + 274 web tests pass; lint and build clean. Deployed to EC2 and
+  asked the live Hugo at 16:23 — he now leads with what is in progress, files the finished
+  11:30 sync under "כבר הסתיים", and keeps today's birthdays as background rather than past.
+- **Performance notes:**
+  - My first diagnosis fixed the calendar *tool* payload. Deploying it changed nothing, because
+    Hugo reads the prefetched prompt block. Checking which surface the agent actually consumes,
+    before changing one, would have saved two deploy cycles.
+  - Prompt wording alone did not hold: three tightenings still left all-day events filed as
+    past. Removing them from the event list worked immediately. General lesson — when an agent
+    must not do something with a list, take away the list rather than asking more firmly.
+
+---
+
+### 2026-10-06 — Hugo as the general assistant (+ push incident)
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/hugo-as-general-assistant.md` · **Report:** `reports/hugo-as-general-assistant.md`
+- **Incident first:** The user reported Hugo "sending messages every 15 minutes since the
+  deploy". Investigated on EC2: `agent_schedules` has Hugo `enabled: 0` with no times, the
+  crontab has no Hugo entry, and all eight of the day's Hugo runs were `channel: web` between
+  12:07 and 13:23 UTC — i.e. **my own verification calls** while fixing the schedule bug. Each
+  call to `/api/agents/chat` pushed the full reply to his phone. Not a cron, not a bug in the
+  product: my process.
+- **Actions:** Interactive surfaces now pass `notifyOnComplete: false` (`/api/chat`, Telegram,
+  `/api/agents/chat`); WhatsApp and cron keep pushing because there the push is the delivery.
+  Separately, on the user's request, the nameless "general assistant" was removed: its 89-line
+  inline prompt in `resolveIntent` is deleted, and the web chat plus Telegram now run through
+  Hugo via a new `runHugoConversation`, sharing one conversation thread with WhatsApp. Rules
+  that existed only in the deleted prompt (output formatting, WhatsApp time arguments,
+  agent-feedback wording) were migrated into the shared agent instruction.
+- **Verification:** 283 web tests pass; lint and build clean. On EC2 the chat now answers
+  "אני הוגו, ראש המטה שלך", recalls the previous turn from the shared thread, and produced
+  zero notifications across four runs.
+- **Performance notes:**
+  - Verifying a change by running a production agent is not free and not silent. It costs a
+    Gemini call (~15–20s on flash-thinking) and, until today, notified the user every time.
+    Check what a verification path delivers to the user before using it repeatedly.
+  - Before deleting a prompt, diff its rules against the replacement instead of assuming
+    overlap. Three rule groups here existed in only one of the two prompts.
+
+---
+
+### 2026-10-06 — WhatsApp ingestion restored + notification sync/archive fixes
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc`
+- **Specs:** `docs/specs/notification-sync-and-archive.md`
+- **Report:** `reports/notification-sync-and-archive.md` — APPROVED
+
+**WhatsApp ingestion (ops, no code change).** Dead since 2026-10-05T08:56Z. Two
+layered causes:
+
+1. The Baileys linked-device session could not decrypt anything — 52 `sent retry
+   receipt` against 0 messages ever buffered. Fixed by re-pairing (user scanned a
+   QR served from the bridge on EC2 through an SSH tunnel). After pairing: 0 retry
+   receipts.
+2. **Self-inflicted:** `rm -rf /data/auth/*` to force the QR also deleted
+   `dm-config.json` (87-contact DM capture allowlist), `dm-lid-map.json` (405
+   entries) and `group-config.json` (63 watched groups) — the bridge stores
+   operational config in the same directory as session credentials. With an empty
+   allowlist `resolveCapturedDm` returns null for every chat, which surfaced as
+   `"Ignored — not self-chat"` on the user's own test message. Restored all three
+   from the pre-wipe backup (`/data/auth/auth-backup-20261006-1637.tgz`).
+
+Verified in production on both channels: `dm:1` at 17:02Z, `group:2` at 17:08Z —
+first rows since 2026-10-05.
+
+**Notifications (items 2+3).** The archive state was never the problem: 5976 of
+5978 rows were correctly archived. Four display-layer causes, all verified on EC2
+before coding — a broken tRPC call from the service worker (reproduced as a 400),
+a shared `tag` that made each push replace the previous one, no reconciliation
+between server state and the OS tray, and a web page that never refetched.
+
+**Compliance:** engineering work under `apps/`/`packages/`; `.cursorrules` ABC
+guardrails not applicable. No PII written to any artifact.
+
+**Lessons**
+
+- The bridge's auth directory mixes session credentials with operational config.
+  "Reset the session" therefore silently destroys capture allowlists. Back it up
+  first (I did) *and* restore the non-session files immediately (I did not — it
+  cost a second round of debugging and a second test message from the user).
+- `pnpm deploy:ec2` already re-syncs that config to the bridge
+  (`{"enabled":63,"dmAllowlist":87,"dmPushed":true}`), so a plain redeploy would
+  have recovered it. Know the recovery paths the tooling already gives you.
+- "No data" and "broken pipeline" look identical in a quiet window. The decisive
+  move was asking the user to send one message — a controlled input beats more
+  log reading.
+- A grace window matters when reconciling a cache against a live feed: the first
+  version of the tray reconciler would have closed a push that arrived between
+  two polls, before the user ever saw it.
+
+---
+
+### 2026-10-06 (late) — Four features shipped in two parallel tracks
+
+- **Agent:** Dev pipeline, two parallel implementer subagents + parent review
+- **Specs:** `bridge-config-outside-auth-state`, `whatsapp-history-ingestion`,
+  `meeting-prep-on-meeting-page`, `identify-unknown-speakers`
+- **Reports:** all four under `reports/` — APPROVED, APPROVED WITH NITS,
+  APPROVED, APPROVED WITH NITS respectively
+- Deployed to EC2 and verified there: three new tables with their unique indexes
+  bootstrapped on production SQLite, `voice_recordings.speaker_prompt_sent_at`
+  present, bridge `/status` reporting `dmAllowlist: 87` / `watchedGroups: 63`
+  from the new `/data/config` volume, and all three config files confirmed
+  migrated out of `/data/auth`.
+
+**Compliance:** engineering work under `apps/`/`packages/`; ABC guardrails in
+`.cursorrules` not applicable. No PII in any artifact.
+
+**Lessons**
+
+- **Parallelism has a shared-fixture cost I did not plan for.** API tests use one
+  seeded SQLite file with `fileParallelism: false`. Two concurrent vitest runs
+  collide on it, which produced 5 failures in `harness-context.test.ts` and
+  `people.duplicates.test.ts` that looked like real regressions and were not. I
+  almost debugged a phantom. Partition agents by *file area* and serialise the
+  *test runs*, not just the edits.
+- **Review the risk the change creates, not only the criteria it claims.** The
+  speaker work replaced the Gemini transcription contract for every recording.
+  Its own tests passed, yet a turn the model timed badly was dropped whole, and
+  a response where every turn was like that stored raw JSON as the transcript —
+  the text the user reads and the analysis step consumes. Timings serve only the
+  voice sample; conflating them with the transcript was the actual defect.
+- **A reported nit can be wrong in the safe direction.** The missing unique index
+  on `wa_message_id` had existed all along in all three layers and in production.
+  Verifying took one query and closed the item instead of adding a migration.
+- **Delegation still needs a reviewer who reads the diff.** Both subagents
+  reported green suites honestly; the regression and the non-nit were only found
+  by reading the code and querying production.
+
+---
+
+### 2026-10-07 — Android APK rebuilt locally; APK dropped from SW precache
+
+- **Agent:** Dev pipeline (build + one config fix)
+- **Spec/report:** `exclude-apk-from-sw-precache` — APPROVED
+- Built `apps/mobile` locally via `eas build --local` (Gradle, ~36 min, zero cloud
+  quota). Artifact: 103.5 MB, `EXPO_PUBLIC_API_URL` baked as
+  `retype-engross-strike.ngrok-free.dev`, confirmed reaching EC2 with a 200 on
+  `/api/health` before shipping.
+- Installed as `apps/web/public/helm.apk`, deployed, and verified byte-identical
+  on the box by sha256 rather than trusting the rsync.
+
+**Compliance:** engineering work under `apps/`; ABC guardrails not applicable.
+
+**Lessons**
+
+- **Shipping the artifact surfaced a pre-existing bug worth more than the build.**
+  `@serwist/next` precaches all of `public/`, so `/helm.apk` was a precache entry
+  — every web visitor downloaded the whole mobile app before the service worker
+  activated, and replacing an 85 MB APK with a 103 MB one would have forced that
+  re-download on everyone. Checking what a routine file copy *implies* caught it.
+- **Two plausible fixes were wrong, and only building proved it.** `exclude`
+  sees webpack assets, not `public/` files. `manifestTransforms` looked correct
+  and reads correct — but workbox appends `additionalPrecacheEntries` after
+  transforms, so it silently did nothing. I only knew because I rebuilt and
+  grepped the output instead of trusting the diff. Leading-`!` glob negation was
+  likewise a no-op in glob 13. Each wrong turn cost one build; assuming any of
+  them worked would have cost a false "fixed".
+- **Verify the manifest by diffing it, not by grepping for the thing removed.**
+  Comparing before/after showed exactly one real removal and proved the two
+  build-ID path changes were hash-identical — the grep alone could not have.
+- **Pricing a task in the user's actual currency matters.** He worried the build
+  would "eat tokens"; APK builds cost none either way. The real tradeoff was EAS
+  cloud quota versus local CPU and an Android/JDK toolchain. Correcting the
+  premise picked the better option instead of answering the question as asked.
+
+---
+
+## 2026-10-07 — Hugo — owner-identity-everywhere
+
+**Workflow:** dev pipeline — spec then implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Hugo and every model prompt know the user is Alpir Kritzler, and recorded conversations do not turn him into another contact.
+- **Context:** Analysis and voice enrollment were listing אלפיר as a participant / a separate person.
+
+### Actions Taken
+1. Wrote `docs/specs/owner-identity-everywhere.md`.
+2. Injected a principal block into agent prompts, transcript analysis, voice transcription, and WhatsApp/feed briefings.
+3. Omitted owner aliases from suggested participants, and pointed voice enrollment at the canonical self row.
+
+### Outputs
+- `docs/specs/owner-identity-everywhere.md`
+- `A_Agents/01_Hugo_orchestrator.md`, `A_Agents/09_conversation_analyst.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- Identity is enforced in code (name filter), not only in the prompt, so an old analysis that already listed אלפיר stops offering him as someone to add.

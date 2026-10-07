@@ -440,11 +440,16 @@ describe('meetings router — analysis attendees', () => {
     return { caller, meeting, analysisId: started.analysisId, analysis: analysis! }
   }
 
+  it('does not suggest the owner as someone to add', async () => {
+    const { analysis } = await analyzed()
+    expect(analysis.participants.map((person) => person.name)).toEqual(['דנה'])
+  })
+
   it('creates a confirmed person and attaches them to the meeting', async () => {
     const { caller, meeting, analysisId } = await analyzed()
     const result = await caller.meetings.acceptAnalysisParticipant({
       analysisId,
-      participantIndex: 1,
+      participantIndex: 0,
     })
 
     expect(result.created).toBe(true)
@@ -457,7 +462,7 @@ describe('meetings router — analysis attendees', () => {
     expect(refreshed?.peopleIds).toContain(result.personId)
 
     const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
-    expect(analysis?.participants[1]).toMatchObject({
+    expect(analysis?.participants[0]).toMatchObject({
       name: 'דנה',
       personId: result.personId,
       confirmed: true,
@@ -469,7 +474,7 @@ describe('meetings router — analysis attendees', () => {
     const existing = await caller.people.create({ name: 'דנה' })
     const result = await caller.meetings.acceptAnalysisParticipant({
       analysisId,
-      participantIndex: 1,
+      participantIndex: 0,
     })
 
     expect(result.created).toBe(false)
@@ -491,7 +496,7 @@ describe('meetings router — analysis attendees', () => {
     ])
 
     await expect(
-      caller.meetings.acceptAnalysisParticipant({ analysisId, participantIndex: 1 }),
+      caller.meetings.acceptAnalysisParticipant({ analysisId, participantIndex: 0 }),
     ).rejects.toThrow(/כמה אנשי קשר/)
   })
 
@@ -499,12 +504,12 @@ describe('meetings router — analysis attendees', () => {
     const { caller, meeting, analysisId } = await analyzed()
     const added = await caller.meetings.acceptAnalysisParticipant({
       analysisId,
-      participantIndex: 1,
+      participantIndex: 0,
     })
-    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 1 })
+    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 0 })
 
     const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
-    expect(analysis?.participants.map((person) => person.name)).toEqual(['אלפיר'])
+    expect(analysis?.participants.map((person) => person.name)).toEqual([])
     const refreshed = await caller.meetings.getById({ id: meeting.id })
     expect(refreshed?.peopleIds ?? []).not.toContain(added.personId)
     const listed = await caller.people.list()
@@ -557,7 +562,7 @@ describe('meetings router — analysis attendees', () => {
     let refreshed = await caller.meetings.getById({ id: meeting.id })
     expect(refreshed?.peopleIds).toEqual(expect.arrayContaining(['p_notion_dana', 'p_notion_yosi']))
 
-    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 1 })
+    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 0 })
     refreshed = await caller.meetings.getById({ id: meeting.id })
     expect(refreshed?.peopleIds ?? []).not.toContain('p_notion_dana')
     expect(refreshed?.peopleIds).toContain('p_notion_yosi')
@@ -603,7 +608,7 @@ describe('meetings router — analysis attendees', () => {
 
     await caller.meetings.acceptAnalysisParticipant({
       analysisId,
-      participantIndex: 1,
+      participantIndex: 0,
       personId: 'p_noa',
     })
 
@@ -620,12 +625,12 @@ describe('meetings router — analysis attendees', () => {
     const person = await caller.people.create({ name: 'נועה' })
     await caller.meetings.linkAnalysisParticipant({
       analysisId,
-      participantIndex: 1,
+      participantIndex: 0,
       personId: person.id,
     })
     const refreshed = await caller.meetings.getById({ id: meeting.id })
     expect(refreshed?.peopleIds).toContain(person.id)
     const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
-    expect(analysis?.participants[1]?.personId).toBe(person.id)
+    expect(analysis?.participants[0]?.personId).toBe(person.id)
   })
 })

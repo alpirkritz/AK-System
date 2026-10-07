@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native'
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
 import { ConversationAnalysis } from '../../components/ConversationAnalysis'
 import { CircleSection } from '../../components/CircleSection'
@@ -193,6 +193,15 @@ export default function MeetingDetailScreen() {
     >
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      <Pressable
+        onPress={() => router.push(`/record?meetingId=${encodeURIComponent(id ?? '')}` as Href)}
+        style={styles.recordBtn}
+        accessibilityRole="button"
+        accessibilityLabel="הקלט פגישה"
+      >
+        <Text style={styles.recordText}>הקלט פגישה</Text>
+      </Pressable>
+
       <Text style={styles.label}>כותרת</Text>
       <TextInput
         value={title}
@@ -329,4 +338,13 @@ const styles = StyleSheet.create({
     borderColor: colors.coral + '66',
   },
   deleteText: { color: colors.coral, fontSize: 16, fontWeight: '600', writingDirection: 'rtl' },
+  recordBtn: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.accent + '66',
+  },
+  recordText: { color: colors.accent, fontSize: 15, fontWeight: '600', writingDirection: 'rtl' },
 })

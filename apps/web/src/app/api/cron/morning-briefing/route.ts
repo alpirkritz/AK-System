@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import {
   filterEventsByCalendarScope,
+  formatInsightLines,
   getAgentCalendarIds,
   getNotificationRouting,
   getSchedulablePreference,
@@ -107,12 +108,20 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       return undefined
     })
 
+    // Same contract as finance above: the harness enriches the brief, it never blocks it.
+    const harnessInsights = await caller.harness
+      .insights({ limit: 3, severity: 'attention' })
+      .catch((err) => {
+        console.warn('[cron/morning-briefing] harness insights unavailable:', err)
+        return []
+      })
+
     const text = formatMorningBriefingContext(
       today,
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
-      { includeDueTasks, coolingFlags, commitments },
+      { includeDueTasks, coolingFlags, commitments, harnessLines: formatInsightLines(harnessInsights) },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

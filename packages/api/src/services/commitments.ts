@@ -33,18 +33,43 @@ export function sourceLabel(source: string): string {
 
 const NOTIFICATION_LINE_LIMIT = 5
 
+/** A message older than this is backfill, not news — it lands in the list without a push. */
+export const COMMITMENT_FRESH_HOURS = 6
+
+/**
+ * Drops proposals whose source message is older than `COMMITMENT_FRESH_HOURS`, so a bridge
+ * backfill or a container restart does not push this morning's conversation as if it just
+ * happened. An item with no source timestamp (analysis, email) counts as fresh.
+ */
+export function freshCommitments(items: ProposedCommitmentLabel[], now = Date.now()): ProposedCommitmentLabel[] {
+  const cutoff = now - COMMITMENT_FRESH_HOURS * 3_600_000
+  return items.filter((i) => i.sourceTs == null || i.sourceTs >= cutoff)
+}
+
+function taskWithReason(item: ProposedCommitmentLabel): string {
+  return item.because ? `${item.content} — ${item.because}` : item.content
+}
+
+function lineLabel(item: ProposedCommitmentLabel): string {
+  return item.unknownSender ? 'מספר לא מוכר' : item.label
+}
+
 /**
  * Title/body for the "new commitment(s) proposed" notification. One item names the chat and
  * shows its content; several items list up to 5 `chat: content` lines with a tail count.
+ * A reason, when present, follows the task. An unknown sender is labeled מספר לא מוכר in the body.
  */
 export function buildCommitmentNotification(items: ProposedCommitmentLabel[]): { title: string; body: string } {
   if (items.length === 1) {
+    const item = items[0]
+    const task = taskWithReason(item)
+    const lead = item.because || item.unknownSender ? `${lineLabel(item)}: ${task}` : item.content
     return {
-      title: `התחייבות חדשה מ${items[0].label}`,
-      body: `${items[0].content}\n\nעבור עליה ואשר אם נכנס למשימות.`,
+      title: `התחייבות חדשה מ${item.label}`,
+      body: `${lead}\n\nעבור עליה ואשר אם נכנס למשימות.`,
     }
   }
-  const lines = items.slice(0, NOTIFICATION_LINE_LIMIT).map((i) => `${i.label}: ${i.content}`)
+  const lines = items.slice(0, NOTIFICATION_LINE_LIMIT).map((i) => `${lineLabel(i)}: ${taskWithReason(i)}`)
   const rest = items.length - lines.length
   if (rest > 0) lines.push(`ועוד ${rest} נוספות.`)
   lines.push('עבור עליהן ואשר מה נכנס למשימות.')

@@ -5,6 +5,9 @@ import {
   CHROMIUM_LAUNCH_ARGS,
   humanizeScrapeError,
   isBrowserLaunchFailure,
+  isLoginFormTimeout,
+  LOGIN_PAGE_TIMEOUT_HEBREW_ERROR,
+  POST_LOGIN_STUCK_HEBREW_ERROR,
   isChromeProfileLockFailure,
   killStrayPuppeteerChrome,
   scrapeWithBrowserLaunchRetry,
@@ -45,10 +48,16 @@ describe('bank-chrome-launch', () => {
     expect(humanizeScrapeError(msg)).toBe(BROWSER_PROFILE_LOCK_HEBREW_ERROR)
   })
 
-  it('humanizes post-login selector timeout to Hebrew OTP hint', () => {
+  it('humanizes post-login selector timeout without claiming an SMS was sent', () => {
     expect(humanizeScrapeError('Waiting for selector `#card-header` failed')).toBe(
-      'ההתחברות לבנק לא הושלמה — ייתכן שנדרש קוד SMS מהבנק. נסה לסנכרן שוב; אם מופיע "ממתין לקוד אימות", הזן את הקוד שקיבלת.',
+      POST_LOGIN_STUCK_HEBREW_ERROR,
     )
+  })
+
+  it('humanizes a missing login button as a security check, not an SMS', () => {
+    const raw = 'Waiting for selector `#continueBtn` failed'
+    expect(isLoginFormTimeout(raw)).toBe(true)
+    expect(humanizeScrapeError(raw)).toBe(LOGIN_PAGE_TIMEOUT_HEBREW_ERROR)
   })
 
   it('killStrayPuppeteerChrome is a no-op on non-linux', () => {

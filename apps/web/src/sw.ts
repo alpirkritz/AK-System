@@ -2,6 +2,7 @@
 import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from 'serwist'
 import { ExpirationPlugin, NetworkOnly, Serwist, StaleWhileRevalidate } from 'serwist'
+import { notificationTag } from '@/lib/notification-tray'
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -98,8 +99,8 @@ self.addEventListener('push', (event) => {
         badge: '/icons/icon-192.png',
         dir: 'rtl',
         lang: 'he',
-        tag: 'ak-push',
-        renotify: true,
+        tag: notificationTag(notificationId),
+        renotify: false,
         data: { url, notificationId },
         actions: [{ action: 'archive', title: 'ארכיון' }],
       })
@@ -114,15 +115,18 @@ self.addEventListener('notificationclick', (event) => {
     const notificationId = (event.notification.data as { notificationId?: string })?.notificationId
     if (notificationId) {
       event.waitUntil(
-        fetch('/api/trpc/notifications.archive', {
-          method: 'POST',
+        // REST, not tRPC: the tRPC endpoint expects a superjson envelope a
+        // service worker has no business constructing.
+        fetch('/api/notifications', {
+          method: 'PATCH',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: notificationId }),
-        }).catch(() => {
-          // If archive fails (no session), open notifications page
-          self.clients.openWindow('/notifications')
+          body: JSON.stringify({ id: notificationId, action: 'archive' }),
         })
+          .then((res) => {
+            if (!res.ok) throw new Error(`archive failed: ${res.status}`)
+          })
+          .catch(() => self.clients.openWindow('/notifications')),
       )
     }
     return
@@ -139,5 +143,25 @@ self.addEventListener('notificationclick', (event) => {
       if (existing) return existing.focus()
       return self.clients.openWindow(url)
     }),
+  )
+})
+
+// The page tells us which notifications no longer belong in the tray, so state
+// changed on any device converges here once this browser is in focus.
+self.addEventListener('message', (event) => {
+  const data = event.data as { type?: string; notificationIds?: string[] } | undefined
+  if (data?.type !== 'CLOSE_NOTIFICATIONS') return
+
+  const ids = new Set(data.notificationIds ?? [])
+  if (ids.size === 0) return
+
+  event.waitUntil(
+    (async () => {
+      const shown = await self.registration.getNotifications()
+      for (const notification of shown) {
+        const id = (notification.data as { notificationId?: string } | undefined)?.notificationId
+        if (id && ids.has(id)) notification.close()
+      }
+    })(),
   )
 })

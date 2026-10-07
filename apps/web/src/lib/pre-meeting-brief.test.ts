@@ -174,6 +174,29 @@ describe('selectRelatedOpenTasks', () => {
   it('returns empty without link or meaningful title tokens', () => {
     expect(selectRelatedOpenTasks(tasks, null, 'up')).toEqual([])
   })
+
+  it('excludes another product from a DD meeting', () => {
+    const related = selectRelatedOpenTasks(
+      [
+        {
+          id: 'algo',
+          title: 'Ensure QA monitoring is in place and confirm readiness for Algo 4.0',
+          priority: 'high',
+          done: false,
+        },
+        {
+          id: 'jordan',
+          title: 'Provide deliverable to Jordan (with Adam) based on Elad discussion',
+          priority: 'medium',
+          done: false,
+        },
+        { id: 'dd', title: 'Confirm DD release blockers', priority: 'low', done: false },
+      ],
+      null,
+      'Follow up DD release discussion',
+    )
+    expect(related.map((t) => t.id)).toEqual(['dd'])
+  })
 })
 
 describe('findPriorMeetingNotes', () => {
@@ -189,6 +212,27 @@ describe('findPriorMeetingNotes', () => {
       '2026-07-20',
     )
     expect(notes).toBe('recent agenda')
+  })
+
+  it('returns a same-topic note and skips a newer note from another product', () => {
+    const notes = findPriorMeetingNotes(
+      [
+        { title: 'DD sync', date: '2026-10-01', notes: 'dd blockers are open' },
+        { title: 'Algo 4.0 - Sync meeting updates', date: '2026-10-06', notes: 'algo milestones' },
+      ],
+      'Follow up DD release discussion',
+      '2026-10-07',
+    )
+    expect(notes).toBe('dd blockers are open')
+  })
+
+  it('returns null when every past note is another topic', () => {
+    const notes = findPriorMeetingNotes(
+      [{ title: 'Algo 4 Milestones timelines', date: '2026-10-05', notes: 'quarter one target' }],
+      'Follow up DD release discussion',
+      '2026-10-07',
+    )
+    expect(notes).toBeNull()
   })
 })
 

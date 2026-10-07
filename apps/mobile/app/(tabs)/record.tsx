@@ -29,11 +29,14 @@ import { colors } from '../../lib/theme'
 import {
   attachVoiceToMeeting,
   fetchAttachCandidates,
+  fetchMeetingChoice,
+  fetchMeetingChoices,
   fetchVoiceAnalysis,
   fetchVoiceRecording,
   retryVoiceRecording,
   uploadVoiceRecording,
   type MobileAttachCandidate,
+  type MobileMeetingChoice,
   type MobileVoiceAnalysis,
   type MobileVoiceRecording,
 } from '../../lib/voice'
@@ -67,6 +70,53 @@ type PendingUpload = {
 }
 const PENDING_VOICE_UPLOAD_KEY = 'helm_pending_voice_upload'
 type PickerMode = { kind: 'person'; replaceId?: string } | { kind: 'project' }
+/** Rows shown before "עוד פגישות להיום" — keeps the first screen scannable. */
+const MEETINGS_COLLAPSED = 5
+
+function meetingRange(m: MobileMeetingChoice): string {
+  return m.endTime ? `${m.time}–${m.endTime}` : m.time
+}
+
+function meetingPeopleLabel(m: MobileMeetingChoice): string | null {
+  if (m.people.length === 0) return null
+  if (m.people.length <= 3) return m.people.map((p) => p.name).join(', ')
+  return `${m.people.slice(0, 3).map((p) => p.name).join(', ')} +${m.people.length - 3}`
+}
+
+/** One tappable meeting. Pressing it starts the recording straight away — no second confirm step. */
+function MeetingRow({
+  meeting,
+  disabled,
+  onPick,
+  showDate = false,
+}: {
+  meeting: MobileMeetingChoice
+  disabled: boolean
+  onPick: () => void
+  showDate?: boolean
+}) {
+  const names = meetingPeopleLabel(meeting)
+  const detail = [names, meeting.location, meeting.projectName].filter(Boolean).join(' · ')
+  return (
+    <Pressable
+      style={[styles.meetingRow, disabled && styles.disabled, meeting.state === 'ended' && styles.meetingRowEnded]}
+      disabled={disabled}
+      onPress={onPick}
+      accessibilityRole="button"
+      accessibilityLabel={`הקלט את ${meeting.title} בשעה ${meetingRange(meeting)}`}
+    >
+      <View style={styles.meetingRowTop}>
+        <Text style={styles.muted}>{meetingRange(meeting)}</Text>
+        <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{meeting.title}</Text>
+        {meeting.state === 'now' ? <Text style={styles.nowPill}>עכשיו</Text> : null}
+      </View>
+      <Text style={styles.muted} numberOfLines={2}>
+        {showDate ? `${new Date(meeting.date + 'T00:00:00').toLocaleDateString('he-IL')}${detail ? ' · ' : ''}` : ''}
+        {detail || (showDate ? '' : 'הקש להתחלת הקלטה')}
+      </Text>
+    </Pressable>
+  )
+}
 
 function RecordingContextEditor({
   people,
@@ -237,6 +287,8 @@ function RecordingResult({ token, recordingId }: { token: string; recordingId: s
 
   const stuck = isVoiceStuck(rec)
   const targetMeetingId = rec.meetingId
+  // A placeholder meeting isn't a real link, so it keeps showing the plain candidate list.
+  const linkedToMeeting = rec.meetingLink === 'chosen' || rec.meetingLink === 'auto'
 
   const onRetry = async () => {
     setRetrying(true)
@@ -326,19 +378,20 @@ function RecordingResult({ token, recordingId }: { token: string; recordingId: s
         </View>
       ) : null}
 
-      {rec.status === 'completed' && rec.matchedAutomatically && rec.meetingId && !showCandidates ? (
+      {rec.status === 'completed' && linkedToMeeting && !showCandidates ? (
         <View style={styles.autoMatchBanner}>
           <Text style={styles.body}>
-            זוהתה אוטומטית: <Text style={styles.autoMatchTitle}>{rec.meetingTitle}</Text>
+            {rec.meetingLink === 'auto' ? 'זוהתה אוטומטית: ' : 'מקושר לפגישה: '}
+            <Text style={styles.autoMatchTitle}>{rec.meetingTitle}</Text>
             {rec.people.length > 0 ? ` — ${rec.people.map((p) => p.name).join(', ')}` : ''}
           </Text>
           <Pressable onPress={() => setShowCandidates(true)} accessibilityRole="button">
-            <Text style={styles.link}>לא נכון? בחר פגישה אחרת</Text>
+            <Text style={styles.link}>{rec.meetingLink === 'auto' ? 'לא נכון? בחר פגישה אחרת' : 'החלף פגישה'}</Text>
           </Pressable>
         </View>
       ) : null}
 
-      {rec.status === 'completed' && candidates.length > 0 && (!rec.matchedAutomatically || showCandidates) ? (
+      {rec.status === 'completed' && candidates.length > 0 && (!linkedToMeeting || showCandidates) ? (
         <View style={styles.block}>
           <Text style={styles.sectionLabel}>פגישה שהסתיימה עכשיו</Text>
           {[{ id: '', title: 'בלי פגישה · שמור כשיחה עצמאית', time: '', endTime: null }, ...candidates].map((m) => {
@@ -407,6 +460,13 @@ export default function RecordScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  // The calendar meeting this recording belongs to, picked before recording starts. Participants
+  // and project then come from the meeting server-side (docs/specs/record-from-calendar-meeting.md).
+  const [meeting, setMeeting] = useState<MobileMeetingChoice | null>(null)
+  const [meetingChoices, setMeetingChoices] = useState<MobileMeetingChoice[] | null>(null)
+  const [meetingsFailed, setMeetingsFailed] = useState(false)
+  const [presetMeeting, setPresetMeeting] = useState<MobileMeetingChoice | null>(null)
+  const [showAllMeetings, setShowAllMeetings] = useState(false)
   const [resending, setResending] = useState(false)
   const phaseRef = useRef(phase)
   const scrollRef = useRef<ScrollView>(null)
@@ -439,6 +499,29 @@ export default function RecordScreen() {
       cancelled = true
     }
   }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    if (params.meetingId) {
+      void fetchMeetingChoice(token, params.meetingId)
+        .then((m) => {
+          if (!cancelled) setPresetMeeting(m)
+        })
+        .catch(() => undefined)
+    } else {
+      void fetchMeetingChoices(token)
+        .then((list) => {
+          if (!cancelled) setMeetingChoices(list)
+        })
+        .catch(() => {
+          if (!cancelled) setMeetingsFailed(true)
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [token, params.meetingId])
 
   useEffect(() => {
     if (seededPerson.current || !params.personId) return
@@ -496,7 +579,7 @@ export default function RecordScreen() {
     })
   }, [navigation, recorder])
 
-  const start = async () => {
+  const start = async (forMeeting: MobileMeetingChoice | null = null) => {
     if (pendingUpload) {
       const proceed = await new Promise<boolean>((resolve) => {
         Alert.alert(
@@ -531,6 +614,7 @@ export default function RecordScreen() {
       recorder.record()
       setLevels([])
       setRecordingId(null)
+      setMeeting(forMeeting)
       setPhase('recording')
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'לא ניתן להתחיל הקלטה')
@@ -572,9 +656,10 @@ export default function RecordScreen() {
         {
           uri,
           durationSeconds,
-          personIds: people.map((p) => p.id),
-          meetingId: params.meetingId,
-          projectId: project?.id,
+          // A meeting brings its own attendees and project server-side, so nothing is sent here.
+          personIds: meeting ? [] : people.map((p) => p.id),
+          meetingId: meeting?.id,
+          projectId: meeting ? undefined : project?.id,
         },
         setProgress,
       )
@@ -585,11 +670,11 @@ export default function RecordScreen() {
       const pending: PendingUpload = {
         uri,
         durationSeconds,
-        personIds: people.map((p) => p.id),
-        personNames: people.map((p) => p.name),
-        projectId: project?.id,
-        projectName: project?.name,
-        meetingId: params.meetingId,
+        personIds: meeting ? [] : people.map((p) => p.id),
+        personNames: meeting ? meeting.people.map((p) => p.name) : people.map((p) => p.name),
+        projectId: meeting ? undefined : project?.id,
+        projectName: meeting ? meeting.projectName ?? undefined : project?.name,
+        meetingId: meeting?.id,
       }
       setPendingUpload(pending)
       await storage.setItem(PENDING_VOICE_UPLOAD_KEY, JSON.stringify(pending))
@@ -658,7 +743,15 @@ export default function RecordScreen() {
       contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
-      {(phase === 'recording' || phase === 'paused' || phase === 'uploading') && (people.length > 0 || project) ? (
+      {(phase === 'recording' || phase === 'paused' || phase === 'uploading') && meeting ? (
+        <View>
+          <Text style={styles.body}>
+            {meeting.title} <Text style={styles.muted}>· {meetingRange(meeting)}</Text>
+          </Text>
+          {meetingPeopleLabel(meeting) ? <Text style={styles.muted}>{meetingPeopleLabel(meeting)}</Text> : null}
+        </View>
+      ) : null}
+      {(phase === 'recording' || phase === 'paused' || phase === 'uploading') && !meeting && (people.length > 0 || project) ? (
         <Text style={styles.muted}>
           {[people.map((p) => p.name).join(', '), project?.name].filter(Boolean).join(' · ')}
         </Text>
@@ -683,6 +776,66 @@ export default function RecordScreen() {
 
       {phase === 'consent' || phase === 'result' ? (
         <View style={styles.card}>
+          <Pressable
+            style={styles.consentRow}
+            onPress={() => setConsent((c) => !c)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: consent }}
+          >
+            <View style={[styles.checkbox, consent && styles.checkboxOn]}>
+              {consent ? <Text style={styles.checkmark}>✓</Text> : null}
+            </View>
+            <View style={styles.flexText}>
+              <Text style={styles.body}>כל המשתתפים הסכימו להקלטה</Text>
+              <Text style={styles.muted}>
+                הקלטת שיחה בלי הסכמת המשתתפים עלולה להיות אסורה. ההקלטה נשמרת בשרת שלך ומתומללת ב-Gemini.
+              </Text>
+            </View>
+          </Pressable>
+
+          {params.meetingId ? (
+            <View style={styles.block}>
+              <Text style={styles.sectionLabel}>הקלטת פגישה</Text>
+              {presetMeeting ? (
+                <MeetingRow meeting={presetMeeting} disabled={!consent} showDate onPick={() => void start(presetMeeting)} />
+              ) : (
+                <Text style={styles.muted}>טוען פגישה…</Text>
+              )}
+              <Pressable onPress={() => router.replace('/record' as Href)} accessibilityRole="button">
+                <Text style={styles.link}>בחר פגישה אחרת</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.block}>
+              <Text style={styles.sectionLabel}>פגישות להיום</Text>
+              {meetingsFailed ? (
+                <Text style={styles.muted}>לא הצלחנו לטעון את היומן. אפשר להקליט בלי פגישה.</Text>
+              ) : !meetingChoices ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : meetingChoices.length === 0 ? (
+                <Text style={styles.muted}>אין פגישות ביומן להיום. אפשר להקליט שיחה חופשית.</Text>
+              ) : (
+                <>
+                  {(showAllMeetings ? meetingChoices : meetingChoices.slice(0, MEETINGS_COLLAPSED)).map((m) => (
+                    <MeetingRow key={m.id} meeting={m} disabled={!consent} onPick={() => void start(m)} />
+                  ))}
+                  {!showAllMeetings && meetingChoices.length > MEETINGS_COLLAPSED ? (
+                    <Pressable onPress={() => setShowAllMeetings(true)} accessibilityRole="button">
+                      <Text style={styles.link}>עוד פגישות להיום ({meetingChoices.length - MEETINGS_COLLAPSED})</Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              )}
+              {!consent ? <Text style={styles.warning}>צריך לאשר הסכמה קודם</Text> : null}
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {phase === 'consent' || phase === 'result' ? (
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>הקלטה חופשית</Text>
+          <Text style={styles.muted}>בלי פגישה מהיומן — בחר משתתפים ופרויקט ידנית.</Text>
           <RecordingContextEditor
             people={people}
             project={project}
@@ -719,25 +872,9 @@ export default function RecordScreen() {
           ) : null}
           {savedContext ? <Text style={styles.success}>נשמר</Text> : null}
           <Pressable
-            style={styles.consentRow}
-            onPress={() => setConsent((c) => !c)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: consent }}
-          >
-            <View style={[styles.checkbox, consent && styles.checkboxOn]}>
-              {consent ? <Text style={styles.checkmark}>✓</Text> : null}
-            </View>
-            <View style={styles.flexText}>
-              <Text style={styles.body}>כל המשתתפים הסכימו להקלטה</Text>
-              <Text style={styles.muted}>
-                הקלטת שיחה בלי הסכמת המשתתפים עלולה להיות אסורה. ההקלטה נשמרת בשרת שלך ומתומללת ב-Gemini.
-              </Text>
-            </View>
-          </Pressable>
-          <Pressable
             style={[styles.primaryBtn, !consent && styles.disabled]}
             disabled={!consent}
-            onPress={() => void start()}
+            onPress={() => void start(null)}
             accessibilityRole="button"
             accessibilityHint={consent ? undefined : 'צריך לאשר הסכמה קודם'}
           >
@@ -894,6 +1031,28 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pendingRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 10 },
+  meetingRow: {
+    gap: 4,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  meetingRowEnded: { opacity: 0.6 },
+  meetingRowTop: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  nowPill: {
+    color: colors.accent,
+    fontSize: 11,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  warning: { color: colors.warning, fontSize: 13, ...rtl },
   radioRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 10, minHeight: 44 },
   radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border },
   radioOn: { borderColor: colors.accent, backgroundColor: colors.accent },

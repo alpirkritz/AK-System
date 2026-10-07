@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { and, eq, sql } from 'drizzle-orm'
 import { meetingAnalyses, meetingPeople, meetings, people } from '@ak-system/database'
 import type { Context } from '../trpc'
+import { ensureSelfPerson, isSelfPersonName, omitSelfParticipants } from './self-person'
 
 type Db = Context['db']
 
@@ -20,13 +21,18 @@ export type ResolvedPerson = {
 function parseParticipants(raw: string | null): StoredParticipant[] {
   if (!raw) return []
   const parsed = JSON.parse(raw) as StoredParticipant[]
-  return Array.isArray(parsed) ? parsed : []
+  return Array.isArray(parsed) ? omitSelfParticipants(parsed) : []
 }
 
 export async function resolvePersonForMeeting(
   db: Db,
   input: { personId?: string; name?: string },
 ): Promise<ResolvedPerson> {
+  if (!input.personId && isSelfPersonName(input.name)) {
+    const self = await ensureSelfPerson(db)
+    return { id: self.id, name: self.name, created: false }
+  }
+
   if (input.personId) {
     const [row] = await db.select().from(people).where(eq(people.id, input.personId)).limit(1)
     if (!row) {

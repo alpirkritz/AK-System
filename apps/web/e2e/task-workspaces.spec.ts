@@ -78,7 +78,7 @@ test.describe('Task workspaces', () => {
     await expect(page).toHaveURL(/\/settings\/workspaces/)
     await expect(page.getByTestId('workspaces-settings')).toBeVisible({ timeout: 20000 })
     for (const name of ['Alpir Consulting', 'Dragontail', 'DAZ', 'פרטי']) {
-      await expect(page.getByText(name, { exact: true })).toBeVisible()
+      await expect(page.locator('.text-sm').getByText(name, { exact: true })).toBeVisible()
     }
 
     await page.getByRole('button', { name: 'ערוך את Dragontail' }).click()
@@ -89,5 +89,25 @@ test.describe('Task workspaces', () => {
     await expect(modal).toBeHidden({ timeout: 10000 })
 
     await expect(page.getByText('Notion: DT - Action items')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('editing a source offers paste-a-link and rejects a link with no database id', async ({ page }) => {
+    await page.goto('/settings/workspaces')
+    await expect(page.getByTestId('workspaces-settings')).toBeVisible({ timeout: 20000 })
+    await page.getByRole('button', { name: 'ערוך את DAZ', exact: true }).click()
+    const modal = page.locator('.modal').first()
+    await expect(modal.getByRole('button', { name: 'הוסף בסיס נתונים' })).toBeVisible()
+    await modal.getByRole('button', { name: 'הוסף בסיס נתונים' }).click()
+
+    const add = page.getByRole('dialog', { name: 'הוסף בסיס נתונים של משימות' })
+    await expect(add.getByLabel('קישור לבסיס הנתונים ב-Notion')).toBeVisible()
+    await add.getByLabel('קישור לבסיס הנתונים ב-Notion').fill('not-a-database-link')
+    const check = add.getByRole('button', { name: 'בדוק' })
+    if (await check.isEnabled()) {
+      await check.click()
+      await expect(add.getByRole('alert')).toContainText('לא זיהיתי מזהה')
+    } else {
+      await expect(add.getByText('לא נמצאו חשבונות Notion')).toBeVisible()
+    }
   })
 })

@@ -190,7 +190,15 @@ export function MeetingCard({
         </div>
       </Link>
       {importance !== 'compact' && (
-        <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <Link
+            href={`/voice?meeting=${m.id}`}
+            className="text-[#647399] hover:text-[#2dd4bf] transition-colors p-1.5 rounded-lg hover:bg-[#1e1e1e]"
+            title="הקלט פגישה"
+            aria-label="הקלט פגישה"
+          >
+            🎙
+          </Link>
           {onEdit && (
             <button
               onClick={(e) => {

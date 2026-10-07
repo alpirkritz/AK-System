@@ -23,7 +23,7 @@ import {
   setSelfJid,
   setSelfLid,
 } from './config.js'
-import { isGroupWatched, getGroupRule } from './group-config.js'
+import { isGroupWatched, getGroupRule, listEnabledGroupJids } from './group-config.js'
 import { onGroupMessage } from './rules-engine.js'
 import {
   bufferGroupMessage,
@@ -35,7 +35,16 @@ import {
   requeuePersistMessages,
   type BufferedGroupMessage,
 } from './group-buffer.js'
-import { drainDmQueue, enqueueDmMessage, noteLidPhoneFromStanza, requeueDmMessages, resolveCapturedDm } from './dm-capture.js'
+import {
+  dmAllowlistSize,
+  drainDmQueue,
+  enqueueDmMessage,
+  noteLidPhoneFromStanza,
+  requeueDmMessages,
+  resolveCapturedDm,
+} from './dm-capture.js'
+import { ingestHistoryMessages, noteCapturedMessageId } from './history-sync.js'
+import { extractText, messageTimestampMs, senderNameFor } from './message-fields.js'
 
 export interface BridgeStatus {
   connected: boolean
@@ -45,6 +54,8 @@ export interface BridgeStatus {
   akWebhookConfigured: boolean
   akWebhookHost: string
   replyEnabled: boolean
+  dmAllowlist: number
+  watchedGroups: number
 }
 
 let sock: WASocket | null = null
@@ -148,13 +159,6 @@ function wasInboundProcessed(messageId: string): boolean {
   return processedInboundIds.has(messageId)
 }
 
-/** Baileys reports message time in seconds; everything downstream expects ms. */
-function messageTimestampMs(msg: proto.IWebMessageInfo): number | null {
-  const raw = Number(msg.messageTimestamp)
-  if (!Number.isFinite(raw) || raw <= 0) return null
-  return Math.round(raw < 1e12 ? raw * 1000 : raw)
-}
-
 function messageAgeMs(msg: proto.IWebMessageInfo): number | null {
   const ms = messageTimestampMs(msg)
   return ms == null ? null : Date.now() - ms
@@ -203,14 +207,6 @@ function shouldSkipInboundEcho(remoteJid: string, text: string, fromMe: boolean)
 }
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
-
-function extractText(message: proto.IMessage | null | undefined): string {
-  if (!message) return ''
-  if (message.conversation) return message.conversation
-  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text
-  if (message.imageMessage?.caption) return message.imageMessage.caption
-  return ''
-}
 
 async function forwardToAkWebhook(payload: {
   message: string
@@ -275,6 +271,7 @@ function captureDmMessage(msg: proto.IWebMessageInfo, target: { jid: string; alt
     text,
     timestamp: messageTimestampMs(msg) ?? Date.now(),
   })
+  noteCapturedMessageId(id)
 }
 
 async function flushDmQueue(): Promise<void> {
@@ -397,19 +394,18 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
     if (!isGroupWatched(remoteJid)) return
     const sender = msg.key.participant || msg.participant || 'unknown'
     const trimmed = text.trim()
-    // Use pushName if available, otherwise fall back to JID prefix
-    const senderName = msg.pushName?.trim() || sender.split('@')[0] || sender
     const groupMessage: BufferedGroupMessage = {
       id: messageId,
       sender,
-      senderName,
+      senderName: senderNameFor(msg, sender),
       text: trimmed,
       timestamp: messageTimestampMs(msg) ?? Date.now(),
     }
     bufferGroupMessage(remoteJid, groupMessage)
     enqueuePersistMessage(remoteJid, groupMessage)
+    noteCapturedMessageId(messageId)
     onGroupMessage(remoteJid, trimmed)
-    logger.info({ groupJid: remoteJid, messageId, senderName }, 'Buffered group message')
+    logger.info({ groupJid: remoteJid, messageId, senderName: groupMessage.senderName }, 'Buffered group message')
     return
   }
 
@@ -478,6 +474,16 @@ export async function startWhatsAppClient(): Promise<void> {
 
   sock = socket
   chatStore.bind(socket.ev)
+  socket.ev.on('messaging-history.set', ({ messages }) => {
+    if (!messages?.length) return
+    const result = ingestHistoryMessages(messages, {
+      isGroupWatched,
+      capturedDm: capturedDmFor,
+      queueGroupMessage: enqueuePersistMessage,
+      queueDmMessage: enqueueDmMessage,
+    })
+    logger.info(result, 'Queued WhatsApp history sync')
+  })
   socket.ws.on('CB:message', (node: { attrs?: Record<string, string> }) => {
     if (node?.attrs) noteLidPhoneFromStanza(node.attrs)
   })
@@ -558,6 +564,8 @@ export function getStatus(): BridgeStatus {
     akWebhookConfigured: !!config.akWebhookUrl,
     akWebhookHost,
     replyEnabled: config.replyEnabled,
+    dmAllowlist: dmAllowlistSize(),
+    watchedGroups: listEnabledGroupJids().length,
   }
 }
 

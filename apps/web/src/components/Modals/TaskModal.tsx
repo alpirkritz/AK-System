@@ -321,19 +321,20 @@ export function TaskModal({
                   aria-labelledby="task-related-people-label"
                   className="max-h-[140px] overflow-y-auto rounded-lg border border-[#2f4368] bg-[#1d2b46] p-2 space-y-1"
                 >
-                  {people.length === 0 ? (
+                  {people.filter((p) => p.id !== selfPerson?.id).length === 0 ? (
                     <span className="text-xs text-[#5a688c]">אין אנשי קשר</span>
                   ) : (() => {
+                    const contacts = people.filter((p) => p.id !== selfPerson?.id)
                     const q = relatedPeopleFilter.trim().toLowerCase()
                     const filtered = q
-                      ? people.filter(
+                      ? contacts.filter(
                           (p) =>
                             p.name.toLowerCase().includes(q) ||
                             (p.company ?? '').toLowerCase().includes(q) ||
                             (p.jobTitle ?? '').toLowerCase().includes(q) ||
                             (p.role ?? '').toLowerCase().includes(q)
                         )
-                      : people
+                      : contacts
                     return filtered.length === 0 ? (
                       <span className="text-xs text-[#5a688c]">אין תוצאות</span>
                     ) : (

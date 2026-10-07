@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
+import { omitSelfParticipants, ownerIdentityPrompt } from './self-person'
 
 function geminiModelId(): string {
   return process.env.GEMINI_MODEL || 'gemini-2.5-flash'
@@ -144,7 +145,9 @@ function buildAnalysisPrompt(options: AnalyzeTranscriptOptions): string {
     ? `\n\nKnown participants from the meeting record: ${participantNames.join(', ')}`
     : ''
 
-  return `You are a conversation analyst. Analyze the following meeting transcript and provide deep qualitative insights.
+  return `${ownerIdentityPrompt()}
+
+You are a conversation analyst. Analyze the following meeting transcript and provide deep qualitative insights.
 
 Meeting: ${meetingTitle}
 Date: ${meetingDate}${participantsNote}
@@ -174,7 +177,7 @@ INSTRUCTIONS:
    - kaizenKeep: 1-2 specific practices that worked well
    - kaizenImprove: 1-2 actionable improvements for next time
 
-5. PARTICIPANTS: List all speakers identified in the transcript. Mark confirmed: true if name is explicitly stated, false if inferred.
+5. PARTICIPANTS: List the other people only. The owner recorded this conversation and is already in it — never include Alpir, אלפיר, Alpir Kritzler, or אלפיר קריצלר. Mark confirmed: true if that other person's name is explicitly stated, false if inferred.
 
 6. ACTION ITEMS: Extract explicit commitments and next steps. Include owner name if mentioned in transcript.
 
@@ -246,6 +249,7 @@ export async function analyzeTranscript(options: AnalyzeTranscriptOptions): Prom
       analysis.score = Math.max(1, Math.min(10, analysis.score))
     }
 
+    analysis.participants = omitSelfParticipants(analysis.participants ?? [])
     return analysis
   } catch (error) {
     if (error instanceof Error) {

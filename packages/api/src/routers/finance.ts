@@ -26,6 +26,7 @@ import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parse
 import { encryptCredentials, isBankCryptoConfigured } from '../lib/bank-credentials-crypto'
 import { syncConnection, syncAllConnections } from '../services/bank-sync-service'
 import { hasPendingOtp, submitOtpCode } from '../services/bank-otp-bridge'
+import { readCaptchaFrame, relayCaptchaClick } from '../services/bank-captcha-bridge'
 import {
   buildMonthlyTrend,
   buildCategoryBreakdown,
@@ -735,6 +736,25 @@ export const financeRouter = router({
         }
         return { ok: true as const }
       }),
+
+    /**
+     * JPEG of the scraper viewport while Radware/hCaptcha is blocking login.
+     * Null once the bank login form is visible or no scrape is waiting.
+     */
+    captchaFrame: protectedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .query(async ({ input }) => readCaptchaFrame(input.id)),
+
+    /** Forward one click onto the bot-check page. Coordinates are viewport pixels. */
+    captchaClick: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          x: z.number(),
+          y: z.number(),
+        }),
+      )
+      .mutation(async ({ input }) => ({ ok: await relayCaptchaClick(input.id, input.x, input.y) })),
 
     syncAll: protectedProcedure.mutation(async ({ ctx }) => {
       const results = await syncAllConnections(ctx.db, ctx.bankScrape ?? undefined)

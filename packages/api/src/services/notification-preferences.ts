@@ -18,6 +18,13 @@ export interface NotificationTypeDef {
   /** Suggested agent for the UI picker (not auto-applied). */
   suggestedAgentId?: string
   /**
+   * Agent that actually runs this event when the user has not routed it anywhere.
+   * Unlike `suggestedAgentId` this is applied, not just displayed — for events whose
+   * raw output is only useful with an agent's judgment. An explicit routing wins,
+   * and the caller's template remains the fallback if the agent run fails.
+   */
+  defaultAgentId?: string
+  /**
    * Per-channel default when no preference row exists yet (e.g. a brand-new
    * type). Missing entries default to `true` (existing behavior — every
    * available channel on until the user changes it). Used for staged
@@ -94,6 +101,18 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     description: 'תובנה פיננסית חריגה שנמצאה בבדיקה היומית — לכל היותר פעם ביום',
     availableChannels: ALL_CHANNELS,
     schedulable: false,
+  },
+  {
+    id: 'harness_insight',
+    category: 'cron',
+    label: 'תובנות חוצות-תחומים',
+    description: 'קישורים שה-Harness מצא בין פגישות, וואטסאפ, התחייבויות ופיננסים — רק תובנות דחופות נשלחות',
+    availableChannels: ALL_CHANNELS,
+    schedulable: false,
+    routable: true,
+    // A list of detector output is facts without a recommendation, so this one runs
+    // through Hugo unless the user picks someone else.
+    defaultAgentId: '01_Hugo_orchestrator',
   },
   {
     id: 'agent_run',

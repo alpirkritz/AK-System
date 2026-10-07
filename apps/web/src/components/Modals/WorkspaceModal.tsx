@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { AddTaskSourceModal } from './AddTaskSourceModal'
 
 const COLORS = ['#2dd4bf', '#fb7185', '#38bdf8', '#b847e8', '#47e8a8']
 
@@ -154,6 +156,7 @@ function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
   })
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
 
   const invalidate = () => {
     utils.workspaces.listNotionDatabases.invalidate()
@@ -186,53 +189,91 @@ function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
       {isLoading ? (
         <div className="text-[11px] text-[#647399] py-1">טוען…</div>
       ) : databases.length === 0 ? (
-        <p className="text-[11px] text-[#647399]">לא נמצאו בסיסי נתונים ב-Notion. בדוק את הגדרות החיבור.</p>
+        <p className="text-[11px] text-[#647399]">לא נמצאו בסיסי נתונים ב-Notion. אפשר להוסיף אחד עם קישור.</p>
       ) : (
         <div className="flex flex-col gap-1">
           {databases.map((db) => {
             const linkedHere = db.linkedWorkspaceId === workspaceId
             const linkedElsewhere = !!db.linkedWorkspaceId && !linkedHere
             const busy = pendingId === db.notionDatabaseId
+            const removeCustom = () => {
+              if (!db.linkId) return
+              if (!window.confirm(`להסיר את "${db.name}" ממקורות המשימות?`)) return
+              setLinkError(null)
+              setPendingId(db.notionDatabaseId)
+              unlink.mutate({ id: db.linkId })
+            }
             return (
-              <label
+              <div
                 key={db.notionDatabaseId}
                 className={`flex items-center gap-2 py-1.5 px-2 rounded transition-colors ${
-                  linkedElsewhere ? 'opacity-50' : 'cursor-pointer hover:bg-[#29395d]'
+                  linkedElsewhere ? 'opacity-50' : 'hover:bg-[#29395d]'
                 }`}
               >
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
-                  checked={linkedHere}
-                  disabled={linkedElsewhere || busy}
-                  onChange={() => {
-                    setLinkError(null)
-                    setPendingId(db.notionDatabaseId)
-                    if (linkedHere && db.linkId) {
-                      unlink.mutate({ id: db.linkId })
-                    } else {
-                      link.mutate({
-                        workspaceId,
-                        notionDatabaseId: db.notionDatabaseId,
-                        notionDatabaseName: db.name,
-                      })
-                    }
-                  }}
-                />
-                <span className="text-sm text-[#b8c4dc]">{db.name}</span>
-                <span className="text-[11px] text-[#5a688c] truncate">· {db.accountLabel}</span>
-                {busy && <span className="text-[11px] text-[#647399]">מעדכן…</span>}
-                {linkedElsewhere && (
-                  <span className="text-[11px] text-[#647399] mr-auto">מקושר ל-{db.linkedWorkspaceName}</span>
+                <label className={`flex items-center gap-2 flex-1 min-w-0 ${linkedElsewhere ? '' : 'cursor-pointer'}`}>
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
+                    checked={linkedHere}
+                    disabled={linkedElsewhere || busy}
+                    onChange={() => {
+                      if (db.source === 'custom' && linkedHere) {
+                        removeCustom()
+                        return
+                      }
+                      setLinkError(null)
+                      setPendingId(db.notionDatabaseId)
+                      if (linkedHere && db.linkId) {
+                        unlink.mutate({ id: db.linkId })
+                      } else {
+                        link.mutate({
+                          workspaceId,
+                          notionDatabaseId: db.notionDatabaseId,
+                          notionDatabaseName: db.name,
+                        })
+                      }
+                    }}
+                  />
+                  <span className="text-sm text-[#b8c4dc]">{db.name}</span>
+                  {db.accountLabel && (
+                    <span className="text-[11px] text-[#5a688c] truncate">· {db.accountLabel}</span>
+                  )}
+                  {busy && <span className="text-[11px] text-[#647399]">מעדכן…</span>}
+                  {linkedElsewhere && (
+                    <span className="text-[11px] text-[#647399] mr-auto">מקושר ל-{db.linkedWorkspaceName}</span>
+                  )}
+                </label>
+                {db.source === 'custom' && linkedHere && (
+                  <button
+                    type="button"
+                    className="icon-btn danger"
+                    aria-label={`הסר את ${db.name}`}
+                    disabled={busy}
+                    onClick={removeCustom}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 )}
-              </label>
+              </div>
             )
           })}
         </div>
       )}
+      <button
+        type="button"
+        className="btn btn-secondary text-xs py-1 px-3 mt-2 self-start"
+        onClick={() => setAddOpen(true)}
+      >
+        + הוסף בסיס נתונים
+      </button>
       {linkError && (
         <p role="alert" className="text-[11px] text-red-400 mt-1.5">{linkError}</p>
       )}
+      <AddTaskSourceModal
+        open={addOpen}
+        workspaceId={workspaceId}
+        onClose={() => setAddOpen(false)}
+      />
     </div>
   )
 }

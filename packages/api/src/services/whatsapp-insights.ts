@@ -6,6 +6,7 @@
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
 import { getDefaultTimezone } from '../lib/calendar-dates'
 import { QUIET_DAY_BODY } from './whatsapp-summary-clusters'
+import { ownerIdentityPrompt } from './self-person'
 
 export type GroupInsightMode = 'summary' | 'topics' | 'style'
 
@@ -166,6 +167,7 @@ export async function generateCrossGroupDigest(
     .join('\n\n')
 
   const prompt = [
+    ownerIdentityPrompt(),
     rangeLabel
       ? `You are giving the user a single briefing about their WhatsApp groups for exactly this period: ${rangeLabel} (Israel local time, timestamps shown as DD.MM, HH:MM). Only describe what happened in this period.`
       : 'You are giving the user a single briefing answering "what is happening right now in my WhatsApp groups".',
@@ -246,6 +248,7 @@ export async function generateClusterSummary(
     .join('\n\n')
 
   const prompt = [
+    ownerIdentityPrompt(),
     `A friend is briefing the user about several related WhatsApp groups that belong to the cluster "${clusterName}".`,
     'Write in natural spoken Hebrew (unless most messages are in English).',
     'Sound like a friend over coffee — not a report, no bullet points, no labels like "נושא:".',
@@ -342,6 +345,8 @@ export function buildDailyDigestPrompt(
 
   return [
     instructions.trim(),
+    '',
+    ownerIdentityPrompt(),
     '',
     contract,
     '',

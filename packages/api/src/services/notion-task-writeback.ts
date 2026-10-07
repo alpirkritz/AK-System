@@ -303,7 +303,7 @@ export async function pushTaskProperties(input: {
   dueDate?: string | null  // null means clear the date
   status?: CanonicalStatus
 }): Promise<WriteBackResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {
@@ -419,7 +419,7 @@ export async function pushTaskPeople(input: {
   notionDb: string | null | undefined
   personNames: string[]
 }): Promise<PeopleRelationResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {
@@ -476,7 +476,7 @@ export async function pushTaskMeeting(input: {
   notionDb: string | null | undefined
   meetingNotionPageId: string | null
 }): Promise<WriteBackResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {

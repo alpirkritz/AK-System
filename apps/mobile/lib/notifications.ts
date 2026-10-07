@@ -58,6 +58,26 @@ TaskManager.defineTask(NOTIFICATION_TASK, async ({ data, error }: TaskManager.Ta
   }
 })
 
+/**
+ * Archiving only clears the row on the server; a notification already sitting
+ * in the tray stays there and reads as if it came back.
+ */
+export async function dismissTrayNotifications(notificationIds: string[]): Promise<void> {
+  if (notificationIds.length === 0) return
+  const wanted = new Set(notificationIds)
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync()
+    for (const notification of presented) {
+      const id = notification.request.content.data?.notificationId
+      if (typeof id === 'string' && wanted.has(id)) {
+        await Notifications.dismissNotificationAsync(notification.request.identifier)
+      }
+    }
+  } catch (err) {
+    console.warn('[notifications] dismiss from tray failed:', err)
+  }
+}
+
 export async function ensurePushPermissions(): Promise<boolean> {
   const { status: existing } = await Notifications.getPermissionsAsync()
   if (existing === 'granted') {

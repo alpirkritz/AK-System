@@ -43,6 +43,8 @@ describe('transcribeWithGemini', () => {
     uploadFile.mockReset()
     getFile.mockReset()
     deleteFile.mockReset()
+    // The real deleteFile returns a promise, and the cleanup path chains .catch on it.
+    deleteFile.mockResolvedValue(undefined)
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -66,7 +68,9 @@ describe('transcribeWithGemini', () => {
     const text = await transcribeWithGemini(big, 'audio/webm')
 
     expect(text).toBe('דובר 1: שיחה ארוכה')
-    expect(uploadFile).toHaveBeenCalledWith(big, expect.objectContaining({ mimeType: 'audio/webm' }))
+    // Identity, not deep equality — structurally comparing a 19MB buffer exhausts the heap.
+    expect(uploadFile.mock.calls[0][0]).toBe(big)
+    expect(uploadFile.mock.calls[0][1]).toMatchObject({ mimeType: 'audio/webm' })
     expect(getFile).not.toHaveBeenCalled() // already ACTIVE on upload, no polling needed
     const parts = generateContent.mock.calls[0][0] as unknown[]
     expect(parts[0]).toMatchObject({ fileData: { fileUri: 'gemini://files/abc', mimeType: 'audio/webm' } })

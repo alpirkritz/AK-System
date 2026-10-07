@@ -6,7 +6,8 @@ import { ingestDmMessages, type DmIngestMessage } from '@ak-system/api'
 /**
  * POST /api/whatsapp/dm/ingest — 1:1 messages from the bridge for allowlisted people.
  * The allowlist is re-checked here; messages from people with capture off, or older than the
- * moment capture was switched on, are dropped.
+ * moment capture was switched on, are dropped. Pure persistence — no replies and no
+ * notifications, so history-sync messages (`historySync: true`) take the same path as live ones.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!verifyWhatsAppBridgeAuth(request)) {

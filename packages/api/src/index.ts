@@ -30,6 +30,7 @@ import { insightsRouter } from './routers/insights'
 import { emailRouter } from './routers/email'
 import { voiceRouter } from './routers/voice'
 import { cfoRouter } from './routers/cfo'
+import { harnessRouter } from './routers/harness'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -50,6 +51,14 @@ export {
   getAgentCalendarScopePromptBlock,
 } from './services/agent-calendar-scope'
 export { localTodayIso, localTomorrowIso, resolveLocalDayArg, localDateRangeToUtc, getDefaultTimezone, formatLocalClock, formatLocalRange, toZonedIso } from './lib/calendar-dates'
+export {
+  eventTimeStatus,
+  groupEventsByTime,
+  nowClockBlock,
+  type EventTimeStatus,
+  type GroupedSchedule,
+} from './lib/event-time-status'
+export { topicTokens, titlesShareTopic } from './lib/topic-match'
 export {
   WHATSAPP_WINDOWS,
   isWhatsappWindow,
@@ -120,7 +129,12 @@ export {
   type MessageClassifier,
   type ModelClassification,
 } from './services/whatsapp-dm'
-export { proposeCommitmentsFromAnalysis, buildCommitmentNotification } from './services/commitments'
+export {
+  proposeCommitmentsFromAnalysis,
+  buildCommitmentNotification,
+  freshCommitments,
+  COMMITMENT_FRESH_HOURS,
+} from './services/commitments'
 export { syncEmailThreads, type EmailSyncResult } from './services/email-sync'
 export {
   saveVoiceUpload,
@@ -166,6 +180,14 @@ export {
   formatImportReport,
   type IbkrImportResult,
 } from './services/ibkr-import-service'
+export {
+  ensureSelfPerson,
+  getSelfPersonName,
+  isSelfPersonName,
+  matchTaskAssigneeId,
+  omitSelfParticipants,
+  ownerIdentityPrompt,
+} from './services/self-person'
 export { formatAnalysisMessage } from './services/analysis-message'
 export { notifyAnalysisOnWhatsApp } from './services/analysis-whatsapp'
 export {
@@ -183,6 +205,38 @@ export {
   type EnsureMeetingResult,
 } from './services/notion-meeting-sync'
 export { listAnalysisBacklog, runAnalysisBacklog, analysisBacklogSummary } from './services/analysis-backlog'
+export {
+  getMeetingPrep,
+  saveMeetingPrep,
+  type MeetingPrepRecord,
+  type SaveMeetingPrepInput,
+} from './services/meeting-preps'
+export {
+  indexHarnessWorld,
+  worldStateSummary,
+  personSignals,
+  nodesInWindow,
+  HARNESS_SCOPES,
+  type HarnessScope,
+  type IndexResult,
+  type WorldStateSummary,
+  type PersonSignals,
+} from './services/harness-context'
+export {
+  runDetectors,
+  phraseInsights,
+  persistInsights,
+  reasonAndPersist,
+  listOpenInsights,
+  dismissInsight,
+  formatInsightLines,
+  type HarnessInsightDraft,
+  type StoredInsight,
+  type InsightSeverity,
+  type InsightSource,
+  type ReasonResult,
+} from './services/harness-reasoner'
+export { isGragMirrorEnabled, mirrorToGrag } from './services/harness-grag'
 
 export const appRouter = router({
   people: peopleRouter,
@@ -216,6 +270,7 @@ export const appRouter = router({
   email: emailRouter,
   voice: voiceRouter,
   cfo: cfoRouter,
+  harness: harnessRouter,
 })
 
 export type AppRouter = typeof appRouter

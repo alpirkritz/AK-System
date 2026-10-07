@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { bareUserJid, routeSelfChatJid } from './self-chat.js'
 
 export { bareUserJid, routeSelfChatJid }
@@ -37,9 +37,16 @@ function optionalList(name: string): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
+const authStatePath = resolve(process.cwd(), optional('AUTH_STATE_PATH', './data/auth'))
+
 export const config = {
   port: Number(optional('PORT', '3001')),
-  authStatePath: resolve(process.cwd(), optional('AUTH_STATE_PATH', './data/auth')),
+  authStatePath,
+  /**
+   * Capture lists live outside `authStatePath`: clearing the session to force a new QR is a
+   * routine recovery step, and it must not take the group/DM config down with it.
+   */
+  configPath: resolve(process.cwd(), optional('BRIDGE_CONFIG_PATH', join(dirname(authStatePath), 'config'))),
   bridgeSecret: required('BRIDGE_SECRET'),
   akWebhookUrl: process.env.AK_WEBHOOK_URL || '',
   selfJid: process.env.SELF_JID || '',

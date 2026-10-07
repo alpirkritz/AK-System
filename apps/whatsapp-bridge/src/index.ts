@@ -1,13 +1,14 @@
 import { config } from './config.js'
 import { createServer } from './server.js'
-import { loadPersistedGroupConfig } from './group-config.js'
-import { loadPersistedDmConfig } from './dm-capture.js'
+import { listEnabledGroupJids, loadPersistedGroupConfig } from './group-config.js'
+import { dmAllowlistSize, loadPersistedDmConfig } from './dm-capture.js'
 import { startWhatsAppClient, startPersistFlushLoop } from './whatsapp-client.js'
 
 async function main(): Promise<void> {
   // SELF_JID is auto-detected after QR pairing — never block HTTP/QR startup.
   console.log(`[whatsapp-bridge] Starting on port ${config.port}`)
   console.log(`[whatsapp-bridge] Auth state: ${config.authStatePath}`)
+  console.log(`[whatsapp-bridge] Config: ${config.configPath}`)
   console.log(`[whatsapp-bridge] Auto-reply: ${config.replyEnabled ? 'ON (self-chat only)' : 'OFF'}`)
   if (config.akWebhookUrl) {
     try {
@@ -22,6 +23,15 @@ async function main(): Promise<void> {
   // Restore watched-group config from disk so alerts/summaries survive restarts.
   loadPersistedGroupConfig()
   loadPersistedDmConfig()
+  const watchedGroups = listEnabledGroupJids().length
+  const dmAllowlist = dmAllowlistSize()
+  if (watchedGroups === 0 || dmAllowlist === 0) {
+    console.warn(
+      `[whatsapp-bridge] Capture lists are partly empty (groups=${watchedGroups}, dm=${dmAllowlist}) — re-push config from AK System`,
+    )
+  } else {
+    console.log(`[whatsapp-bridge] Capture lists: groups=${watchedGroups}, dm=${dmAllowlist}`)
+  }
 
   void startWhatsAppClient()
 

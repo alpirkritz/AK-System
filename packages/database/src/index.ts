@@ -92,6 +92,16 @@ const MEETING_STRUCTURE_TABLES = [
   `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_meeting_id ON meeting_analyses(meeting_id)`,
   `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_status ON meeting_analyses(status)`,
   `CREATE INDEX IF NOT EXISTS idx_meeting_analyses_source ON meeting_analyses(source)`,
+  `CREATE TABLE IF NOT EXISTS meeting_preps (
+    id TEXT PRIMARY KEY NOT NULL,
+    meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    agent_id TEXT,
+    source TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_meeting_preps_meeting_id ON meeting_preps(meeting_id)`,
 ]
 
 /** Person/circle context: series rosters, per-occurrence exceptions, WhatsApp sender links, duplicate reviews. */
@@ -174,7 +184,9 @@ const WHATSAPP_DM_TABLES = [
   'CREATE INDEX IF NOT EXISTS idx_whatsapp_dm_summaries_person_id ON whatsapp_dm_summaries(person_id)',
   `CREATE TABLE IF NOT EXISTS commitments (
     id TEXT PRIMARY KEY NOT NULL,
-    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    sender_jid TEXT,
+    sender_name TEXT,
     owner TEXT NOT NULL,
     content TEXT NOT NULL,
     due_inferred TEXT,
@@ -189,6 +201,15 @@ const WHATSAPP_DM_TABLES = [
   'CREATE INDEX IF NOT EXISTS idx_commitments_person_id ON commitments(person_id)',
   'CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)',
   'CREATE INDEX IF NOT EXISTS idx_commitments_task_id ON commitments(task_id)',
+]
+
+/** Applied after relaxCommitmentsPersonId, which rebuilds the table and would drop these. */
+const COMMITMENT_SOURCE_COLUMNS = [
+  'ALTER TABLE commitments ADD COLUMN source_ts INTEGER',
+  'ALTER TABLE commitments ADD COLUMN source_chat_jid TEXT',
+  'ALTER TABLE commitments ADD COLUMN source_chat_name TEXT',
+  'ALTER TABLE commitments ADD COLUMN source_reason TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_commitments_source_ts ON commitments(source_ts)',
 ]
 
 const PERSON_TRAIT_TABLES = [
@@ -235,6 +256,56 @@ const PERSON_TRAIT_TABLES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_trait_evidence_pair ON person_trait_evidence(trait_id, observation_id)',
 ]
 
+/** Cross-domain world model written by the harness indexer. */
+const HARNESS_TABLES = [
+  `CREATE TABLE IF NOT EXISTS harness_nodes (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    summary TEXT,
+    attrs TEXT,
+    occurred_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_harness_nodes_kind ON harness_nodes(kind)',
+  'CREATE INDEX IF NOT EXISTS idx_harness_nodes_occurred_at ON harness_nodes(occurred_at)',
+  'CREATE INDEX IF NOT EXISTS idx_harness_nodes_entity_id ON harness_nodes(entity_id)',
+  `CREATE TABLE IF NOT EXISTS harness_edges (
+    id TEXT PRIMARY KEY NOT NULL,
+    from_id TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 1,
+    occurred_at TEXT,
+    attrs TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_harness_edges_from_id ON harness_edges(from_id)',
+  'CREATE INDEX IF NOT EXISTS idx_harness_edges_to_id ON harness_edges(to_id)',
+  'CREATE INDEX IF NOT EXISTS idx_harness_edges_kind ON harness_edges(kind)',
+  `CREATE TABLE IF NOT EXISTS harness_insights (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    score REAL NOT NULL DEFAULT 0,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    sources TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    dedupe_key TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    expires_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_harness_insights_status ON harness_insights(status)',
+  'CREATE INDEX IF NOT EXISTS idx_harness_insights_person_id ON harness_insights(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_harness_insights_dedupe_key ON harness_insights(dedupe_key)',
+]
+
 const EMAIL_VOICE_TABLES = [
   `CREATE TABLE IF NOT EXISTS person_email_threads (
     id TEXT PRIMARY KEY NOT NULL,
@@ -272,13 +343,15 @@ const EMAIL_VOICE_TABLES = [
     diarization_status TEXT DEFAULT 'skipped' NOT NULL,
     diarization_error TEXT,
     source TEXT DEFAULT 'live' NOT NULL,
-    matched_automatically INTEGER DEFAULT 0 NOT NULL
+    matched_automatically INTEGER DEFAULT 0 NOT NULL,
+    speaker_prompt_sent_at TEXT
   )`,
   'ALTER TABLE voice_recordings ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL',
   "ALTER TABLE voice_recordings ADD COLUMN diarization_status TEXT DEFAULT 'skipped' NOT NULL",
   'ALTER TABLE voice_recordings ADD COLUMN diarization_error TEXT',
   "ALTER TABLE voice_recordings ADD COLUMN source TEXT DEFAULT 'live' NOT NULL",
   'ALTER TABLE voice_recordings ADD COLUMN matched_automatically INTEGER DEFAULT 0 NOT NULL',
+  'ALTER TABLE voice_recordings ADD COLUMN speaker_prompt_sent_at TEXT',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_meeting_id ON voice_recordings(meeting_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_project_id ON voice_recordings(project_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recordings_analysis_id ON voice_recordings(analysis_id)',
@@ -294,6 +367,26 @@ const EMAIL_VOICE_TABLES = [
   'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_recording_id ON voice_recording_people(recording_id)',
   'CREATE INDEX IF NOT EXISTS idx_voice_recording_people_person_id ON voice_recording_people(person_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_recording_people_pair ON voice_recording_people(recording_id, person_id)',
+  `CREATE TABLE IF NOT EXISTS voice_transcript_segments (
+    id TEXT PRIMARY KEY NOT NULL,
+    recording_id TEXT NOT NULL REFERENCES voice_recordings(id) ON DELETE CASCADE,
+    speaker_label TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_voice_transcript_segments_recording_id ON voice_transcript_segments(recording_id)',
+  `CREATE TABLE IF NOT EXISTS voice_speaker_identities (
+    id TEXT PRIMARY KEY NOT NULL,
+    recording_id TEXT NOT NULL REFERENCES voice_recordings(id) ON DELETE CASCADE,
+    speaker_label TEXT NOT NULL,
+    person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_voice_speaker_identities_recording_id ON voice_speaker_identities(recording_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_speaker_identities_speaker ON voice_speaker_identities(recording_id, speaker_label)',
   `CREATE TABLE IF NOT EXISTS voice_prints (
     id TEXT PRIMARY KEY NOT NULL,
     person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -421,10 +514,15 @@ const WORKSPACE_NOTION_DATABASES_TABLE = [
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     notion_database_id TEXT NOT NULL,
     notion_database_name TEXT,
+    account_label TEXT,
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_notion_databases_workspace_id ON workspace_notion_databases(workspace_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_notion_databases_notion_database_id ON workspace_notion_databases(notion_database_id)`,
+]
+
+const WORKSPACE_NOTION_DATABASES_COLUMNS = [
+  'ALTER TABLE workspace_notion_databases ADD COLUMN account_label TEXT',
 ]
 
 const PEOPLE_NOTION_SOURCES_TABLE = [
@@ -1182,6 +1280,48 @@ function getPgPool(): Pool {
   return pgPool
 }
 
+/** SQLite cannot DROP NOT NULL. Rebuild commitments when person_id is still required. */
+function relaxCommitmentsPersonId(sqlite: Database) {
+  const cols = sqlite.prepare(`PRAGMA table_info(commitments)`).all() as { name: string; notnull: number }[]
+  if (cols.length === 0) return
+  const person = cols.find((c) => c.name === 'person_id')
+  const hasSender = cols.some((c) => c.name === 'sender_jid')
+  if (person && person.notnull === 0 && hasSender) return
+  if (person && person.notnull === 0 && !hasSender) {
+    sqlite.prepare(`ALTER TABLE commitments ADD COLUMN sender_jid TEXT`).run()
+    sqlite.prepare(`ALTER TABLE commitments ADD COLUMN sender_name TEXT`).run()
+    return
+  }
+  sqlite.exec(`
+    CREATE TABLE commitments__nullable (
+      id TEXT PRIMARY KEY NOT NULL,
+      person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+      sender_jid TEXT,
+      sender_name TEXT,
+      owner TEXT NOT NULL,
+      content TEXT NOT NULL,
+      due_inferred TEXT,
+      source TEXT NOT NULL,
+      source_id TEXT,
+      source_snippet TEXT,
+      status TEXT NOT NULL DEFAULT 'proposed',
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO commitments__nullable (
+      id, person_id, owner, content, due_inferred, source, source_id, source_snippet, status, task_id, created_at, updated_at
+    )
+    SELECT id, person_id, owner, content, due_inferred, source, source_id, source_snippet, status, task_id, created_at, updated_at
+    FROM commitments;
+    DROP TABLE commitments;
+    ALTER TABLE commitments__nullable RENAME TO commitments;
+    CREATE INDEX IF NOT EXISTS idx_commitments_person_id ON commitments(person_id);
+    CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status);
+    CREATE INDEX IF NOT EXISTS idx_commitments_task_id ON commitments(task_id);
+  `)
+}
+
 export function getDb() {
   if (usePostgres()) {
     const pool = getPgPool()
@@ -1208,6 +1348,9 @@ export function getDb() {
   }
   for (const sql of WORKSPACE_NOTION_DATABASES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of WORKSPACE_NOTION_DATABASES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
   for (const sql of PEOPLE_NOTION_SOURCES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
@@ -1305,6 +1448,10 @@ export function getDb() {
   for (const sql of PERSON_CONTEXT_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
   }
+  try { relaxCommitmentsPersonId(sqlite) } catch (_) { /* commitments table not ready */ }
+  for (const sql of COMMITMENT_SOURCE_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of VAT_ENTRIES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1341,7 +1488,7 @@ export function getDb() {
   for (const sql of AGENT_RUNTIME_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
-  for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES, ...PERSON_TRAIT_TABLES]) {
+  for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES, ...PERSON_TRAIT_TABLES, ...HARNESS_TABLES]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
   }
   for (const sql of [
@@ -1382,6 +1529,8 @@ export const meetingNotes = schema.meetingNotes
 export const meetingNotePeople = schema.meetingNotePeople
 export const meetingNoteProjects = schema.meetingNoteProjects
 export const meetingAnalyses = schema.meetingAnalyses
+export const meetingPreps = schema.meetingPreps
+export const MEETING_PREP_SOURCES = schemaPg.MEETING_PREP_SOURCES
 export const seriesRoster = schema.seriesRoster
 export const meetingRosterExceptions = schema.meetingRosterExceptions
 export const whatsappPersonLinks = schema.whatsappPersonLinks
@@ -1397,12 +1546,22 @@ export const personSourceScans = schema.personSourceScans
 export const personObservations = schema.personObservations
 export const personTraits = schema.personTraits
 export const personTraitEvidence = schema.personTraitEvidence
+export const harnessNodes = schema.harnessNodes
+export const harnessEdges = schema.harnessEdges
+export const harnessInsights = schema.harnessInsights
+export const HARNESS_NODE_KINDS = schemaPg.HARNESS_NODE_KINDS
+export const HARNESS_EDGE_KINDS = schemaPg.HARNESS_EDGE_KINDS
+export const HARNESS_INSIGHT_SEVERITIES = schemaPg.HARNESS_INSIGHT_SEVERITIES
+export const HARNESS_INSIGHT_STATUSES = schemaPg.HARNESS_INSIGHT_STATUSES
 export const PERSON_TRAIT_STATUSES = schemaPg.PERSON_TRAIT_STATUSES
 export const PERSON_TRAIT_SOURCE_KINDS = schemaPg.PERSON_TRAIT_SOURCE_KINDS
 export const voiceRecordings = schema.voiceRecordings
 export const voiceRecordingPeople = schema.voiceRecordingPeople
+export const voiceTranscriptSegments = schema.voiceTranscriptSegments
+export const voiceSpeakerIdentities = schema.voiceSpeakerIdentities
 export const voicePrints = schema.voicePrints
 export const VOICE_RECORDING_STATUSES = schemaPg.VOICE_RECORDING_STATUSES
+export const VOICE_SPEAKER_STATES = schemaPg.VOICE_SPEAKER_STATES
 export const SERIES_ROSTER_SOURCES = schemaPg.SERIES_ROSTER_SOURCES
 export const ROSTER_EXCEPTION_KINDS = schemaPg.ROSTER_EXCEPTION_KINDS
 export const tasks = schema.tasks
@@ -1414,6 +1573,9 @@ export const bankAccounts = schema.bankAccounts
 export const financeCategoryRules = schema.financeCategoryRules
 export const financeCustomCategories = schema.financeCustomCategories
 export const financeInsightNarratives = schema.financeInsightNarratives
+export const financeDebts = schema.financeDebts
+export const financePensionPolicies = schema.financePensionPolicies
+export const financeCfoReports = schema.financeCfoReports
 export const feedSources = schema.feedSources
 export const feedItems = schema.feedItems
 export const feedDigests = schema.feedDigests
@@ -1499,6 +1661,9 @@ export type PersonExternalId = typeof schemaPg.personExternalIds.$inferSelect
 export type MeetingNote = typeof schemaPg.meetingNotes.$inferSelect
 export type MeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferSelect
 export type NewMeetingAnalysis = typeof schemaPg.meetingAnalyses.$inferInsert
+export type MeetingPrep = typeof schemaPg.meetingPreps.$inferSelect
+export type NewMeetingPrep = typeof schemaPg.meetingPreps.$inferInsert
+export type MeetingPrepSource = (typeof schemaPg.MEETING_PREP_SOURCES)[number]
 export type SeriesRosterRow = typeof schemaPg.seriesRoster.$inferSelect
 export type MeetingRosterException = typeof schemaPg.meetingRosterExceptions.$inferSelect
 export type WhatsappPersonLink = typeof schemaPg.whatsappPersonLinks.$inferSelect
@@ -1512,6 +1677,16 @@ export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
 export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect
 export type VoiceRecording = typeof schemaPg.voiceRecordings.$inferSelect
 export type VoiceRecordingStatus = (typeof schemaPg.VOICE_RECORDING_STATUSES)[number]
+export type VoiceTranscriptSegmentRow = typeof schemaPg.voiceTranscriptSegments.$inferSelect
+export type VoiceSpeakerIdentity = typeof schemaPg.voiceSpeakerIdentities.$inferSelect
+export type VoiceSpeakerState = (typeof schemaPg.VOICE_SPEAKER_STATES)[number]
+export type HarnessNode = typeof schemaPg.harnessNodes.$inferSelect
+export type HarnessEdge = typeof schemaPg.harnessEdges.$inferSelect
+export type HarnessInsight = typeof schemaPg.harnessInsights.$inferSelect
+export type HarnessNodeKind = (typeof schemaPg.HARNESS_NODE_KINDS)[number]
+export type HarnessEdgeKind = (typeof schemaPg.HARNESS_EDGE_KINDS)[number]
+export type HarnessInsightSeverity = (typeof schemaPg.HARNESS_INSIGHT_SEVERITIES)[number]
+export type HarnessInsightStatus = (typeof schemaPg.HARNESS_INSIGHT_STATUSES)[number]
 export type VoicePrint = typeof schemaPg.voicePrints.$inferSelect
 export type SeriesRosterSource = (typeof schemaPg.SERIES_ROSTER_SOURCES)[number]
 export type RosterExceptionKind = (typeof schemaPg.ROSTER_EXCEPTION_KINDS)[number]

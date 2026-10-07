@@ -1,13 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
-import { buildCommitmentNotification, scanGroupCommitments } from '@ak-system/api'
+import { buildCommitmentNotification, freshCommitments, scanGroupCommitments } from '@ak-system/api'
 import { createNotification } from '@/lib/notification-store'
 
 /**
  * Cron: every 10 minutes, propose commitments from new messages in enabled WhatsApp groups.
  * Mirrors /api/cron/whatsapp-dm-commitments but scans group chats instead of 1:1 chats.
- * A message only becomes a commitment when its sender resolves to a known person (the owner or a
- * linked contact); unidentified senders are skipped. Does not send anything into the group.
+ * An unknown sender is stored as a commitment with no person, so it can be saved or linked later.
+ * Does not send anything into the group.
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -28,8 +28,10 @@ async function run(request: NextRequest): Promise<NextResponse> {
   }
   try {
     const result = await scanGroupCommitments(getDb())
-    if (result.proposed.length > 0) {
-      const { title, body } = buildCommitmentNotification(result.proposed)
+    // Backfilled messages still land in /commitments, they just don't push (COMMITMENT_FRESH_HOURS).
+    const fresh = freshCommitments(result.proposed)
+    if (fresh.length > 0) {
+      const { title, body } = buildCommitmentNotification(fresh)
       await createNotification({ title, body, url: '/commitments', type: 'system' })
     }
     return NextResponse.json({ ok: true, ...result })

@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
+import { dirname, join } from 'node:path'
 
 process.env.BRIDGE_SECRET = process.env.BRIDGE_SECRET || 'test'
 process.env.SELF_JID = '972500000000@s.whatsapp.net'
 process.env.ALLOWED_JIDS = ''
 process.env.WHATSAPP_ALLOWED_GROUP_JIDS = '120363411443506535@g.us, 999@g.us'
 
-const { isAllowedGroupJid, isSelfChatJid } = await import('./config.js')
+delete process.env.BRIDGE_CONFIG_PATH
+
+const { config, isAllowedGroupJid, isSelfChatJid } = await import('./config.js')
+
+describe('configPath', () => {
+  it('defaults to a sibling of the auth-state directory', () => {
+    expect(config.configPath).toBe(join(dirname(config.authStatePath), 'config'))
+  })
+})
 
 describe('isAllowedGroupJid', () => {
   it('allows a JID present in WHATSAPP_ALLOWED_GROUP_JIDS', () => {

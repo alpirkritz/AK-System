@@ -60,6 +60,10 @@ SHELL=/bin/bash
 # Skips Gemini when the stored reading still matches today's facts.
 30 2 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/finance-narrative >/dev/null 2>&1
 
+# Cross-domain harness — every 6 hours. Re-indexes the world model and runs the
+# reasoner. Only urgent insights are pushed, at most once a day.
+10 */6 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/harness-insights >/dev/null 2>&1
+
 # Scheduled ABC agents — every 15 min. Runs agents whose clock schedule (set in
 # /agents/manage ▸ הגדרות והרצה) matches the current HH:MM.
 # Replaces /api/cron/agent-triggers, which still forwards here but is deprecated.

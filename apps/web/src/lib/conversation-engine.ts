@@ -1,13 +1,12 @@
-import { GoogleGenerativeAI, FunctionCallingMode, SchemaType } from '@google/generative-ai'
+import { SchemaType } from '@google/generative-ai'
 import type { FunctionDeclaration } from '@google/generative-ai'
 import { chatMessages, getDb } from '@ak-system/database'
 import { agentCardRequestsDueTasks, getAgentInstructions, getRunnableAgentIds } from './abc-agents'
 import { appendAgentFeedback } from './agent-feedback-log'
 import type { AgentNotifyChannel } from './agent-notifications'
 import { createServiceCaller } from './api-caller'
-import { getGeminiModelOptions } from './gemini-config'
 import { getNotionEntries, getNotionMeetings, getNotionStatus, getNotionTasks, searchNotion } from './notion'
-import { filterEventsByCalendarScope, getAgentCalendarIds, localTodayIso, localTomorrowIso, resolveLocalDayArg } from '@ak-system/api'
+import { filterEventsByCalendarScope, getAgentCalendarIds, eventTimeStatus, groupEventsByTime, localTodayIso, localTomorrowIso, resolveLocalDayArg, nowClockBlock, titlesShareTopic } from '@ak-system/api'
 
 // ─── tRPC caller ─────────────────────────────────────────────────────────────
 
@@ -28,6 +27,10 @@ function addDays(d: Date, n: number): Date {
   r.setDate(r.getDate() + n)
   return r
 }
+
+// ─── Schedule time status ─────────────────────────────────────────────────────
+// Shared with the prefetched calendar prompt block (`agent-calendar-context.ts`) so
+// the two surfaces an agent reads can never disagree about what has already happened.
 
 // ─── WhatsApp time-window arguments ───────────────────────────────────────────
 // Mirrors WHATSAPP_WINDOWS in packages/api/src/lib/whatsapp-time-window.ts, which
@@ -265,7 +268,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_tasks',
     description:
-      "Read the user's tasks from Notion across ALL connected accounts and task databases: Personal To-do, DT - Action items, Con Action items, and DAZ Tasks. Use for daily/meeting prep. Include ONLY tasks related to the meeting's people/project/topic — never dump the full backlog. For מחר use filter 'tomorrow'.",
+      "Read the user's tasks from Notion across ALL connected accounts and task databases: Personal To-do, DT - Action items, Con Action items, and DAZ Tasks. Use for daily/meeting prep. For one named meeting pass focusTitle (the calendar title) so only that topic is returned. For מחר use filter 'tomorrow'. Omit focusTitle for a day-wide list.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -275,6 +278,11 @@ const baseToolDeclarations: FunctionDeclaration[] = [
           description:
             "Which tasks to return: 'overdue', 'today', 'tomorrow', 'soon' (next 3 days), or 'all' (default: all)",
           enum: ['overdue', 'today', 'tomorrow', 'soon', 'all'],
+        },
+        focusTitle: {
+          type: SchemaType.STRING,
+          description:
+            'Calendar title of the single meeting being prepared. Keeps tasks that share a topic token with it. Omit for day-wide prep.',
         },
       },
     },
@@ -316,7 +324,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meeting_notes',
     description:
-      "Read Notion AI meeting SUMMARY only (decisions, action items, perspectives) — never the raw transcript. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT a leftover person query so every meeting that day gets prior notes. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
+      "Read Notion AI meeting SUMMARY only (decisions, action items, perspectives) — never the raw transcript. For one named meeting pass focusTitle (the calendar title) so notes from other products are dropped even if the same people attended. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT focusTitle and WITHOUT a leftover person query. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -345,6 +353,11 @@ const baseToolDeclarations: FunctionDeclaration[] = [
           type: SchemaType.STRING,
           description:
             'Person or meeting name (any CRM person, not only שני/Shani). Use with date when asking about one named conversation. Omit for day-wide prep.',
+        },
+        focusTitle: {
+          type: SchemaType.STRING,
+          description:
+            'Calendar title of the single meeting being prepared. Keeps notes that share its topic, project, or series. Shared attendees are not enough. Omit for day-wide prepDate.',
         },
       },
     },
@@ -502,6 +515,24 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     description:
       'The whole financial picture: bank balance, portfolio at cost, months of runway, savings rate including investments, broker deposits trend and currency exposure. Use for: כמה כסף יש לי, תמונה כוללת, מסלול, הון, חשיפה מטבעית.',
     parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: 'get_harness_insights',
+    description:
+      'Cross-domain links no single-domain tool can see: a person going quiet while a commitment to them is open, a commitment stale past its meeting, spending that spikes around a meeting pattern, a thread left unanswered. Each insight carries the records it was derived from, so you can say WHY. Use for broad asks — מה חשוב עכשיו, מה המצב, מה אני מפספס, תכין אותי — and pass personId for everything the system knows about one person (meetings, commitments, chat activity, open insights). This is derived signal, not raw data: for a specific fact use the domain tool instead.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        personId: {
+          type: SchemaType.STRING,
+          description: 'Narrow to one person. Omit for the whole cross-domain picture.',
+        },
+        severity: {
+          type: SchemaType.STRING,
+          description: "Filter: 'urgent' | 'attention' | 'info'. Omit for all, ranked by score.",
+        },
+      },
+    },
   },
   {
     name: 'get_recurring_charges',
@@ -662,8 +693,24 @@ function buildLogAgentFeedbackTool(): FunctionDeclaration {
   }
 }
 
+/**
+ * Agents that get `get_harness_insights`. The cross-domain picture is only useful to an agent
+ * whose job spans domains: Hugo synthesising "מה חשוב", the morning briefing, and meeting prep
+ * (which should know about an unanswered thread with the person it is briefing on). Everyone
+ * else stays single-domain, and the tool costs them no prompt budget. A call with no agentId
+ * keeps the full set, so nothing is narrowed by omission.
+ */
+const HARNESS_TOOL_AGENT_IDS = new Set([
+  '01_Hugo_orchestrator',
+  '03_morning_briefing',
+  '04_meeting_prep_herald',
+])
+
 export function getToolDeclarations(agentId?: string): FunctionDeclaration[] {
-  const decls = [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
+  let decls = [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
+  if (agentId && !HARNESS_TOOL_AGENT_IDS.has(agentId)) {
+    decls = decls.filter((d) => d.name !== 'get_harness_insights')
+  }
   if (!calendarOptimizerHidesTasks(agentId)) return decls
   return decls
     .filter((d) => !TASK_LIST_TOOLS.has(d.name))
@@ -700,13 +747,14 @@ export async function executeTool(
         caller.calendar.events({ startDate: dayStr, endDate: dayStr }),
         caller.tasks.list(),
       ])
-      const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
       const dueTasks = allTasks.filter((t) => !t.done && t.dueDate === dayStr)
       const hideTasks = calendarOptimizerHidesTasks(ctx?.agentId)
       return {
         date: dayStr,
         requested: rawDate || 'today',
-        events: scopedEvents,
+        now: nowClockBlock(),
+        allDayNote: 'Events under `allDay` hold for the whole day — they are NOT past.',
+        ...groupEventsByTime(filterEventsByCalendarScope(calResult.events, scopeIds)),
         ...(hideTasks ? {} : { dueTasks }),
         calendarErrors: calResult.googleErrors,
         calendarWarning:
@@ -723,7 +771,6 @@ export async function executeTool(
         caller.calendar.events({ startDate: todayStr, endDate: weekEnd }),
         caller.tasks.list(),
       ])
-      const scopedEvents = filterEventsByCalendarScope(calResult.events, scopeIds)
       const dueTasks = allTasks.filter(
         (t) => !t.done && t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEnd,
       )
@@ -731,7 +778,9 @@ export async function executeTool(
       return {
         startDate: todayStr,
         endDate: weekEnd,
-        events: scopedEvents,
+        now: nowClockBlock(),
+        allDayNote: 'Events under `allDay` hold for the whole day — they are NOT past.',
+        ...groupEventsByTime(filterEventsByCalendarScope(calResult.events, scopeIds)),
         ...(hideTasks ? {} : { dueTasks }),
         calendarErrors: calResult.googleErrors,
         calendarWarning:
@@ -745,8 +794,13 @@ export async function executeTool(
       const scopeIds = await getAgentCalendarIds()
       const limit = (args.limit as number | undefined) ?? 5
       const upcoming = await caller.calendar.upcoming({ limit: 50 })
-      const scoped = filterEventsByCalendarScope(upcoming.events, scopeIds).slice(0, limit)
+      // Already time-filtered server-side; the status is added so the agent reads
+      // the same vocabulary here as in the day/week buckets.
+      const scoped = filterEventsByCalendarScope(upcoming.events, scopeIds)
+        .slice(0, limit)
+        .map((e) => ({ ...e, timeStatus: eventTimeStatus(e) }))
       return {
+        now: nowClockBlock(),
         events: scoped,
         calendarErrors: upcoming.googleErrors,
         calendarWarning:
@@ -902,7 +956,10 @@ export async function executeTool(
     case 'get_notion_tasks': {
       const filter =
         (args.filter as 'overdue' | 'today' | 'tomorrow' | 'soon' | 'all' | undefined) ?? 'all'
+      const focusTitle = (args.focusTitle as string | undefined)?.trim()
       const t = await getNotionTasks()
+      const matchFocus = <T extends { title: string }>(tasks: T[]): T[] =>
+        focusTitle ? tasks.filter((task) => titlesShareTopic(task.title, focusTitle)) : tasks
       if (filter === 'tomorrow') {
         const tomorrow = localTomorrowIso()
         const pooled = [...t.today, ...t.soon, ...t.highPriority]
@@ -914,16 +971,21 @@ export async function executeTool(
           seen.add(key)
           return true
         })
-        return { filter, date: tomorrow, tasks, errors: t.errors }
+        return { filter, date: tomorrow, tasks: matchFocus(tasks), errors: t.errors }
       }
       const base =
         filter === 'overdue'
-          ? { overdue: t.overdue }
+          ? { overdue: matchFocus(t.overdue) }
           : filter === 'today'
-            ? { today: t.today }
+            ? { today: matchFocus(t.today) }
             : filter === 'soon'
-              ? { soon: t.soon }
-              : { overdue: t.overdue, today: t.today, soon: t.soon, highPriority: t.highPriority }
+              ? { soon: matchFocus(t.soon) }
+              : {
+                  overdue: matchFocus(t.overdue),
+                  today: matchFocus(t.today),
+                  soon: matchFocus(t.soon),
+                  highPriority: matchFocus(t.highPriority),
+                }
       return { filter, ...base, errors: t.errors }
     }
 
@@ -964,6 +1026,7 @@ export async function executeTool(
       const notionUrl = (args.notionUrl as string | undefined)?.trim()
       const notionPageId = (args.notionPageId as string | undefined)?.trim()
       const query = (args.query as string | undefined)?.trim()
+      const focusTitle = (args.focusTitle as string | undefined)?.trim()
       const result = await caller.insights.meetingNotes({
         ...(date ? { date } : {}),
         ...(prepDate ? { prepDate } : {}),
@@ -971,6 +1034,7 @@ export async function executeTool(
         ...(notionUrl ? { notionUrl } : {}),
         ...(notionPageId ? { notionPageId } : {}),
         ...(query ? { query } : {}),
+        ...(focusTitle ? { focusTitle } : {}),
       })
       return {
         meetingNotes: result.notes.map((n) => ({
@@ -1196,6 +1260,58 @@ export async function executeTool(
       return await caller.finance.analytics.overview()
     }
 
+    case 'get_harness_insights': {
+      const personId = (args.personId as string | undefined)?.trim()
+      const raw = (args.severity as string | undefined)?.trim()
+      const severity = (['urgent', 'attention', 'info'] as const).includes(raw as never)
+        ? (raw as 'urgent' | 'attention' | 'info')
+        : undefined
+
+      // Only ever the derived layer — titles, bodies and which records they came from. Raw
+      // WhatsApp text and transcripts stay out of the prompt, as in the reasoner itself.
+      const shape = (i: {
+        kind: string
+        severity: string
+        title: string
+        body: string
+        score: number
+        personId: string | null
+        sources: { kind: string; label: string }[]
+      }) => ({
+        kind: i.kind,
+        severity: i.severity,
+        title: i.title,
+        body: i.body,
+        score: i.score,
+        personId: i.personId,
+        basedOn: i.sources.map((s) => `${s.kind}: ${s.label}`),
+      })
+
+      if (personId) {
+        const signals = await caller.harness.personSignals({ personId })
+        return {
+          person: signals.person,
+          lastSignalAt: signals.lastSignalAt,
+          meetings: signals.meetings,
+          commitments: signals.commitments,
+          whatsapp: signals.whatsapp,
+          emails: signals.emails,
+          insights: signals.insights.map(shape),
+        }
+      }
+
+      const state = await caller.harness.worldState({ insightLimit: 12 })
+      return {
+        indexedAt: state.lastIndexedAt,
+        domains: state.nodesByKind,
+        links: state.edgesByKind,
+        insights: (severity
+          ? state.insights.filter((i) => i.severity === severity)
+          : state.insights
+        ).map(shape),
+      }
+    }
+
     case 'get_recurring_charges': {
       const lookbackMonths = Math.min(Math.max((args.lookbackMonths as number | undefined) ?? 12, 3), 24)
       const { items, monthlyFixedTotal } = await caller.finance.analytics.recurring({ lookbackMonths })
@@ -1290,82 +1406,6 @@ export async function executeTool(
     default:
       return { error: `Unknown tool: ${name}` }
   }
-}
-
-// ─── Gemini intent resolver ───────────────────────────────────────────────────
-
-export async function resolveIntent(
-  userMessage: string,
-  options?: { channel?: AgentNotifyChannel },
-): Promise<string> {
-  const geminiKey = process.env.GEMINI_API_KEY
-  if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
-
-  const genAI = new GoogleGenerativeAI(geminiKey)
-  const caller = await createApiCaller()
-  const toolCtx: ToolExecutionContext | undefined = options?.channel
-    ? { channel: options.channel }
-    : undefined
-
-  const today = new Date()
-  const dateLabel = today.toLocaleDateString('he-IL', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-
-  const systemInstruction = [
-    'You are a personal assistant integrated into ARO — a personal workspace for managing meetings, tasks, projects, and contacts.',
-    `Today is ${dateLabel} (${todayIso()}).`,
-    'Respond in the same language the user writes in: Hebrew for Hebrew messages, English for English messages.',
-    'Be concise. Use line breaks to separate items in lists.',
-    'For task lists: group by priority (high first), show due date if set.',
-    'For meeting briefings: show time, attendees with roles, project, open tasks, and notes.',
-    'Format times as HH:MM. Format dates as day/month/year or in natural language.',
-    "Priority labels in Hebrew: גבוהה=high, בינונית=medium, נמוכה=low.",
-    'If a calendar event has no linked record in the system database, mention it but still show the event details.',
-    'When showing conflicts, describe each overlap clearly with event names and times.',
-    'For specialist tasks (calendar/יומן, morning brief/בוקר, meeting prep/פגישה, email/מייל, IBKR, startup COO, Hugo, agent training), use run_abc_agent — the specialist response is delivered in this chat.',
-    'This platform is fully synchronous: NEVER promise a later update ("אעדכן אותך", "I\'ll get back to you"). Call run_abc_agent, wait for the result, and include the full answer in this reply.',
-    'WhatsApp group tools (query_whatsapp_group, summarize_whatsapp_groups, whatsapp_now) return structured DB facts: message counts, top senders, recent lines. YOU write the Hebrew briefing from that data. When messageCount=0 or empty=true, say "אין הודעות [בטווח הזה]". Always mention the rangeLabel. For time-anchored WhatsApp questions, always pass time arguments: "היום"/"today" → window="today"; "אתמול"/"yesterday" → window="yesterday"; "בין 14 ל-16" → sinceHour=14,untilHour=16 (24h, Israel time); "מהבוקר" → window="today",sinceHour=6.',
-    'Notion (all connected accounts) IS accessible to you: use get_notion_meetings, get_notion_tasks (Personal To-do, DT - Action items, Con Action items, DAZ Tasks), get_notion_meeting_notes. For daily/tomorrow prep ("תכין אותי ליום"/"מחר"/"כולם") call get_notion_meeting_notes with prepDate (tomorrow/today) and do NOT pass a leftover person query — brief EVERY meeting that day from prior AI summaries. Named person → query. NEVER say you have no access to Notion — if a database fails, call notion_status and report which database is not shared.',
-    'Never redirect the user to Notion as the only place to see agent results.',
-    'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
-  ].join('\n')
-
-  const model = genAI.getGenerativeModel({
-    ...getGeminiModelOptions(),
-    systemInstruction,
-    tools: [{ functionDeclarations: getToolDeclarations() }],
-    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
-  })
-
-  const chat = model.startChat()
-  let result = await chat.sendMessage(userMessage)
-
-  let iterations = 0
-  while (iterations < 10) {
-    const calls = result.response.functionCalls()
-    if (!calls || calls.length === 0) break
-
-    const responses = await Promise.all(
-      calls.map(async (call) => {
-        let toolResult: unknown
-        try {
-          toolResult = await executeTool(call.name, call.args as ToolArgs, caller, toolCtx)
-        } catch (err) {
-          toolResult = { error: err instanceof Error ? err.message : 'Tool execution failed' }
-        }
-        return { functionResponse: { name: call.name, response: { result: toolResult } } }
-      }),
-    )
-
-    result = await chat.sendMessage(responses)
-    iterations++
-  }
-
-  return result.response.text()
 }
 
 // ─── Chat message persistence ─────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { bodyLooksLikeFibiOtpStep, bodyLooksLikeHapoalimOtpModal } from './bank-otp-page'
 import {
-  POST_LOGIN_TIMEOUT_HEBREW_ERROR,
+  POST_LOGIN_STUCK_HEBREW_ERROR,
   humanizeScrapeError,
   isPostLoginSelectorTimeout,
 } from './bank-chrome-launch'
@@ -29,7 +29,7 @@ describe('humanizeScrapeError post-login', () => {
   it('maps card-header timeout to Hebrew OTP hint', () => {
     const raw = 'Waiting for selector `#card-header` failed'
     expect(isPostLoginSelectorTimeout(raw)).toBe(true)
-    expect(humanizeScrapeError(raw)).toBe(POST_LOGIN_TIMEOUT_HEBREW_ERROR)
+    expect(humanizeScrapeError(raw)).toBe(POST_LOGIN_STUCK_HEBREW_ERROR)
   })
 })
 

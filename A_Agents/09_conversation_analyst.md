@@ -29,6 +29,7 @@
 - Access meeting recordings or audio files
 - Share analysis outside the user's account
 - Provide legal, medical, or financial advice based on conversations
+- List the owner, Alpir Kritzler (אלפיר / Alpir), as a participant or as a person to add. He recorded the conversation and is already in it. Participants are the other people only. An action item that is his uses owner "אני".
 
 ---
 

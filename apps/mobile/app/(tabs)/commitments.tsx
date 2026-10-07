@@ -22,10 +22,27 @@ import { colors } from '../../lib/theme'
 
 type OwnerFilter = 'all' | 'me' | 'them'
 
+function senderLabel(name: string | null | undefined): string | null {
+  if (!name || /@(lid|s\.whatsapp\.net|g\.us)$/.test(name)) return null
+  return name
+}
+
 function dueLabel(iso: string | null): string {
   if (!iso) return ''
   const [, m, d] = iso.split('-')
   return `עד ${Number(d)}.${Number(m)}`
+}
+
+/** When the conversation happened, not when the scan ran. */
+function sourceTimeLabel(ms: number): string {
+  const minutes = Math.round((Date.now() - ms) / 60_000)
+  if (minutes < 1) return 'עכשיו'
+  if (minutes < 60) return `לפני ${minutes} דק׳`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `לפני ${hours} שע׳`
+  const d = new Date(ms)
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return hours < 48 ? `אתמול ${time}` : `${d.getDate()}.${d.getMonth() + 1} ${time}`
 }
 
 export default function CommitmentsScreen() {
@@ -114,21 +131,28 @@ export default function CommitmentsScreen() {
           renderItem={({ item: c }) => (
             <View style={styles.card}>
               <Text style={styles.meta}>
-                {c.personName} · {c.owner === 'me' ? 'עליי' : 'עליו/ה'}
+                {c.personId ? c.personName : 'התחייבות ממספר לא מוכר'} · {c.owner === 'me' ? 'עליי' : 'עליו/ה'}
+                {c.sourceChatName ? ` · ${c.sourceChatName}` : ''}
+                {` · ${sourceTimeLabel(new Date(c.sourceTs ?? c.createdAt).getTime())}`}
                 {c.dueInferred ? ` · ${dueLabel(c.dueInferred)}` : ''}
               </Text>
+              {!c.personId && senderLabel(c.senderName) ? <Text style={styles.snippet}>{senderLabel(c.senderName)}</Text> : null}
               <Text style={styles.content}>{c.content}</Text>
               {c.sourceSnippet ? <Text style={styles.snippet} numberOfLines={2}>{c.sourceSnippet}</Text> : null}
+              {c.sourceReason ? <Text style={styles.snippet} numberOfLines={2}>למה: {c.sourceReason}</Text> : null}
+              {!c.personId ? <Text style={styles.snippet}>שמירה ושיוך באתר</Text> : null}
               <View style={styles.actions}>
-                <Pressable
-                  style={[styles.btn, styles.btnPrimary]}
-                  disabled={busyId === c.id}
-                  onPress={() => act(c.id, 'accept')}
-                  accessibilityRole="button"
-                  accessibilityLabel={`קבל: ${c.content}`}
-                >
-                  <Text style={styles.btnPrimaryText}>קבל</Text>
-                </Pressable>
+                {c.personId ? (
+                  <Pressable
+                    style={[styles.btn, styles.btnPrimary]}
+                    disabled={busyId === c.id}
+                    onPress={() => act(c.id, 'accept')}
+                    accessibilityRole="button"
+                    accessibilityLabel={`קבל: ${c.content}`}
+                  >
+                    <Text style={styles.btnPrimaryText}>קבל</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={styles.btn}
                   disabled={busyId === c.id}

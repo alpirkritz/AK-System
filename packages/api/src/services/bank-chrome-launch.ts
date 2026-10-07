@@ -25,6 +25,12 @@ export const BROWSER_PROFILE_LOCK_HEBREW_ERROR =
 export const POST_LOGIN_TIMEOUT_HEBREW_ERROR =
   'ההתחברות לבנק לא הושלמה — ייתכן שנדרש קוד SMS מהבנק. נסה לסנכרן שוב; אם מופיע "ממתין לקוד אימות", הזן את הקוד שקיבלת.'
 
+export const POST_LOGIN_STUCK_HEBREW_ERROR =
+  'ההתחברות לא המשיכה אחרי הסיסמה. נסה לסנכרן שוב; אם נפתח מסך הבנק, לחץ על מה שהוא מציג. קוד SMS מזינים רק כשמופיע "ממתין לקוד אימות".'
+
+export const LOGIN_PAGE_TIMEOUT_HEBREW_ERROR =
+  'דף ההתחברות של הבנק לא נטען — לרוב בגלל אימות אבטחה על השרת. נסה לסנכרן שוב; אם נפתח חלון אימות, פתור אותו.'
+
 export const OTP_TIMEOUT_HEBREW_ERROR = 'לא הוזן קוד אימות בזמן — נסה לסנכרן שוב'
 
 const BROWSER_LAUNCH_ATTEMPTS = 3
@@ -40,10 +46,12 @@ export function isBrowserLaunchFailure(message: string): boolean {
   )
 }
 
+export function isLoginFormTimeout(message: string): boolean {
+  return /Waiting for selector `#?continueBtn\b/i.test(message)
+}
+
 export function isPostLoginSelectorTimeout(message: string): boolean {
-  return /Waiting for selector `#?(card-header|account_num|continueBtn|matafLogoutLink)/i.test(
-    message,
-  )
+  return /Waiting for selector `#?(card-header|account_num|matafLogoutLink)/i.test(message)
 }
 
 export function isOtpTimeoutError(message: string): boolean {
@@ -54,7 +62,8 @@ export function humanizeScrapeError(message: string): string {
   if (isChromeProfileLockFailure(message)) return BROWSER_PROFILE_LOCK_HEBREW_ERROR
   if (isBrowserLaunchFailure(message)) return BROWSER_LAUNCH_HEBREW_ERROR
   if (isOtpTimeoutError(message)) return OTP_TIMEOUT_HEBREW_ERROR
-  if (isPostLoginSelectorTimeout(message)) return POST_LOGIN_TIMEOUT_HEBREW_ERROR
+  if (isLoginFormTimeout(message)) return LOGIN_PAGE_TIMEOUT_HEBREW_ERROR
+  if (isPostLoginSelectorTimeout(message)) return POST_LOGIN_STUCK_HEBREW_ERROR
   return message
 }
 

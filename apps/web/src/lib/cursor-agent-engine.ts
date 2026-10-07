@@ -6,6 +6,7 @@ import {
   getAbcRootPath,
   getAgentInstructions,
 } from './abc-agents'
+import { ownerIdentityPrompt } from '@ak-system/api'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 
 export interface ChatTurn {
@@ -46,6 +47,7 @@ async function buildPrompt(
   const instructions = getAgentInstructions(agentId)
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\`.`,
+    ownerIdentityPrompt(),
     `Today is ${formatDateLabel()} (${new Date().toISOString().split('T')[0]}).`,
     `Repository root (ABC workspace): ${getAbcRootPath()}`,
     '',

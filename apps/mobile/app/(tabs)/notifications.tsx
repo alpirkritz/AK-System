@@ -24,6 +24,7 @@ import {
   mobileRouteForNotificationUrl,
   notificationPreview,
 } from '../../lib/api'
+import { dismissTrayNotifications } from '../../lib/notifications'
 import { parseNotificationBody } from '../../lib/notification-format'
 import { useUnread } from '../../lib/unread'
 import { useAuth } from '../../lib/auth'
@@ -250,6 +251,7 @@ export default function NotificationsScreen() {
       setItems((prev) =>
         prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })),
       )
+      void dismissTrayNotifications(items.map((n) => n.id))
       void refreshUnread()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'סימון נכשל')
@@ -265,6 +267,7 @@ export default function NotificationsScreen() {
           n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
         ),
       )
+      void dismissTrayNotifications([item.id])
       void refreshUnread()
     } catch {
       setError('לא ניתן לעדכן את ההתראה. נסה שוב.')
@@ -278,6 +281,7 @@ export default function NotificationsScreen() {
     setItems((prev) => prev.filter((n) => n.id !== item.id))
     try {
       await archiveNotification(token, item.id)
+      void dismissTrayNotifications([item.id])
       setUndoId(item.id)
       if (undoTimer.current) clearTimeout(undoTimer.current)
       undoTimer.current = setTimeout(() => setUndoId(null), 4000)
@@ -310,6 +314,7 @@ export default function NotificationsScreen() {
     setItems([])
     try {
       const res = await archiveAllNotifications(token)
+      void dismissTrayNotifications(itemsToArchive.map((n) => n.id))
       if (res.batchAt) {
         setBulkUndo({ batchAt: res.batchAt, count: res.updated })
         if (bulkUndoTimer.current) clearTimeout(bulkUndoTimer.current)

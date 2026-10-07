@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getDb, people, personExternalIds, projects, companies, tasks, taskPeople, peopleNotionSources, eq } from '@ak-system/database'
+import { getDb, people, personExternalIds, projects, companies, tasks, taskPeople, peopleNotionSources, workspaceNotionDatabases, eq } from '@ak-system/database'
 import {
   syncNotionTasks,
   isNotionTasksConfigured,
   resolvePeopleDatabases,
+  resolveTaskDatabases,
+  resolveWorkspaceNotionTarget,
+  resolveTaskDatabaseTarget,
   listNotionAccountLabels,
   findNotionAccountToken,
   extractNotionDatabaseId,
@@ -19,6 +22,8 @@ const TASKS_DB = 'tasksdb0000000000000000000000000'
 const DIR_DB = 'peopledir000000000000000000000000'
 /** A self-service `people_notion_sources` database, not present in NOTION_ACCOUNTS. */
 const CUSTOM_DB = 'customdb00000000000000000000000'
+/** A paste-a-link task database, not present in NOTION_ACCOUNTS. */
+const CUSTOM_TASK_DB = 'taskcustom000000000000000000000'
 
 function titleProp(text: string) {
   return { type: 'title', title: [{ plain_text: text }] }
@@ -52,6 +57,7 @@ let peoplePages: Array<{ id: string; properties: Record<string, unknown> }> = []
 let dirPages: Array<{ id: string; properties: Record<string, unknown> }> = []
 let taskPages: Array<{ id: string; properties: Record<string, unknown> }> = []
 let customPages: Array<{ id: string; properties: Record<string, unknown> }> = []
+let customTaskPages: Array<{ id: string; properties: Record<string, unknown> }> = []
 /** When set, GET /databases/TASKS_DB returns this schema; otherwise empty properties. */
 let taskDbSchema: Record<string, unknown> | null = null
 const fetchCalls: Array<{ url: string; body: Record<string, unknown>; method?: string }> = []
@@ -77,13 +83,15 @@ function installFetchMock() {
 
       const results = url.includes(DIR_DB)
         ? dirPages
-        : url.includes(CUSTOM_DB)
-          ? customPages
-          : url.includes(PEOPLE_DB)
-            ? peoplePages
-            : url.includes(TASKS_DB)
-              ? taskPages
-              : []
+        : url.includes(CUSTOM_TASK_DB)
+          ? customTaskPages
+          : url.includes(CUSTOM_DB)
+            ? customPages
+            : url.includes(PEOPLE_DB)
+              ? peoplePages
+              : url.includes(TASKS_DB)
+                ? taskPages
+                : []
       return {
         ok: true,
         json: async () => ({ results, has_more: false, next_cursor: null }),
@@ -100,6 +108,7 @@ async function clearDb() {
   await db.delete(people)
   await db.delete(projects)
   await db.delete(peopleNotionSources)
+  await db.delete(workspaceNotionDatabases)
   await db.delete(companies)
 }
 
@@ -113,6 +122,7 @@ beforeEach(async () => {
   dirPages = []
   taskPages = []
   customPages = []
+  customTaskPages = []
   taskDbSchema = null
   process.env.NOTION_USER_NAME = 'Alpir Kritzler'
   process.env.NOTION_ACCOUNTS = JSON.stringify([
@@ -202,7 +212,7 @@ describe('syncNotionTasks', () => {
     expect(t1.assigneeId).toBe(me.id)
 
     const t1People = await db.select().from(taskPeople).where(eq(taskPeople.taskId, t1.id))
-    expect(t1People.map((r) => r.personId)).toContain(me.id)
+    expect(t1People.map((r) => r.personId)).not.toContain(me.id)
 
     const t5 = allTasks.find((t) => t.title === 'Bob via relation')!
     const bob = (await db.select().from(people).where(eq(people.notionPageId, 'notion-bob')))[0]
@@ -376,7 +386,7 @@ describe('syncNotionTasks', () => {
     const me = (await db.select().from(people).where(eq(people.name, 'Alpir Kritzler')))[0]!
     expect(t.assigneeId).toBe(me.id)
     const links = await db.select().from(taskPeople).where(eq(taskPeople.taskId, t.id))
-    expect(links.map((l) => l.personId).sort()).toEqual(['p_shani', me.id].sort())
+    expect(links.map((l) => l.personId)).toEqual(['p_shani'])
   })
 
   it('sets projectId from Projects relation when project exists locally', async () => {
@@ -706,5 +716,81 @@ describe('full-field people sync (phone / role / company / linkedin)', () => {
     await syncNotionTasks({ windowDays: 60 })
     const [row] = await getDb().select().from(people).where(eq(people.notionPageId, 'notion-skip'))
     expect(row.phone).toBeNull()
+  })
+})
+
+describe('resolveTaskDatabases', () => {
+  it('merges a pasted task database whose account matches a configured account', async () => {
+    const db = getDb()
+    await db.insert(workspaceNotionDatabases).values({
+      id: 'wnd1',
+      workspaceId: 'ws_daz',
+      notionDatabaseId: CUSTOM_TASK_DB,
+      notionDatabaseName: 'Engineering Tasks',
+      accountLabel: 'Test',
+      createdAt: new Date().toISOString(),
+    })
+    const { databases, errors } = await resolveTaskDatabases(db)
+    expect(errors).toEqual([])
+    const custom = databases.find((d) => d.databaseId === CUSTOM_TASK_DB)
+    expect(custom?.token).toBe('ntn_test')
+    expect(custom?.name).toBe('Engineering Tasks')
+    expect(custom?.accountLabel).toBe('Test')
+  })
+
+  it('skips and reports a pasted database whose account no longer matches', async () => {
+    const db = getDb()
+    await db.insert(workspaceNotionDatabases).values({
+      id: 'wnd2',
+      workspaceId: 'ws_daz',
+      notionDatabaseId: CUSTOM_TASK_DB,
+      notionDatabaseName: 'Engineering Tasks',
+      accountLabel: 'Stale Account',
+      createdAt: new Date().toISOString(),
+    })
+    const { databases, errors } = await resolveTaskDatabases(db)
+    expect(databases.some((d) => d.databaseId === CUSTOM_TASK_DB)).toBe(false)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('Stale Account')
+    expect(errors[0]).toContain('task-source/Engineering Tasks')
+  })
+
+  it('sync assigns tasks from a pasted database to the linked workspace', async () => {
+    const db = getDb()
+    await db.insert(workspaceNotionDatabases).values({
+      id: 'wnd3',
+      workspaceId: 'ws_daz',
+      notionDatabaseId: CUSTOM_TASK_DB,
+      notionDatabaseName: 'Engineering Tasks',
+      accountLabel: 'Test',
+      createdAt: new Date().toISOString(),
+    })
+    customTaskPages = [
+      { id: 'eng-task-1', properties: { Name: titleProp('Ship the spec'), Assignee: peopleProp('Alpir Kritzler') } },
+    ]
+    const res = await syncNotionTasks({ windowDays: 60 })
+    expect(res.errors).toEqual([])
+    const [row] = await db.select().from(tasks).where(eq(tasks.notionPageId, 'eng-task-1'))
+    expect(row.title).toBe('Ship the spec')
+    expect(row.workspaceId).toBe('ws_daz')
+    expect(row.notionAccount).toBe('Test')
+    expect(row.notionDb).toBe('Engineering Tasks')
+  })
+
+  it('resolves create and writeback targets from a pasted database', async () => {
+    const db = getDb()
+    await db.insert(workspaceNotionDatabases).values({
+      id: 'wnd4',
+      workspaceId: 'ws_daz',
+      notionDatabaseId: CUSTOM_TASK_DB,
+      notionDatabaseName: 'Engineering Tasks',
+      accountLabel: 'Test',
+      createdAt: '2000-01-01T00:00:00.000Z',
+    })
+    const createTarget = await resolveWorkspaceNotionTarget('ws_daz')
+    expect(createTarget?.databaseId).toBe(CUSTOM_TASK_DB)
+    expect(createTarget?.token).toBe('ntn_test')
+    const writeTarget = await resolveTaskDatabaseTarget('Test', 'Engineering Tasks', db)
+    expect(writeTarget).toEqual({ token: 'ntn_test', databaseId: CUSTOM_TASK_DB })
   })
 })

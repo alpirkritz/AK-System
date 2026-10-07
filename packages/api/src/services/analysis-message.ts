@@ -1,4 +1,5 @@
 import type { AnalysisResult } from './meeting-analysis'
+import { omitSelfParticipants } from './self-person'
 
 /** The analysis text saved on the meeting, also sent to Alpir's WhatsApp. */
 export function formatAnalysisMessage(
@@ -6,9 +7,10 @@ export function formatAnalysisMessage(
   meetingTitle: string,
   meetingDate: string,
 ): string {
-  const participantsText = analysis.participants
-    .map((p) => (p.confirmed ? p.name : `${p.name} (unconfirmed)`))
-    .join(', ')
+  const participantsText =
+    omitSelfParticipants(analysis.participants)
+      .map((p) => (p.confirmed ? p.name : `${p.name} (unconfirmed)`))
+      .join(', ') || 'לא זוהו אנשים נוספים'
 
   const actionItemsText =
     analysis.actionItems.length > 0

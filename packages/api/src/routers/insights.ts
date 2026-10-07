@@ -4,6 +4,7 @@ import { commitmentsForDate } from '../services/commitments'
 import { pushDmAllowlist } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
 import {
+  getDb,
   people,
   personExternalIds,
   meetings,
@@ -18,6 +19,7 @@ import { eq, desc, inArray, and, or, gte, SQL } from 'drizzle-orm'
 import { localTodayIso, localTomorrowIso, resolveLocalDayArg } from '../lib/calendar-dates'
 import { queryMatchesPersonName, queryMatchesText, titlesShareKnownPerson } from '../lib/person-name-match'
 import { titlesFuzzyMatch } from '../services/notion-graph-sync'
+import { titlesShareTopic } from '../lib/topic-match'
 import { ensureMeetingPageNote, parseNotionIdFromInput } from '../services/notion-meeting-note-body'
 import { resolveDatabases } from '../services/notion-tasks-sync'
 import { syncNotionGraph } from '../services/notion-graph-sync'
@@ -55,6 +57,8 @@ const meetingNotesInput = z
     notionUrl: z.string().min(1).optional(),
     query: z.string().min(1).optional(),
     prepDate: z.string().min(1).optional(),
+    /** Single-meeting prep: keep notes for this title's topic, project, or series only. */
+    focusTitle: z.string().min(1).optional(),
   })
   .refine(
     (v) => {
@@ -67,6 +71,63 @@ const meetingNotesInput = z
 function isoDaysBefore(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d - days)).toISOString().slice(0, 10)
+}
+
+type FocusNote = {
+  id: string
+  title: string
+  meetingTitle: string | null
+  meetingId: string | null
+}
+
+/** Drop notes that are only related by shared attendees. */
+async function keepNotesForFocusTitle<T extends FocusNote>(
+  db: ReturnType<typeof getDb>,
+  notes: T[],
+  focusTitle: string,
+): Promise<T[]> {
+  const allMeetings = await db
+    .select({
+      id: meetings.id,
+      title: meetings.title,
+      projectId: meetings.projectId,
+      seriesId: meetings.seriesId,
+    })
+    .from(meetings)
+  const anchors = allMeetings.filter((m) => titlesShareTopic(m.title, focusTitle))
+  const projectIds = new Set(
+    anchors.map((m) => m.projectId).filter((id): id is string => Boolean(id)),
+  )
+  const seriesIds = new Set(
+    anchors.map((m) => m.seriesId).filter((id): id is string => Boolean(id)),
+  )
+  const metaById = new Map(allMeetings.map((m) => [m.id, m]))
+
+  const linkedProjects = new Map<string, string[]>()
+  const noteIds = notes.map((n) => n.id)
+  if (noteIds.length > 0) {
+    const links = await db
+      .select({
+        meetingNoteId: meetingNoteProjects.meetingNoteId,
+        projectId: meetingNoteProjects.projectId,
+      })
+      .from(meetingNoteProjects)
+      .where(inArray(meetingNoteProjects.meetingNoteId, noteIds))
+    for (const link of links) {
+      const list = linkedProjects.get(link.meetingNoteId) ?? []
+      list.push(link.projectId)
+      linkedProjects.set(link.meetingNoteId, list)
+    }
+  }
+
+  return notes.filter((n) => {
+    if (titlesShareTopic(n.title, focusTitle)) return true
+    if (n.meetingTitle && titlesShareTopic(n.meetingTitle, focusTitle)) return true
+    const meta = n.meetingId ? metaById.get(n.meetingId) : undefined
+    if (meta?.seriesId && seriesIds.has(meta.seriesId)) return true
+    if (meta?.projectId && projectIds.has(meta.projectId)) return true
+    return (linkedProjects.get(n.id) ?? []).some((id) => projectIds.has(id))
+  })
 }
 
 function noteMatchesPrepMeeting(
@@ -273,6 +334,10 @@ export const insightsRouter = router({
         // Named ask like "שני" vs "Shani Asaraf" should still return today's notes rather than empty.
         // prepDate + leftover query would drop other people — only keep query when it hits.
         if (filtered.length > 0 || (!dateFilter && !prepIso)) notes = filtered
+      }
+
+      if (filters.focusTitle) {
+        notes = await keepNotesForFocusTitle(ctx.db, notes, filters.focusTitle)
       }
 
       return notes.slice(0, prepIso ? 20 : 15)

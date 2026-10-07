@@ -3,6 +3,7 @@ import {
   getNotificationRouting,
   hasAgentRunInSlot,
   markAgentRan,
+  NOTIFICATION_TYPES,
   resolveAgentDisplayName,
 } from '@ak-system/api'
 import { runAgentForUser } from './agent-runner'
@@ -42,8 +43,13 @@ export async function runEventAgentIfRouted(
   typeId: string,
   options?: EventAgentOptions,
 ): Promise<EventAgentOutcome> {
-  const { agentId, triggerMessage } = await getNotificationRouting(typeId)
+  const routing = await getNotificationRouting(typeId)
+  // A type may declare a `defaultAgentId` when its raw output is only useful with an
+  // agent's judgment. An explicit routing always wins over it.
+  const fallbackAgentId = NOTIFICATION_TYPES.find((t) => t.id === typeId)?.defaultAgentId
+  const agentId = routing.agentId ?? fallbackAgentId
   if (!agentId) return { status: 'not_routed' }
+  const triggerMessage = routing.agentId ? routing.triggerMessage : null
 
   if (options?.dedupeSlot) {
     const timezone = options.timezone ?? process.env.TIMEZONE ?? 'Asia/Jerusalem'

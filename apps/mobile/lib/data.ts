@@ -664,13 +664,19 @@ export async function setCaptureWhatsapp(token: string, id: string, enabled: boo
 
 export interface MobileCommitment {
   id: string
-  personId: string
-  personName: string
+  personId: string | null
+  personName: string | null
+  senderName?: string | null
   owner: 'me' | 'them'
   content: string
   dueInferred: string | null
   source: string
   sourceSnippet: string | null
+  /** When the source message was sent. Null for sources with no message, e.g. an analysis. */
+  sourceTs: number | null
+  sourceChatName: string | null
+  sourceReason: string | null
+  createdAt: string
 }
 
 export async function fetchProposedCommitments(token: string, owner: 'all' | 'me' | 'them' = 'all'): Promise<MobileCommitment[]> {

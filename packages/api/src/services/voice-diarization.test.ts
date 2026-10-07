@@ -10,10 +10,13 @@ import {
   deleteVoicePrint,
   enrollVoicePrint,
   getVoicePrintStatus,
+  listRecordingSpeakers,
   matchSelfVoice,
+  notifyUnknownSpeakers,
   runSelfVoiceDetection,
   SELF_MATCH_THRESHOLD,
 } from './voice-diarization'
+import { saveTranscriptSegments } from './voice'
 
 let fixturesDir = ''
 let storageDir = ''
@@ -67,7 +70,8 @@ async function insertRecording(audioPath: string): Promise<string> {
     id,
     audioPath,
     mimeType: 'audio/wav',
-    sizeBytes: fs.statSync(audioPath).size,
+    // The missing-file case deliberately passes a path that does not exist.
+    sizeBytes: fs.existsSync(audioPath) ? fs.statSync(audioPath).size : 0,
     duration: 6,
     status: 'uploaded',
     consentConfirmedAt: now,
@@ -154,8 +158,28 @@ describe('runSelfVoiceDetection (pipeline integration)', () => {
     expect(links).toHaveLength(0)
   })
 
+  it('marks the transcript label of the enrolled voice as auto, so it is never asked about', async () => {
+    const db = getTestDb()
+    await enrollVoicePrint(db, { audio: fs.readFileSync(path.join(fixturesDir, 'enroll.wav')), mimeType: 'audio/wav' }, storageDir)
+    const recordingId = await insertRecording(path.join(fixturesDir, 'matching-recording.wav'))
+    await saveTranscriptSegments(db, recordingId, [
+      { speakerLabel: 'דובר 1', startMs: 0, endMs: 6000, text: 'כל ההקלטה' },
+      { speakerLabel: 'דובר 2', startMs: 6000, endMs: 9000, text: 'מישהו אחר' },
+    ])
+
+    await runSelfVoiceDetection(db, recordingId)
+
+    const speakers = await listRecordingSpeakers(db, recordingId)
+    expect(speakers.find((s) => s.speakerLabel === 'דובר 1')).toMatchObject({ state: 'auto' })
+    expect(speakers.find((s) => s.speakerLabel === 'דובר 2')).toMatchObject({ state: 'unknown' })
+    expect(await notifyUnknownSpeakers(db, recordingId)).toBe(true)
+  })
+
   it('never throws and marks the recording failed when the audio file does not exist', async () => {
     const db = getTestDb()
+    // Needs an enrolled voiceprint: without one the matcher returns before it ever opens the
+    // file, so a missing path is a no-op rather than a failure.
+    await enrollVoicePrint(db, { audio: fs.readFileSync(path.join(fixturesDir, 'enroll.wav')), mimeType: 'audio/wav' }, storageDir)
     const recordingId = await insertRecording('/nonexistent/path/does-not-exist.wav')
     await expect(runSelfVoiceDetection(db, recordingId)).resolves.toBeUndefined()
     const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))

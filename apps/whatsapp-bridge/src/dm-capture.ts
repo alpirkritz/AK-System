@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import pino from 'pino'
-import { config } from './config.js'
+import { configFilePath, resolveConfigFileForRead } from './config-store.js'
 import { bareUserJid } from './self-chat.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
@@ -21,33 +21,45 @@ export interface DmQueuedMessage {
   fromMe: boolean
   text: string
   timestamp: number
+  /** Set when the message came from a history sync, so AK can skip reply/notification paths. */
+  historySync?: boolean
 }
 
 const queue: DmQueuedMessage[] = []
 const queuedIds = new Set<string>()
 const MAX_QUEUE = 5000
 
+const DM_CONFIG_FILE = 'dm-config.json'
+const DM_LID_MAP_FILE = 'dm-lid-map.json'
+
 function persistPath(): string {
-  return join(config.authStatePath, 'dm-config.json')
+  return configFilePath(DM_CONFIG_FILE)
 }
 
 function lidMapPath(): string {
-  return join(config.authStatePath, 'dm-lid-map.json')
+  return configFilePath(DM_LID_MAP_FILE)
 }
 
 export function loadPersistedDmConfig(): void {
   try {
-    const file = persistPath()
-    if (!existsSync(file)) return
+    const file = resolveConfigFileForRead(DM_CONFIG_FILE)
+    if (!existsSync(file)) {
+      logger.warn({ file }, 'No DM capture allowlist on disk — every private chat will be ignored')
+      return
+    }
     const jids = JSON.parse(readFileSync(file, 'utf8')) as unknown
     if (!Array.isArray(jids)) return
     allowlist = new Set(jids.map((j) => bareUserJid(String(j))))
-    logger.info({ count: allowlist.size }, 'Restored DM capture allowlist')
+    if (allowlist.size === 0) {
+      logger.warn({ file }, 'DM capture allowlist is empty — every private chat will be ignored')
+    } else {
+      logger.info({ count: allowlist.size }, 'Restored DM capture allowlist')
+    }
   } catch (err) {
     logger.error({ err }, 'Failed to load DM capture allowlist')
   }
   try {
-    const raw = JSON.parse(readFileSync(lidMapPath(), 'utf8')) as unknown
+    const raw = JSON.parse(readFileSync(resolveConfigFileForRead(DM_LID_MAP_FILE), 'utf8')) as unknown
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
     for (const [lid, phone] of Object.entries(raw as Record<string, unknown>)) {
       if (typeof phone !== 'string') continue

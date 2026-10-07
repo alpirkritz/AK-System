@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { formatAgentCalendarContextForPrompt } from './agent-calendar-context'
 
 describe('formatAgentCalendarContextForPrompt', () => {
@@ -70,7 +70,7 @@ describe('formatAgentCalendarContextForPrompt', () => {
       ],
     })
     expect(text).toContain('אבא וצף')
-    expect(text).toContain('List EVERY event')
+    expect(text).toContain('List EVERY event below within its own section')
     // Must not rely on attendee count to classify real meetings.
     expect(text).toContain('attendee lists are often empty')
   })
@@ -142,5 +142,115 @@ describe('formatAgentCalendarContextForPrompt', () => {
     expect(text).toContain('נתונים חלקיים')
     expect(text).toContain('אל תצהיר שהיום פנוי')
     expect(text).toContain('Dragontail')
+  })
+})
+
+describe('formatAgentCalendarContextForPrompt — clock sections', () => {
+  const NOW = new Date('2026-10-06T12:51:00.000Z') // 15:51 Israel time
+
+  const day = {
+    today: '2026-10-06',
+    errors: [],
+    events: [
+      {
+        id: 'bday',
+        title: "Rachel Guy's Birthday",
+        start: '2026-10-06',
+        end: '2026-10-07',
+        isAllDay: true,
+        calendarName: 'Birthdays',
+      },
+      {
+        id: 'standup',
+        title: 'Algo 4.0 - Sync meeting updates',
+        start: '2026-10-06T11:30:00+03:00',
+        end: '2026-10-06T12:00:00+03:00',
+        isAllDay: false,
+      },
+      {
+        id: 'kids',
+        title: 'Kids',
+        start: '2026-10-06T15:30:00+03:00',
+        end: '2026-10-06T21:00:00+03:00',
+        isAllDay: false,
+      },
+    ],
+  }
+
+  function sectionOf(text: string, heading: string): string {
+    const body = text.split(heading)[1] ?? ''
+    return body.split('\n\n')[0]
+  }
+
+  it('states the current wall clock in the events heading', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      expect(formatAgentCalendarContextForPrompt(day)).toContain('Events today (now: 15:51 Asia/Jerusalem)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('files a finished meeting under past and an in-progress one under now', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const text = formatAgentCalendarContextForPrompt(day)
+      expect(sectionOf(text, '**כבר הסתיים היום:**')).toContain('Algo 4.0')
+      expect(sectionOf(text, '**מתרחש כרגע:**')).toContain('Kids')
+      expect(sectionOf(text, '**מתרחש כרגע:**')).not.toContain('Algo 4.0')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps today's all-day markers out of the schedule entirely — the bug the user reported", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const text = formatAgentCalendarContextForPrompt(day)
+      // One inline background line, not a bulleted section the agent can re-file.
+      expect(text).toContain('**רקע ליום (לא לוח זמנים, לא אירועים שעברו):**')
+      expect(text).toContain("Rachel Guy's Birthday [Birthdays]")
+      expect(sectionOf(text, '**כבר הסתיים היום:**')).not.toContain('Birthday')
+      expect(sectionOf(text, '**עוד לפניך היום:**')).not.toContain('Birthday')
+      expect(text).not.toContain('- כל היום')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('omits the background line entirely when there are no all-day markers', () => {
+    const text = formatAgentCalendarContextForPrompt({
+      ...day,
+      events: day.events.filter((e) => !e.isAllDay),
+    })
+    expect(text).not.toContain('**רקע ליום (לא לוח זמנים')
+  })
+
+  it('forbids inventing a two-way past/ahead split and filing all-day items as finished', () => {
+    const text = formatAgentCalendarContextForPrompt(day)
+    expect(text).toContain('Reuse EXACTLY those groupings')
+    expect(text).toContain('do not invent your own two-way')
+    expect(text).toContain('never put them under any heading meaning "passed"')
+  })
+
+  it('puts the whole day ahead at 07:00, leaving the morning briefing unchanged', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-06T04:00:00.000Z'))
+    try {
+      const text = formatAgentCalendarContextForPrompt(day)
+      expect(sectionOf(text, '**כבר הסתיים היום:**')).toContain('שום אירוע לא הסתיים עדיין')
+      expect(sectionOf(text, '**עוד לפניך היום:**')).toContain('Algo 4.0')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still reports an empty day as empty rather than printing four empty sections', () => {
+    const text = formatAgentCalendarContextForPrompt({ today: '2026-10-06', errors: [], events: [] })
+    expect(text).toContain('None returned from Google Calendar API')
+    expect(text).not.toContain('**מתרחש כרגע:**')
   })
 })

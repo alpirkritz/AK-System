@@ -12,9 +12,20 @@
  * Every entry point here is best-effort: failures never block transcription/analysis.
  */
 import * as fs from 'fs'
-import { and, eq } from 'drizzle-orm'
-import { people, voicePrints, voiceRecordingPeople, voiceRecordings, type getDb } from '@ak-system/database'
+import { and, eq, sql } from 'drizzle-orm'
+import {
+  people,
+  voicePrints,
+  voiceRecordingPeople,
+  voiceRecordings,
+  voiceSpeakerIdentities,
+  voiceTranscriptSegments,
+  type VoiceSpeakerState,
+  type getDb,
+} from '@ak-system/database'
 import { cosineSimilarity, decodeToPcm16, extractOverallEmbedding, extractSpeechSegments, AudioFeatureError } from './audio-features'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
+import { createNotification } from '../lib/notification-store'
 
 type Db = ReturnType<typeof getDb>
 
@@ -32,13 +43,79 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+const SELF_PERSON_EMAIL = () => process.env.SELF_PERSON_EMAIL || 'kritzler.alpir@dragontailsystems.com'
+
+/** Move a voiceprint and recording tags off a duplicate "אלפיר" row onto the canonical owner. */
+async function moveVoiceIdentity(db: Db, fromPersonId: string, toPersonId: string) {
+  const [fromPrint] = await db.select({ id: voicePrints.id }).from(voicePrints).where(eq(voicePrints.personId, fromPersonId))
+  const [toPrint] = await db.select({ id: voicePrints.id }).from(voicePrints).where(eq(voicePrints.personId, toPersonId))
+  if (fromPrint && !toPrint) {
+    await db.update(voicePrints).set({ personId: toPersonId }).where(eq(voicePrints.id, fromPrint.id))
+  } else if (fromPrint && toPrint) {
+    await db.delete(voicePrints).where(eq(voicePrints.id, fromPrint.id))
+  }
+
+  const links = await db
+    .select({ recordingId: voiceRecordingPeople.recordingId })
+    .from(voiceRecordingPeople)
+    .where(eq(voiceRecordingPeople.personId, fromPersonId))
+  for (const link of links) {
+    const [already] = await db
+      .select({ recordingId: voiceRecordingPeople.recordingId })
+      .from(voiceRecordingPeople)
+      .where(and(eq(voiceRecordingPeople.recordingId, link.recordingId), eq(voiceRecordingPeople.personId, toPersonId)))
+    if (already) {
+      await db
+        .delete(voiceRecordingPeople)
+        .where(and(eq(voiceRecordingPeople.recordingId, link.recordingId), eq(voiceRecordingPeople.personId, fromPersonId)))
+    } else {
+      await db
+        .update(voiceRecordingPeople)
+        .set({ personId: toPersonId })
+        .where(and(eq(voiceRecordingPeople.recordingId, link.recordingId), eq(voiceRecordingPeople.personId, fromPersonId)))
+    }
+  }
+
+  await db.update(voiceSpeakerIdentities).set({ personId: toPersonId }).where(eq(voiceSpeakerIdentities.personId, fromPersonId))
+}
+
+/**
+ * The owner's contact row. An older enrollment created a person named "אלפיר".
+ * When that is the only owner row, it is renamed to Alpir Kritzler. When both
+ * rows already exist, the voiceprint moves onto the full-name row.
+ */
 async function selfPersonId(db: Db): Promise<string> {
-  const email = process.env.SELF_PERSON_EMAIL || 'kritzler.alpir@dragontailsystems.com'
-  const [existing] = await db.select({ id: people.id }).from(people).where(eq(people.email, email))
-  if (existing) return existing.id
-  const id = newId('p_self')
-  await db.insert(people).values({ id, name: 'אלפיר', email, source: 'manual', status: 'confirmed', createdAt: new Date().toISOString() })
-  return id
+  const email = SELF_PERSON_EMAIL()
+  const name = getSelfPersonName()
+  const [byName] = await db
+    .select({ id: people.id })
+    .from(people)
+    .where(sql`lower(${people.name}) = ${name.toLowerCase()}`)
+    .limit(1)
+  const [byEmail] = await db
+    .select({ id: people.id, name: people.name })
+    .from(people)
+    .where(eq(people.email, email))
+    .limit(1)
+
+  if (byEmail && isSelfPersonName(byEmail.name) && (!byName || byName.id === byEmail.id)) {
+    if (byEmail.name !== name) {
+      await db.update(people).set({ name }).where(eq(people.id, byEmail.id))
+    }
+    return byEmail.id
+  }
+
+  const canonical = byName ?? (await ensureSelfPerson(db))
+  if (byEmail && byEmail.id !== canonical.id && isSelfPersonName(byEmail.name)) {
+    await moveVoiceIdentity(db, byEmail.id, canonical.id)
+    await db.update(people).set({ email: null }).where(eq(people.id, byEmail.id))
+    const [row] = await db.select({ email: people.email }).from(people).where(eq(people.id, canonical.id))
+    if (row && !row.email) await db.update(people).set({ email }).where(eq(people.id, canonical.id))
+  } else if (!byEmail) {
+    const [row] = await db.select({ email: people.email }).from(people).where(eq(people.id, canonical.id))
+    if (row && !row.email) await db.update(people).set({ email }).where(eq(people.id, canonical.id))
+  }
+  return canonical.id
 }
 
 export interface EnrollVoicePrintInput {
@@ -96,6 +173,8 @@ export interface SelfVoiceMatchResult {
   confidence: number | null
   selfSpeechMs: number
   totalSpeechMs: number
+  /** Time ranges whose similarity cleared `SELF_MATCH_THRESHOLD`, for aligning against transcript turns. */
+  matchedRanges: { startMs: number; endMs: number }[]
 }
 
 /**
@@ -106,11 +185,12 @@ export interface SelfVoiceMatchResult {
 export async function matchSelfVoice(db: Db, audioPath: string): Promise<SelfVoiceMatchResult> {
   const personId = await selfPersonId(db)
   const [print] = await db.select({ embedding: voicePrints.embedding }).from(voicePrints).where(eq(voicePrints.personId, personId))
-  if (!print) return { selfDetected: false, confidence: null, selfSpeechMs: 0, totalSpeechMs: 0 }
+  if (!print) return { selfDetected: false, confidence: null, selfSpeechMs: 0, totalSpeechMs: 0, matchedRanges: [] }
   const reference: number[] = JSON.parse(print.embedding)
 
   const pcm = await decodeToPcm16(audioPath)
   const segments = extractSpeechSegments(pcm)
+  const matchedRanges: { startMs: number; endMs: number }[] = []
   let selfSpeechMs = 0
   let totalSpeechMs = 0
   let weightedSimSum = 0
@@ -121,6 +201,7 @@ export async function matchSelfVoice(db: Db, audioPath: string): Promise<SelfVoi
     if (sim >= SELF_MATCH_THRESHOLD) {
       selfSpeechMs += durationMs
       weightedSimSum += sim * durationMs
+      matchedRanges.push({ startMs: seg.startMs, endMs: seg.endMs })
     }
   }
   const ratio = totalSpeechMs > 0 ? selfSpeechMs / totalSpeechMs : 0
@@ -130,7 +211,39 @@ export async function matchSelfVoice(db: Db, audioPath: string): Promise<SelfVoi
     confidence: selfSpeechMs > 0 ? weightedSimSum / selfSpeechMs : null,
     selfSpeechMs,
     totalSpeechMs,
+    matchedRanges,
   }
+}
+
+/** Fraction of a transcript turn that must overlap self-matched speech before the label counts as "me". */
+const SELF_LABEL_MIN_OVERLAP_RATIO = 0.5
+
+/**
+ * Which `דובר N` label is the enrolled voice, by overlapping the self-matched time ranges with the
+ * transcript's turns. Returns null when no label dominates — the user is then asked about every
+ * speaker, which is the safe outcome.
+ */
+export function resolveSelfSpeakerLabel(
+  turns: { speakerLabel: string; startMs: number; endMs: number }[],
+  matchedRanges: { startMs: number; endMs: number }[],
+): string | null {
+  if (turns.length === 0 || matchedRanges.length === 0) return null
+  const matchedMs = new Map<string, number>()
+  const totalMs = new Map<string, number>()
+  for (const turn of turns) {
+    const duration = turn.endMs - turn.startMs
+    if (duration <= 0) continue
+    totalMs.set(turn.speakerLabel, (totalMs.get(turn.speakerLabel) ?? 0) + duration)
+    let overlap = 0
+    for (const range of matchedRanges) {
+      overlap += Math.max(0, Math.min(turn.endMs, range.endMs) - Math.max(turn.startMs, range.startMs))
+    }
+    matchedMs.set(turn.speakerLabel, (matchedMs.get(turn.speakerLabel) ?? 0) + Math.min(overlap, duration))
+  }
+  const ranked = [...matchedMs.entries()].sort((a, b) => b[1] - a[1])
+  const [label, overlap] = ranked[0]
+  if (overlap <= 0) return null
+  return overlap / (totalMs.get(label) ?? overlap) >= SELF_LABEL_MIN_OVERLAP_RATIO ? label : null
 }
 
 /**
@@ -160,10 +273,142 @@ export async function runSelfVoiceDetection(db: Db, recordingId: string): Promis
           confidence: result.confidence,
         })
       }
+      const turns = await db
+        .select({ speakerLabel: voiceTranscriptSegments.speakerLabel, startMs: voiceTranscriptSegments.startMs, endMs: voiceTranscriptSegments.endMs })
+        .from(voiceTranscriptSegments)
+        .where(eq(voiceTranscriptSegments.recordingId, rec.id))
+      const selfLabel = resolveSelfSpeakerLabel(turns, result.matchedRanges)
+      if (selfLabel) await upsertSpeakerIdentity(db, rec.id, selfLabel, personId, 'auto')
     }
     await db.update(voiceRecordings).set({ diarizationStatus: 'completed', updatedAt: new Date().toISOString() }).where(eq(voiceRecordings.id, rec.id))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await db.update(voiceRecordings).set({ diarizationStatus: 'failed', diarizationError: message, updatedAt: new Date().toISOString() }).where(eq(voiceRecordings.id, rec.id))
   }
+}
+
+async function upsertSpeakerIdentity(
+  db: Db,
+  recordingId: string,
+  speakerLabel: string,
+  personId: string | null,
+  state: VoiceSpeakerState,
+): Promise<void> {
+  const [existing] = await db
+    .select({ id: voiceSpeakerIdentities.id })
+    .from(voiceSpeakerIdentities)
+    .where(and(eq(voiceSpeakerIdentities.recordingId, recordingId), eq(voiceSpeakerIdentities.speakerLabel, speakerLabel)))
+  if (existing) {
+    await db.update(voiceSpeakerIdentities).set({ personId, state }).where(eq(voiceSpeakerIdentities.id, existing.id))
+    return
+  }
+  await db.insert(voiceSpeakerIdentities).values({
+    id: newId('vsi'),
+    recordingId,
+    speakerLabel,
+    personId,
+    state,
+    createdAt: new Date().toISOString(),
+  })
+}
+
+/** `unknown` means the user has not answered for this speaker yet. */
+export type SpeakerPromptState = VoiceSpeakerState | 'unknown'
+
+export interface RecordingSpeaker {
+  speakerLabel: string
+  state: SpeakerPromptState
+  personId: string | null
+  /** Longest turn of this speaker — the best shot at recognising the voice. */
+  sampleStartMs: number
+  sampleEndMs: number
+  sampleText: string
+  segmentCount: number
+}
+
+/** Speakers of a recording in label order, each with its longest turn as a playable sample. */
+export async function listRecordingSpeakers(db: Db, recordingId: string): Promise<RecordingSpeaker[]> {
+  const segments = await db
+    .select()
+    .from(voiceTranscriptSegments)
+    .where(eq(voiceTranscriptSegments.recordingId, recordingId))
+  if (segments.length === 0) return []
+  const identities = await db
+    .select()
+    .from(voiceSpeakerIdentities)
+    .where(eq(voiceSpeakerIdentities.recordingId, recordingId))
+
+  const byLabel = new Map<string, typeof segments>()
+  for (const seg of segments) {
+    const list = byLabel.get(seg.speakerLabel)
+    if (list) list.push(seg)
+    else byLabel.set(seg.speakerLabel, [seg])
+  }
+  return [...byLabel.entries()]
+    .map(([speakerLabel, turns]) => {
+      const longest = turns.reduce((best, s) => (s.endMs - s.startMs > best.endMs - best.startMs ? s : best))
+      const identity = identities.find((i) => i.speakerLabel === speakerLabel)
+      return {
+        speakerLabel,
+        state: (identity?.state ?? 'unknown') as SpeakerPromptState,
+        personId: identity?.personId ?? null,
+        sampleStartMs: longest.startMs,
+        sampleEndMs: longest.endMs,
+        sampleText: longest.text,
+        segmentCount: turns.length,
+      }
+    })
+    .sort((a, b) => a.speakerLabel.localeCompare(b.speakerLabel, 'he'))
+}
+
+/**
+ * Records the user's answer for one speaker. A chosen person is also tagged on the recording
+ * itself, so the recording ends up linked to everyone the user recognised.
+ */
+export async function identifySpeaker(
+  db: Db,
+  input: { recordingId: string; speakerLabel: string; personId: string | null },
+): Promise<{ state: Extract<VoiceSpeakerState, 'identified' | 'skipped'> }> {
+  const personId = input.personId
+    ? (await db.select({ id: people.id }).from(people).where(eq(people.id, input.personId)))[0]?.id ?? null
+    : null
+  const state = personId ? 'identified' : 'skipped'
+  await upsertSpeakerIdentity(db, input.recordingId, input.speakerLabel, personId, state)
+  if (personId) {
+    const [already] = await db
+      .select({ personId: voiceRecordingPeople.personId })
+      .from(voiceRecordingPeople)
+      .where(and(eq(voiceRecordingPeople.recordingId, input.recordingId), eq(voiceRecordingPeople.personId, personId)))
+    if (!already) await db.insert(voiceRecordingPeople).values({ recordingId: input.recordingId, personId })
+  }
+  return { state }
+}
+
+/**
+ * Asks the user to name the speakers the system could not. Stamped on the recording so a retry or a
+ * second pass never asks twice.
+ */
+export async function notifyUnknownSpeakers(db: Db, recordingId: string): Promise<boolean> {
+  const [rec] = await db
+    .select({ speakerPromptSentAt: voiceRecordings.speakerPromptSentAt })
+    .from(voiceRecordings)
+    .where(eq(voiceRecordings.id, recordingId))
+  if (!rec || rec.speakerPromptSentAt) return false
+  const unknown = (await listRecordingSpeakers(db, recordingId)).filter((s) => s.state === 'unknown')
+  if (unknown.length === 0) return false
+
+  await db
+    .update(voiceRecordings)
+    .set({ speakerPromptSentAt: new Date().toISOString() })
+    .where(eq(voiceRecordings.id, recordingId))
+  await createNotification({
+    title: 'מי מדבר בהקלטה?',
+    body:
+      unknown.length === 1
+        ? `יש דובר אחד שלא זוהה (${unknown[0].speakerLabel}). שמע דגימה וספר לי מי זה.`
+        : `יש ${unknown.length} דוברים שלא זוהו. שמע דגימה וספר לי מי הם.`,
+    url: `/voice?recording=${recordingId}`,
+    type: 'system',
+  })
+  return true
 }

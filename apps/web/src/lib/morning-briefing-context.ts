@@ -81,7 +81,13 @@ export function formatMorningBriefingContext(
   dueTasks: MorningBriefTask[],
   /** Pre-formatted finance lines (warn-level insights only) — omitted when nothing stands out. */
   financeLines: string[] = [],
-  options?: { includeDueTasks?: boolean; coolingFlags?: MorningCoolingFlag[]; commitments?: MorningCommitments },
+  options?: {
+    includeDueTasks?: boolean
+    coolingFlags?: MorningCoolingFlag[]
+    commitments?: MorningCommitments
+    /** Pre-formatted harness lines — cross-domain links no single section can show. */
+    harnessLines?: string[]
+  },
 ): string {
   const includeDueTasks = options?.includeDueTasks !== false
   const flags = options?.coolingFlags ?? []
@@ -89,8 +95,15 @@ export function formatMorningBriefingContext(
     flags.find((f) => (e.id && f.calendarEventId === e.id) || (!f.calendarEventId && f.title === e.title))
   const tasks = includeDueTasks ? dueTasks : []
   const extra = commitmentLines(options?.commitments)
+  const harnessLines = options?.harnessLines ?? []
   const lines: string[] = ['📅 סיכום הבוקר – ' + today]
-  if (events.length === 0 && tasks.length === 0 && financeLines.length === 0 && extra.length === 0) {
+  if (
+    events.length === 0 &&
+    tasks.length === 0 &&
+    financeLines.length === 0 &&
+    extra.length === 0 &&
+    harnessLines.length === 0
+  ) {
     lines.push(includeDueTasks ? 'אין אירועים או משימות מועדות להיום.' : 'אין אירועים להיום.')
   } else {
     if (events.length > 0) {
@@ -108,6 +121,9 @@ export function formatMorningBriefingContext(
     }
     if (financeLines.length > 0) {
       lines.push('', 'פיננסים:', ...financeLines)
+    }
+    if (harnessLines.length > 0) {
+      lines.push('', 'קישורים בין תחומים:', ...harnessLines)
     }
   }
   return lines.join('\n').slice(0, 4000)

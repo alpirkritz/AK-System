@@ -29,6 +29,7 @@ export default function MeetingDetailPage() {
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
+  const { data: prep } = trpc.meetings.getPrep.useQuery({ meetingId: id }, { enabled: !!id })
 
   type MeetingExtended = typeof meeting & {
     projectId?: string | null
@@ -217,6 +218,7 @@ export default function MeetingDetailPage() {
         <button className="btn btn-ghost" onClick={copySummary} title="העתק סיכום ללוח">
           {copied ? '✓ הועתק' : '📋 צור סיכום'}
         </button>
+        <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost">🎙 הקלט פגישה</Link>
         <button className="btn btn-primary" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
 
         {/* More menu — follow-up + delete */}
@@ -339,8 +341,23 @@ export default function MeetingDetailPage() {
       {/* ── Two-column body ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-        {/* Left: Attendees + Notes */}
+        {/* Left: Prep + Attendees + Notes */}
         <div>
+          {prep && (
+            <div className="card mb-4" data-testid="meeting-prep">
+              <div className="flex justify-between items-center gap-2 mb-2.5 flex-wrap">
+                <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">הכנה לפגישה</div>
+                <div className="flex items-center gap-2">
+                  <span className="pill text-[10px]">🤖 {prep.source === 'agent' ? 'הרלד' : 'תבנית'}</span>
+                  <span className="text-[11px] text-[#5a688c] tabular-nums">
+                    {new Date(prep.updatedAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                </div>
+              </div>
+              <div className="text-sm text-[#97a4c2] leading-relaxed whitespace-pre-wrap">{prep.bodyText}</div>
+            </div>
+          )}
+
           <MeetingAttendees meetingId={id} people={people} peopleIds={peopleIds} />
 
           {/* Conversation Analysis */}

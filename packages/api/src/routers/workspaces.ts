@@ -3,7 +3,13 @@ import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import { workspaces, workspaceNotionDatabases, tasks } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
-import { listConfiguredTaskDatabases } from '../services/notion-tasks-sync'
+import {
+  extractNotionDatabaseId,
+  findNotionAccountToken,
+  listConfiguredTaskDatabases,
+  resolveDatabases,
+} from '../services/notion-tasks-sync'
+import { fetchDatabaseInfo } from '../services/notion-people-directory'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -20,7 +26,13 @@ const updateInput = z.object({
 
 const idInput = z.object({ id: z.string().min(1) })
 
-type LinkRow = { id: string; workspaceId: string; notionDatabaseId: string; notionDatabaseName: string | null }
+type LinkRow = {
+  id: string
+  workspaceId: string
+  notionDatabaseId: string
+  notionDatabaseName: string | null
+  accountLabel: string | null
+}
 
 /** Group link rows by workspace id → the shape attached to each workspace. */
 function groupLinks(rows: LinkRow[]): Map<string, Array<{ id: string; notionDatabaseId: string; notionDatabaseName: string | null }>> {
@@ -58,16 +70,18 @@ export const workspacesRouter = router({
     }
   }),
 
-  /** Notion task databases resolvable from env, annotated with any existing link. */
+  /** Env task databases plus paste-a-link rows, annotated with any existing workspace link. */
   listNotionDatabases: protectedProcedure.query(async ({ ctx }) => {
     const configured = listConfiguredTaskDatabases()
     const links = (await ctx.db.select().from(workspaceNotionDatabases)) as LinkRow[]
     const wsRows = await ctx.db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces)
     const wsName = new Map(wsRows.map((w) => [w.id, w.name]))
     const linkByDbId = new Map(links.map((l) => [l.notionDatabaseId, l]))
-    return configured.map((d) => {
+    const envIds = new Set(configured.map((d) => d.notionDatabaseId))
+    const env = configured.map((d) => {
       const link = linkByDbId.get(d.notionDatabaseId)
       return {
+        source: 'env' as const,
         notionDatabaseId: d.notionDatabaseId,
         name: d.name,
         accountLabel: d.accountLabel,
@@ -76,7 +90,89 @@ export const workspacesRouter = router({
         linkedWorkspaceName: link ? wsName.get(link.workspaceId) ?? null : null,
       }
     })
+    const custom = links
+      .filter((l) => !envIds.has(l.notionDatabaseId))
+      .map((l) => ({
+        source: 'custom' as const,
+        notionDatabaseId: l.notionDatabaseId,
+        name: l.notionDatabaseName ?? l.notionDatabaseId,
+        accountLabel: l.accountLabel ?? '',
+        linkId: l.id,
+        linkedWorkspaceId: l.workspaceId,
+        linkedWorkspaceName: wsName.get(l.workspaceId) ?? null,
+      }))
+    return [...env, ...custom]
   }),
+
+  /**
+   * Validates a pasted Notion database link against one account's token and previews its title.
+   * Does not write a row — the UI confirms before `addNotionTaskDatabase`.
+   */
+  resolveNotionTaskDatabaseLink: protectedProcedure
+    .input(z.object({ accountLabel: z.string().min(1), link: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const notionDatabaseId = extractNotionDatabaseId(input.link)
+      if (!notionDatabaseId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'לא זיהיתי מזהה בסיס נתונים בקישור הזה' })
+      }
+      const token = findNotionAccountToken(input.accountLabel)
+      if (!token) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      let info: Awaited<ReturnType<typeof fetchDatabaseInfo>>
+      try {
+        info = await fetchDatabaseInfo(token, notionDatabaseId)
+      } catch {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `האינטגרציה של ${input.accountLabel} לא משותפת לבסיס הנתונים הזה ב-Notion — שתף אותו קודם משם ונסה שוב`,
+        })
+      }
+      const alreadyEnv = resolveDatabases('tasks').some((d) => d.databaseId === notionDatabaseId)
+      const [existing] = await ctx.db
+        .select({ id: workspaceNotionDatabases.id })
+        .from(workspaceNotionDatabases)
+        .where(eq(workspaceNotionDatabases.notionDatabaseId, notionDatabaseId))
+      return {
+        notionDatabaseId,
+        name: info.title || notionDatabaseId,
+        alreadyAdded: alreadyEnv || !!existing,
+      }
+    }),
+
+  addNotionTaskDatabase: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().min(1),
+      accountLabel: z.string().min(1),
+      notionDatabaseId: z.string().min(1),
+      notionDatabaseName: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!findNotionAccountToken(input.accountLabel)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      const [ws] = await ctx.db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, input.workspaceId))
+      if (!ws) throw new TRPCError({ code: 'NOT_FOUND', message: 'המקור לא נמצא' })
+      const alreadyEnv = resolveDatabases('tasks').some((d) => d.databaseId === input.notionDatabaseId)
+      const [existing] = await ctx.db
+        .select()
+        .from(workspaceNotionDatabases)
+        .where(eq(workspaceNotionDatabases.notionDatabaseId, input.notionDatabaseId))
+      if (alreadyEnv || existing) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'בסיס הנתונים כבר רשום' })
+      }
+      const id = 'wnd' + Date.now() + Math.random().toString(36).slice(2, 7)
+      await ctx.db.insert(workspaceNotionDatabases).values({
+        id,
+        workspaceId: input.workspaceId,
+        notionDatabaseId: input.notionDatabaseId,
+        notionDatabaseName: input.notionDatabaseName.trim() || null,
+        accountLabel: input.accountLabel,
+        createdAt: new Date().toISOString(),
+      })
+      const [row] = await ctx.db.select().from(workspaceNotionDatabases).where(eq(workspaceNotionDatabases.id, id))
+      return row!
+    }),
 
   linkNotionDatabase: protectedProcedure
     .input(

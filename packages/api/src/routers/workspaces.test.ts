@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createTestCaller, resetDb } from '../test-utils'
 
 describe('workspaces router', () => {
@@ -127,6 +127,141 @@ describe('workspaces router — Notion database links', () => {
     await expect(
       caller.workspaces.linkNotionDatabase({ workspaceId: 'ws_daz', notionDatabaseId: 'db-del' }),
     ).resolves.toBeTruthy()
+  })
+})
+
+describe('workspaces router — paste-a-link task databases', () => {
+  const CUSTOM_ID = 'abcdef01-2345-6789-abcd-ef0123456789'
+  const ENV_TASK_ID = 'envtaskdb0000000000000000000000'
+  let prevAccounts: string | undefined
+  let prevKey: string | undefined
+
+  beforeEach(async () => {
+    await resetDb()
+    prevAccounts = process.env.NOTION_ACCOUNTS
+    prevKey = process.env.NOTION_API_KEY
+    delete process.env.NOTION_API_KEY
+    process.env.NOTION_ACCOUNTS = JSON.stringify([
+      {
+        label: 'Test',
+        token: 'ntn_test',
+        databases: [{ id: ENV_TASK_ID, name: 'Env Tasks', type: 'tasks' }],
+      },
+    ])
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (prevAccounts === undefined) delete process.env.NOTION_ACCOUNTS
+    else process.env.NOTION_ACCOUNTS = prevAccounts
+    if (prevKey === undefined) delete process.env.NOTION_API_KEY
+    else process.env.NOTION_API_KEY = prevKey
+  })
+
+  it('addNotionTaskDatabase links a pasted database to the workspace', async () => {
+    const caller = await createTestCaller()
+    const created = await caller.workspaces.addNotionTaskDatabase({
+      workspaceId: 'ws_daz',
+      accountLabel: 'Test',
+      notionDatabaseId: CUSTOM_ID,
+      notionDatabaseName: 'Engineering Tasks',
+    })
+    expect(created.accountLabel).toBe('Test')
+    expect(created.workspaceId).toBe('ws_daz')
+
+    const listed = await caller.workspaces.listNotionDatabases()
+    const custom = listed.find((d) => d.notionDatabaseId === CUSTOM_ID)
+    expect(custom?.source).toBe('custom')
+    expect(custom?.linkedWorkspaceId).toBe('ws_daz')
+    const env = listed.find((d) => d.notionDatabaseId === ENV_TASK_ID)
+    expect(env?.source).toBe('env')
+  })
+
+  it('rejects a database that is already registered', async () => {
+    const caller = await createTestCaller()
+    await caller.workspaces.addNotionTaskDatabase({
+      workspaceId: 'ws_daz',
+      accountLabel: 'Test',
+      notionDatabaseId: CUSTOM_ID,
+      notionDatabaseName: 'Engineering Tasks',
+    })
+    await expect(
+      caller.workspaces.addNotionTaskDatabase({
+        workspaceId: 'ws_dragontail',
+        accountLabel: 'Test',
+        notionDatabaseId: CUSTOM_ID,
+        notionDatabaseName: 'Engineering Tasks',
+      }),
+    ).rejects.toThrow('כבר רשום')
+  })
+
+  it('rejects an unknown Notion account and an unknown workspace', async () => {
+    const caller = await createTestCaller()
+    await expect(
+      caller.workspaces.addNotionTaskDatabase({
+        workspaceId: 'ws_daz',
+        accountLabel: 'Missing',
+        notionDatabaseId: CUSTOM_ID,
+        notionDatabaseName: 'Engineering Tasks',
+      }),
+    ).rejects.toThrow('חשבון Notion לא נמצא')
+    await expect(
+      caller.workspaces.addNotionTaskDatabase({
+        workspaceId: 'ws_missing',
+        accountLabel: 'Test',
+        notionDatabaseId: CUSTOM_ID,
+        notionDatabaseName: 'Engineering Tasks',
+      }),
+    ).rejects.toThrow('המקור לא נמצא')
+  })
+
+  it('rejects an empty workspace id', async () => {
+    const caller = await createTestCaller()
+    await expect(
+      caller.workspaces.addNotionTaskDatabase({
+        workspaceId: '',
+        accountLabel: 'Test',
+        notionDatabaseId: CUSTOM_ID,
+        notionDatabaseName: 'Engineering Tasks',
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('resolveNotionTaskDatabaseLink rejects text with no database id before calling Notion', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const caller = await createTestCaller()
+    await expect(
+      caller.workspaces.resolveNotionTaskDatabaseLink({ accountLabel: 'Test', link: 'not-a-link' }),
+    ).rejects.toThrow('לא זיהיתי מזהה')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('resolveNotionTaskDatabaseLink reports when the integration is not shared', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      text: async () => 'object_not_found',
+    } as unknown as Response)))
+    const caller = await createTestCaller()
+    await expect(
+      caller.workspaces.resolveNotionTaskDatabaseLink({ accountLabel: 'Test', link: CUSTOM_ID }),
+    ).rejects.toThrow('לא משותפת')
+  })
+
+  it('tasks.notionConfigured is true from a pasted database when env has no task databases', async () => {
+    process.env.NOTION_ACCOUNTS = JSON.stringify([
+      { label: 'Test', token: 'ntn_test', databases: [{ id: 'people-only', name: 'People', type: 'people' }] },
+    ])
+    const caller = await createTestCaller()
+    expect((await caller.tasks.notionConfigured()).configured).toBe(false)
+    await caller.workspaces.addNotionTaskDatabase({
+      workspaceId: 'ws_daz',
+      accountLabel: 'Test',
+      notionDatabaseId: CUSTOM_ID,
+      notionDatabaseName: 'Engineering Tasks',
+    })
+    expect((await caller.tasks.notionConfigured()).configured).toBe(true)
   })
 })
 

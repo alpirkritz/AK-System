@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ClassificationUnavailable, defaultClassify } from './whatsapp-dm'
 
 const { generateContent } = vi.hoisted(() => ({ generateContent: vi.fn() }))
 
@@ -6,13 +7,19 @@ vi.mock('./whatsapp-insights', () => ({
   getModel: () => ({ generateContent }),
 }))
 
-import { defaultClassify } from './whatsapp-dm'
-
 const ORIGINAL_KEY = process.env.GEMINI_API_KEY
 
 function modelReturns(json: unknown) {
   generateContent.mockResolvedValueOnce({ response: { text: () => JSON.stringify(json) } })
 }
+
+const line = (id: string, speakerLabel: string, text: string, citable = true) => ({
+  id,
+  speakerLabel,
+  text,
+  ts: Date.parse('2026-09-24T10:00:00Z'),
+  citable,
+})
 
 describe('defaultClassify', () => {
   beforeEach(() => {
@@ -23,55 +30,48 @@ describe('defaultClassify', () => {
     else process.env.GEMINI_API_KEY = ORIGINAL_KEY
   })
 
-  it('falls back to the regex heuristic when no API key is set', async () => {
+  it('proposes nothing when no API key is set', async () => {
     delete process.env.GEMINI_API_KEY
-    const out = await defaultClassify([
-      { id: '1', speakerLabel: 'אני', text: 'אשלח לך מחר את הקובץ', ts: Date.parse('2026-09-24T10:00:00Z') },
-      { id: '2', speakerLabel: 'שמיר', text: 'אל תשכח להביא לה בשישי', ts: Date.parse('2026-09-24T10:00:00Z') },
-    ])
-    // The regex only catches the first (tracked verb "אשלח"); the second is exactly the phrasing it misses.
-    expect(out).toEqual([{ messageId: '1', kind: 'promise', content: 'אשלח לך מחר את הקובץ', due: '2026-09-25' }])
+    await expect(defaultClassify([line('1', 'אני', 'אשלח לך מחר את הקובץ')])).rejects.toBeInstanceOf(ClassificationUnavailable)
     expect(generateContent).not.toHaveBeenCalled()
   })
 
-  it('uses the model when configured, catching phrasing the regex misses', async () => {
+  it('keeps at most 3 standing commitments and drops a prior-context id', async () => {
     process.env.GEMINI_API_KEY = 'test-key'
     modelReturns({
       items: [
-        { messageId: '2', kind: 'request', content: 'להביא לה משהו בשישי', due: '2026-09-25' },
+        { messageId: 'old', owner: 'me', content: 'מההקשר', because: 'ישן', due: null },
+        { messageId: '1', owner: 'them', content: 'לשלוח חוזה', because: 'הבטיח לשלוח מחר', due: '2026-09-25' },
+        { messageId: '1', owner: 'nope', content: 'בעלים לא חוקי', because: 'לא', due: null },
+        { messageId: '1', owner: 'me', content: 'תאריך שבור', because: 'לא תאריך', due: 'מחר' },
+        { messageId: '2', owner: 'me', content: 'להכין הצעה', because: 'לקח על עצמו', due: null },
+        { messageId: '3', owner: 'them', content: 'לבדוק מחיר', because: 'נשאר פתוח', due: null },
+        { messageId: '4', owner: 'me', content: 'רביעי שנזרק', because: 'מעבר לתקרה', due: null },
       ],
     })
     const out = await defaultClassify([
-      { id: '1', speakerLabel: 'אני', text: 'סבבה, דיברנו', ts: Date.parse('2026-09-24T10:00:00Z') },
-      { id: '2', speakerLabel: 'שמיר', text: 'אל תשכח להביא לה בשישי', ts: Date.parse('2026-09-24T10:00:00Z') },
+      line('old', 'דנה', 'תשלח חוזה', false),
+      line('1', 'דנה', 'אשלח לך את החוזה מחר'),
+      line('2', 'אני', 'אכין הצעה'),
+      line('3', 'דנה', 'אבדוק מחיר'),
+      line('4', 'אני', 'עוד משהו'),
     ])
-    expect(out).toEqual([{ messageId: '2', kind: 'request', content: 'להביא לה משהו בשישי', due: '2026-09-25' }])
+    expect(out.map((item) => item.messageId)).toEqual(['1', '2', '3'])
+    expect(out[0]).toMatchObject({ owner: 'them', content: 'לשלוח חוזה', due: '2026-09-25', because: 'הבטיח לשלוח מחר' })
+    const prompt = String(generateContent.mock.calls[0][0])
+    expect(prompt).toContain('CONTEXT')
+    expect(prompt).toContain('[old]')
   })
 
-  it('drops a model item referencing an unknown message id, or missing content', async () => {
-    process.env.GEMINI_API_KEY = 'test-key'
-    modelReturns({
-      items: [
-        { messageId: 'ghost', kind: 'promise', content: 'לא באמת קיים', due: null },
-        { messageId: '1', kind: 'promise', content: '', due: null },
-        { messageId: '1', kind: 'nonsense', content: 'סוג לא חוקי', due: null },
-      ],
-    })
-    const out = await defaultClassify([{ id: '1', speakerLabel: 'אני', text: 'משהו', ts: Date.now() }])
-    expect(out).toEqual([])
-  })
-
-  it('falls back to the heuristic when the model call throws', async () => {
+  it('proposes nothing when the model call throws', async () => {
     process.env.GEMINI_API_KEY = 'test-key'
     generateContent.mockRejectedValueOnce(new Error('quota exceeded'))
-    const out = await defaultClassify([{ id: '1', speakerLabel: 'אני', text: 'אטפל בזה', ts: Date.now() }])
-    expect(out).toEqual([{ messageId: '1', kind: 'promise', content: 'אטפל בזה', due: null }])
+    await expect(defaultClassify([line('1', 'אני', 'אטפל בזה')])).rejects.toBeInstanceOf(ClassificationUnavailable)
   })
 
-  it('falls back to the heuristic when the model response is not valid JSON', async () => {
+  it('proposes nothing when the model response is not valid JSON', async () => {
     process.env.GEMINI_API_KEY = 'test-key'
     generateContent.mockResolvedValueOnce({ response: { text: () => 'not json at all' } })
-    const out = await defaultClassify([{ id: '1', speakerLabel: 'אני', text: 'אבדוק ואחזור', ts: Date.now() }])
-    expect(out).toEqual([{ messageId: '1', kind: 'promise', content: 'אבדוק ואחזור', due: null }])
+    await expect(defaultClassify([line('1', 'אני', 'אבדוק ואחזור')])).rejects.toBeInstanceOf(ClassificationUnavailable)
   })
 })
