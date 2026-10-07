@@ -9,7 +9,8 @@
     "./lib/expo-push": "./src/lib/expo-push.ts",
     "./lib/mobile-push": "./src/lib/mobile-push.ts",
     "./lib/notification-store": "./src/lib/notification-store.ts",
-    "./lib/task-priority": "./src/lib/task-priority.ts"
+    "./lib/task-priority": "./src/lib/task-priority.ts",
+    "./lib/self-identity": "./src/lib/self-identity.ts"
   },
   "dependencies": {
     "@ak-system/database": "workspace:*",

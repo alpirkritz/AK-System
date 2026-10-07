@@ -8,11 +8,11 @@ function nav(page: { goto: (url: string) => Promise<unknown> }, path: string) {
 test.describe('QA מסודר – כפתורים, קשרים, נראות', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /שלום/ })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible({ timeout: 15000 })
   })
 
   test('נראות: דשבורד – כותרות, כרטיסים, ניווט', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /שלום/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible()
     await expect(page.getByText('פגישות קרובות').first()).toBeVisible()
     await expect(page.getByText(/משימות פתוחות|אין משימות פתוחות/).first()).toBeVisible()
     await expect(page.locator('.card').first()).toBeVisible()
@@ -112,7 +112,7 @@ test.describe('QA מסודר – כפתורים, קשרים, נראות', () => 
 
   test('נראות: כל דפי הניווט טוענים ומציגים תוכן', async ({ page }) => {
     const pages: { path: string; heading: string }[] = [
-      { path: '/', heading: 'שלום' },
+      { path: '/', heading: 'בוקר טוב|צהריים טובים|ערב טוב|לילה טוב' },
       { path: '/projects', heading: 'פרויקטים' },
       { path: '/meetings', heading: 'פגישות' },
       { path: '/people', heading: 'אנשים' },

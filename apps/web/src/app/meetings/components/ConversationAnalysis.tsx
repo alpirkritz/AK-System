@@ -10,7 +10,7 @@ import { trpc } from '@/lib/trpc'
 import { TaskModal } from '@/components/Modals/TaskModal'
 import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
-import { matchTaskAssigneeId } from '@ak-system/api'
+import { matchTaskAssigneeId } from '@ak-system/api/lib/self-identity'
 import { AddPersonControl } from './AddPersonControl'
 
 interface ConversationAnalysisProps {
