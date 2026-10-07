@@ -12,7 +12,7 @@ test.describe('Bank accounts snapshot (finance)', () => {
     // Snapshot summary cards render
     await expect(page.getByText('יתרה בבנקים')).toBeVisible({ timeout: 20000 })
     await expect(page.getByText('חיובי אשראי', { exact: true })).toBeVisible()
-    await expect(page.getByText('חשבונות מחוברים')).toBeVisible()
+    await expect(page.getByText('חשבונות מחוברים', { exact: true })).toBeVisible()
 
     // Empty state before any connection exists
     await expect(page.getByText('אין חשבונות מחוברים עדיין')).toBeVisible()

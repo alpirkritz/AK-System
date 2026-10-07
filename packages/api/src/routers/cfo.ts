@@ -20,7 +20,7 @@ import { computeLiquiditySweep } from '../services/cfo-liquidity-sweep'
 import { auditPensionPolicies } from '../services/cfo-pension-audit'
 import { performMonthlyReview } from '../services/cfo-monthly-review'
 import { generateCfoNarrative, hashInput } from '../services/cfo-narrative'
-import { computeRecurring } from '../services/cashflow-analytics'
+import { detectRecurring } from '../services/cashflow-analytics'
 
 export const cfoRouter = router({
   // ─── Profile & Baseline ───────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export const cfoRouter = router({
       
       // Fetch transactions and compute recurring
       const txns = await db.select().from(financeTransactions).all()
-      const recurring = computeRecurring(
+      const { items: recurring } = detectRecurring(
         txns.map((t) => ({
           amount: parseFloat(t.amount),
           direction: t.direction as 'income' | 'expense',

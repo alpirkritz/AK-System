@@ -10,7 +10,7 @@
  * LLM layer (cfo-narrative.ts) generates Hebrew negotiation letters.
  */
 
-import { computeRecurring, type RecurringItem } from './cashflow-analytics'
+import type { RecurringItem } from './cashflow-analytics'
 
 export type LeakAction = 'KEEP' | 'CANCEL' | 'RENEGOTIATE'
 
