@@ -762,6 +762,50 @@ describe('createNotionTask', () => {
     return JSON.parse(calls.find((c) => c.init?.method === 'POST')!.init!.body as string)
   }
 
+  it('writes the assignee onto Assignee, not an earlier Reporter or QA field', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ id: 'new-page' }), text: async () => '' }
+        }
+        if (url.includes('/v1/users')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ results: USERS, has_more: false, next_cursor: null }),
+            text: async () => '',
+          }
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            properties: {
+              'Task name': { type: 'title' },
+              Status: { type: 'status', status: { options: DAZ_OPTIONS.map((name) => ({ name })) } },
+              QA: { type: 'people' },
+              Reporter: { type: 'people' },
+              Assignee: { type: 'people' },
+            },
+          }),
+          text: async () => '',
+        }
+      }),
+    )
+    await createNotionTask({
+      target: TARGET,
+      title: 'לא לכתוב על Reporter',
+      assignee: { name: 'Alpir Kritzler', email: 'alpirkritz@gmail.com' },
+    })
+    const body = postBody(calls)
+    expect(body.properties.Assignee).toEqual({ people: [{ id: 'user-alpir' }] })
+    expect(body.properties.Reporter).toBeUndefined()
+    expect(body.properties.QA).toBeUndefined()
+  })
+
   it('assigns the Notion user matched by email to the people property', async () => {
     const calls = stubCreateFetch()
     const res = await createNotionTask({

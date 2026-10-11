@@ -150,12 +150,11 @@ describe('email archive', () => {
       date: new Date(Date.now() - DAY).toISOString(),
     })
     const res = await syncEmailThreads(db, { fetch: fetcher([old, reply]) })
-    expect(res).toMatchObject({ created: 0, updated: 1, commitments: 1 })
+    expect(res).toMatchObject({ created: 0, updated: 1 })
     const [thread] = await db.select().from(personEmailThreads)
     expect(thread).toMatchObject({ subject: 'Re: Q3 plan', messageCount: 2 })
-    const [c] = await db.select().from(commitments)
-    expect(c).toMatchObject({ personId: 'p1', owner: 'me', source: 'email', sourceId: `${ACCOUNT}::t1` })
-    expect(commitmentSourceUrl(c)).toBe(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(ACCOUNT)}#all/t1`)
+    // Email heuristic commitment extraction was removed — syncEmailThreads no longer inserts commitments.
+    expect(await db.select().from(commitments)).toHaveLength(0)
   })
 
   it('merging people moves email threads and recordings, dropping ones the kept person already has', async () => {

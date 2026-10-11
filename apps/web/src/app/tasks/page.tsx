@@ -19,10 +19,16 @@ import { groupTasksByDueState } from '@/lib/sort-tasks'
 import { ThenBySort } from '@/components/ThenBySort'
 import { LS } from '@/lib/ls-keys'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
+import { isMyTask } from '@/lib/my-tasks'
 import dynamic from 'next/dynamic'
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
 type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
+type OwnerFilter = 'me' | 'all'
+
+function parseOwner(value: string | null): OwnerFilter {
+  return value === 'all' ? 'all' : 'me'
+}
 
 function parseStatus(value: string | null): StatusFilter {
   if (value === 'overdue' || value === 'done' || value === 'cancelled' || value === 'all' || value === 'open') {
@@ -43,7 +49,9 @@ function TasksPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const statusQuery = searchParams.get('status')
-  const { data: tasksList = [], isLoading } = trpc.tasks.list.useQuery()
+  const ownerQuery = searchParams.get('owner')
+  const { data: tasksList = [], isLoading: tasksLoading } = trpc.tasks.list.useQuery()
+  const { data: selfPerson, isLoading: selfLoading } = trpc.people.me.useQuery()
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
@@ -79,6 +87,7 @@ function TasksPageContent() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
 
   const [status, setStatus] = useState<StatusFilter>(() => parseStatus(statusQuery))
+  const [owner, setOwner] = useState<OwnerFilter>(() => parseOwner(ownerQuery))
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [projectId, setProjectId] = useState<string>('')
   const [meetingId, setMeetingId] = useState<string>('')
@@ -89,11 +98,24 @@ function TasksPageContent() {
     setStatus(parseStatus(statusQuery))
   }, [statusQuery])
 
+  useEffect(() => {
+    setOwner(parseOwner(ownerQuery))
+  }, [ownerQuery])
+
   const selectStatus = (next: StatusFilter) => {
     setStatus(next)
     const params = new URLSearchParams(searchParams.toString())
     if (next === 'open') params.delete('status')
     else params.set('status', next)
+    const q = params.toString()
+    router.replace(q ? `/tasks?${q}` : '/tasks', { scroll: false })
+  }
+
+  const selectOwner = (next: OwnerFilter) => {
+    setOwner(next)
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'me') params.delete('owner')
+    else params.set('owner', 'all')
     const q = params.toString()
     router.replace(q ? `/tasks?${q}` : '/tasks', { scroll: false })
   }
@@ -145,10 +167,11 @@ function TasksPageContent() {
       if (projectId && (t as { projectId?: string }).projectId !== projectId) return false
       if (meetingId && t.meetingId !== meetingId) return false
       if (workspaceId && (t as { workspaceId?: string | null }).workspaceId !== workspaceId) return false
+      if (owner === 'me' && !isMyTask(t.assigneeId, selfPerson?.id)) return false
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
-  }, [tasksList, status, projectId, meetingId, workspaceId, search])
+  }, [tasksList, status, projectId, meetingId, workspaceId, search, owner, selfPerson?.id])
 
   const sorted = useMemo(() => {
     return sortTasksByKeys(filtered, effectiveSort)
@@ -167,7 +190,8 @@ function TasksPageContent() {
     }))
   }, [sorted])
 
-  const hasActiveFilter = status !== 'open' || !!projectId || !!meetingId || !!workspaceId || !!search
+  const hasActiveFilter = status !== 'open' || owner === 'all' || !!projectId || !!meetingId || !!workspaceId || !!search
+  const isLoading = tasksLoading || (owner === 'me' && selfLoading)
 
   const advancedCount = [projectId, meetingId, workspaceId].filter(Boolean).length
 
@@ -216,6 +240,24 @@ function TasksPageContent() {
       )}
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="סינון לפי אחראי">
+          <button
+            type="button"
+            className="filter-chip"
+            aria-pressed={owner === 'me'}
+            onClick={() => selectOwner('me')}
+          >
+            שלי
+          </button>
+          <button
+            type="button"
+            className="filter-chip"
+            aria-pressed={owner === 'all'}
+            onClick={() => selectOwner('all')}
+          >
+            כולם
+          </button>
+        </div>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="סינון לפי מצב">
           {statusTabs.map((tab) => (
             <button
@@ -310,18 +352,22 @@ function TasksPageContent() {
         <div className="card text-center py-12">
           <div className="text-3xl mb-3">✓</div>
           <div className="text-[#eef3fb] font-medium mb-1">
-            {status === 'overdue'
-              ? 'אין משימות באיחור'
-              : hasActiveFilter
-                ? 'אין משימות שתואמות לסינון'
-                : 'אין משימות פתוחות'}
+            {owner === 'me' && status === 'open' && !projectId && !meetingId && !workspaceId && !search
+              ? 'אין משימות שמוקצות אליך'
+              : status === 'overdue'
+                ? 'אין משימות באיחור'
+                : hasActiveFilter
+                  ? 'אין משימות שתואמות לסינון'
+                  : 'אין משימות פתוחות'}
           </div>
           <div className="text-sm text-[#647399] mb-4">
-            {status === 'overdue'
-              ? 'אפשר לעבור ל״פתוחות״ כדי לראות את השאר.'
-              : hasActiveFilter
-                ? 'נסה לשנות את המסננים'
-                : 'הכול נקי. אפשר להוסיף משימה חדשה.'}
+            {owner === 'me' && status === 'open' && !projectId && !meetingId && !workspaceId && !search
+              ? 'משימות של אחרים נמצאות תחת ״כולם״.'
+              : status === 'overdue'
+                ? 'אפשר לעבור ל״פתוחות״ כדי לראות את השאר.'
+                : hasActiveFilter
+                  ? 'נסה לשנות את המסננים'
+                  : 'הכול נקי. אפשר להוסיף משימה חדשה.'}
           </div>
           <button
             className="btn btn-primary"

@@ -1,5 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { formatInsightLines, markNotificationSent, wasNotificationSentToday } from '@ak-system/api'
+import { eq, isNull } from 'drizzle-orm'
+import { harnessInsights } from '@ak-system/database'
+import { formatInsightLines, listOpenInsights } from '@ak-system/api'
+import { getDb } from '@ak-system/database'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
@@ -34,34 +37,30 @@ async function runHarnessInsights(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    const db = getDb()
     const caller = await createServiceCaller()
 
     const indexed = await caller.harness.syncToGraph({})
     const reasoned = await caller.harness.runReasoner()
 
-    const urgent = await caller.harness.insights({ limit: 5, severity: 'urgent' })
-    if (urgent.length === 0) {
+    // Only push insights that have never been pushed before (notified_at IS NULL).
+    // Prefer urgent; fall back to one attention if nothing urgent is new.
+    const allOpen = await listOpenInsights(db, { limit: 50 })
+    const unpushed = allOpen.filter((i) => !(i as { notifiedAt?: string | null }).notifiedAt)
+    const urgentNew = unpushed.filter((i) => i.severity === 'urgent')
+    const toSend = urgentNew.length > 0 ? urgentNew.slice(0, 5) : unpushed.filter((i) => i.severity === 'attention').slice(0, 1)
+
+    if (toSend.length === 0) {
       return NextResponse.json({
         ok: true,
         indexed: { nodes: indexed.nodes, edges: indexed.edges },
         insights: reasoned.count,
         pushed: false,
-        reason: 'no-urgent',
+        reason: 'no-new-insights',
       })
     }
 
-    // The urgent set changes slowly; a 6-hourly cron would otherwise repeat itself.
-    if (await wasNotificationSentToday(NOTIFICATION_TYPE)) {
-      return NextResponse.json({
-        ok: true,
-        indexed: { nodes: indexed.nodes, edges: indexed.edges },
-        insights: reasoned.count,
-        pushed: false,
-        reason: 'already-sent-today',
-      })
-    }
-
-    const text = ['🔗 תובנות חוצות-תחומים', '', ...formatInsightLines(urgent)].join('\n')
+    const text = ['🔗 תובנות חוצות-תחומים', '', ...formatInsightLines(toSend)].join('\n')
 
     // This type declares `defaultAgentId: 01_Hugo_orchestrator`, so an unrouted event still
     // runs through him — detector output on its own is facts without a recommendation. The
@@ -77,13 +76,18 @@ async function runHarnessInsights(request: NextRequest): Promise<NextResponse> {
     if (mode === 'template') {
       await pushAssistantMessage(text, 'cron', { typeId: NOTIFICATION_TYPE, url: '/' })
     }
-    await markNotificationSent(NOTIFICATION_TYPE)
+
+    // Stamp notified_at so these insights are not pushed again.
+    const nowIso = new Date().toISOString()
+    for (const insight of toSend) {
+      await db.update(harnessInsights).set({ notifiedAt: nowIso }).where(eq(harnessInsights.id, insight.id))
+    }
 
     return NextResponse.json({
       ok: true,
       indexed: { nodes: indexed.nodes, edges: indexed.edges },
       insights: reasoned.count,
-      urgent: urgent.length,
+      sent: toSend.length,
       model: reasoned.model,
       pushed: true,
       mode,

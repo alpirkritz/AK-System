@@ -219,6 +219,146 @@ describe('syncNotionTasks', () => {
     expect(t5.assigneeId).toBe(bob.id)
   })
 
+  it('keeps Assignee when the user is only Reporter or QA', async () => {
+    peoplePages = [
+      { id: 'notion-alice', properties: { Name: titleProp('Alice') } },
+      { id: 'notion-bob', properties: { Name: titleProp('Bob') } },
+    ]
+    taskPages = [
+      {
+        id: 'task-eng',
+        properties: {
+          Name: titleProp('Dev by Spec for Azorim'),
+          QA: peopleProp('Bob'),
+          Reporter: peopleProp('Alpir Kritzler'),
+          Assignee: peopleProp('Alice'),
+        },
+      },
+      {
+        id: 'task-reported-only',
+        properties: {
+          Name: titleProp('Reported by me, owned by a stranger'),
+          Assignee: peopleProp('Zzz Unknown'),
+          Reporter: peopleProp('Alpir Kritzler'),
+        },
+      },
+    ]
+    const res = await syncNotionTasks({ windowDays: 60 })
+    expect(res.tasksSkipped).toBe(1)
+
+    const db = getDb()
+    const [row] = await db.select().from(tasks).where(eq(tasks.notionPageId, 'task-eng'))
+    const alice = (await db.select().from(people).where(eq(people.name, 'Alice')))[0]
+    const me = (await db.select().from(people).where(eq(people.name, 'Alpir Kritzler')))[0]
+    const bob = (await db.select().from(people).where(eq(people.name, 'Bob')))[0]
+    expect(row.assigneeId).toBe(alice.id)
+    expect(row.assigneeId).not.toBe(me.id)
+
+    const linked = await db.select().from(taskPeople).where(eq(taskPeople.taskId, row.id))
+    const linkedIds = linked.map((r) => r.personId)
+    expect(linkedIds).toContain(bob.id)
+    expect(linkedIds).not.toContain(me.id)
+
+    const reported = await db.select().from(tasks).where(eq(tasks.notionPageId, 'task-reported-only'))
+    expect(reported).toHaveLength(0)
+  })
+
+  it('keeps a directory Assignee when the user is only Reporter on another database', async () => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(people).values({
+      id: 'p_dor',
+      name: 'Dor',
+      email: null,
+      role: null,
+      color: '#e8c547',
+      status: 'confirmed',
+      source: 'notion',
+      notionPageId: 'daz-dor',
+      createdAt: now,
+    })
+    peoplePages = [{ id: 'notion-alice', properties: { Name: titleProp('Alice') } }]
+    dirPages = [{ id: 'dir-dor', properties: { Name: titleProp('Dor') } }]
+    taskDbSchema = {
+      Name: { type: 'title' },
+      Reporter: { type: 'people' },
+      Team: { type: 'relation', relation: { database_id: PEOPLE_DB } },
+      Assignee: { type: 'relation', relation: { database_id: DIR_DB } },
+    }
+    taskPages = [
+      {
+        id: 'task-azorim',
+        properties: {
+          Name: titleProp('Dev by Spec for Azorim'),
+          Reporter: peopleProp('Alpir Kritzler'),
+          Team: relationProp('notion-alice'),
+          Assignee: relationProp('dir-dor'),
+        },
+      },
+    ]
+
+    const res = await syncNotionTasks({ windowDays: 60 })
+    expect(res.tasksSkipped).toBe(0)
+    expect(res.tasksCreated).toBe(1)
+
+    const [row] = await db.select().from(tasks).where(eq(tasks.notionPageId, 'task-azorim'))
+    const me = (await db.select().from(people).where(eq(people.name, 'Alpir Kritzler')))[0]
+    expect(row?.assigneeId).toBe('p_dor')
+    expect(row?.assigneeId).not.toBe(me?.id)
+
+    const linked = await db.select().from(taskPeople).where(eq(taskPeople.taskId, row!.id))
+    const alice = (await db.select().from(people).where(eq(people.name, 'Alice')))[0]
+    expect(linked.map((r) => r.personId)).toContain(alice?.id)
+    expect(linked.map((r) => r.personId)).not.toContain(me?.id)
+  })
+
+  it('does not steal a task from another person when the pasted database has no Assignee column', async () => {
+    peoplePages = [{ id: 'notion-alice', properties: { Name: titleProp('Alice') } }]
+    taskPages = [
+      {
+        id: 'task-other-db',
+        properties: {
+          Name: titleProp('Belongs to Alice'),
+          Watchers: peopleProp('Alpir Kritzler'),
+          Team: peopleProp('Alice'),
+        },
+      },
+    ]
+
+    await syncNotionTasks({ windowDays: 60 })
+    const db = getDb()
+    const [row] = await db.select().from(tasks).where(eq(tasks.notionPageId, 'task-other-db'))
+    const alice = (await db.select().from(people).where(eq(people.name, 'Alice')))[0]
+    const me = (await db.select().from(people).where(eq(people.name, 'Alpir Kritzler')))[0]
+    expect(row?.assigneeId).toBe(alice?.id)
+    expect(row?.assigneeId).not.toBe(me?.id)
+  })
+
+  it('skips a task whose Assignee relation is a stranger even if the user is Reporter', async () => {
+    dirPages = [{ id: 'dir-stranger', properties: { Name: titleProp('Zzz Unknown') } }]
+    peoplePages = []
+    taskDbSchema = {
+      Name: { type: 'title' },
+      Reporter: { type: 'people' },
+      Assignee: { type: 'relation', relation: { database_id: DIR_DB } },
+    }
+    taskPages = [
+      {
+        id: 'task-stranger-rel',
+        properties: {
+          Name: titleProp('Owned by a stranger'),
+          Reporter: peopleProp('Alpir Kritzler'),
+          Assignee: relationProp('dir-stranger'),
+        },
+      },
+    ]
+
+    const res = await syncNotionTasks({ windowDays: 60 })
+    expect(res.tasksCreated).toBe(0)
+    expect(res.tasksSkipped).toBe(1)
+    expect(await getDb().select().from(tasks)).toHaveLength(0)
+  })
+
   it('applies a last-60-days timestamp filter to task queries', async () => {
     seedFixtures()
     await syncNotionTasks({ windowDays: 60 })

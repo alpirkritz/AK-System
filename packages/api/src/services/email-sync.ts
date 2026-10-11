@@ -1,6 +1,6 @@
 /**
  * Email archive for known people: recent Gmail threads (metadata + snippet only) from every
- * connected Google account, one row per (thread, person), plus heuristic commitments.
+ * connected Google account, one row per (thread, person).
  */
 import { google } from 'googleapis'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -8,14 +8,11 @@ import { people, personEmailThreads, personExternalIds, type getDb } from '@ak-s
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { getAccessTokenForConnection, listGoogleConnections } from './google-connections'
 import { getSelfPersonName } from './self-person'
-import { detectCommitmentsHeuristic, proposeCommitments } from './whatsapp-dm'
 
 type Db = ReturnType<typeof getDb>
 
 const DAY_MS = 86_400_000
 export const EMAIL_SYNC_DAYS = 30
-/** Commitments are only proposed from recent mail, so the first sync does not flood the queue. */
-const COMMITMENT_WINDOW_DAYS = 7
 const ADDRESS_BATCH = 15
 const MAX_PER_QUERY = 100
 
@@ -167,7 +164,6 @@ export async function syncEmailThreads(
   }
 
   const syncedAt = new Date(now).toISOString()
-  const commitmentFloor = new Date(now - COMMITMENT_WINDOW_DAYS * DAY_MS).toISOString()
   for (const { threadKey, personId, messages } of groups.values()) {
     messages.sort((a, b) => a.date.localeCompare(b.date))
     const latest = messages[messages.length - 1]
@@ -199,24 +195,6 @@ export async function syncEmailThreads(
       })
       result.created++
     }
-    const floor = existing && existing.date > commitmentFloor ? existing.date : commitmentFloor
-    const fresh = messages.filter((m) => m.date > floor && m.snippet)
-    const found = detectCommitmentsHeuristic(
-      fresh.map((m) => ({
-        id: m.messageId,
-        fromMe: extractAddresses(m.from).includes(m.accountEmail.toLowerCase()),
-        text: m.snippet,
-        ts: Date.parse(m.date),
-      })),
-    )
-    const snippetById = new Map(fresh.map((m) => [m.messageId, m.snippet]))
-    result.commitments += (await proposeCommitments(
-      db,
-      personId,
-      'email',
-      found.map((c) => ({ ...c, sourceSnippet: clip(snippetById.get(c.sourceMessageId ?? '') ?? '', 80) || null, sourceMessageId: threadKey })),
-      syncedAt,
-    )).length
   }
   return result
 }

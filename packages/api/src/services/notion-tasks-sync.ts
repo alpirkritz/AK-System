@@ -37,9 +37,12 @@ import {
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
 import { upsertPersonExternalId } from './person-external-ids'
 import {
+  bestAssigneePeoplePropertyName,
+  bestAssigneeRelationPropertyName,
   fetchDatabaseProperties,
   fetchPeopleDirectoryIndex,
   findPeopleRelation,
+  listPeopleRelations,
   type PeopleRelationInfo,
 } from './notion-people-directory'
 
@@ -505,17 +508,43 @@ function getPriority(props: Record<string, NotionProp>): 'high' | 'medium' | 'lo
   return 'medium'
 }
 
-/** Names from every `people`-type property (Notion users assigned to the page). */
-function getPeopleNames(props: Record<string, NotionProp>): string[] {
+function peopleNamesOn(props: Record<string, NotionProp>, propertyName: string): string[] {
+  const value = props[propertyName]
+  if (value?.type !== 'people') return []
   const names: string[] = []
-  for (const v of Object.values(props)) {
-    if (v?.type === 'people') {
-      for (const p of (v.people as Array<{ name?: string }>) ?? []) {
-        if (p?.name) names.push(p.name.trim())
-      }
-    }
+  for (const person of (value.people as Array<{ name?: string }>) ?? []) {
+    if (person?.name) names.push(person.name.trim())
   }
   return names
+}
+
+/**
+ * Assignee comes only from the property named Assignee/Owner/אחראי when one exists
+ * (a Notion people column, or a relation into a people directory).
+ * Reporter, QA, and similar people fields stay related people — they must not
+ * steal `tasks.assigneeId` (Engineering Tasks lists Dor as Assignee and Alpir as Reporter).
+ * Databases with no such property still read every people field, but a known other
+ * person wins over the current user. The user becomes the assignee only when the
+ * assignee source actually names them and nobody else on it resolved.
+ */
+function splitPeopleNames(props: Record<string, NotionProp>): {
+  assigneeNames: string[]
+  otherNames: string[]
+} {
+  const assigneeProperty = bestAssigneePeoplePropertyName(props)
+  if (!assigneeProperty) {
+    const assigneeNames: string[] = []
+    for (const [name, value] of Object.entries(props)) {
+      if (value?.type === 'people') assigneeNames.push(...peopleNamesOn(props, name))
+    }
+    return { assigneeNames, otherNames: [] }
+  }
+  const otherNames: string[] = []
+  for (const [name, value] of Object.entries(props)) {
+    if (value?.type !== 'people' || name === assigneeProperty) continue
+    otherNames.push(...peopleNamesOn(props, name))
+  }
+  return { assigneeNames: peopleNamesOn(props, assigneeProperty), otherNames }
 }
 
 /** Related page ids from every `relation`-type property (legacy fallback). */
@@ -999,8 +1028,9 @@ export async function syncNotionTasks(
 
   for (const database of taskDbs) {
     let relation: PeopleRelationInfo | null = null
+    let schemaProps: Record<string, { type?: string; relation?: { database_id?: string } }> = {}
     try {
-      const schemaProps = await fetchDatabaseProperties(database.token, database.databaseId)
+      schemaProps = await fetchDatabaseProperties(database.token, database.databaseId)
       relation = findPeopleRelation(schemaProps, database.databaseId, configuredPeopleIds)
     } catch (err) {
       result.errors.push(
@@ -1010,30 +1040,32 @@ export async function syncNotionTasks(
       continue
     }
     peopleRelationByTaskDb.set(database.databaseId, relation)
-    if (!relation || indexedDirectoryIds.has(relation.targetDatabaseId)) continue
-
-    try {
-      const index = await fetchPeopleDirectoryIndex(database.token, relation.targetDatabaseId)
-      const accountKey = `${database.accountLabel}::people-dir::${relation.targetDatabaseId}`
-      for (const [pageId, title] of index.byPageId) {
-        const person = maps.byName.get(title.toLowerCase())
-        if (!person) continue
-        maps.byNotionId.set(pageId, person)
-        if (!dryRun) {
-          await upsertPersonExternalId(db, {
-            personId: person.id,
-            provider: 'notion',
-            accountKey,
-            externalId: pageId,
-            displayName: title,
-          })
+    const directories = listPeopleRelations(schemaProps, database.databaseId, configuredPeopleIds)
+    for (const directory of directories) {
+      if (indexedDirectoryIds.has(directory.targetDatabaseId)) continue
+      try {
+        const index = await fetchPeopleDirectoryIndex(database.token, directory.targetDatabaseId)
+        const accountKey = `${database.accountLabel}::people-dir::${directory.targetDatabaseId}`
+        for (const [pageId, title] of index.byPageId) {
+          const person = maps.byName.get(title.toLowerCase())
+          if (!person) continue
+          maps.byNotionId.set(pageId, person)
+          if (!dryRun) {
+            await upsertPersonExternalId(db, {
+              personId: person.id,
+              provider: 'notion',
+              accountKey,
+              externalId: pageId,
+              displayName: title,
+            })
+          }
         }
+        indexedDirectoryIds.add(directory.targetDatabaseId)
+      } catch (err) {
+        result.errors.push(
+          `people-dir/${directory.propertyName}: ${err instanceof Error ? err.message : 'query failed'}`,
+        )
       }
-      indexedDirectoryIds.add(relation.targetDatabaseId)
-    } catch (err) {
-      result.errors.push(
-        `people-dir/${relation.propertyName}: ${err instanceof Error ? err.message : 'query failed'}`,
-      )
     }
   }
 
@@ -1120,39 +1152,89 @@ export async function syncNotionTasks(
         continue
       }
 
-      // Resolve assignees + People-relation links → known people.
-      const assigneeNames = getPeopleNames(props)
-      const relationIds = peopleRel
-        ? getNamedRelationPageIds(props, peopleRel.propertyName)
-        : getRelationPageIds(props)
-      const matched = new Map<string, PersonRow>()
-      let userIsAssignee = false
-      for (const n of assigneeNames) {
-        if (n.toLowerCase() === userName.toLowerCase() || isSelfPersonName(n)) {
-          userIsAssignee = true
-          continue
+      // Assignee is the Assignee/Owner/אחראי column when the database has one —
+      // either a Notion people property or a relation into a people directory.
+      // Reporter, QA, Team, and any other people link stay related people.
+      // A second database must not make the current user the assignee just because
+      // their name appears on one of those other fields.
+      const assigneePeopleProp = bestAssigneePeoplePropertyName(props)
+      const assigneeRelationProp = assigneePeopleProp ? null : bestAssigneeRelationPropertyName(props)
+      let assigneeNames: string[]
+      let otherNames: string[]
+      if (assigneeRelationProp) {
+        assigneeNames = []
+        otherNames = []
+        for (const [name, value] of Object.entries(props)) {
+          if (value?.type === 'people') otherNames.push(...peopleNamesOn(props, name))
         }
-        const p = maps.byName.get(n.toLowerCase())
-        if (p && !isSelfPersonName(p.name)) matched.set(p.id, p)
+      } else {
+        ;({ assigneeNames, otherNames } = splitPeopleNames(props))
       }
-      for (const relId of relationIds) {
-        const p = maps.byNotionId.get(relId)
-        if (!p) continue
-        if (p.id === userPerson.id || isSelfPersonName(p.name)) {
-          userIsAssignee = true
-          continue
+      const assigneeRelationIds = assigneeRelationProp
+        ? getNamedRelationPageIds(props, assigneeRelationProp)
+        : []
+      const relatedRelationIds = assigneeRelationProp
+        ? peopleRel && peopleRel.propertyName !== assigneeRelationProp
+          ? getNamedRelationPageIds(props, peopleRel.propertyName)
+          : []
+        : peopleRel
+          ? getNamedRelationPageIds(props, peopleRel.propertyName)
+          : getRelationPageIds(props)
+      const matched = new Map<string, PersonRow>()
+      const assigneeMatched: string[] = []
+      let userIsAssignee = false
+      let foreignAssigneeUnresolved = false
+      const isUserName = (name: string) =>
+        name.toLowerCase() === userName.toLowerCase() || isSelfPersonName(name)
+      const absorbName = (name: string, asAssignee: boolean) => {
+        if (isUserName(name)) {
+          if (asAssignee) userIsAssignee = true
+          return
         }
-        matched.set(p.id, p)
+        const person = maps.byName.get(name.toLowerCase())
+        if (!person || isSelfPersonName(person.name)) {
+          if (asAssignee) foreignAssigneeUnresolved = true
+          return
+        }
+        matched.set(person.id, person)
+        if (asAssignee && !assigneeMatched.includes(person.id)) assigneeMatched.push(person.id)
+      }
+      for (const name of assigneeNames) absorbName(name, true)
+      for (const name of otherNames) absorbName(name, false)
+      const absorbRelation = (relId: string, asAssignee: boolean, unresolvedCounts: boolean) => {
+        const person = maps.byNotionId.get(relId)
+        if (!person) {
+          // A named Assignee relation that doesn't resolve is someone else's task.
+          // A generic relation dump also includes projects; those must not block the user's own tasks.
+          if (unresolvedCounts) foreignAssigneeUnresolved = true
+          return
+        }
+        if (person.id === userPerson.id || isSelfPersonName(person.name)) {
+          if (asAssignee) userIsAssignee = true
+          return
+        }
+        matched.set(person.id, person)
+        if (asAssignee && !assigneeMatched.includes(person.id)) assigneeMatched.push(person.id)
+      }
+      for (const relId of assigneeRelationIds) absorbRelation(relId, true, true)
+      for (const relId of relatedRelationIds) {
+        absorbRelation(relId, !assigneePeopleProp && !assigneeRelationProp, false)
       }
 
-      // Keep task if it's the user's or belongs to at least one known person.
+      // A named owner we could not resolve (Dor, not in the directory yet) must not
+      // fall through to the current user just because they are Reporter or on Team.
+      if (foreignAssigneeUnresolved && assigneeMatched.length === 0) userIsAssignee = false
+
+      // Keep task if the user owns it or it belongs to at least one known person.
       if (!userIsAssignee && matched.size === 0) {
         result.tasksSkipped++
         continue
       }
 
       const matchedIds = [...matched.keys()]
-      const assigneeId = userIsAssignee ? userPerson.id : (matchedIds[0] ?? null)
+      // Someone else on the assignee source wins. The user is the assignee only
+      // when that source names them and no other known person resolved from it.
+      const assigneeId = assigneeMatched[0] ?? (userIsAssignee ? userPerson.id : null)
       const projectId =
         getProjectRelationPageIds(props)
           .map((rid) => projectByNotionId.get(rid))

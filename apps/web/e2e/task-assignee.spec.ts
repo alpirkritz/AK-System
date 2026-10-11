@@ -48,6 +48,8 @@ test.describe('Task assignee', () => {
     await expect(modal).toBeHidden({ timeout: 10000 })
 
     const row = page.locator('.task-row').filter({ hasText: title })
+    await expect(row).toHaveCount(0)
+    await page.getByRole('group', { name: 'סינון לפי אחראי' }).getByRole('button', { name: 'כולם' }).click()
     await expect(row).toBeVisible({ timeout: 20000 })
     await row.getByText(title).click()
 

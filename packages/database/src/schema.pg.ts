@@ -1491,6 +1491,8 @@ export const harnessInsights = pgTable('harness_insights', {
   dedupeKey: text('dedupe_key').notNull(),
   generatedAt: text('generated_at').notNull(),
   expiresAt: text('expires_at'),
+  /** ISO timestamp of the last push notification that included this insight; null = never pushed. */
+  notifiedAt: text('notified_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

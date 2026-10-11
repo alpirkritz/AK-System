@@ -229,6 +229,7 @@ export {
   reasonAndPersist,
   listOpenInsights,
   dismissInsight,
+  closeInsightsForCommitment,
   formatInsightLines,
   type HarnessInsightDraft,
   type StoredInsight,

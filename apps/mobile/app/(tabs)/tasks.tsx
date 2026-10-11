@@ -17,6 +17,7 @@ import { StatusPill } from '../../components/StatusPill'
 import { useAuth } from '../../lib/auth'
 import {
   fetchNotionConfigured,
+  fetchSelfPerson,
   fetchTasks,
   fetchWorkspaces,
   syncTasksFromNotion,
@@ -25,12 +26,14 @@ import {
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
+import { isMyTask } from '../../lib/my-tasks'
 import { groupTasksByDueState, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { dueDay, isOverdueOpenTask } from '../../lib/task-due'
 import { colors, PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR } from '../../lib/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
+type OwnerFilter = 'me' | 'all'
 
 const STATUS_FILTERS: StatusFilter[] = ['open', 'overdue', 'done', 'cancelled', 'all']
 
@@ -55,6 +58,8 @@ export default function TasksScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<StatusFilter>(() => filterFromParam(filterParam) ?? 'open')
+  const [owner, setOwner] = useState<OwnerFilter>('me')
+  const [selfId, setSelfId] = useState<string | null>(null)
   const [workspaceId, setWorkspaceId] = useState<string | 'all'>('all')
   const [notionConfigured, setNotionConfigured] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -77,14 +82,16 @@ export default function TasksScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [t, w, notion] = await Promise.all([
+        const [t, w, notion, self] = await Promise.all([
           fetchTasks(token),
           fetchWorkspaces(token),
           fetchNotionConfigured(token).catch(() => false),
+          fetchSelfPerson(token),
         ])
         setTasks(t)
         setWorkspaces(w)
         setNotionConfigured(notion)
+        setSelfId(self.id)
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת המשימות נכשלה')
@@ -194,6 +201,7 @@ export default function TasksScreen() {
       if (filter === 'done' && st !== 'done') return false
       if (filter === 'cancelled' && st !== 'cancelled') return false
       if (workspaceId !== 'all' && t.workspaceId !== workspaceId) return false
+      if (owner === 'me' && !isMyTask(t.assigneeId, selfId)) return false
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
@@ -208,7 +216,12 @@ export default function TasksScreen() {
       for (const task of group.tasks) rows.push({ kind: 'task', id: task.id, task })
     }
     return rows
-  }, [tasks, filter, workspaceId, search])
+  }, [tasks, filter, workspaceId, search, owner, selfId])
+
+  const ownerFilters: FilterChipItem[] = [
+    { key: 'me', label: 'שלי' },
+    { key: 'all', label: 'כולם' },
+  ]
 
   const filters: FilterChipItem[] = [
     { key: 'open', label: 'פתוחות' },
@@ -263,6 +276,12 @@ export default function TasksScreen() {
       </View>
 
       <FilterChips
+        items={ownerFilters}
+        selectedKey={owner}
+        onSelect={(key) => setOwner(key === 'all' ? 'all' : 'me')}
+      />
+
+      <FilterChips
         items={filters}
         selectedKey={filter}
         onSelect={(key) => {
@@ -294,13 +313,21 @@ export default function TasksScreen() {
             icon="✓"
             iconColor={colors.success}
             text={
-              filter === 'overdue'
-                ? 'אין משימות באיחור'
-                : filter === 'open'
-                  ? 'אין משימות פתוחות'
-                  : 'אין משימות להצגה'
+              owner === 'me' && filter === 'open'
+                ? 'אין משימות שמוקצות אליך'
+                : filter === 'overdue'
+                  ? 'אין משימות באיחור'
+                  : filter === 'open'
+                    ? 'אין משימות פתוחות'
+                    : 'אין משימות להצגה'
             }
-            hint={filter === 'overdue' ? 'אין תאריך שעבר. אפשר לעבור ל״פתוחות״.' : undefined}
+            hint={
+              owner === 'me' && filter === 'open'
+                ? 'משימות של אחרים נמצאות תחת ״כולם״.'
+                : filter === 'overdue'
+                  ? 'אין תאריך שעבר. אפשר לעבור ל״פתוחות״.'
+                  : undefined
+            }
           />
         }
         renderItem={({ item }) => {

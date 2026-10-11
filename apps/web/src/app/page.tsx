@@ -22,6 +22,7 @@ import {
 import { ThenBySort } from '@/components/ThenBySort'
 import { groupTasksByDueState, limitTaskGroups } from '@/lib/sort-tasks'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
+import { isMyTask } from '@/lib/my-tasks'
 
 function isoDate(d: Date) {
   return d.toISOString().split('T')[0]
@@ -115,6 +116,7 @@ export default function DashboardPage() {
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: selfPerson } = trpc.people.me.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: calData } = trpc.calendar.events.useQuery(
@@ -133,9 +135,9 @@ export default function DashboardPage() {
   const hasOverride = taskSort !== null
 
   const openTasks = useMemo(() => {
-    const open = tasksList.filter((t) => !t.done)
+    const open = tasksList.filter((t) => !t.done && isMyTask(t.assigneeId, selfPerson?.id))
     return sortTasksByKeys(open, effectiveSort)
-  }, [tasksList, effectiveSort])
+  }, [tasksList, effectiveSort, selfPerson?.id])
 
   const setTaskSortAndPersist = (value: SortPref<TaskSortKey>) => {
     setTaskSort(value)
@@ -256,7 +258,7 @@ export default function DashboardPage() {
               <div className="text-2xl font-bold" style={{ color: '#fb7185' }}>
                 {openTasks.length}
               </div>
-              <div className="text-sm font-semibold text-[#eef3fb] mt-2">משימות פתוחות</div>
+              <div className="text-sm font-semibold text-[#eef3fb] mt-2">המשימות שלי</div>
             </Link>
             {overdueCount > 0 ? (
               <Link href="/tasks?status=overdue" className="text-xs text-[#eef3fb] mt-0.5 inline-block no-underline hover:underline">
@@ -370,12 +372,12 @@ export default function DashboardPage() {
         </section>
 
         {/* Open Tasks — checkbox + title (+ priority dot). Details live in TaskModal. */}
-        <section aria-label="משימות פתוחות" className="min-w-0 max-w-full overflow-hidden">
+        <section aria-label="המשימות שלי" className="min-w-0 max-w-full overflow-hidden">
           <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
-            <h2 className="text-base font-semibold text-[#eef3fb] truncate">משימות פתוחות</h2>
+            <h2 className="text-base font-semibold text-[#eef3fb] truncate">המשימות שלי</h2>
             <Link href="/tasks" className="section-link shrink-0">
               {SVG_ARROW_LEFT}
-              הכל
+              לרשימה
             </Link>
           </div>
           <div className="mb-3">
@@ -390,7 +392,7 @@ export default function DashboardPage() {
 
           {openTasks.length === 0 ? (
             <div className="card text-sm text-[#6f7ea0] py-4 px-5">
-              אין משימות פתוחות
+              אין משימות שמוקצות אליך
             </div>
           ) : (
             <div className="space-y-2 min-w-0 max-w-full">

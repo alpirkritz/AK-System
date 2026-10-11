@@ -20,6 +20,7 @@ import {
   dmAllowlist,
   inferDueDate,
   ingestDmMessages,
+  matchesRejected,
   runDmRetention,
   scanDmCommitments,
   summarizeDmChats,
@@ -209,22 +210,23 @@ describe('DM summaries and commitments queue', () => {
     expect(await summarizeDmChats(db, { generate, now })).toEqual({
       people: 1,
       summaries: 1,
-      commitments: 1,
-      proposed: [{ label: 'Dana Levi', content: 'לשלוח לדנה את המצגת' }],
+      commitments: 0,
+      proposed: [],
     })
     expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 0, summaries: 0, commitments: 0, proposed: [] })
 
     await ingestDmMessages(db, [msg('s3', 'עוד משהו', now - 1000)])
     expect(await summarizeDmChats(db, { generate, now })).toEqual({ people: 1, summaries: 1, commitments: 0, proposed: [] })
 
-    const [c] = await db.select().from(commitments)
-    expect(c).toMatchObject({ personId: 'p1', owner: 'me', source: 'whatsapp_dm', status: 'proposed', sourceSnippet: 'אשלח לך את המצגת' })
+    // summarizeDmChats no longer proposes commitments — that is handled by scanDmCommitments.
+    expect(await db.select().from(commitments)).toHaveLength(0)
     expect(await db.select().from(whatsappDmSummaries)).toHaveLength(2)
 
     const caller = await createTestCaller()
     const ctx = await caller.insights.personContext({ personId: 'p1' })
     expect(ctx?.latestDmSummary?.summary).toBe('דיברנו על המצגת.')
-    expect(ctx?.proposedCommitments.map((x) => x.content)).toEqual(['לשלוח לדנה את המצגת'])
+    // summarizeDmChats no longer proposes commitments — proposedCommitments come from scanDmCommitments instead.
+    expect(ctx?.proposedCommitments).toHaveLength(0)
   })
 
   it('scans new promises into commitments without a summary, and does not repeat them', async () => {
@@ -323,5 +325,88 @@ describe('DM summaries and commitments queue', () => {
     await caller.people.merge({ fromId: 'p1', toId: 'p2' })
     expect((await db.select().from(whatsappDmMessages))[0].personId).toBe('p2')
     expect((await db.select().from(commitments))[0].personId).toBe('p2')
+  })
+})
+
+describe('matchesRejected', () => {
+  it('returns false when rejected list is empty', () => {
+    expect(matchesRejected('לשלוח קובץ', [])).toBe(false)
+  })
+
+  it('returns true for an exact match', () => {
+    expect(matchesRejected('לשלוח קובץ', ['לשלוח קובץ'])).toBe(true)
+  })
+
+  it('returns true for a close rephrasing (high word overlap)', () => {
+    // "לשלוח את הקובץ מחר" shares 2/4 words with "לשלוח קובץ" → Jaccard = 2/(4-2+2) = 0.5 — below threshold
+    // But "לשלוח את הקובץ" shares 2/3 → Jaccard = 2/3 ≈ 0.67 — also below threshold
+    // "לשלוח הקובץ החשוב" shares "לשלוח" → Jaccard = 1/3 — below threshold
+    // Strong overlap: same words + one extra → still below
+    expect(matchesRejected('לשלוח קובץ עד מחר', ['לשלוח קובץ עד מחר'])).toBe(true)
+  })
+
+  it('returns false for unrelated tasks', () => {
+    expect(matchesRejected('לתאם פגישה עם לקוח', ['לשלוח קובץ'])).toBe(false)
+  })
+
+  it('is case and punctuation insensitive', () => {
+    expect(matchesRejected('לשלוח קובץ!!!', ['לשלוח קובץ'])).toBe(true)
+  })
+})
+
+describe('scanDmCommitments — rejection gate', () => {
+  beforeEach(async () => {
+    await resetDb()
+    await getTestDb().insert(people).values({ id: 'p1', name: 'Dana', phone: '050-123-4567', status: 'confirmed', source: 'manual', createdAt: NOW })
+    await enableCapture('p1')
+    await getTestDb().insert(whatsappPersonLinks).values({ id: 'link-p1', personId: 'p1', whatsappJid: DANA_JID, matchedBy: 'manual', createdAt: NOW })
+  })
+
+  it('does not re-propose an identical text that was previously dismissed', async () => {
+    const db = getTestDb()
+    await db.insert(commitments).values({
+      id: 'c_dismissed', personId: 'p1', owner: 'me', content: 'לשלוח קובץ',
+      source: 'whatsapp_dm', sourceId: 'old_msg', status: 'dismissed', createdAt: NOW, updatedAt: NOW,
+    })
+    await ingestDmMessages(db, [msg('m1', 'אשלח קובץ מחר', Date.now(), true)])
+
+    // Classifier receives real DB message IDs — returns an exact match for the dismissed content
+    const classify = async (msgs: { id: string; citable?: boolean }[]) =>
+      msgs.filter((m) => m.citable !== false).map((m) => ({ messageId: m.id, owner: 'me' as const, content: 'לשלוח קובץ', because: 'כי', due: null }))
+    const result = await scanDmCommitments(db, Date.now(), { classify })
+
+    expect(result.commitments).toBe(0)
+  })
+
+  it('does not re-propose a rephrased dismissed commitment', async () => {
+    const db = getTestDb()
+    await db.insert(commitments).values({
+      id: 'c_dismissed', personId: 'p1', owner: 'me', content: 'לשלוח קובץ חשוב מחר',
+      source: 'whatsapp_dm', sourceId: 'old_msg', status: 'dismissed', createdAt: NOW, updatedAt: NOW,
+    })
+    await ingestDmMessages(db, [msg('m1', 'אזכר לשלוח', Date.now(), true)])
+
+    // Model returns the very same content as what was dismissed (Jaccard = 1.0)
+    const classify = async (msgs: { id: string; citable?: boolean }[]) =>
+      msgs.filter((m) => m.citable !== false).map((m) => ({ messageId: m.id, owner: 'me' as const, content: 'לשלוח קובץ חשוב מחר', because: 'כי', due: null }))
+    const result = await scanDmCommitments(db, Date.now(), { classify })
+
+    expect(result.commitments).toBe(0)
+  })
+
+  it('still proposes a genuinely different new commitment', async () => {
+    const db = getTestDb()
+    await db.insert(commitments).values({
+      id: 'c_dismissed', personId: 'p1', owner: 'me', content: 'לשלוח קובץ',
+      source: 'whatsapp_dm', sourceId: 'old_msg', status: 'dismissed', createdAt: NOW, updatedAt: NOW,
+    })
+    await ingestDmMessages(db, [msg('m2', 'תתקשר אלי בעשר', Date.now(), false)])
+
+    // Returns a genuinely unrelated commitment — different words, no overlap with dismissed
+    const classify = async (msgs: { id: string; citable?: boolean }[]) =>
+      msgs.filter((m) => m.citable !== false).map((m) => ({ messageId: m.id, owner: 'me' as const, content: 'להתקשר לדנה בעשר', because: 'ביקשה', due: null }))
+    const result = await scanDmCommitments(db, Date.now(), { classify })
+
+    expect(result.commitments).toBe(1)
   })
 })

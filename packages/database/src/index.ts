@@ -298,6 +298,7 @@ const HARNESS_TABLES = [
     dedupe_key TEXT NOT NULL,
     generated_at TEXT NOT NULL,
     expires_at TEXT,
+    notified_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -1498,6 +1499,7 @@ export function getDb() {
     'ALTER TABLE meeting_series ADD COLUMN warmth_note_updated_at TEXT',
     'ALTER TABLE meeting_analyses ADD COLUMN whatsapp_notified_at TEXT',
     'ALTER TABLE people ADD COLUMN traits_at TEXT',
+    'ALTER TABLE harness_insights ADD COLUMN notified_at TEXT',
   ]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }

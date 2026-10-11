@@ -14,7 +14,7 @@ test.describe('QA מסודר – כפתורים, קשרים, נראות', () => 
   test('נראות: דשבורד – כותרות, כרטיסים, ניווט', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible()
     await expect(page.getByText('פגישות קרובות').first()).toBeVisible()
-    await expect(page.getByText(/משימות פתוחות|אין משימות פתוחות/).first()).toBeVisible()
+    await expect(page.getByText(/המשימות שלי|אין משימות שמוקצות אליך/).first()).toBeVisible()
     await expect(page.locator('.card').first()).toBeVisible()
     await expect(page.locator('aside').getByText('דשבורד')).toBeVisible()
     await expect(page.locator('aside').getByText('פרויקטים')).toBeVisible()

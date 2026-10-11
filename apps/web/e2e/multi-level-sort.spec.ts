@@ -25,7 +25,7 @@ test.describe('Multi-level Sort', () => {
     await page.waitForLoadState('networkidle')
 
     // Verify the sort control shows the new default
-    const dashboardPrimary = page.locator('section[aria-label="משימות פתוחות"]').locator('select').first()
+    const dashboardPrimary = page.locator('section[aria-label="המשימות שלי"]').locator('select').first()
     await expect(dashboardPrimary).toHaveValue('created_desc')
 
     // 4. Override on Dashboard
@@ -94,7 +94,7 @@ test.describe('Multi-level Sort', () => {
     await page.goto('http://localhost:3002/')
     await page.waitForLoadState('networkidle')
     
-    const dashboardPrimary = page.locator('section[aria-label="משימות פתוחות"]').locator('[data-testid="sort-primary"]')
+    const dashboardPrimary = page.locator('section[aria-label="המשימות שלי"]').locator('[data-testid="sort-primary"]')
     await dashboardPrimary.selectOption({ label: 'עדיפות (גבוהה קודם)' })
     
     // Verify override is active (reset button visible)

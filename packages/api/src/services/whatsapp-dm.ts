@@ -298,6 +298,33 @@ function asText(v: unknown): string {
 
 const MAX_COMMITMENTS_PER_CHAT = 3
 const PRIOR_CONTEXT_LIMIT = 20
+const DISMISSED_LOOKBACK = 30
+/** Jaccard word-overlap threshold above which a new item is considered a rephrasing of a rejected one. */
+const REJECTED_SIMILARITY_THRESHOLD = 0.8
+
+function normalizeContent(s: string): string {
+  return s.toLowerCase().replace(/[^\u05d0-\u05ffa-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function wordSet(s: string): Set<string> {
+  return new Set(normalizeContent(s).split(' ').filter(Boolean))
+}
+
+/** Jaccard similarity over word sets, 0–1. */
+function jaccardSimilarity(a: string, b: string): number {
+  const sa = wordSet(a)
+  const sb = wordSet(b)
+  if (sa.size === 0 && sb.size === 0) return 1
+  if (sa.size === 0 || sb.size === 0) return 0
+  let inter = 0
+  for (const w of sa) if (sb.has(w)) inter++
+  return inter / (sa.size + sb.size - inter)
+}
+
+/** Returns true when `content` is too similar to any of the already-rejected contents. */
+export function matchesRejected(content: string, rejectedContents: string[]): boolean {
+  return rejectedContents.some((r) => jaccardSimilarity(content, r) >= REJECTED_SIMILARITY_THRESHOLD)
+}
 
 /** One line handed to the conversation classifier. `citable: false` is prior context. */
 export interface ConversationLine {
@@ -334,10 +361,17 @@ function formatConversationLine(m: ConversationLine): string {
  * One Gemini call per chat. Returns at most 3 commitments still standing at the end of the
  * window. Prior lines (`citable: false`) are readable and cannot be cited as messageId.
  */
-async function classifyMessagesWithModel(messages: ConversationLine[]): Promise<ModelClassification[]> {
+async function classifyMessagesWithModel(
+  messages: ConversationLine[],
+  options: { rejected?: string[] } = {},
+): Promise<ModelClassification[]> {
   const model = getModel()
   const prior = messages.filter((m) => m.citable === false).slice(-PRIOR_CONTEXT_LIMIT)
   const fresh = messages.filter((m) => m.citable !== false).slice(-(200 - prior.length))
+  const rejectedBlock =
+    options.rejected?.length
+      ? ['', 'REJECTED — do not return these tasks or any rephrasing of them:', ...options.rejected.map((r) => `- ${r}`)]
+      : []
   const prompt = [
     ownerIdentityPrompt(),
     'Read this WhatsApp conversation (Hebrew, unless it is mostly English).',
@@ -345,6 +379,7 @@ async function classifyMessagesWithModel(messages: ConversationLine[]): Promise<
     'Return only commitments that are still standing at the end of the thread.',
     'Merge restatements of the same task into one item. At most 3 items.',
     'Be strict. Most conversations contain no commitment at all — returning an empty list is the normal answer.',
+    'Return empty when in doubt. Uncertainty ("I will think about it"), vague intent, encouragement, and tasks already resolved in the thread are not commitments.',
     'Drop jokes, hedges, sarcasm, and complaints that are not a real ask. "חלום, מזמין כוסות חדשות" after a complaint is not a commitment.',
     'Drop anything already settled in the thread. "נרשמתי" or "אני עניתי שלא" is done, not a task.',
     'Drop personal and social logistics: invitations, RSVPs, weddings, parties, conferences, rides, "בא איתי?", and health talk such as "תבדוק קורונה" or "תמשיך לנוח".',
@@ -357,6 +392,7 @@ async function classifyMessagesWithModel(messages: ConversationLine[]): Promise<
     'due is YYYY-MM-DD only when a day is named; otherwise null.',
     'Respond in JSON only, no markdown fences:',
     '{"items":[{"messageId":"...","owner":"me","content":"...","because":"...","due":null}]}',
+    ...rejectedBlock,
     '',
     prior.length ? `CONTEXT (do not cite these ids):\n${prior.map(formatConversationLine).join('\n')}` : 'CONTEXT: (none)',
     '',
@@ -408,6 +444,23 @@ export const defaultClassify: MessageClassifier = async (messages) => {
     const message = err instanceof Error ? err.message : 'classification failed'
     console.warn('[whatsapp-dm] model classification failed', message)
     throw new ClassificationUnavailable(message)
+  }
+}
+
+/**
+ * Like `defaultClassify` but passes the already-rejected contents to the model so it can avoid
+ * returning them or any rephrasing. Used by `scanDmCommitments` when dismissed items are known.
+ */
+function makeRejectionAwareClassifier(rejected: string[]): MessageClassifier {
+  return async (messages) => {
+    if (!process.env.GEMINI_API_KEY) throw new ClassificationUnavailable('GEMINI_API_KEY is not set')
+    try {
+      return await classifyMessagesWithModel(messages, { rejected })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'classification failed'
+      console.warn('[whatsapp-dm] model classification failed', message)
+      throw new ClassificationUnavailable(message)
+    }
   }
 }
 
@@ -553,13 +606,6 @@ export async function summarizeDmChats(
       createdAt,
     })
     if (digest.summary) result.summaries++
-    const textById = new Map(messages.map((m) => [m.id, m.text]))
-    const added = await proposeCommitments(db, personId, 'whatsapp_dm', digest.commitments.map((c) => ({
-      ...c,
-      sourceSnippet: c.sourceMessageId ? clip(textById.get(c.sourceMessageId) ?? '', 80) : null,
-    })), createdAt)
-    result.commitments += added.length
-    for (const item of added) result.proposed.push({ label: person.name, content: item.content })
   }
   return result
 }
@@ -580,7 +626,6 @@ export async function scanDmCommitments(
   now = Date.now(),
   options: { classify?: MessageClassifier } = {},
 ): Promise<DmCommitmentScanResult> {
-  const classify = options.classify ?? defaultClassify
   const windowStart = now - SUMMARY_WINDOW_DAYS * DAY_MS
   const active = await db
     .select({ personId: whatsappDmMessages.personId })
@@ -592,6 +637,20 @@ export async function scanDmCommitments(
   for (const { personId } of active) {
     const [person] = await db.select({ name: people.name }).from(people).where(eq(people.id, personId))
     if (!person) continue
+
+    // Fetch dismissed commitments for this person so we can pass them to the model and
+    // post-filter its output (prevents rephrased repeats after the user pressed "דחה").
+    const dismissedRows = await db
+      .select({ content: commitments.content, sourceId: commitments.sourceId })
+      .from(commitments)
+      .where(and(eq(commitments.personId, personId), eq(commitments.status, 'dismissed')))
+      .orderBy(desc(commitments.createdAt))
+      .limit(DISMISSED_LOOKBACK)
+    const dismissedContents = dismissedRows.map((r) => r.content)
+    const dismissedSourceIds = new Set(dismissedRows.map((r) => r.sourceId).filter((id): id is string => !!id))
+
+    // Use a rejection-aware classifier when no test override is provided.
+    const classify = options.classify ?? makeRejectionAwareClassifier(dismissedContents)
     const [last] = await db
       .select({ toTs: whatsappDmSummaries.toTs })
       .from(whatsappDmSummaries)
@@ -622,6 +681,13 @@ export async function scanDmCommitments(
       if (err instanceof ClassificationUnavailable) continue
       throw err
     }
+    // Post-filter: drop anything whose source message is already dismissed or whose content
+    // is too similar to a previously rejected commitment (catches rephrased repeats).
+    found = found.filter(
+      (c) =>
+        !(c.sourceMessageId && dismissedSourceIds.has(c.sourceMessageId)) &&
+        !matchesRejected(c.content, dismissedContents),
+    )
     result.people++
     const textById = new Map(messages.map((m) => [m.id, m.text]))
     const added = await proposeCommitments(db, personId, 'whatsapp_dm', found.map((c) => ({

@@ -122,9 +122,9 @@ const InsightCard = memo(function InsightCard({
           className="btn btn-ghost text-[12px] py-1 px-3"
           onClick={onDismiss}
           disabled={dismissing}
-          aria-label={`התעלם מהתובנה "${insight.title}"`}
+          aria-label={`דחה את התובנה "${insight.title}"`}
         >
-          {dismissing ? '...' : 'התעלם'}
+          {dismissing ? '...' : 'דחה'}
         </button>
       </div>
     </article>

@@ -14,6 +14,7 @@ import { router, protectedProcedure, type Context } from '../trpc'
 import { phoneFromWhatsappJid } from '../lib/phone'
 import { linkWhatsappSender } from '../services/person-context'
 import { commitmentSourceUrl } from '../services/commitments'
+import { closeInsightsForCommitment } from '../services/harness-reasoner'
 import { tasksRouter } from './tasks'
 import { peopleRouter } from './people'
 
@@ -208,6 +209,8 @@ export const commitmentsRouter = router({
         .update(commitments)
         .set({ status: 'dismissed', updatedAt: new Date().toISOString() })
         .where(eq(commitments.id, input.commitmentId))
+      // Close any cross-domain insights that were built from this commitment.
+      await closeInsightsForCommitment(ctx.db, input.commitmentId)
       return { dismissed: true }
     }),
 

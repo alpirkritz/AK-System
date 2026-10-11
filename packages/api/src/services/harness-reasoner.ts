@@ -11,7 +11,7 @@
  * so the harness keeps working when the LLM is down.
  */
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
-import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, not, notInArray } from 'drizzle-orm'
 import {
   commitments,
   financeTransactions,
@@ -121,7 +121,7 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
   const openCommitments = await db
     .select({ id: commitments.id, personId: commitments.personId, content: commitments.content, owner: commitments.owner })
     .from(commitments)
-    .where(and(inArray(commitments.status, ['proposed', 'accepted']), inArray(commitments.personId, personIds)))
+    .where(and(inArray(commitments.status, ['accepted']), inArray(commitments.personId, personIds)))
   const commitmentsByPerson = new Map<string, typeof openCommitments>()
   for (const c of openCommitments) {
     if (!c.personId) continue
@@ -190,7 +190,7 @@ async function detectCoolingWithOpenLoop(ctx: DetectorContext): Promise<HarnessI
   const openCommitments = await db
     .select({ id: commitments.id, personId: commitments.personId, content: commitments.content, owner: commitments.owner })
     .from(commitments)
-    .where(inArray(commitments.status, ['proposed', 'accepted']))
+    .where(inArray(commitments.status, ['accepted']))
   const personIds = [...new Set(openCommitments.map((c) => c.personId).filter((id): id is string => !!id))]
   if (personIds.length === 0) return []
 
@@ -242,7 +242,7 @@ async function detectStaleCommitments(ctx: DetectorContext): Promise<HarnessInsi
       createdAt: commitments.createdAt,
     })
     .from(commitments)
-    .where(and(inArray(commitments.status, ['proposed', 'accepted']), lte(commitments.createdAt, cutoff)))
+    .where(and(inArray(commitments.status, ['accepted']), lte(commitments.createdAt, cutoff)))
     .orderBy(commitments.createdAt)
     .limit(20)
   if (rows.length === 0) return []
@@ -567,11 +567,36 @@ export async function persistInsights(
   return { created, updated }
 }
 
-/** Detect, phrase, persist. */
+/** Retire open insights whose dedupeKey is not among the current run's output — they are no longer supported by live data. */
+async function retireStaleInsights(db: Db, activeKeys: string[], now: Date): Promise<number> {
+  if (activeKeys.length === 0) {
+    // No drafts this run: retire everything open.
+    const rows = await db.select({ id: harnessInsights.id }).from(harnessInsights).where(eq(harnessInsights.status, 'open'))
+    if (rows.length === 0) return 0
+    await db
+      .update(harnessInsights)
+      .set({ status: 'retired', updatedAt: now.toISOString() })
+      .where(eq(harnessInsights.status, 'open'))
+    return rows.length
+  }
+  const rows = await db
+    .select({ id: harnessInsights.id })
+    .from(harnessInsights)
+    .where(and(eq(harnessInsights.status, 'open'), notInArray(harnessInsights.dedupeKey, activeKeys)))
+  if (rows.length === 0) return 0
+  await db
+    .update(harnessInsights)
+    .set({ status: 'retired', updatedAt: now.toISOString() })
+    .where(and(eq(harnessInsights.status, 'open'), notInArray(harnessInsights.dedupeKey, activeKeys)))
+  return rows.length
+}
+
+/** Detect, phrase, persist, and retire stale insights. */
 export async function reasonAndPersist(db: Db, now = new Date()): Promise<ReasonResult> {
   const drafts = await runDetectors(db, now)
   const { insights, model } = await phraseInsights(drafts)
   const { created, updated } = await persistInsights(db, insights, now)
+  await retireStaleInsights(db, insights.map((i) => i.dedupeKey), now)
   return { insights, created, updated, model }
 }
 
@@ -585,6 +610,8 @@ export interface StoredInsight {
   personId: string | null
   sources: InsightSource[]
   generatedAt: string
+  /** ISO timestamp of the last push that included this insight; null = never pushed. */
+  notifiedAt: string | null
 }
 
 /** Open, unexpired insights, highest score first. */
@@ -616,6 +643,7 @@ export async function listOpenInsights(
       personId: r.personId,
       sources: parseSources(r.sources),
       generatedAt: r.generatedAt,
+      notifiedAt: r.notifiedAt ?? null,
     }))
 }
 
@@ -637,6 +665,30 @@ export async function dismissInsight(db: Db, id: string): Promise<boolean> {
     .set({ status: 'dismissed', updatedAt: new Date().toISOString() })
     .where(eq(harnessInsights.id, id))
   return true
+}
+
+/**
+ * When a commitment is rejected, immediately close any open insights whose `sources` JSON
+ * contains a reference to that commitment (`commitment:<id>`). This prevents a dismissed
+ * commitment from keeping a cross-domain insight alive until it expires naturally.
+ */
+export async function closeInsightsForCommitment(db: Db, commitmentId: string): Promise<void> {
+  const target = `commitment:${commitmentId}`
+  const open = await db.select({ id: harnessInsights.id, sources: harnessInsights.sources })
+    .from(harnessInsights)
+    .where(eq(harnessInsights.status, 'open'))
+  const toClose = open.filter((r) => {
+    try {
+      const srcs = JSON.parse(r.sources ?? '[]') as { nodeId?: string }[]
+      return srcs.some((s) => s.nodeId === target)
+    } catch { return false }
+  })
+  if (toClose.length === 0) return
+  const ids = toClose.map((r) => r.id)
+  await db
+    .update(harnessInsights)
+    .set({ status: 'dismissed', updatedAt: new Date().toISOString() })
+    .where(inArray(harnessInsights.id, ids))
 }
 
 /** Hebrew lines for the morning brief. */

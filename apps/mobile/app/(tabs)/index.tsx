@@ -18,12 +18,14 @@ import {
   fetchDashboardPrefs,
   fetchMeetings,
   fetchRelationshipBoard,
+  fetchSelfPerson,
   fetchTasks,
   toggleTaskDone,
   type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
 } from '../../lib/data'
+import { isMyTask } from '../../lib/my-tasks'
 import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
 import { groupTasksByDueState, limitTaskGroups, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
@@ -45,7 +47,7 @@ function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): str
 }
 
 function taskSectionTitle(window: MobileDashboardPrefs['taskWindow']): string {
-  return window === 'today' ? 'היום, באיחור, ובלי תאריך' : 'משימות פתוחות'
+  return window === 'today' ? 'שלי · היום, באיחור, ובלי תאריך' : 'המשימות שלי'
 }
 
 function isPast(date: string, time: string): boolean {
@@ -59,6 +61,7 @@ export default function DashboardScreen() {
   const { token, user } = useAuth()
   const router = useRouter()
   const [tasks, setTasks] = useState<MobileTask[]>([])
+  const [selfId, setSelfId] = useState<string | null>(null)
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
   const [prefs, setPrefs] = useState<MobileDashboardPrefs>({
     meetingWindow: 'today',
@@ -77,14 +80,16 @@ export default function DashboardScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [p, t, m, relationship] = await Promise.all([
+        const [p, t, m, relationship, self] = await Promise.all([
           fetchDashboardPrefs(token),
           fetchTasks(token),
           fetchMeetings(token),
           fetchRelationshipBoard(token).catch(() => ({ people: [], circles: [] })),
+          fetchSelfPerson(token),
         ])
         setPrefs(p)
         setTasks(t)
+        setSelfId(self.id)
         setMeetings(m)
         setAttention(pickAttentionShift([...relationship.people, ...relationship.circles]))
         hasLoadedOnce.current = true
@@ -105,7 +110,10 @@ export default function DashboardScreen() {
     }, [token, load]),
   )
 
-  const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
+  const openTasks = useMemo(
+    () => tasks.filter((t) => !t.done && isMyTask(t.assigneeId, selfId)),
+    [tasks, selfId],
+  )
 
   const overdueCount = useMemo(
     () => openTasks.filter((t) => isOverdueOpenTask(t)).length,
@@ -184,9 +192,9 @@ export default function DashboardScreen() {
       <View style={styles.kpiRow}>
         <KpiCard
           value={openTasks.length}
-          label="משימות פתוחות"
+          label="המשימות שלי"
           color={colors.coral}
-          accessibilityLabel={`משימות פתוחות, ${openTasks.length}`}
+          accessibilityLabel={`המשימות שלי, ${openTasks.length}`}
           onPress={() =>
             router.push({ pathname: '/tasks', params: { filter: 'open' } } as Href)
           }

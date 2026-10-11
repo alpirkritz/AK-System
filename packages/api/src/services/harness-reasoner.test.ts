@@ -11,6 +11,7 @@ import {
 } from '@ak-system/database'
 import { getTestDb, resetDb } from '../test-utils'
 import {
+  closeInsightsForCommitment,
   dismissInsight,
   formatInsightLines,
   listOpenInsights,
@@ -43,10 +44,10 @@ async function seedUpcomingMeeting(personId = 'p1') {
   await db.insert(meetingPeople).values({ meetingId: 'm1', personId })
 }
 
-async function seedCommitment(id = 'c1', personId = 'p1', createdAt = NOW, owner = 'me') {
+async function seedCommitment(id = 'c1', personId = 'p1', createdAt = NOW, owner = 'me', status = 'accepted') {
   await getTestDb().insert(commitments).values({
     id, personId, owner, content: 'לשלוח הצעת מחיר',
-    source: 'whatsapp_dm', status: 'proposed', createdAt, updatedAt: createdAt,
+    source: 'whatsapp_dm', status, createdAt, updatedAt: createdAt,
   })
 }
 
@@ -251,9 +252,93 @@ describe('reasonAndPersist', () => {
 describe('formatInsightLines', () => {
   it('marks urgent lines and leaves the rest with a bullet', () => {
     const lines = formatInsightLines([
-      { id: '1', kind: 'a', title: 'דחוף', body: 'גוף', severity: 'urgent', score: 1, personId: null, sources: [], generatedAt: NOW },
-      { id: '2', kind: 'b', title: 'רגיל', body: 'גוף', severity: 'info', score: 0.1, personId: null, sources: [], generatedAt: NOW },
+      { id: '1', kind: 'a', title: 'דחוף', body: 'גוף', severity: 'urgent', score: 1, personId: null, sources: [], generatedAt: NOW, notifiedAt: null },
+      { id: '2', kind: 'b', title: 'רגיל', body: 'גוף', severity: 'info', score: 0.1, personId: null, sources: [], generatedAt: NOW, notifiedAt: null },
     ])
     expect(lines).toEqual(['❗ דחוף — גוף', '• רגיל — גוף'])
+  })
+})
+
+describe('detectors — accepted-only', () => {
+  beforeEach(async () => {
+    await resetAll()
+    await seedPerson()
+  })
+
+  it('silent_before_meeting: proposed commitment is not a signal', async () => {
+    await seedUpcomingMeeting()
+    await seedCommitment('c1', 'p1', NOW, 'me', 'proposed')
+    const insights = await runDetectors(getTestDb())
+    expect(insights.find((i) => i.kind === 'silent_before_meeting')).toBeUndefined()
+  })
+
+  it('stale_commitment: proposed commitment is not a signal', async () => {
+    await seedCommitment('c_old', 'p1', isoTs(30), 'me', 'proposed')
+    const insights = await runDetectors(getTestDb())
+    expect(insights.find((i) => i.kind === 'stale_commitment')).toBeUndefined()
+  })
+
+  it('stale_commitment: accepted commitment is a signal', async () => {
+    await seedCommitment('c_old', 'p1', isoTs(30), 'me', 'accepted')
+    const insights = await runDetectors(getTestDb())
+    expect(insights.find((i) => i.kind === 'stale_commitment')).toBeDefined()
+  })
+})
+
+describe('retire-on-miss', () => {
+  beforeEach(resetAll)
+
+  it('retires an open insight whose dedupeKey is not in the current run', async () => {
+    const db = getTestDb()
+    const draft: HarnessInsightDraft = {
+      kind: 'stale_commitment', title: 'ישן', body: 'ב', severity: 'attention',
+      score: 0.5, personId: null, sources: [], dedupeKey: 'stale_commitment:c_gone', ttlDays: 14,
+    }
+    await persistInsights(db, [draft])
+
+    // Second run emits a completely different set — the first insight should be retired.
+    const different: HarnessInsightDraft = {
+      kind: 'spend_spike_vs_meetings', title: 'חדש', body: 'ב', severity: 'attention',
+      score: 0.5, personId: null, sources: [], dedupeKey: 'spend_spike_vs_meetings:2026-10', ttlDays: 7,
+    }
+    await reasonAndPersist(db)  // no real data so detectors fire nothing; all open insights get retired
+
+    const all = await db.select().from(harnessInsights)
+    expect(all.every((r) => r.status === 'retired')).toBe(true)
+    expect(await listOpenInsights(db)).toHaveLength(0)
+  })
+})
+
+describe('closeInsightsForCommitment', () => {
+  beforeEach(resetAll)
+
+  it('dismisses open insights whose sources include the given commitment', async () => {
+    const db = getTestDb()
+    await persistInsights(db, [{
+      kind: 'silent_before_meeting', title: 'שתיקה', body: 'ב', severity: 'attention',
+      score: 0.6, personId: null,
+      sources: [{ nodeId: 'commitment:c_target', kind: 'commitment', label: 'לשלוח' }],
+      dedupeKey: 'silent_before_meeting:m1:p1', ttlDays: 7,
+    }])
+
+    await closeInsightsForCommitment(db, 'c_target')
+
+    const [row] = await db.select().from(harnessInsights)
+    expect(row.status).toBe('dismissed')
+  })
+
+  it('leaves insights that do not reference the commitment untouched', async () => {
+    const db = getTestDb()
+    await persistInsights(db, [{
+      kind: 'spend_spike_vs_meetings', title: 'הוצאות', body: 'ב', severity: 'attention',
+      score: 0.5, personId: null,
+      sources: [{ nodeId: 'month:2026-10', kind: 'financial_event', label: 'הוצאות' }],
+      dedupeKey: 'spend_spike:2026-10', ttlDays: 7,
+    }])
+
+    await closeInsightsForCommitment(db, 'c_unrelated')
+
+    const [row] = await db.select().from(harnessInsights)
+    expect(row.status).toBe('open')
   })
 })
