@@ -1,5 +1,6 @@
 'use client'
 
+import { clockFromTime } from '@/lib/clock-time'
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
@@ -28,8 +29,11 @@ function isPastMeeting(date: string, time: string, endTime?: string | null): boo
   // If endTime is missing fall back to start time + 1 hour so a meeting-in-progress stays "upcoming".
   const [sh = 0, sm = 0] = (time ?? '00:00').split(':').map(Number)
   let endH = sh, endM = sm
-  if (endTime) {
-    const [eh = 0, em = 0] = endTime.split(':').map(Number)
+  const endClock = clockFromTime(endTime)
+  if (endClock) {
+    // Calendar sync stores endTime as a full ISO string; normalise before splitting,
+    // otherwise NaN hours made every synced meeting "upcoming" forever.
+    const [eh = 0, em = 0] = endClock.split(':').map(Number)
     endH = eh; endM = em
   } else {
     // no endTime — treat as 1-hour meeting so it stays upcoming while it's running

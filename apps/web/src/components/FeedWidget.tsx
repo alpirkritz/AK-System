@@ -81,7 +81,8 @@ export function FeedWidget() {
                 >
                   <div className="flex-1 min-w-0">
                     <div
-                      className="text-sm font-medium text-[#eef3fb] overflow-hidden text-ellipsis"
+                      className="text-sm font-medium text-[#eef3fb] overflow-hidden text-ellipsis text-right"
+                      dir="auto"
                       style={{
                         display: '-webkit-box',
                         WebkitLineClamp: 2,

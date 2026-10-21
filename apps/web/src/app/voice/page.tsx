@@ -1,5 +1,6 @@
 'use client'
 
+import { formatTimeRange } from '@/lib/clock-time'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -28,7 +29,7 @@ type MeetingChoice = {
 }
 
 function meetingRange(m: MeetingChoice): string {
-  return m.endTime ? `${m.time}–${m.endTime}` : m.time
+  return formatTimeRange(m.time, m.endTime)
 }
 
 function meetingPeopleLabel(m: MeetingChoice): string | null {
@@ -448,7 +449,7 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
                 {candidates.map((m) => (
                   <label key={m.id} className="flex items-center gap-2 text-[#b8c4dc]">
                     <input type="radio" name="meeting" value={m.id} checked={meetingId === m.id} onChange={() => setMeetingId(m.id)} />
-                    <span className="tabular-nums text-[#5a688c]">{m.time}{m.endTime ? `–${m.endTime}` : ''}</span>
+                    <span className="tabular-nums text-[#5a688c]">{formatTimeRange(m.time, m.endTime)}</span>
                     {m.title}
                   </label>
                 ))}
@@ -882,7 +883,7 @@ function VoicePageInner() {
                           setShowReviewMeetingPicker(false)
                         }}
                       >
-                        <span className="tabular-nums text-[#5a688c] me-2">{m.time}{m.endTime ? `–${m.endTime}` : ''}</span>
+                        <span className="tabular-nums text-[#5a688c] me-2">{formatTimeRange(m.time, m.endTime)}</span>
                         {m.title}
                       </button>
                     ))

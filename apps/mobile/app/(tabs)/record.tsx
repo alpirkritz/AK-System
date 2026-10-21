@@ -72,8 +72,18 @@ const PENDING_VOICE_UPLOAD_KEY = 'helm_pending_voice_upload'
 /** Rows shown before "עוד פגישות להיום" — keeps the first screen scannable. */
 const MEETINGS_COLLAPSED = 5
 
+/** Calendar sync stores endTime as a full ISO string; show it as a local HH:MM. */
+function clockOf(value: string | null | undefined): string | null {
+  if (!value) return null
+  if (/^\d{1,2}:\d{2}$/.test(value)) return value.padStart(5, '0')
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 function meetingRange(m: MobileMeetingChoice): string {
-  return m.endTime ? `${m.time}–${m.endTime}` : m.time
+  const end = clockOf(m.endTime)
+  return end ? `${m.time}–${end}` : m.time
 }
 
 function meetingPeopleLabel(m: MobileMeetingChoice): string | null {
@@ -296,7 +306,7 @@ function RecordingResult({ token, recordingId }: { token: string; recordingId: s
               >
                 <View style={[styles.radio, selected && styles.radioOn]} />
                 <Text style={styles.body}>
-                  {m.time ? `${m.time}${m.endTime ? `–${m.endTime}` : ''} ` : ''}
+                  {m.time ? `${meetingRange(m as MobileMeetingChoice)} ` : ''}
                   {m.title}
                 </Text>
               </Pressable>

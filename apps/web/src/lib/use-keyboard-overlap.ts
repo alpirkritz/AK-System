@@ -38,11 +38,15 @@ export function useVisualViewportFrame(): VisualViewportFrame {
     const update = () => {
       const height = vv?.height ?? window.innerHeight
       const offsetTop = vv?.offsetTop ?? 0
-      setFrame({
-        height,
-        offsetTop,
-        overlap: keyboardOverlapPx(window.innerHeight, height, offsetTop),
-      })
+      const overlap = keyboardOverlapPx(window.innerHeight, height, offsetTop)
+      // Only commit a new frame when something moved — resize events can fire on
+      // every layout pass (scrollbar toggling, address bar), and a fresh object
+      // each time re-rendered the whole shell in a loop.
+      setFrame((prev) =>
+        prev.height === height && prev.offsetTop === offsetTop && prev.overlap === overlap
+          ? prev
+          : { height, offsetTop, overlap },
+      )
     }
 
     vv?.addEventListener('resize', update)

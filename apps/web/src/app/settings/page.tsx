@@ -1224,6 +1224,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ dashboardTasks: value })}
                 fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}
@@ -1240,6 +1241,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ tasksPage: value })}
                 fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}
@@ -1256,6 +1258,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ meetingsPast: value })}
                 fields={MEETING_SORT_KEYS.map((k) => ({ value: k, label: MEETING_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}

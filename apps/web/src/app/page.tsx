@@ -211,7 +211,7 @@ export default function DashboardPage() {
   const moreOpenTasks = Math.max(0, openTasks.length - previewCount)
 
   return (
-    <div className="space-y-8 min-w-0 max-w-full">
+    <div className="space-y-6 md:space-y-8 min-w-0 max-w-full">
       {/* ── Header ──────────────────────────────────────────────── */}
       <header>
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-[#eef3fb]">
@@ -232,19 +232,21 @@ export default function DashboardPage() {
 
       {/* ── KPI Strip ───────────────────────────────────────────── */}
       <section aria-label="סיכום מהיר">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        {/* Three tiles side by side at every width; on phones they are compact
+            (number + label) so the strip stays one glance instead of three tall cards. */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           {/* Calendar meetings KPI. Toggles stay here; the number opens that range. */}
-          <div className="card">
-            <div className="flex items-start justify-between mb-2">
+          <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
+            <div className="flex items-start justify-between gap-1 mb-1 sm:mb-2">
               <Link href={calendarHref} className="no-underline">
                 <div
-                  className="text-2xl font-bold"
+                  className="text-xl sm:text-2xl font-bold tabular-nums leading-none"
                   style={{ color: '#2dd4bf' }}
                 >
                   {calMeetingCount}
                 </div>
               </Link>
-              <div className="flex gap-1" role="group" aria-label="טווח זמן">
+              <div className="hidden sm:flex gap-1" role="group" aria-label="טווח זמן">
                 {(['today', 'week'] as const).map((r) => (
                   <button
                     key={r}
@@ -257,38 +259,51 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <Link href={calendarHref} className="text-sm font-semibold text-[#eef3fb] no-underline block">
+            <Link href={calendarHref} className="text-xs sm:text-sm font-semibold text-[#eef3fb] no-underline block truncate">
               אירועים ביומן
             </Link>
-            <div className="text-xs text-[#6f7ea0] mt-0.5">
+            <div className="hidden sm:block text-xs text-[#6f7ea0] mt-0.5">
               {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
+            </div>
+            {/* Phone: the range toggle sits under the label as two tiny segments */}
+            <div className="flex sm:hidden gap-1 mt-2" role="group" aria-label="טווח זמן">
+              {(['today', 'week'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setCalRange(r)}
+                  aria-pressed={calRange === r}
+                  className="toggle-btn !px-2 !py-0.5 !text-[11px]"
+                >
+                  {r === 'today' ? 'היום' : 'שבוע'}
+                </button>
+              ))}
             </div>
           </div>
 
           {/* Open tasks KPI. The count opens the open list; overdue is its own link. */}
-          <div className="card">
+          <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
             <Link href="/tasks?status=open" className="block no-underline">
-              <div className="text-2xl font-bold" style={{ color: '#fb7185' }}>
+              <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#fb7185' }}>
                 {openTasks.length}
               </div>
-              <div className="text-sm font-semibold text-[#eef3fb] mt-2">המשימות שלי</div>
+              <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">המשימות שלי</div>
             </Link>
             {overdueCount > 0 ? (
-              <Link href="/tasks?status=overdue" className="text-xs text-[#eef3fb] mt-0.5 inline-block no-underline hover:underline">
+              <Link href="/tasks?status=overdue" className="text-[11px] sm:text-xs text-[#fb7185] sm:text-[#eef3fb] mt-1 sm:mt-0.5 inline-block no-underline hover:underline truncate">
                 {overdueCount} באיחור
               </Link>
             ) : (
-              <div className="text-xs text-[#6f7ea0] mt-0.5">אין איחור</div>
+              <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5">אין איחור</div>
             )}
           </div>
 
           {/* Upcoming CRM meetings KPI */}
-          <Link href="/meetings" className="card card-interactive no-underline block">
-            <div className="text-2xl font-bold" style={{ color: '#38bdf8' }}>
+          <Link href="/meetings" className="card card-interactive no-underline flex flex-col min-w-0 !p-3 sm:!p-5">
+            <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#38bdf8' }}>
               {futureMeetings.length}
             </div>
-            <div className="text-sm font-semibold text-[#eef3fb] mt-2">פגישות קרובות</div>
-            <div className="text-xs text-[#6f7ea0] mt-0.5">
+            <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">פגישות קרובות</div>
+            <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5 truncate">
               {recurringMeetings.length > 0 ? `כולל ${recurringMeetings.length} חוזרות` : 'ניהול פגישות'}
             </div>
           </Link>
@@ -297,7 +312,7 @@ export default function DashboardPage() {
 
       {/* ── Quick Actions ───────────────────────────────────────── */}
       <section aria-label="פעולות מהירות">
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <Link
             href="/meetings?new=1"
             className="btn btn-primary flex items-center gap-2 no-underline min-h-[44px]"
@@ -333,7 +348,7 @@ export default function DashboardPage() {
       <HarnessWidget />
 
       {/* ── Content Grid — equal cols, minmax(0) so long titles cannot widen the page ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 min-w-0 w-full max-w-full overflow-x-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 min-w-0 w-full max-w-full overflow-x-hidden">
         {/* Upcoming Meetings */}
         <section aria-label="פגישות קרובות" className="min-w-0 max-w-full overflow-hidden">
           <div className="flex items-center justify-between mb-4 gap-2 min-w-0">
@@ -400,7 +415,7 @@ export default function DashboardPage() {
 
         {/* Open Tasks — checkbox + title (+ priority dot). Details live in TaskModal. */}
         <section aria-label="המשימות שלי" className="min-w-0 max-w-full overflow-hidden">
-          <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+          <div className="flex items-center justify-between mb-3 gap-2 min-w-0">
             <h2 className="text-base font-semibold text-[#eef3fb] truncate">המשימות שלי</h2>
             <Link href="/tasks" className="section-link shrink-0">
               {SVG_ARROW_LEFT}
@@ -450,6 +465,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       className="dashboard-open-task__title"
+                      dir="auto"
                       onClick={() => {
                         setEditingTaskId(t.id)
                         setTaskModalOpen(true)

@@ -167,18 +167,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       style={mobileChatShell}
     >
       {/* Desktop / tablet sidebar */}
-      <aside className="w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-6 gap-1 sticky top-0 h-screen hidden md:flex">
-        <div className="px-3 pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
+      {/* Tablet / unfolded phone (md) gets a slimmer rail so content keeps its width;
+          the full 220px sidebar only from lg. */}
+      <aside className="w-[176px] lg:w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-3 lg:p-6 gap-1 sticky top-0 h-screen hidden md:flex">
+        <div className="px-3 pb-4 lg:pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
           <img
             src="/icons/aro-logo.png"
             alt="ARO"
             width={40}
             height={40}
-            className="h-10 w-10 rounded-lg flex-shrink-0"
+            className="h-9 w-9 lg:h-10 lg:w-10 rounded-lg flex-shrink-0"
           />
-          <div>
-            <div className="text-lg font-bold tracking-tight">ARO</div>
-            <div className="text-[11px] text-[#647399] mt-0.5">סביבת עבודה אישית</div>
+          <div className="min-w-0">
+            <div className="text-lg font-bold tracking-tight leading-tight">ARO</div>
+            <div className="text-[11px] text-[#647399] mt-0.5 truncate">סביבת עבודה אישית</div>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto space-y-4">

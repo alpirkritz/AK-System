@@ -212,7 +212,7 @@ function TasksPageContent() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-5">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <h1 className="text-2xl font-bold tracking-tight">משימות</h1>
         <div className="flex items-center gap-2">
           {notionState?.configured && (
@@ -246,8 +246,9 @@ function TasksPageContent() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="סינון לפי אחראי">
+      {/* Filter strip: one scrolling line of chips on phones, wraps on wide screens */}
+      <div className="scroll-row md-wrap mb-3 -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="flex gap-1.5" role="group" aria-label="סינון לפי אחראי">
           <button
             type="button"
             className="filter-chip"
@@ -265,7 +266,8 @@ function TasksPageContent() {
             כולם
           </button>
         </div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="סינון לפי מצב">
+        <div className="w-px h-5 bg-[#2f4368] shrink-0" aria-hidden />
+        <div className="flex gap-1.5" role="group" aria-label="סינון לפי מצב">
           {statusTabs.map((tab) => (
             <button
               key={tab.id}
@@ -278,30 +280,32 @@ function TasksPageContent() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <input
-          className="input w-auto min-w-[200px] flex-1"
+          className="input w-auto min-w-[160px] flex-1"
           placeholder="חיפוש משימה…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button
           type="button"
-          className="btn btn-ghost min-h-[44px]"
+          className="btn btn-ghost min-h-[40px]"
           aria-expanded={filtersOpen}
           onClick={() => setFiltersOpen((open) => !open)}
         >
           {advancedCount > 0 ? `סינון (${advancedCount})` : 'סינון'}
         </button>
+        <ThenBySort
+          value={effectiveSort}
+          onChange={setTaskSortAndPersist}
+          fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+          showReset={hasOverride}
+          onReset={resetToDefault}
+          className="basis-full md:basis-auto md:ms-auto"
+        />
       </div>
-
-      <ThenBySort
-        value={effectiveSort}
-        onChange={setTaskSortAndPersist}
-        fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
-        showReset={hasOverride}
-        onReset={resetToDefault}
-        className="min-w-[200px] mb-4"
-      />
 
       <FilteredWorldChip />
 
@@ -400,47 +404,53 @@ function TasksPageContent() {
                         title={`עדיפות ${priorityLabel}`}
                         aria-label={`עדיפות ${priorityLabel}`}
                       />
-                      <div
-                        className="flex-1 text-sm cursor-pointer hover:text-[#fff] transition-colors min-w-0"
-                        style={{
-                          textDecoration: t.done ? 'line-through' : 'none',
-                          color: t.done ? '#5a688c' : '#eef3fb',
-                        }}
-                        onClick={() => {
-                          setEditingTaskId(t.id)
-                          setTaskModalOpen(true)
-                        }}
-                        title="ערוך משימה"
-                      >
-                        {t.title}
-                        {formatDueLabel(t) && (
-                          <span className="text-[11px] text-[#647399] mr-2"> · {formatDueLabel(t)}</span>
-                        )}
-                      </div>
-                      <StatusPill status={(t as { status?: string | null }).status} />
-                      <WorldBadge workspaceId={(t as { workspaceId?: string | null }).workspaceId} />
-                      {t.projectId && getProject(t.projectId) && (
-                        <Link href={`/projects/${t.projectId}`}>
-                          <span className="pill cursor-pointer text-[11px]">📁 {getProject(t.projectId)?.name}</span>
-                        </Link>
-                      )}
-                      {meeting && (
-                        <Link href={`/meetings/${meeting.id}`}>
-                          <span className="pill cursor-pointer">◈ {meeting.title}</span>
-                        </Link>
-                      )}
-                      {t.assigneeId && (
+                      <div className="task-row__body">
                         <div
-                          className="avatar w-6 h-6 text-[10px] border"
+                          className="task-row__title text-sm cursor-pointer hover:text-[#fff] transition-colors text-right"
+                          dir="auto"
                           style={{
-                            background: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '22',
-                            color: getPerson(t.assigneeId!)?.color ?? '#2dd4bf',
-                            borderColor: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '33',
+                            textDecoration: t.done ? 'line-through' : 'none',
+                            color: t.done ? '#5a688c' : '#eef3fb',
                           }}
+                          onClick={() => {
+                            setEditingTaskId(t.id)
+                            setTaskModalOpen(true)
+                          }}
+                          title="ערוך משימה"
                         >
-                          {getPerson(t.assigneeId!)?.name[0]}
+                          {t.title}
+                          {formatDueLabel(t) && (
+                            <span className="text-[11px] text-[#647399] whitespace-nowrap"> · {formatDueLabel(t)}</span>
+                          )}
                         </div>
-                      )}
+                        <div className="task-row__meta">
+                          <StatusPill status={(t as { status?: string | null }).status} />
+                          <WorldBadge workspaceId={(t as { workspaceId?: string | null }).workspaceId} />
+                          {t.projectId && getProject(t.projectId) && (
+                            <Link href={`/projects/${t.projectId}`} className="no-underline">
+                              <span className="pill cursor-pointer text-[11px]">📁 {getProject(t.projectId)?.name}</span>
+                            </Link>
+                          )}
+                          {meeting && (
+                            <Link href={`/meetings/${meeting.id}`} className="no-underline min-w-0">
+                              <span className="pill cursor-pointer max-w-[14rem] truncate inline-block align-middle">◈ {meeting.title}</span>
+                            </Link>
+                          )}
+                          {t.assigneeId && (
+                            <div
+                              className="avatar w-6 h-6 text-[10px] border"
+                              title={getPerson(t.assigneeId!)?.name}
+                              style={{
+                                background: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '22',
+                                color: getPerson(t.assigneeId!)?.color ?? '#2dd4bf',
+                                borderColor: (getPerson(t.assigneeId!)?.color ?? '#2dd4bf') + '33',
+                              }}
+                            >
+                              {getPerson(t.assigneeId!)?.name[0]}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )
                 })}

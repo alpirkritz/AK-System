@@ -55,24 +55,23 @@ export default function ProjectsPage() {
     const projectMeetings = meetingsWithProject.filter((m) => m.projectId === p.id)
     const projectTasks = tasksWithProject.filter((t) => t.projectId === p.id)
     return (
-      <Link key={p.id} href={`/projects/${p.id}`}>
-        <div className="card cursor-pointer flex flex-col">
-          <div className="flex items-center gap-3 mb-3">
+      <Link key={p.id} href={`/projects/${p.id}`} className="no-underline min-w-0">
+        <div className="card card-interactive h-full flex flex-col gap-2 !p-3 sm:!p-4">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-base sm:text-lg shrink-0"
               style={{ background: (p.color ?? '#38bdf8') + '22', color: p.color ?? '#38bdf8' }}
             >
               📁
             </div>
-            <div className="min-w-0">
-              <div className="font-semibold text-[15px]">{p.name}</div>
-              <div className="mt-1">
-                <WorldBadge workspaceId={p.workspaceId} />
-              </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-sm sm:text-[15px] text-[#eef3fb] truncate">{p.name}</div>
+              <WorldBadge workspaceId={p.workspaceId} />
             </div>
           </div>
-          <div className="text-xs text-[#647399] mt-auto pt-2 border-t border-[#223052]">
-            ◈ {projectMeetings.length} פגישות · ◻ {projectTasks.length} משימות
+          <div className="text-[11px] sm:text-xs text-[#647399] mt-auto pt-2 border-t border-[#223052] flex items-center gap-3 tabular-nums">
+            <span className={projectMeetings.length ? 'text-[#97a4c2]' : ''}>◈ {projectMeetings.length} פגישות</span>
+            <span className={projectTasks.length ? 'text-[#97a4c2]' : ''}>◻ {projectTasks.length} משימות</span>
           </div>
         </div>
       </Link>
@@ -81,7 +80,7 @@ export default function ProjectsPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <h1 className="text-2xl font-bold tracking-tight">פרויקטים</h1>
         <div className="flex gap-2">
           {notionGraph?.configured && (
@@ -106,13 +105,13 @@ export default function ProjectsPage() {
         <div className="mb-4 text-sm text-[#97a4c2]">{syncMessage}</div>
       )}
       <FilteredWorldChip />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
         {matchedProjects.map(renderCard)}
       </div>
       {worldFilter && unassignedProjects.length > 0 && (
         <>
           <UnassignedHeading count={unassignedProjects.length} />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
             {unassignedProjects.map(renderCard)}
           </div>
         </>

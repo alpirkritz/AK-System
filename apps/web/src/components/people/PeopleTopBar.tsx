@@ -21,17 +21,18 @@ export function PeopleTopBar({
   onAddPerson,
 }: Props) {
   return (
-    <div className="flex items-center gap-4 mb-5">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mb-4 sm:mb-5">
       <div className="flex items-center gap-3 shrink-0">
         <h1 className="text-2xl font-bold tracking-tight">אנשים</h1>
         <span className="pill text-[11px] tabular-nums">{total}</span>
       </div>
 
-      <div className="flex-1 max-w-md relative">
+      {/* Phone: the search drops to its own full-width line below the title/actions */}
+      <div className="order-last basis-full sm:order-none sm:basis-auto sm:flex-1 sm:max-w-md relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#5a688c] pointer-events-none" />
         <input
           type="text"
-          className="input pr-10"
+          className="input !pr-10"
           placeholder="חיפוש אנשים..."
           value={search}
           onChange={e => onSearchChange(e.target.value)}
@@ -57,9 +58,10 @@ export function PeopleTopBar({
         </button>
       </div>
 
-      <button className="btn btn-primary flex items-center gap-2 shrink-0" onClick={onAddPerson}>
+      <button className="btn btn-primary flex items-center gap-2 shrink-0" onClick={onAddPerson} aria-label="הוסף איש קשר">
         <UserPlus className="w-4 h-4" />
-        הוסף איש קשר
+        <span className="hidden sm:inline">הוסף איש קשר</span>
+        <span className="sm:hidden">הוסף</span>
       </button>
     </div>
   )

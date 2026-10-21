@@ -281,9 +281,12 @@ export default function TasksScreen() {
         onSelect={(key) => setOwner(key === 'all' ? 'all' : 'me')}
       />
 
+      {/* Status + workspace chips scroll sideways: on a folded phone the wrapping
+          rows pushed the first task below the fold. */}
       <FilterChips
         items={filters}
         selectedKey={filter}
+        scrollable
         onSelect={(key) => {
           const next = filterFromParam(key) ?? 'open'
           setFilter(next)
@@ -295,6 +298,7 @@ export default function TasksScreen() {
         <FilterChips
           items={workspaceFilters}
           selectedKey={workspaceId}
+          scrollable
           onSelect={setWorkspaceId}
         />
       ) : null}
@@ -388,13 +392,14 @@ export default function TasksScreen() {
                   ) : null}
                 </View>
               </Pressable>
+              {/* Priority as a dot only — the text label stole ~56px from every title on the cover screen */}
               <View
+                accessibilityLabel={`עדיפות ${PRIORITY_LABEL[task.priority] ?? ''}`}
                 style={[
                   styles.priorityDot,
                   { backgroundColor: PRIORITY_COLOR[task.priority] ?? colors.textMuted },
                 ]}
               />
-              <Text style={styles.priorityLabel}>{PRIORITY_LABEL[task.priority] ?? ''}</Text>
             </View>
           )
         }}
@@ -501,7 +506,6 @@ const styles = StyleSheet.create({
   taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
   taskMetaOverdue: { color: colors.coral },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
-  priorityLabel: { color: colors.textMuted, fontSize: 11, minWidth: 44, textAlign: 'left' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
   fab: {
     position: 'absolute',

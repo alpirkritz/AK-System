@@ -1,5 +1,6 @@
 'use client'
 
+import { formatTimeRange } from '@/lib/clock-time'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
@@ -58,8 +59,11 @@ export default function MeetingDetailPage() {
   const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
 
   function formatDuration(start: string, end: string): string {
-    const diffMs = new Date(end).getTime() - new Date(start).getTime()
+    // Manual meetings keep a bare "HH:MM" end — anchor it to the meeting date.
+    const endIso = end.includes('T') ? end : `${start.slice(0, 10)}T${end}`
+    const diffMs = new Date(endIso).getTime() - new Date(start).getTime()
     const mins = Math.round(diffMs / 60000)
+    if (!Number.isFinite(mins) || mins <= 0) return ''
     if (mins < 60) return `${mins} דק׳`
     const h = Math.floor(mins / 60)
     const m = mins % 60
@@ -232,17 +236,20 @@ export default function MeetingDetailPage() {
   return (
     <div>
       {/* ── Action bar ─────────────────────────────────────────────────────── */}
-      <div className="flex gap-2 items-center mb-7 flex-wrap">
-        <Link href="/meetings" className="btn btn-ghost">← חזרה</Link>
-        <button className="btn btn-ghost" onClick={() => setMeetingModalOpen(true)}>✏ ערוך</button>
-        <button className="btn btn-ghost" onClick={copySummary} title="העתק סיכום ללוח">
+      {/* One scrolling strip on phones (back + primary stay in reach), wraps on wide screens */}
+      <div className="flex items-start gap-2 mb-5 md:mb-7">
+      <div className="scroll-row md-wrap gap-2 items-center flex-1 min-w-0">
+        <Link href="/meetings" className="btn btn-ghost whitespace-nowrap" aria-label="חזרה לפגישות">← <span className="hidden sm:inline">חזרה</span></Link>
+        <button className="btn btn-primary whitespace-nowrap" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
+        <button className="btn btn-ghost whitespace-nowrap" onClick={() => setMeetingModalOpen(true)}>✏ ערוך</button>
+        <button className="btn btn-ghost whitespace-nowrap" onClick={copySummary} title="העתק סיכום ללוח">
           {copied ? '✓ הועתק' : '📋 צור סיכום'}
         </button>
-        <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost">🎙 הקלט פגישה</Link>
-        <button className="btn btn-primary" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
+        <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost whitespace-nowrap">🎙 הקלט פגישה</Link>
+      </div>
 
-        {/* More menu — follow-up + delete */}
-        <div className="relative" ref={moreRef}>
+        {/* More menu — follow-up + delete (outside the scroll strip so the dropdown is never clipped) */}
+        <div className="relative shrink-0" ref={moreRef}>
           <button
             className="btn btn-ghost px-2.5"
             onClick={() => setMoreOpen((v) => !v)}
@@ -281,7 +288,7 @@ export default function MeetingDetailPage() {
 
       {/* ── Title + badges ─────────────────────────────────────────────────── */}
       <div className="flex gap-2 items-center mb-1.5 flex-wrap">
-        <h1 className="text-[26px] font-bold tracking-tight">{meeting.title}</h1>
+        <h1 className="text-[22px] sm:text-[26px] font-bold tracking-tight min-w-0 break-words">{meeting.title}</h1>
         {meeting.recurring && (
           <span className="pill">↻ {DAYS_HE[meeting.recurrenceDay ?? ''] ?? 'שבועי'}</span>
         )}
@@ -402,7 +409,7 @@ export default function MeetingDetailPage() {
                       disabled={attachToCalendar.isPending}
                       onClick={() => attachToCalendar.mutate({ meetingId: id, calendarMeetingId: cm.id })}
                     >
-                      <span className="tabular-nums text-[#5a688c] shrink-0">{cm.time}{cm.endTime ? `–${cm.endTime}` : ''}</span>
+                      <span className="tabular-nums text-[#5a688c] shrink-0">{formatTimeRange(cm.time, cm.endTime)}</span>
                       <span className="text-[#b8c4dc] truncate">{cm.title}</span>
                     </button>
                   ))

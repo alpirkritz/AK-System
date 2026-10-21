@@ -19,14 +19,23 @@ export function worldBadgeParts(rows: WorldRow[], workspaceId?: string | null) {
   return { text: row.name, color: row.color ?? DEFAULT_COLOR }
 }
 
-/** Color dot plus world name. Child workspaces read "{world} · {workspace}". */
-export function WorldBadge({ workspaceId }: { workspaceId?: string | null }) {
+/**
+ * Color dot plus world name. Child workspaces read "{world} · {workspace}".
+ * Rows without a world render nothing unless `showUnassigned` is set — a grey
+ * "לא משויך" pill on every task, meeting and project was pure noise.
+ */
+export function WorldBadge({
+  workspaceId,
+  showUnassigned = false,
+}: {
+  workspaceId?: string | null
+  showUnassigned?: boolean
+}) {
   const { data: rows = [] } = trpc.workspaces.list.useQuery(undefined, { staleTime: 60_000 })
-  if (!workspaceId) {
-    return <span className="pill text-[11px]">לא משויך</span>
-  }
+  const unassigned = showUnassigned ? <span className="pill text-[11px]">לא משויך</span> : null
+  if (!workspaceId) return unassigned
   const parts = worldBadgeParts(rows, workspaceId)
-  if (!parts) return <span className="pill text-[11px]">לא משויך</span>
+  if (!parts) return unassigned
   return (
     <span
       className="pill text-[11px] whitespace-nowrap inline-flex items-center gap-1"

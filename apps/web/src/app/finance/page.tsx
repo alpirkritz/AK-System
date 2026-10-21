@@ -318,7 +318,7 @@ function FinancePageContent() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex gap-1 mb-6 border-b border-[#1d2b46]">
+      <div className="scroll-row md-wrap gap-1 mb-6 border-b border-[#1d2b46] -mx-4 px-4 md:mx-0 md:px-0">
         {([
           ['insights', 'תזרים ותובנות', '📈'],
           ['accounts', 'חשבונות', '🏦'],
@@ -332,7 +332,7 @@ function FinancePageContent() {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className="btn btn-ghost text-sm px-4 py-2 rounded-b-none"
+            className="btn btn-ghost text-sm px-3 sm:px-4 py-2 rounded-b-none whitespace-nowrap border-x-0 border-t-0"
             style={{
               borderBottom: tab === id ? '2px solid #2dd4bf' : '2px solid transparent',
               color: tab === id ? '#2dd4bf' : '#647399',

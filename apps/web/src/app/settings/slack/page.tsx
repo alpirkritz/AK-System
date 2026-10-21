@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 
+const NO_CHANNELS: never[] = []
+
 type Tab = 'connection' | 'channels'
 
 function Toggle({
@@ -56,9 +58,12 @@ export default function SlackSettingsPage() {
 
   const utils = trpc.useUtils()
   const { data: connection, isLoading: connLoading, refetch: refetchConn } = trpc.slack.getConnection.useQuery()
-  const { data: channelRows = [], isLoading: channelsLoading } = trpc.slack.listChannels.useQuery(undefined, {
+  const { data: channelData, isLoading: channelsLoading } = trpc.slack.listChannels.useQuery(undefined, {
     enabled: tab === 'channels' && !!connection?.connected,
   })
+  // Stable fallback: an inline `= []` default is a new array every render, and the
+  // seeding effect below keyed on it re-ran forever ("Maximum update depth exceeded").
+  const channelRows = channelData ?? NO_CHANNELS
 
   const disconnectMut = trpc.slack.disconnect.useMutation({
     onSuccess: async () => {

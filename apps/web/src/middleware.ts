@@ -7,7 +7,9 @@ function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
   res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.headers.set(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-AK-Client',
+    // The mobile client also sends ngrok-skip-browser-warning; without it the
+    // Expo web preview (localhost:8081) fails every preflight.
+    'Content-Type, Authorization, X-AK-Client, ngrok-skip-browser-warning',
   )
   res.headers.set('Access-Control-Allow-Credentials', 'true')
   return res
