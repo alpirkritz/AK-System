@@ -31,6 +31,7 @@ import { emailRouter } from './routers/email'
 import { voiceRouter } from './routers/voice'
 import { cfoRouter } from './routers/cfo'
 import { harnessRouter } from './routers/harness'
+import { slackRouter } from './routers/slack'
 
 export type { Context, AuthSession } from './trpc'
 export { createContext } from './trpc'
@@ -231,6 +232,9 @@ export {
   dismissInsight,
   closeInsightsForCommitment,
   formatInsightLines,
+  selectInsightsToPush,
+  SITUATION_INSIGHT_KINDS,
+  VAT_FILING_DAY,
   type HarnessInsightDraft,
   type StoredInsight,
   type InsightSeverity,
@@ -238,6 +242,24 @@ export {
   type ReasonResult,
 } from './services/harness-reasoner'
 export { isGragMirrorEnabled, mirrorToGrag } from './services/harness-grag'
+export {
+  scanSlackCommitments,
+  syncChannels as syncSlackChannels,
+  syncSlackUsers,
+  getActiveConnection as getActiveSlackConnection,
+  verifySlackSignature,
+  buildSlackInstallUrl,
+  exchangeSlackCode,
+  upsertConnection as upsertSlackConnection,
+  revokeConnection as revokeSlackConnection,
+  ingestSlackMessage,
+  markSlackMessageEdited,
+  markSlackMessageDeleted,
+  detectFomoChannels as detectSlackFomoChannels,
+  stampFomoAlert as stampSlackFomoAlert,
+  slackTsToMs,
+  type SlackCommitmentScanResult,
+} from './services/slack'
 
 export const appRouter = router({
   people: peopleRouter,
@@ -272,6 +294,7 @@ export const appRouter = router({
   voice: voiceRouter,
   cfo: cfoRouter,
   harness: harnessRouter,
+  slack: slackRouter,
 })
 
 export type AppRouter = typeof appRouter

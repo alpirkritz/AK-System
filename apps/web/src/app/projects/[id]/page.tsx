@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation'
 import { X } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
-import { WorkspacePill } from '@/components/WorkspacePill'
+import { WorldBadge } from '@/components/WorldBadge'
 import { SyncToast } from '@/components/SyncToast'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 import { groupTasksByDueState, sortTasksByDueThenPriority } from '@/lib/sort-tasks'
@@ -52,7 +52,6 @@ export default function ProjectDetailPage() {
   const [peopleSyncMessage, setPeopleSyncMessage] = useState<string | null>(null)
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
-  const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
   const meetings = useMemo(() => {
     const rawMeetings = related?.meetings ?? []
     const today = new Date().toISOString().slice(0, 10)
@@ -264,7 +263,7 @@ export default function ProjectDetailPage() {
                     <span className="text-[11px] text-[#647399] mr-2"> · {new Date(t.dueDate).toLocaleDateString('he-IL')}</span>
                   )}
                 </div>
-                <WorkspacePill workspace={getWorkspace(t.workspaceId)} />
+                <WorldBadge workspaceId={t.workspaceId} />
                 <div className="dot" style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }} />
                 {t.assigneeId && (
                   <div

@@ -49,6 +49,16 @@ function seed() {
      VALUES (?, '/nonexistent.webm', 'audio/webm', 10, 'תמלול', ?, ?, ?, 754, 'completed', ?, ?, ?)`,
   ).run(recordingId, analysisId, meetingId, meetingId, now, now, now)
   db.prepare(`INSERT INTO voice_recording_people (recording_id, person_id) VALUES (?, ?)`).run(recordingId, personId)
+  const segment = db.prepare(
+    `INSERT INTO voice_transcript_segments (id, recording_id, speaker_label, start_ms, end_ms, text, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  )
+  segment.run(`vts_${stamp}_1`, recordingId, 'דובר 1', 0, 3000, 'אני אשלח סיכום', now)
+  segment.run(`vts_${stamp}_2`, recordingId, 'דובר 2', 3000, 6000, 'מצוין תודה', now)
+  db.prepare(
+    `INSERT INTO voice_speaker_identities (id, recording_id, speaker_label, person_id, state, created_at)
+     VALUES (?, ?, 'דובר 2', ?, 'auto', ?)`,
+  ).run(`vsi_${stamp}`, recordingId, personId, now)
 
   const commitment = db.prepare(
     `INSERT INTO commitments (id, person_id, owner, content, source, source_id, source_snippet, status, created_at, updated_at)
@@ -201,6 +211,21 @@ test.describe('Email, voice and the shared commitment queue', () => {
     await result.getByRole('button', { name: 'שמור קישור' }).click()
     await expect(result.getByRole('status')).toHaveText('נשמר')
     await expect(page.getByTestId('voice-recent')).toContainText(`תכנון השקה ${stamp}`)
+  })
+
+  test('voice page shows an automatic speaker match and lets the user correct it', async ({ page }) => {
+    const { name, other, recordingId } = seed()
+    await page.goto(`/voice?recording=${recordingId}`)
+
+    const automatic = page.getByTestId('voice-auto-speaker')
+    await expect(automatic).toContainText(`זוהה אוטומטית: ${name}`, { timeout: 20000 })
+    await automatic.getByRole('button', { name: 'לא נכון? תקן' }).click()
+    await automatic.getByPlaceholder('הוסף אדם לפי שם').fill(other)
+    await automatic.getByRole('option', { name: other }).click()
+    await automatic.getByRole('button', { name: 'שמור תיקון' }).click()
+
+    await expect(automatic).toHaveCount(0)
+    await expect(page.getByTestId('voice-unknown-speaker')).toContainText('דובר 1')
   })
 
   test('upload endpoint refuses recordings without consent or under 10 seconds', async ({ request }) => {

@@ -31,6 +31,7 @@ const JOBS = [
   ['whatsapp-dm-summary', 1440],
   ['whatsapp-dm-commitments', 10],
   ['whatsapp-group-commitments', 10],
+  ['slack-commitments', 10],
   ['email-sync', 60],
   ['finance-narrative', 1440],
   ['harness-insights', 360],

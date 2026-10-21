@@ -7,9 +7,11 @@ import {
   meetingNotes,
   tasks,
   people,
+  workspaces,
   MEETING_CATEGORIES,
 } from '@ak-system/database'
-import { eq, inArray, and, isNotNull, isNull, desc } from 'drizzle-orm'
+import { eq, inArray, and, isNotNull, isNull, desc, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { upsertPersonExternalId } from '../services/person-external-ids'
 import {
   fetchGoogleCalendarEvents,
@@ -118,6 +120,7 @@ export const meetingsRouter = router({
         projectId: z.string().optional(),
         personId: z.string().optional(),
         status: z.enum(['scheduled', 'completed', 'cancelled']).optional(),
+        workspaceId: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -126,6 +129,11 @@ export const meetingsRouter = router({
       
       if (input?.projectId) {
         conditions.push(eq(meetings.projectId, input.projectId))
+      }
+
+      if (input?.workspaceId) {
+        const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+        conditions.push(or(inArray(meetings.workspaceId, ids), isNull(meetings.workspaceId))!)
       }
       
       if (input?.status) {
@@ -229,6 +237,27 @@ export const meetingsRouter = router({
       meetingNotes: notes,
     }
   }),
+
+  setWorkspace: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1), workspaceId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const [meeting] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
+      if (!meeting) throw new TRPCError({ code: 'BAD_REQUEST', message: 'הפגישה לא נמצאה' })
+      if (input.workspaceId) {
+        const [world] = await ctx.db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, input.workspaceId))
+        if (!world) throw new TRPCError({ code: 'BAD_REQUEST', message: 'העולם לא נמצא' })
+      }
+      await ctx.db
+        .update(meetings)
+        .set({
+          workspaceId: input.workspaceId,
+          workspaceSource: input.workspaceId ? 'manual' : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(meetings.id, input.meetingId))
+      const [row] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
+      return row!
+    }),
 
   listSeries: protectedProcedure.query(async ({ ctx }) => {
     const series = await ctx.db.select().from(meetingSeries).orderBy(meetingSeries.title)
@@ -1162,4 +1191,83 @@ export const meetingsRouter = router({
     const result = await linkOrphanedNotes()
     return result
   }),
+
+  /** Returns calendar-sourced meetings from a given date, for the attach-to-calendar picker. */
+  calendarOnDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: meetings.id, title: meetings.title, time: meetings.time, endTime: meetings.endTime })
+        .from(meetings)
+        .where(and(eq(meetings.date, input.date), eq(meetings.source, 'calendar')))
+        .orderBy(meetings.time)
+      return { meetings: rows }
+    }),
+
+  /**
+   * Moves analyses, voice recordings, tasks, and voice commitments from a
+   * voice/notion/manual meeting onto a calendar meeting from the same date.
+   * The source placeholder meeting is deleted if it was auto-created by the recording pipeline.
+   */
+  attachToCalendar: protectedProcedure
+    .input(z.object({
+      meetingId: z.string().min(1),
+      calendarMeetingId: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { meetingId, calendarMeetingId } = input
+      if (meetingId === calendarMeetingId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'אותה פגישה' })
+
+      const [src, dst] = await Promise.all([
+        ctx.db.select({ id: meetings.id, source: meetings.source, date: meetings.date }).from(meetings).where(eq(meetings.id, meetingId)).then(r => r[0]),
+        ctx.db.select({ id: meetings.id, source: meetings.source, date: meetings.date }).from(meetings).where(eq(meetings.id, calendarMeetingId)).then(r => r[0]),
+      ])
+      if (!src) throw new TRPCError({ code: 'NOT_FOUND', message: 'פגישת מקור לא נמצאה' })
+      if (!dst) throw new TRPCError({ code: 'NOT_FOUND', message: 'פגישת יעד לא נמצאה' })
+      if (src.source === 'calendar') throw new TRPCError({ code: 'BAD_REQUEST', message: 'פגישת המקור כבר אירוע יומן' })
+      if (dst.source !== 'calendar') throw new TRPCError({ code: 'BAD_REQUEST', message: 'פגישת היעד אינה אירוע יומן' })
+
+      const { meetingAnalyses, voiceRecordings, commitments } = await import('@ak-system/database')
+
+      // Move meeting analyses
+      await ctx.db.update(meetingAnalyses).set({ meetingId: calendarMeetingId }).where(eq(meetingAnalyses.meetingId, meetingId))
+      // Move voice recordings
+      const recRows = await ctx.db
+        .select({ id: voiceRecordings.id, createdMeetingId: voiceRecordings.createdMeetingId })
+        .from(voiceRecordings)
+        .where(eq(voiceRecordings.meetingId, meetingId))
+      for (const rec of recRows) {
+        const wasPlaceholder = rec.createdMeetingId === meetingId
+        await ctx.db.update(voiceRecordings)
+          .set({ meetingId: calendarMeetingId, ...(wasPlaceholder ? { createdMeetingId: null } : {}) })
+          .where(eq(voiceRecordings.id, rec.id))
+      }
+      // Move tasks
+      await ctx.db.update(tasks).set({ meetingId: calendarMeetingId }).where(eq(tasks.meetingId, meetingId))
+      // Move voice commitments whose sourceId pointed at the source meeting
+      await ctx.db.update(commitments)
+        .set({ sourceId: calendarMeetingId })
+        .where(and(eq(commitments.source, 'voice'), eq(commitments.sourceId, meetingId)))
+      // Move meeting people to the calendar meeting (merge — don't overwrite existing attendees)
+      const existingPeople = await ctx.db
+        .select({ personId: meetingPeople.personId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.meetingId, calendarMeetingId))
+      const existingSet = new Set(existingPeople.map(r => r.personId))
+      const srcPeople = await ctx.db
+        .select({ personId: meetingPeople.personId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.meetingId, meetingId))
+      for (const { personId } of srcPeople) {
+        if (!existingSet.has(personId)) {
+          await ctx.db.insert(meetingPeople).values({ meetingId: calendarMeetingId, personId })
+        }
+      }
+      // Delete the source meeting if it was a voice placeholder (source='voice')
+      if (src.source === 'voice') {
+        await ctx.db.delete(meetings).where(eq(meetings.id, meetingId))
+      }
+
+      return { calendarMeetingId }
+    }),
 })

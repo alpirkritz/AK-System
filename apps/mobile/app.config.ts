@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     name: 'ARO',
     slug: 'helm',
     owner: 'alpir',
-    version: '1.0.8',
+    version: '1.0.9',
     orientation: 'default',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -28,7 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     },
     android: {
       package: 'com.alpir.helm',
-      versionCode: 9,
+      versionCode: 10,
       // Resize the window when the keyboard opens so the chat composer stays visible.
       softwareKeyboardLayoutMode: 'resize',
       adaptiveIcon: {

@@ -275,7 +275,8 @@ describe('voice capture', () => {
     })
     expect(rec).toMatchObject({ status: 'completed', transcriptText: 'דובר 1: שלום דנה' })
     const [meeting] = await db.select().from(meetings).where(eq(meetings.id, rec.meetingId!))
-    expect(meeting).toMatchObject({ source: 'voice', title: 'שיחה מוקלטת · Dana Levi' })
+    // Placeholder title is renamed from the analysis topic (recording-context-before-upload spec).
+    expect(meeting).toMatchObject({ source: 'voice', title: 'תכנון רבעון' })
     expect(rec.createdMeetingId).toBe(meeting.id)
     expect(await db.select().from(meetingPeople).where(eq(meetingPeople.meetingId, meeting.id))).toEqual([{ meetingId: meeting.id, personId: 'p1' }])
     const [a] = await db.select().from(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId!))

@@ -1,16 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const generateContent = vi.fn()
+const getGenerativeModel = vi.fn()
 const uploadFile = vi.fn()
 const getFile = vi.fn()
 const deleteFile = vi.fn()
 
 vi.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: class {
-    getGenerativeModel() {
+    getGenerativeModel(...args: unknown[]) {
+      getGenerativeModel(...args)
       return { generateContent }
     }
   },
+  HarmCategory: {
+    HARM_CATEGORY_HARASSMENT: 'HARM_CATEGORY_HARASSMENT',
+    HARM_CATEGORY_HATE_SPEECH: 'HARM_CATEGORY_HATE_SPEECH',
+    HARM_CATEGORY_SEXUALLY_EXPLICIT: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+    HARM_CATEGORY_DANGEROUS_CONTENT: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+  },
+  HarmBlockThreshold: { BLOCK_NONE: 'BLOCK_NONE' },
 }))
 
 vi.mock('@google/generative-ai/server', () => ({
@@ -40,6 +49,7 @@ describe('transcribeWithGemini', () => {
   beforeEach(() => {
     process.env.GEMINI_API_KEY = 'test-key'
     generateContent.mockReset()
+    getGenerativeModel.mockReset()
     uploadFile.mockReset()
     getFile.mockReset()
     deleteFile.mockReset()
@@ -58,6 +68,16 @@ describe('transcribeWithGemini', () => {
     const parts = generateContent.mock.calls[0][0] as unknown[]
     expect(parts[0]).toMatchObject({ inlineData: { mimeType: 'audio/webm' } })
     expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  it('relaxes the default safety thresholds, since this is verbatim transcription of a consented recording, not content generation', async () => {
+    generateContent.mockResolvedValueOnce(reply('דובר 1: שלום'))
+    await transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')
+    expect(getGenerativeModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        safetySettings: expect.arrayContaining([expect.objectContaining({ threshold: 'BLOCK_NONE' })]),
+      }),
+    )
   })
 
   it('uploads via the Files API for a recording over the inline threshold, and always deletes the file', async () => {
@@ -98,5 +118,35 @@ describe('transcribeWithGemini', () => {
     await expect(transcribeWithGemini(Buffer.alloc(INLINE_MAX + 1, 'd'), 'audio/webm')).rejects.toThrow()
     expect(generateContent).not.toHaveBeenCalled()
     expect(deleteFile).toHaveBeenCalledWith('files/bad')
+  })
+
+  function blockedReply() {
+    return {
+      response: {
+        text: () => {
+          // This mirrors what the real @google/generative-ai SDK does: .text() throws when the
+          // candidate's finishReason isn't STOP (e.g. 'OTHER'), which real long recordings have
+          // triggered in production.
+          throw new Error('[GoogleGenerativeAI Error]: Text not available. Response was blocked due to OTHER')
+        },
+        candidates: [{ finishReason: 'OTHER' }],
+      },
+    }
+  }
+
+  it('retries once on a blocked response, and raises a clear Hebrew error (naming the finish reason) if it is still blocked', async () => {
+    generateContent.mockResolvedValue(blockedReply())
+
+    await expect(transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')).rejects.toThrow(/finishReason=OTHER/)
+    expect(generateContent).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers when a retry of a blocked response succeeds (finishReason OTHER is non-deterministic in practice)', async () => {
+    generateContent.mockResolvedValueOnce(blockedReply()).mockResolvedValueOnce(reply('דובר 1: עכשיו זה עבד'))
+
+    const text = await transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')
+
+    expect(text).toBe('דובר 1: עכשיו זה עבד')
+    expect(generateContent).toHaveBeenCalledTimes(2)
   })
 })

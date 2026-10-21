@@ -256,6 +256,53 @@ const PERSON_TRAIT_TABLES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_trait_evidence_pair ON person_trait_evidence(trait_id, observation_id)',
 ]
 
+const SLACK_TABLES = [
+  `CREATE TABLE IF NOT EXISTS slack_connections (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL UNIQUE,
+    team_name TEXT NOT NULL,
+    bot_token TEXT NOT NULL,
+    bot_user_id TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    installed_at TEXT NOT NULL,
+    revoked_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS slack_channels (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    is_private INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    fomo_enabled INTEGER NOT NULL DEFAULT 0,
+    fomo_threshold INTEGER NOT NULL DEFAULT 10,
+    fomo_window_minutes INTEGER NOT NULL DEFAULT 5,
+    keywords TEXT NOT NULL DEFAULT '[]',
+    last_fomo_alert_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_slack_channels_team_id ON slack_channels(team_id)`,
+  `CREATE TABLE IF NOT EXISTS slack_messages (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    slack_ts TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    thread_ts TEXT,
+    ts INTEGER NOT NULL,
+    edited_ts TEXT,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_slack_messages_channel_ts ON slack_messages(channel_id, slack_ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_slack_messages_channel_ts ON slack_messages(channel_id, ts)`,
+]
+
+const SLACK_COLUMNS: string[] = []
+
 /** Cross-domain world model written by the harness indexer. */
 const HARNESS_TABLES = [
   `CREATE TABLE IF NOT EXISTS harness_nodes (
@@ -319,6 +366,8 @@ const EMAIL_VOICE_TABLES = [
     date TEXT NOT NULL,
     snippet TEXT,
     message_count INTEGER DEFAULT 1 NOT NULL,
+    reply_need TEXT,
+    reply_need_at TEXT,
     last_synced_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
@@ -585,6 +634,58 @@ const WORKSPACES_SEED = DEFAULT_WORKSPACES.map(
      VALUES ('${w.id}', '${w.name}', '${w.color}', NULL,
        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
 )
+
+const WORKSPACES_COLUMNS = [
+  'ALTER TABLE workspaces ADD COLUMN kind TEXT',
+  'ALTER TABLE workspaces ADD COLUMN description TEXT',
+  'ALTER TABLE workspaces ADD COLUMN parent_id TEXT',
+]
+
+const WORLD_SCOPE_COLUMNS = [
+  'ALTER TABLE projects ADD COLUMN workspace_id TEXT',
+  'ALTER TABLE meetings ADD COLUMN workspace_id TEXT',
+  'ALTER TABLE meetings ADD COLUMN workspace_source TEXT',
+  'ALTER TABLE meeting_series ADD COLUMN workspace_id TEXT',
+]
+
+const WORLD_SCOPE_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_workspaces_parent_id ON workspaces(parent_id)',
+  'CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id)',
+  'CREATE INDEX IF NOT EXISTS idx_meetings_workspace_id ON meetings(workspace_id)',
+  'CREATE INDEX IF NOT EXISTS idx_meeting_series_workspace_id ON meeting_series(workspace_id)',
+]
+
+/** Classifies the seeded workspaces once; never touches a kind the owner already set. */
+const DEFAULT_WORKSPACE_KINDS: Array<{ id: string; kind: string }> = [
+  { id: 'ws_alpir_consulting', kind: 'own_company' },
+  { id: 'ws_dragontail', kind: 'employer' },
+  { id: 'ws_daz', kind: 'own_company' },
+  { id: 'ws_personal', kind: 'personal' },
+]
+
+const WORKSPACES_KIND_SEED = DEFAULT_WORKSPACE_KINDS.map(
+  (w) => `UPDATE workspaces SET kind = '${w.kind}' WHERE id = '${w.id}' AND kind IS NULL`,
+)
+
+/** Table-level FKs in drizzle-kit's own form, so `db:push` sees no diff and does not rebuild the table. */
+const PERSON_WORKSPACES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS person_workspaces (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    relationship_type TEXT NOT NULL,
+    reports_to_person_id TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON UPDATE no action ON DELETE cascade,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON UPDATE no action ON DELETE cascade,
+    FOREIGN KEY (reports_to_person_id) REFERENCES people(id) ON UPDATE no action ON DELETE set null
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_person_workspaces_pair ON person_workspaces(person_id, workspace_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_person_workspaces_workspace_id ON person_workspaces(workspace_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_person_workspaces_person_id ON person_workspaces(person_id)`,
+]
 
 const FEED_TABLES = [
   `CREATE TABLE IF NOT EXISTS feed_sources (
@@ -1344,6 +1445,21 @@ export function getDb() {
   for (const sql of WORKSPACES_SEED) {
     try { sqlite.prepare(sql).run() } catch (_) { /* already seeded */ }
   }
+  for (const sql of WORKSPACES_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of WORLD_SCOPE_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+  for (const sql of WORLD_SCOPE_INDEXES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* index already exists */ }
+  }
+  for (const sql of WORKSPACES_KIND_SEED) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of PERSON_WORKSPACES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of TASKS_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
@@ -1492,6 +1608,12 @@ export function getDb() {
   for (const sql of [...WHATSAPP_DM_TABLES, ...EMAIL_VOICE_TABLES, ...PERSON_TRAIT_TABLES, ...HARNESS_TABLES]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column/table already exists */ }
   }
+  for (const sql of SLACK_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of SLACK_COLUMNS) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
   for (const sql of [
     'ALTER TABLE people ADD COLUMN warmth_note TEXT',
     'ALTER TABLE people ADD COLUMN warmth_note_updated_at TEXT',
@@ -1500,6 +1622,9 @@ export function getDb() {
     'ALTER TABLE meeting_analyses ADD COLUMN whatsapp_notified_at TEXT',
     'ALTER TABLE people ADD COLUMN traits_at TEXT',
     'ALTER TABLE harness_insights ADD COLUMN notified_at TEXT',
+    'ALTER TABLE person_email_threads ADD COLUMN reply_need TEXT',
+    'ALTER TABLE person_email_threads ADD COLUMN reply_need_at TEXT',
+    'ALTER TABLE user_settings ADD COLUMN slack_commitment_scan_cursor TEXT',
   ]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
@@ -1514,6 +1639,8 @@ export const personExternalIds = schema.personExternalIds
 export const projects = schema.projects
 export const projectPeople = schema.projectPeople
 export const workspaces = schema.workspaces
+export const personWorkspaces = schema.personWorkspaces
+export const WORKSPACE_KINDS = schemaPg.WORKSPACE_KINDS
 export const workspaceNotionDatabases = schema.workspaceNotionDatabases
 export const peopleNotionSources = schema.peopleNotionSources
 export const notionStatusOverrides = schema.notionStatusOverrides
@@ -1599,6 +1726,9 @@ export const notifications = schema.notifications
 export const whatsappLabels = schema.whatsappLabels
 export const whatsappGroups = schema.whatsappGroups
 export const whatsappMessages = schema.whatsappMessages
+export const slackConnections = schema.slackConnections
+export const slackChannels = schema.slackChannels
+export const slackMessages = schema.slackMessages
 export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
@@ -1640,6 +1770,9 @@ export type Project = typeof schemaPg.projects.$inferSelect
 export type NewProject = typeof schemaPg.projects.$inferInsert
 export type Workspace = typeof schemaPg.workspaces.$inferSelect
 export type NewWorkspace = typeof schemaPg.workspaces.$inferInsert
+export type WorkspaceKind = (typeof schemaPg.WORKSPACE_KINDS)[number]
+export type PersonWorkspace = typeof schemaPg.personWorkspaces.$inferSelect
+export type NewPersonWorkspace = typeof schemaPg.personWorkspaces.$inferInsert
 export type WorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferSelect
 export type NewWorkspaceNotionDatabase = typeof schemaPg.workspaceNotionDatabases.$inferInsert
 export type PeopleNotionSource = typeof schemaPg.peopleNotionSources.$inferSelect
@@ -1676,6 +1809,9 @@ export type Commitment = typeof schemaPg.commitments.$inferSelect
 export type CommitmentStatus = (typeof schemaPg.COMMITMENT_STATUSES)[number]
 export type CommitmentSource = (typeof schemaPg.COMMITMENT_SOURCES)[number]
 export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
+export type SlackConnection = typeof schemaPg.slackConnections.$inferSelect
+export type SlackChannel = typeof schemaPg.slackChannels.$inferSelect
+export type SlackMessage = typeof schemaPg.slackMessages.$inferSelect
 export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect
 export type VoiceRecording = typeof schemaPg.voiceRecordings.$inferSelect
 export type VoiceRecordingStatus = (typeof schemaPg.VOICE_RECORDING_STATUSES)[number]

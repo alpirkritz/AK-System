@@ -12,6 +12,7 @@ import {
   listMeetingChoices,
   listVoiceRecordings,
   processVoiceRecording,
+  refreshVoiceAnalysisAfterSpeakerResolution,
   voiceStorageDir,
 } from '../services/voice'
 import {
@@ -133,7 +134,11 @@ export const voiceRouter = router({
       speakerLabel: z.string().min(1),
       personId: z.string().min(1).nullable(),
     }))
-    .mutation(async ({ ctx, input }) => identifySpeaker(ctx.db, input)),
+    .mutation(async ({ ctx, input }) => {
+      const identified = await identifySpeaker(ctx.db, input)
+      const analysisRefreshed = await refreshVoiceAnalysisAfterSpeakerResolution(ctx.db, input.recordingId)
+      return { ...identified, analysisRefreshed }
+    }),
 
   // Self-voice enrollment (see docs/specs/recording-background-and-speaker-id.md). MVP: a single
   // enrolled voiceprint (Alpir's own); no per-contact enrollment yet.

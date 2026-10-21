@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 
 /**
  * Multipart upload of a consented recording: `audio` (file), `consentConfirmed` ("true"),
- * `durationSeconds`, optional `meetingId`, `projectId`, `personIds` (comma separated) and
- * `source` ("live", the default, or "imported" for a picked/shared external file — see
- * docs/specs/recording-background-and-speaker-id.md).
+ * `durationSeconds`, optional `meetingId`, `projectId`, `personIds` (comma separated),
+ * `contextConfirmed` ("true" after the pre-upload review — attendees are not merged with
+ * calendar invitees), and `source` ("live", the default, or "imported").
  * Returns right after the file is stored; transcription and analysis continue in the background.
  */
 export async function POST(req: Request): Promise<NextResponse> {
@@ -37,6 +37,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       meetingId: (form.get('meetingId') as string | null) || null,
       projectId: (form.get('projectId') as string | null) || null,
       personIds: String(form.get('personIds') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      contextConfirmed: form.get('contextConfirmed') === 'true',
       source: form.get('source') === 'imported' ? 'imported' : 'live',
     })
     void processVoiceRecording(db, recordingId)

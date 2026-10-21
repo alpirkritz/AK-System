@@ -37,6 +37,10 @@ import {
   harnessNodes,
   harnessEdges,
   harnessInsights,
+  slackMessages,
+  slackChannels,
+  slackConnections,
+  personWorkspaces,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -63,6 +67,9 @@ export async function resetDb() {
   await db.delete(harnessInsights)
   await db.delete(harnessEdges)
   await db.delete(harnessNodes)
+  await db.delete(slackMessages)
+  await db.delete(slackChannels)
+  await db.delete(slackConnections)
   await db.delete(personTraitEvidence)
   await db.delete(personTraits)
   await db.delete(personObservations)
@@ -92,6 +99,7 @@ export async function resetDb() {
   await db.delete(meetings)
   await db.delete(meetingSeries)
   await db.delete(meetingTypes)
+  await db.delete(personWorkspaces)
   await db.delete(people)
   await db.delete(notionStatusOverrides)
   await db.delete(workspaceNotionDatabases)

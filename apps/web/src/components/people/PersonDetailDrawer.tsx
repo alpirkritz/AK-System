@@ -14,6 +14,7 @@ import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 import { groupTasksByDueState, sortTasksByPriorityThenDue } from '@/lib/sort-tasks'
 import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { PersonContextCard } from './PersonContextCard'
+import { PersonAffiliations } from './PersonAffiliations'
 
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -494,6 +495,8 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
               </div>
             )}
           </section>
+
+          <PersonAffiliations personId={personId} />
 
           {/* Cadence summary */}
           {related?.cadence && (related.cadence.totalMeetings > 0) && (

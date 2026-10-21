@@ -156,6 +156,14 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     defaultTime: '20:30',
   },
   {
+    id: 'slack_fomo',
+    category: 'whatsapp',
+    label: 'FOMO בסלאק',
+    description: 'ריבוי הודעות בערוץ Slack בזמן קצר — פוש בלבד',
+    availableChannels: PUSH_ONLY,
+    schedulable: false,
+  },
+  {
     id: 'tier1_qa_daily_update',
     category: 'agent',
     label: 'עדכון QA יומי — Tier 1',

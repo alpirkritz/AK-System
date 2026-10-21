@@ -21,6 +21,12 @@ if [ -z "$ANDROID_ID" ] && [ -f "$ROOT/deploy/production.env" ]; then
   ANDROID_ID="$(grep '^GOOGLE_ANDROID_CLIENT_ID=' "$ROOT/deploy/production.env" | cut -d= -f2- | tr -d '"' || true)"
 fi
 
+# HELM_API_URL overrides the web env so a phone APK can target production
+# without rewriting apps/web/.env.local.
+if [ -n "${HELM_API_URL:-}" ]; then
+  API_URL="$HELM_API_URL"
+fi
+
 if [[ "$API_URL" == http://localhost:* ]] || [[ "$API_URL" == "http://localhost:3000" ]]; then
   if [ -f /tmp/ak-tunnel.log ]; then
     TUNNEL="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/ak-tunnel.log | tail -1 || true)"

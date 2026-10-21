@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS, STATUS_LABELS } from '@ak-system/types'
-import { WorkspacePill } from '@/components/WorkspacePill'
 import { StatusPill } from '@/components/StatusPill'
+import { WorldBadge, UnassignedHeading } from '@/components/WorldBadge'
+import { FilteredWorldChip } from '@/components/WorldSwitcher'
+import { splitByWorld, useWorldFilter } from '@/lib/world-filter'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import {
   sortTasksByKeys,
@@ -50,7 +52,11 @@ function TasksPageContent() {
   const router = useRouter()
   const statusQuery = searchParams.get('status')
   const ownerQuery = searchParams.get('owner')
-  const { data: tasksList = [], isLoading: tasksLoading } = trpc.tasks.list.useQuery()
+  const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
+  const { data: tasksList = [], isLoading: tasksLoading } = trpc.tasks.list.useQuery(
+    worldFilter ? { workspaceId: worldFilter } : undefined,
+    { enabled: worldReady },
+  )
   const { data: selfPerson, isLoading: selfLoading } = trpc.people.me.useQuery()
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
@@ -91,7 +97,6 @@ function TasksPageContent() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [projectId, setProjectId] = useState<string>('')
   const [meetingId, setMeetingId] = useState<string>('')
-  const [workspaceId, setWorkspaceId] = useState<string>('')
   const [search, setSearch] = useState('')
 
   useEffect(() => {
@@ -154,8 +159,6 @@ function TasksPageContent() {
   const getPerson = (id: string) => people.find((p) => p.id === id)
   const getMeeting = (id: string) => meetings.find((m) => m.id === id)
   const getProject = (id: string) => projects.find((p) => p.id === id)
-  const getWorkspace = (id?: string | null) => (id ? workspaces.find((w) => w.id === id) : undefined)
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return tasksList.filter((t) => {
@@ -166,16 +169,20 @@ function TasksPageContent() {
       if (status === 'cancelled' && st !== 'cancelled') return false
       if (projectId && (t as { projectId?: string }).projectId !== projectId) return false
       if (meetingId && t.meetingId !== meetingId) return false
-      if (workspaceId && (t as { workspaceId?: string | null }).workspaceId !== workspaceId) return false
       if (owner === 'me' && !isMyTask(t.assigneeId, selfPerson?.id)) return false
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
-  }, [tasksList, status, projectId, meetingId, workspaceId, search, owner, selfPerson?.id])
+  }, [tasksList, status, projectId, meetingId, search, owner, selfPerson?.id])
 
   const sorted = useMemo(() => {
     return sortTasksByKeys(filtered, effectiveSort)
   }, [filtered, effectiveSort])
+
+  const { matched: matchedTasks, unassigned: unassignedTasks } = useMemo(
+    () => splitByWorld(sorted, !!worldFilter, (t) => (t as { workspaceId?: string | null }).workspaceId),
+    [sorted, worldFilter],
+  )
 
   const grouped = useMemo(() => {
     const tone: Record<string, string> = {
@@ -184,16 +191,16 @@ function TasksPageContent() {
       done: '#647399',
       cancelled: '#94a3b8',
     }
-    return groupTasksByDueState(sorted).map((group) => ({
+    return groupTasksByDueState(matchedTasks).map((group) => ({
       ...group,
       color: tone[group.key],
     }))
-  }, [sorted])
+  }, [matchedTasks])
 
-  const hasActiveFilter = status !== 'open' || owner === 'all' || !!projectId || !!meetingId || !!workspaceId || !!search
-  const isLoading = tasksLoading || (owner === 'me' && selfLoading)
+  const hasActiveFilter = status !== 'open' || owner === 'all' || !!projectId || !!meetingId || !!search
+  const isLoading = tasksLoading || (owner === 'me' && selfLoading) || !worldReady
 
-  const advancedCount = [projectId, meetingId, workspaceId].filter(Boolean).length
+  const advancedCount = [projectId, meetingId].filter(Boolean).length
 
   const statusTabs: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'פתוחות' },
@@ -296,37 +303,10 @@ function TasksPageContent() {
         className="min-w-[200px] mb-4"
       />
 
+      <FilteredWorldChip />
+
       {filtersOpen && (
         <div className="flex flex-wrap items-start gap-4 mb-6">
-          {workspaces.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="סינון לפי מקור">
-              <span className="text-[11px] font-medium text-[#647399] uppercase tracking-wider ml-1">מקור</span>
-              <button
-                type="button"
-                className="filter-chip"
-                aria-pressed={workspaceId === ''}
-                onClick={() => setWorkspaceId('')}
-              >
-                הכל
-              </button>
-              {workspaces.map((w) => {
-                const active = workspaceId === w.id
-                const color = w.color ?? '#2dd4bf'
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    className="filter-chip"
-                    aria-pressed={active}
-                    style={active ? { background: color + '1a', borderColor: color + '40', color } : undefined}
-                    onClick={() => setWorkspaceId(active ? '' : w.id)}
-                  >
-                    {w.name}
-                  </button>
-                )
-              })}
-            </div>
-          )}
           <select className="select w-auto min-w-[130px]" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">כל הפרויקטים</option>
             {projects.map((p) => (
@@ -352,7 +332,7 @@ function TasksPageContent() {
         <div className="card text-center py-12">
           <div className="text-3xl mb-3">✓</div>
           <div className="text-[#eef3fb] font-medium mb-1">
-            {owner === 'me' && status === 'open' && !projectId && !meetingId && !workspaceId && !search
+            {owner === 'me' && status === 'open' && !projectId && !meetingId && !search
               ? 'אין משימות שמוקצות אליך'
               : status === 'overdue'
                 ? 'אין משימות באיחור'
@@ -361,7 +341,7 @@ function TasksPageContent() {
                   : 'אין משימות פתוחות'}
           </div>
           <div className="text-sm text-[#647399] mb-4">
-            {owner === 'me' && status === 'open' && !projectId && !meetingId && !workspaceId && !search
+            {owner === 'me' && status === 'open' && !projectId && !meetingId && !search
               ? 'משימות של אחרים נמצאות תחת ״כולם״.'
               : status === 'overdue'
                 ? 'אפשר לעבור ל״פתוחות״ כדי לראות את השאר.'
@@ -380,7 +360,8 @@ function TasksPageContent() {
           </button>
         </div>
       ) : (
-        grouped.map((group) => {
+        <>
+        {grouped.map((group) => {
           if (!group.tasks.length) return null
           return (
             <div key={group.key} className="mb-7">
@@ -437,7 +418,7 @@ function TasksPageContent() {
                         )}
                       </div>
                       <StatusPill status={(t as { status?: string | null }).status} />
-                      <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
+                      <WorldBadge workspaceId={(t as { workspaceId?: string | null }).workspaceId} />
                       {t.projectId && getProject(t.projectId) && (
                         <Link href={`/projects/${t.projectId}`}>
                           <span className="pill cursor-pointer text-[11px]">📁 {getProject(t.projectId)?.name}</span>
@@ -466,7 +447,29 @@ function TasksPageContent() {
               </div>
             </div>
           )
-        })
+        })}
+        {worldFilter && unassignedTasks.length > 0 && (
+          <div>
+            <UnassignedHeading count={unassignedTasks.length} />
+            <div className="card py-1 px-4">
+              {unassignedTasks.map((t) => (
+                <div key={t.id} className="task-row">
+                  <div
+                    className="flex-1 text-sm cursor-pointer min-w-0"
+                    onClick={() => {
+                      setEditingTaskId(t.id)
+                      setTaskModalOpen(true)
+                    }}
+                  >
+                    {t.title}
+                  </div>
+                  <WorldBadge workspaceId={t.workspaceId} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       <TaskModal

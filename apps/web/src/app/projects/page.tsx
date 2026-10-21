@@ -3,11 +3,18 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
+import { WorldBadge, UnassignedHeading } from '@/components/WorldBadge'
+import { FilteredWorldChip } from '@/components/WorldSwitcher'
+import { splitByWorld, useWorldFilter } from '@/lib/world-filter'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 
 export default function ProjectsPage() {
-  const { data: projects = [] } = trpc.projects.list.useQuery()
+  const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
+  const { data: projects = [] } = trpc.projects.list.useQuery(
+    worldFilter ? { workspaceId: worldFilter } : undefined,
+    { enabled: worldReady },
+  )
   const { data: meetings = [] } = trpc.meetings.list.useQuery()
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
   const { data: notionGraph } = trpc.notionGraph.configured.useQuery()
@@ -42,10 +49,39 @@ export default function ProjectsPage() {
 
   const meetingsWithProject = meetings as Array<{ id: string; projectId?: string }>
   const tasksWithProject = tasksList as Array<{ projectId?: string }>
+  const { matched: matchedProjects, unassigned: unassignedProjects } = splitByWorld(projects, !!worldFilter, (p) => p.workspaceId)
+
+  const renderCard = (p: (typeof projects)[number]) => {
+    const projectMeetings = meetingsWithProject.filter((m) => m.projectId === p.id)
+    const projectTasks = tasksWithProject.filter((t) => t.projectId === p.id)
+    return (
+      <Link key={p.id} href={`/projects/${p.id}`}>
+        <div className="card cursor-pointer flex flex-col">
+          <div className="flex items-center gap-3 mb-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+              style={{ background: (p.color ?? '#38bdf8') + '22', color: p.color ?? '#38bdf8' }}
+            >
+              📁
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-[15px]">{p.name}</div>
+              <div className="mt-1">
+                <WorldBadge workspaceId={p.workspaceId} />
+              </div>
+            </div>
+          </div>
+          <div className="text-xs text-[#647399] mt-auto pt-2 border-t border-[#223052]">
+            ◈ {projectMeetings.length} פגישות · ◻ {projectTasks.length} משימות
+          </div>
+        </div>
+      </Link>
+    )
+  }
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-7">
+      <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">פרויקטים</h1>
         <div className="flex gap-2">
           {notionGraph?.configured && (
@@ -69,35 +105,18 @@ export default function ProjectsPage() {
       {syncMessage && (
         <div className="mb-4 text-sm text-[#97a4c2]">{syncMessage}</div>
       )}
+      <FilteredWorldChip />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {projects.map((p) => {
-          const projectMeetings = meetingsWithProject.filter((m) => m.projectId === p.id)
-          const projectTasks = tasksWithProject.filter((t) => t.projectId === p.id)
-          return (
-            <Link key={p.id} href={`/projects/${p.id}`}>
-              <div
-                className="card cursor-pointer flex flex-col"
-                onClick={(e) => {
-                  if ((e.target as HTMLElement).closest('button')) e.preventDefault()
-                }}
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
-                    style={{ background: (p.color ?? '#38bdf8') + '22', color: p.color ?? '#38bdf8' }}
-                  >
-                    📁
-                  </div>
-                  <div className="font-semibold text-[15px]">{p.name}</div>
-                </div>
-                <div className="text-xs text-[#647399] mt-auto pt-2 border-t border-[#223052]">
-                  ◈ {projectMeetings.length} פגישות · ◻ {projectTasks.length} משימות
-                </div>
-              </div>
-            </Link>
-          )
-        })}
+        {matchedProjects.map(renderCard)}
       </div>
+      {worldFilter && unassignedProjects.length > 0 && (
+        <>
+          <UnassignedHeading count={unassignedProjects.length} />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {unassignedProjects.map(renderCard)}
+          </div>
+        </>
+      )}
       <ProjectModal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditingId(null); }}

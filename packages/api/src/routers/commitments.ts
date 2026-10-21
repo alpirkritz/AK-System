@@ -159,6 +159,92 @@ export const commitmentsRouter = router({
       return empty
     }),
 
+  /**
+   * Builds prefill data for the TaskModal when accepting a commitment.
+   * Returns the suggested field values plus a Hebrew explanation for each.
+   */
+  taskPrefill: protectedProcedure
+    .input(z.object({ commitmentId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const [c] = await ctx.db
+        .select({
+          id: commitments.id,
+          content: commitments.content,
+          personId: commitments.personId,
+          personName: people.name,
+          owner: commitments.owner,
+          dueInferred: commitments.dueInferred,
+          source: commitments.source,
+          sourceId: commitments.sourceId,
+          sourceChatName: commitments.sourceChatName,
+          sourceReason: commitments.sourceReason,
+        })
+        .from(commitments)
+        .leftJoin(people, eq(people.id, commitments.personId))
+        .where(eq(commitments.id, input.commitmentId))
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND', message: 'Commitment not found' })
+
+      // Resolve project from person's primary project association
+      let projectId: string | null = null
+      let projectName: string | null = null
+      if (c.personId) {
+        const { projects } = await import('@ak-system/database')
+        const [pp] = await ctx.db
+          .select({ projectId: projectPeople.projectId })
+          .from(projectPeople)
+          .where(eq(projectPeople.personId, c.personId))
+          .limit(1)
+        if (pp?.projectId) {
+          projectId = pp.projectId
+          const [proj] = await ctx.db
+            .select({ name: projects.name })
+            .from(projects)
+            .where(eq(projects.id, pp.projectId))
+          projectName = proj?.name ?? null
+        }
+      }
+
+      // Resolve meeting (for meeting_analysis / voice sources)
+      let meetingId: string | null = null
+      let meetingTitle: string | null = null
+      if ((c.source === 'meeting_analysis' || c.source === 'voice') && c.sourceId) {
+        const existing = await existingMeetingId(ctx.db, c.sourceId)
+        if (existing) {
+          meetingId = existing
+          const [m] = await ctx.db
+            .select({ title: meetings.title })
+            .from(meetings)
+            .where(eq(meetings.id, existing))
+          meetingTitle = m?.title ?? null
+        }
+      }
+
+      // Build Hebrew explanations for each suggested value
+      const explanations: Record<string, string> = {}
+      explanations.title = 'הכותרת לקוחה מתוכן ההתחייבות שזוהתה'
+      if (c.dueInferred) {
+        explanations.dueDate = 'תאריך היעד הוסק אוטומטית מהניסוח'
+      }
+      if (projectId) {
+        explanations.projectId = `הפרויקט משויך כי ${c.personName ?? 'האיש קשר'} קשור/ה ל"${projectName}"`
+      }
+      if (c.owner === 'them' && c.personName) {
+        explanations.assigneeId = `המשימה מיועדת ל${c.personName} כי זו התחייבות שלהם`
+      }
+      if (meetingId) {
+        explanations.meetingId = `הפגישה "${meetingTitle}" היא מקור ההתחייבות`
+      }
+
+      return {
+        title: c.content,
+        dueDate: c.dueInferred ?? null,
+        projectId,
+        assigneeId: c.owner === 'them' ? (c.personId ?? null) : null,
+        meetingId,
+        explanations,
+      }
+    }),
+
   /** Turns a proposed commitment into a normal task (same path as any new task, incl. Notion). */
   accept: protectedProcedure
     .input(z.object({
@@ -168,12 +254,27 @@ export const commitmentsRouter = router({
       taskProjectId: z.string().nullable().optional(),
       /** A workspace linked to a Notion tasks DB gets the task written back there */
       taskWorkspaceId: z.string().nullable().optional(),
+      /**
+       * When provided, the task was already created by the caller (via TaskModal).
+       * Skip internal task creation and just link this task to the commitment.
+       */
+      taskId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const [c] = await ctx.db.select().from(commitments).where(eq(commitments.id, input.commitmentId))
       if (!c) throw new TRPCError({ code: 'NOT_FOUND', message: 'Commitment not found' })
       if (c.status !== 'proposed') throw new TRPCError({ code: 'BAD_REQUEST', message: `Commitment already ${c.status}` })
       if (!c.personId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'שייך איש קשר לפני אישור' })
+
+      // Fast path: task was already created by the caller (TaskModal). Just link it.
+      if (input.taskId) {
+        await ctx.db
+          .update(commitments)
+          .set({ status: 'accepted', taskId: input.taskId, updatedAt: new Date().toISOString() })
+          .where(eq(commitments.id, c.id))
+        return { taskId: input.taskId, notionSynced: false }
+      }
+
       let projectId = input.taskProjectId
       if (projectId === undefined) {
         const [primary] = await ctx.db

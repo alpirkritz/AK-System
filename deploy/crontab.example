@@ -47,6 +47,8 @@ SHELL=/bin/bash
 */10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-dm-commitments >/dev/null 2>&1
 # Group WhatsApp commitments — every 10 min. Only proposes for a sender resolved to a known person.
 */10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-commitments >/dev/null 2>&1
+# Slack channel commitments — every 10 min. Only enabled channels.
+*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/slack-commitments >/dev/null 2>&1
 # 1:1 WhatsApp summaries (19:00 UTC ≈ 21:00/22:00 Israel). Commitments are also proposed here if the 10-min scan missed one.
 0 19 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-dm-summary >/dev/null 2>&1
 # Gmail threads with known people (last 30 days) + proposed commitments — hourly

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, real, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, boolean, real, index, uniqueIndex, type AnyPgColumn } from 'drizzle-orm/pg-core'
 
 /** CRM review status — unconfirmed people (e.g. unknown calendar attendees) stay out of the main list */
 export const PEOPLE_STATUSES = ['confirmed', 'unconfirmed', 'ignored'] as const
@@ -107,6 +107,8 @@ export const projects = pgTable('projects', {
   color: text('color').default('#47b8e8'),
   notionPageId: text('notion_page_id'),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  /** The one world or workspace this project belongs to. Null until assigned. */
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
   source: text('source').notNull().default('manual'),
   standingBrief: text('standing_brief'),
   standingBriefAt: text('standing_brief_at'),
@@ -115,6 +117,7 @@ export const projects = pgTable('projects', {
 }, (table) => ({
   notionPageIdIdx: index('idx_projects_notion_page_id').on(table.notionPageId),
   companyIdIdx: index('idx_projects_company_id').on(table.companyId),
+  workspaceIdIdx: index('idx_projects_workspace_id').on(table.workspaceId),
 }))
 
 export const projectPeople = pgTable('project_people', {
@@ -126,15 +129,47 @@ export const projectPeople = pgTable('project_people', {
   pairUq: uniqueIndex('uq_project_people_pair').on(table.projectId, table.personId),
 }))
 
+/** What a workspace is in Alpir's life — drives relationship suggestions and Harness context */
+export const WORKSPACE_KINDS = ['employer', 'own_company', 'personal', 'other'] as const
+export type WorkspaceKind = (typeof WORKSPACE_KINDS)[number]
+
 /** Top-level task origin (Alpir Consulting / Dragontail / DAZ / personal) — orthogonal to projects */
 export const workspaces = pgTable('workspaces', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   color: text('color').default('#2dd4bf'),
   notionAccountLabel: text('notion_account_label'),
+  /** WorkspaceKind; null until the owner classifies it. Meaningful on worlds; a workspace shows its world's kind. */
+  kind: text('kind'),
+  description: text('description'),
+  /** Null = this row is a world. Set = it is a workspace inside that world. One level only. */
+  parentId: text('parent_id').references((): AnyPgColumn => workspaces.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  parentIdIdx: index('idx_workspaces_parent_id').on(table.parentId),
+}))
+
+/**
+ * A person's place in one life domain. Many-to-many: the same person can be a colleague at
+ * Dragontail and a friend in the personal workspace — one row per (person, workspace).
+ */
+export const personWorkspaces = pgTable('person_workspaces', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  /** Free text; the UI suggests values per workspace kind */
+  relationshipType: text('relationship_type').notNull(),
+  /** Org-chart line inside this workspace only */
+  reportsToPersonId: text('reports_to_person_id').references(() => people.id, { onDelete: 'set null' }),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_person_workspaces_pair').on(table.personId, table.workspaceId),
+  workspaceIdIdx: index('idx_person_workspaces_workspace_id').on(table.workspaceId),
+  personIdIdx: index('idx_person_workspaces_person_id').on(table.personId),
+}))
 
 /** Explicit workspace ↔ Notion database (by id) links — preferred over the free-text label match */
 export const workspaceNotionDatabases = pgTable('workspace_notion_databases', {
@@ -213,9 +248,12 @@ export const meetingSeries = pgTable('meeting_series', {
   updatedAt: text('updated_at').notNull(),
   warmthNote: text('warmth_note'),
   warmthNoteUpdatedAt: text('warmth_note_updated_at'),
+  /** The one world or workspace this series belongs to. Its meetings inherit it unless set by hand. */
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
 }, (table) => ({
   googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
   titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
+  workspaceIdIdx: index('idx_meeting_series_workspace_id').on(table.workspaceId),
 }))
 
 export const SERIES_ROSTER_SOURCES = ['attendees', 'description', 'manual'] as const
@@ -283,10 +321,15 @@ export const meetings = pgTable('meetings', {
   /** When source='notion_note', this is the first note that created the meeting */
   sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
   calendarParticipants: text('calendar_participants'),
+  /** The one world or workspace this meeting belongs to. Null until assigned. */
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+  /** manual | series | calendar | attendees — manual is never overwritten */
+  workspaceSource: text('workspace_source'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   dateIdx: index('idx_meetings_date').on(table.date),
+  workspaceIdIdx: index('idx_meetings_workspace_id').on(table.workspaceId),
   projectIdIdx: index('idx_meetings_project_id').on(table.projectId),
   seriesIdIdx: index('idx_meetings_series_id').on(table.seriesId),
   typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
@@ -945,6 +988,8 @@ export const userSettings = pgTable('user_settings', {
   whatsappGroupCommitmentScanCursor: text('whatsapp_group_commitment_scan_cursor'),
   /** Bridge's own JID cached after last successful getBridgeStatus — used as fallback when bridge is offline during a group-commitment scan */
   whatsappSelfJid: text('whatsapp_self_jid'),
+  /** ms timestamp (as text) of the newest slack_messages row already scanned for channel commitments */
+  slackCommitmentScanCursor: text('slack_commitment_scan_cursor'),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1183,7 +1228,7 @@ export const whatsappDmSummaries = pgTable('whatsapp_dm_summaries', {
 
 export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
 export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
-export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice'] as const
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel'] as const
 export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
 export const COMMITMENT_OWNERS = ['me', 'them'] as const
 export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
@@ -1230,6 +1275,70 @@ export type WhatsappDmMessage = typeof whatsappDmMessages.$inferSelect
 export type WhatsappDmSummary = typeof whatsappDmSummaries.$inferSelect
 export type Commitment = typeof commitments.$inferSelect
 
+// ─── Slack integration ───────────────────────────────────────────────────────
+
+/** Active Slack OAuth connection (one row per team_id; revokedAt set on disconnect). */
+export const slackConnections = pgTable('slack_connections', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull().unique(),
+  teamName: text('team_name').notNull(),
+  /** xoxb-... bot token. Stored plain like google_connections — can add AES later. */
+  botToken: text('bot_token').notNull(),
+  botUserId: text('bot_user_id').notNull(),
+  /** Comma-separated granted scopes */
+  scopes: text('scopes').notNull(),
+  installedAt: text('installed_at').notNull(),
+  revokedAt: text('revoked_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** A Slack channel the user wants to monitor. */
+export const slackChannels = pgTable('slack_channels', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  /** Slack C… / G… channel id */
+  channelId: text('channel_id').notNull().unique(),
+  name: text('name').notNull(),
+  isPrivate: integer('is_private').notNull().default(0),
+  enabled: integer('enabled').notNull().default(0),
+  fomoEnabled: integer('fomo_enabled').notNull().default(0),
+  fomoThreshold: integer('fomo_threshold').notNull().default(10),
+  fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
+  /** JSON string[] */
+  keywords: text('keywords').notNull().default('[]'),
+  lastFomoAlertAt: text('last_fomo_alert_at'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  teamIdIdx: index('idx_slack_channels_team_id').on(table.teamId),
+}))
+
+/** Rolling archive of watched-channel messages for commitments/insights. */
+export const slackMessages = pgTable('slack_messages', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  channelId: text('channel_id').notNull(),
+  /** Slack's "1234567890.123456" timestamp — unique within a channel */
+  slackTs: text('slack_ts').notNull(),
+  userId: text('user_id').notNull(),
+  userName: text('user_name').notNull(),
+  text: text('text').notNull(),
+  /** Non-null for replies inside a thread */
+  threadTs: text('thread_ts'),
+  /** Epoch ms for range queries */
+  ts: integer('ts').notNull(),
+  /** Set when Slack fires a message_changed event */
+  editedTs: text('edited_ts'),
+  deleted: boolean('deleted').notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  channelTsUq: uniqueIndex('uq_slack_messages_channel_ts').on(table.channelId, table.slackTs),
+  channelTsIdx: index('idx_slack_messages_channel_ts').on(table.channelId, table.ts),
+}))
+
+export type SlackConnection = typeof slackConnections.$inferSelect
+export type SlackChannel = typeof slackChannels.$inferSelect
+export type SlackMessage = typeof slackMessages.$inferSelect
+
 /** Latest state of an email thread with a known person, one row per (thread, person). */
 export const personEmailThreads = pgTable('person_email_threads', {
   id: text('id').primaryKey(),
@@ -1244,6 +1353,10 @@ export const personEmailThreads = pgTable('person_email_threads', {
   date: text('date').notNull(),
   snippet: text('snippet'),
   messageCount: integer('message_count').notNull().default(1),
+  /** needs_reply | fyi | chatter. Null until the reply-need gate classifies the thread. */
+  replyNeed: text('reply_need'),
+  /** ISO timestamp of the classification. Cleared when a newer message moves `date`. */
+  replyNeedAt: text('reply_need_at'),
   lastSyncedAt: text('last_synced_at').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
@@ -1419,6 +1532,7 @@ export const HARNESS_NODE_KINDS = [
   'commitment',
   'financial_event',
   'whatsapp_signal',
+  'slack_signal',
   'voice_recording',
   'email_thread',
 ] as const

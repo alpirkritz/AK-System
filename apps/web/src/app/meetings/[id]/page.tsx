@@ -5,7 +5,8 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
-import { WorkspacePill } from '@/components/WorkspacePill'
+import { WorldBadge } from '@/components/WorldBadge'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
@@ -66,6 +67,12 @@ export default function MeetingDetailPage() {
   }
 
   const utils = trpc.useUtils()
+  const setWorkspace = trpc.meetings.setWorkspace.useMutation({
+    onSuccess: () => {
+      utils.meetings.getById.invalidate({ id })
+      utils.meetings.list.invalidate()
+    },
+  })
 
   const toggleTask = trpc.tasks.toggleDone.useMutation({
     onSuccess: () => utils.tasks.list.invalidate(),
@@ -114,6 +121,20 @@ export default function MeetingDetailPage() {
   // Copy-summary feedback
   const [copied, setCopied] = useState(false)
 
+  // Attach-to-calendar state (for voice/notion/manual meetings)
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false)
+  const nonCalendarSource = mx?.source && mx.source !== 'calendar'
+  const calendarOnDateQuery = trpc.meetings.calendarOnDate.useQuery(
+    { date: meeting?.date ?? '' },
+    { enabled: Boolean(calendarPickerOpen && meeting?.date) },
+  )
+  const calendarMeetings = calendarOnDateQuery.data?.meetings ?? []
+  const attachToCalendar = trpc.meetings.attachToCalendar.useMutation({
+    onSuccess: (res) => {
+      router.push(`/meetings/${res.calendarMeetingId}`)
+    },
+  })
+
   useEffect(() => {
     if (!moreOpen) return
     function handler(e: MouseEvent) {
@@ -124,7 +145,6 @@ export default function MeetingDetailPage() {
   }, [moreOpen])
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
-  const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
   const tasks = tasksList.filter((t) => t.meetingId === id)
 
   if (isLoading || !meeting) {
@@ -336,6 +356,70 @@ export default function MeetingDetailPage() {
             + שייך לפרויקט
           </button>
         )}
+
+        <div className="min-w-[180px]">
+          <label className="label" htmlFor="meeting-world">עולם</label>
+          <WorkspacePicker
+            id="meeting-world"
+            value={meeting.workspaceId ?? ''}
+            disabled={setWorkspace.isPending}
+            onChange={(workspaceId) => setWorkspace.mutate({ meetingId: id, workspaceId: workspaceId || null })}
+          />
+          {setWorkspace.error && (
+            <p className="mt-1 text-[11px] text-red-400">{setWorkspace.error.message}</p>
+          )}
+        </div>
+
+        {/* Attach to calendar event — shown for voice/notion/manual meetings */}
+        {nonCalendarSource && (
+          <div className="relative">
+            <button
+              className="text-[11px] text-[#435a8c] hover:text-[#6f7ea0] transition-colors border border-dashed rounded-full px-2.5 py-0.5"
+              style={{ borderColor: '#2e2e2e' }}
+              onClick={() => setCalendarPickerOpen((v) => !v)}
+              title="שייך לאירוע ביומן"
+              data-testid="attach-to-calendar-btn"
+            >
+              📅 שייך לאירוע ביומן
+            </button>
+            {calendarPickerOpen && (
+              <div
+                className="absolute top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl"
+                style={{ minWidth: 240, background: '#141f36', border: '1px solid #29395d' }}
+                data-testid="attach-to-calendar-picker"
+              >
+                <div className="px-3 py-2.5 text-xs font-semibold text-[#b8c4dc]">פגישות יומן — {meeting.date}</div>
+                {calendarOnDateQuery.isPending ? (
+                  <div className="px-3 py-3 text-xs text-[#5a688c]">טוען…</div>
+                ) : calendarMeetings.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-[#5a688c]">אין פגישות יומן בתאריך זה</div>
+                ) : (
+                  calendarMeetings.map((cm) => (
+                    <button
+                      key={cm.id}
+                      type="button"
+                      className="flex items-center gap-2 w-full px-3 py-2 hover:bg-[#1e1e1e] text-right text-xs transition-colors"
+                      disabled={attachToCalendar.isPending}
+                      onClick={() => attachToCalendar.mutate({ meetingId: id, calendarMeetingId: cm.id })}
+                    >
+                      <span className="tabular-nums text-[#5a688c] shrink-0">{cm.time}{cm.endTime ? `–${cm.endTime}` : ''}</span>
+                      <span className="text-[#b8c4dc] truncate">{cm.title}</span>
+                    </button>
+                  ))
+                )}
+                <div className="border-t border-[#29395d] px-3 py-2">
+                  <button
+                    type="button"
+                    className="text-[11px] text-[#5a688c] hover:text-[#97a4c2]"
+                    onClick={() => setCalendarPickerOpen(false)}
+                  >
+                    סגור
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Two-column body ────────────────────────────────────────────────── */}
@@ -499,7 +583,7 @@ onClick={() => {
                     </span>
                   )}
                 </div>
-                <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
+                <WorldBadge workspaceId={(t as { workspaceId?: string | null }).workspaceId} />
                 <div
                   className="dot"
                   style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }}

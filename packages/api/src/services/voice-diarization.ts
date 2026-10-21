@@ -12,7 +12,7 @@
  * Every entry point here is best-effort: failures never block transcription/analysis.
  */
 import * as fs from 'fs'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   people,
   voicePrints,
@@ -319,6 +319,7 @@ export interface RecordingSpeaker {
   speakerLabel: string
   state: SpeakerPromptState
   personId: string | null
+  personName: string | null
   /** Longest turn of this speaker — the best shot at recognising the voice. */
   sampleStartMs: number
   sampleEndMs: number
@@ -337,6 +338,15 @@ export async function listRecordingSpeakers(db: Db, recordingId: string): Promis
     .select()
     .from(voiceSpeakerIdentities)
     .where(eq(voiceSpeakerIdentities.recordingId, recordingId))
+  const personIds = [...new Set(identities.map((identity) => identity.personId).filter((id): id is string => Boolean(id)))]
+  const personNames = new Map(
+    personIds.length
+      ? (await db.select({ id: people.id, name: people.name }).from(people).where(inArray(people.id, personIds))).map((person) => [
+          person.id,
+          person.name,
+        ])
+      : [],
+  )
 
   const byLabel = new Map<string, typeof segments>()
   for (const seg of segments) {
@@ -352,6 +362,7 @@ export async function listRecordingSpeakers(db: Db, recordingId: string): Promis
         speakerLabel,
         state: (identity?.state ?? 'unknown') as SpeakerPromptState,
         personId: identity?.personId ?? null,
+        personName: identity?.personId ? personNames.get(identity.personId) ?? null : null,
         sampleStartMs: longest.startMs,
         sampleEndMs: longest.endMs,
         sampleText: longest.text,
@@ -359,6 +370,84 @@ export async function listRecordingSpeakers(db: Db, recordingId: string): Promis
       }
     })
     .sort((a, b) => a.speakerLabel.localeCompare(b.speakerLabel, 'he'))
+}
+
+/**
+ * Conservatively resolves the other speaker in a one-on-one recording. The inference is allowed
+ * only when the enrolled owner's voice already resolved one of exactly two transcript labels and
+ * the recording has exactly one other confirmed person. Anything less certain stays manual.
+ */
+export async function autoIdentifyTwoPersonConversation(db: Db, recordingId: string): Promise<boolean> {
+  const segments = await db
+    .select({ speakerLabel: voiceTranscriptSegments.speakerLabel })
+    .from(voiceTranscriptSegments)
+    .where(eq(voiceTranscriptSegments.recordingId, recordingId))
+  const labels = [...new Set(segments.map((segment) => segment.speakerLabel))]
+  if (labels.length !== 2) return false
+
+  const ownerPersonId = await selfPersonId(db)
+  const [ownerPrint] = await db
+    .select({ personId: voicePrints.personId })
+    .from(voicePrints)
+    .where(eq(voicePrints.personId, ownerPersonId))
+  if (!ownerPrint) return false
+  const identities = await db
+    .select()
+    .from(voiceSpeakerIdentities)
+    .where(eq(voiceSpeakerIdentities.recordingId, recordingId))
+  const ownerIdentity = identities.find(
+    (identity) =>
+      identity.state === 'auto' &&
+      identity.personId === ownerPrint.personId &&
+      labels.includes(identity.speakerLabel),
+  )
+  if (!ownerIdentity) return false
+
+  const otherLabel = labels.find((label) => label !== ownerIdentity.speakerLabel)
+  if (!otherLabel || identities.some((identity) => identity.speakerLabel === otherLabel)) return false
+
+  const linkedPeople = await db
+    .select({ personId: voiceRecordingPeople.personId })
+    .from(voiceRecordingPeople)
+    .innerJoin(people, eq(people.id, voiceRecordingPeople.personId))
+    .where(and(eq(voiceRecordingPeople.recordingId, recordingId), eq(people.status, 'confirmed')))
+  const candidates = [...new Set(linkedPeople.map((link) => link.personId))].filter(
+    (personId) => personId !== ownerPrint.personId,
+  )
+  if (candidates.length !== 1) return false
+
+  await upsertSpeakerIdentity(db, recordingId, otherLabel, candidates[0], 'auto')
+  return true
+}
+
+/**
+ * Builds analysis-only text with known speaker names. The stored transcript remains unchanged.
+ * Skipped labels deliberately keep their original `דובר N` prefix.
+ */
+export async function attributedTranscript(
+  db: Db,
+  recordingId: string,
+  transcriptText: string,
+): Promise<{ text: string; allResolved: boolean }> {
+  const speakers = await listRecordingSpeakers(db, recordingId)
+  if (speakers.length === 0) return { text: transcriptText, allResolved: false }
+  const allResolved = speakers.every((speaker) => speaker.state !== 'unknown')
+  const names = new Map(
+    speakers
+      .filter((speaker) => speaker.state !== 'skipped' && speaker.personName)
+      .map((speaker) => [speaker.speakerLabel, speaker.personName!]),
+  )
+  const text = transcriptText
+    .split('\n')
+    .map((line) => {
+      for (const [speakerLabel, personName] of names) {
+        const prefix = `${speakerLabel}:`
+        if (line.startsWith(prefix)) return `${personName}:${line.slice(prefix.length)}`
+      }
+      return line
+    })
+    .join('\n')
+  return { text, allResolved }
 }
 
 /**

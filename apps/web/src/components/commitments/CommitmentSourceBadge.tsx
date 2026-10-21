@@ -4,6 +4,7 @@ const LABELS: Record<string, string> = {
   whatsapp_group: 'WhatsApp',
   email: 'Email',
   voice: 'הקלטה',
+  slack_channel: 'Slack',
 }
 
 export function commitmentSourceLabel(source: string): string {

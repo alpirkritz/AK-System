@@ -3,6 +3,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
+import { WorldBadge, UnassignedHeading } from '@/components/WorldBadge'
+import { FilteredWorldChip } from '@/components/WorldSwitcher'
+import { splitByWorld, useWorldFilter } from '@/lib/world-filter'
 import { AttentionBanner } from '@/components/relationship/AttentionBanner'
 import { PRIORITY_COLORS, PRIORITY_LABELS, DAYS_HE } from '@ak-system/types'
 import dynamic from 'next/dynamic'
@@ -113,9 +116,16 @@ export default function DashboardPage() {
   const today = isoDate(new Date())
   const weekEnd = isoDate(new Date(Date.now() + 6 * 86400000))
 
+  const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
   const { data: people = [] } = trpc.people.list.useQuery()
-  const { data: meetings = [] } = trpc.meetings.list.useQuery()
-  const { data: tasksList = [] } = trpc.tasks.list.useQuery()
+  const { data: meetings = [] } = trpc.meetings.list.useQuery(
+    { workspaceId: worldFilter ?? undefined },
+    { enabled: worldReady },
+  )
+  const { data: tasksList = [] } = trpc.tasks.list.useQuery(
+    { workspaceId: worldFilter ?? undefined },
+    { enabled: worldReady },
+  )
   const { data: selfPerson } = trpc.people.me.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
@@ -134,10 +144,11 @@ export default function DashboardPage() {
   const effectiveSort = taskSort ?? serverDefault ?? { primary: 'due_asc' as TaskSortKey, thenBy: 'priority_high' as TaskSortKey }
   const hasOverride = taskSort !== null
 
+  const { matched: matchedTasks } = splitByWorld(tasksList, !!worldFilter, (t) => t.workspaceId)
   const openTasks = useMemo(() => {
-    const open = tasksList.filter((t) => !t.done && isMyTask(t.assigneeId, selfPerson?.id))
+    const open = matchedTasks.filter((t) => !t.done && isMyTask(t.assigneeId, selfPerson?.id))
     return sortTasksByKeys(open, effectiveSort)
-  }, [tasksList, effectiveSort, selfPerson?.id])
+  }, [matchedTasks, effectiveSort, selfPerson?.id])
 
   const setTaskSortAndPersist = (value: SortPref<TaskSortKey>) => {
     setTaskSort(value)
@@ -152,12 +163,13 @@ export default function DashboardPage() {
       localStorage.removeItem(LS.DASHBOARD_TASKS_SORT)
     } catch { /* ignore */ }
   }
-  const recurringMeetings = useMemo(() => meetings.filter((m) => m.recurring), [meetings])
+  const { matched: matchedMeetings, unassigned: unassignedMeetings } = splitByWorld(meetings, !!worldFilter, (m) => m.workspaceId)
+  const recurringMeetings = useMemo(() => matchedMeetings.filter((m) => m.recurring), [matchedMeetings])
   const { sortedMeetings, futureMeetings } = useMemo(() => {
-    const sorted = [...meetings].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const sorted = [...matchedMeetings].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     const future = sorted.filter((m) => !isPastMeeting(m.date, m.time, timezone))
     return { sortedMeetings: sorted, futureMeetings: future }
-  }, [meetings, timezone])
+  }, [matchedMeetings, timezone])
   const pastCount = sortedMeetings.length - futureMeetings.length
   const upcomingMeetings = (showPast ? sortedMeetings : futureMeetings).slice(0, upcomingCount)
 
@@ -214,6 +226,7 @@ export default function DashboardPage() {
           })}
         </p>
       </header>
+      <FilteredWorldChip />
 
       <AttentionBanner />
 
@@ -359,6 +372,7 @@ export default function DashboardPage() {
                     <div className={`font-semibold text-sm truncate ${past ? 'text-[#7a89ab]' : 'text-[#eef3fb]'}`}>
                       {m.title}
                     </div>
+                    <WorldBadge workspaceId={m.workspaceId} />
                     <div className="text-xs text-[#8593b3] mt-1.5 truncate">
                       {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
                       {m.recurring ? ` · ${DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}` : ''}
@@ -367,6 +381,19 @@ export default function DashboardPage() {
                   </Link>
                 )
               })}
+            </div>
+          )}
+          {worldFilter && unassignedMeetings.some((m) => !isPastMeeting(m.date, m.time, timezone)) && (
+            <div className="mt-4">
+              <UnassignedHeading count={unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).length} />
+              <div className="space-y-2">
+                {unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).slice(0, 5).map((m) => (
+                  <Link key={m.id} href={`/meetings/${m.id}`} className="meeting-card block">
+                    <div className="font-semibold text-sm text-[#eef3fb] truncate">{m.title}</div>
+                    <WorldBadge workspaceId={null} />
+                  </Link>
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -431,6 +458,7 @@ export default function DashboardPage() {
                     >
                       {t.title}
                     </button>
+                    <WorldBadge workspaceId={t.workspaceId} />
                     {formatDueLabel(t) && (
                       <span className="text-[11px] text-[#647399] shrink-0">{formatDueLabel(t)}</span>
                     )}
@@ -453,6 +481,27 @@ export default function DashboardPage() {
                   עוד {moreOpenTasks} משימות בדף המשימות
                 </Link>
               )}
+            </div>
+          )}
+          {worldFilter && tasksList.some((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)) && (
+            <div className="mt-4">
+              <UnassignedHeading count={tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).length} />
+              <div className="space-y-2">
+                {tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).slice(0, 5).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="task-row w-full text-right"
+                    onClick={() => {
+                      setEditingTaskId(t.id)
+                      setTaskModalOpen(true)
+                    }}
+                  >
+                    <span className="flex-1 text-sm truncate">{t.title}</span>
+                    <WorldBadge workspaceId={null} />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </section>

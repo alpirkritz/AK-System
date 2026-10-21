@@ -895,9 +895,9 @@ export default function SettingsPage() {
         style={{ border: '1px solid #29395d' }}
       >
         <div>
-          <div className="text-sm font-semibold text-[#cdd7ea]">מקורות</div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">עולמות</div>
           <div className="text-xs text-[#5a688c] mt-0.5">
-            Alpir Consulting, Dragontail, DAZ ופרטי — שיוך משימות ומיפוי אוטומטי מ-Notion
+            העולמות שהמתג בראש המסך מסנן לפיהם. עולם יכול להכיל סביבת עבודה.
           </div>
         </div>
         <span className="text-[#2dd4bf] text-lg">🗂️</span>
@@ -971,6 +971,20 @@ export default function SettingsPage() {
           </div>
         </div>
         <span className="text-[#25D366] text-lg">💬</span>
+      </Link>
+
+      <Link
+        href="/settings/slack"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#4A154B44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">Slack</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            ערוצים ארגוניים, FOMO, התחייבויות — קריאה בלבד
+          </div>
+        </div>
+        <span className="text-lg">🟣</span>
       </Link>
 
       <Link

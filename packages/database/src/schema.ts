@@ -114,6 +114,8 @@ export const projects = sqliteTable('projects', {
   color: text('color').default('#47b8e8'),
   notionPageId: text('notion_page_id'),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  /** The one world or workspace this project belongs to. Null until assigned. */
+  workspaceId: text('workspace_id'),
   /** manual | notion */
   source: text('source').notNull().default('manual'),
   standingBrief: text('standing_brief'),
@@ -123,6 +125,7 @@ export const projects = sqliteTable('projects', {
 }, (table) => ({
   notionPageIdIdx: index('idx_projects_notion_page_id').on(table.notionPageId),
   companyIdIdx: index('idx_projects_company_id').on(table.companyId),
+  workspaceIdIdx: index('idx_projects_workspace_id').on(table.workspaceId),
 }))
 
 export const projectPeople = sqliteTable('project_people', {
@@ -141,9 +144,37 @@ export const workspaces = sqliteTable('workspaces', {
   color: text('color').default('#2dd4bf'),
   /** Legacy free-text fallback: matched against a synced task's notionDb / notionAccount to auto-assign the workspace */
   notionAccountLabel: text('notion_account_label'),
+  /** WorkspaceKind; null until the owner classifies it. Meaningful on worlds; a workspace shows its world's kind. */
+  kind: text('kind'),
+  description: text('description'),
+  /** Null = this row is a world. Set = it is a workspace inside that world. One level only. */
+  parentId: text('parent_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  parentIdIdx: index('idx_workspaces_parent_id').on(table.parentId),
+}))
+
+/**
+ * A person's place in one life domain. Many-to-many: the same person can be a colleague at
+ * Dragontail and a friend in the personal workspace — one row per (person, workspace).
+ */
+export const personWorkspaces = sqliteTable('person_workspaces', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  /** Free text; the UI suggests values per workspace kind */
+  relationshipType: text('relationship_type').notNull(),
+  /** Org-chart line inside this workspace only */
+  reportsToPersonId: text('reports_to_person_id').references(() => people.id, { onDelete: 'set null' }),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_person_workspaces_pair').on(table.personId, table.workspaceId),
+  workspaceIdIdx: index('idx_person_workspaces_workspace_id').on(table.workspaceId),
+  personIdIdx: index('idx_person_workspaces_person_id').on(table.personId),
+}))
 
 /** Explicit workspace ↔ Notion database (by id) links — preferred over the free-text label match */
 export const workspaceNotionDatabases = sqliteTable('workspace_notion_databases', {
@@ -229,9 +260,12 @@ export const meetingSeries = sqliteTable('meeting_series', {
   /** Owner's one-line reading of why this circle is warming or cooling. Last, to match the SQLite ALTER order. */
   warmthNote: text('warmth_note'),
   warmthNoteUpdatedAt: text('warmth_note_updated_at'),
+  /** The one world or workspace this series belongs to. Its meetings inherit it unless set by hand. */
+  workspaceId: text('workspace_id'),
 }, (table) => ({
   googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
   titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
+  workspaceIdIdx: index('idx_meeting_series_workspace_id').on(table.workspaceId),
 }))
 
 export const SERIES_ROSTER_SOURCES = ['attendees', 'description', 'manual'] as const
@@ -307,10 +341,15 @@ export const meetings = sqliteTable('meetings', {
   sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
   /** JSON CalendarParticipant[] read from calendar attendees or the description `משתתפים:` block */
   calendarParticipants: text('calendar_participants'),
+  /** The one world or workspace this meeting belongs to. Null until assigned. */
+  workspaceId: text('workspace_id'),
+  /** manual | series | calendar | attendees — manual is never overwritten */
+  workspaceSource: text('workspace_source'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   dateIdx: index('idx_meetings_date').on(table.date),
+  workspaceIdIdx: index('idx_meetings_workspace_id').on(table.workspaceId),
   projectIdIdx: index('idx_meetings_project_id').on(table.projectId),
   seriesIdIdx: index('idx_meetings_series_id').on(table.seriesId),
   typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
@@ -772,6 +811,7 @@ export const userSettings = sqliteTable('user_settings', {
   whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'), // null = code default for the evening digest
   whatsappGroupCommitmentScanCursor: text('whatsapp_group_commitment_scan_cursor'), // ms ts (as text) of the newest whatsapp_messages row already scanned for group commitments
   whatsappSelfJid: text('whatsapp_self_jid'), // bridge's own JID cached after last successful getBridgeStatus — fallback when bridge is offline during group-commitment scan
+  slackCommitmentScanCursor: text('slack_commitment_scan_cursor'), // ms ts (as text) of the newest slack_messages row already scanned for channel commitments
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1070,6 +1110,59 @@ export type NewWhatsappGroup = typeof whatsappGroups.$inferInsert
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect
 export type NewWhatsappMessage = typeof whatsappMessages.$inferInsert
 
+// ─── Slack integration ────────────────────────────────────────────────────────
+
+export const slackConnections = sqliteTable('slack_connections', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull().unique(),
+  teamName: text('team_name').notNull(),
+  botToken: text('bot_token').notNull(),
+  botUserId: text('bot_user_id').notNull(),
+  scopes: text('scopes').notNull(),
+  installedAt: text('installed_at').notNull(),
+  revokedAt: text('revoked_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const slackChannels = sqliteTable('slack_channels', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  channelId: text('channel_id').notNull().unique(),
+  name: text('name').notNull(),
+  isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoEnabled: integer('fomo_enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoThreshold: integer('fomo_threshold').notNull().default(10),
+  fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
+  keywords: text('keywords').notNull().default('[]'),
+  lastFomoAlertAt: text('last_fomo_alert_at'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  teamIdIdx: index('idx_slack_channels_team_id').on(table.teamId),
+}))
+
+export const slackMessages = sqliteTable('slack_messages', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  channelId: text('channel_id').notNull(),
+  slackTs: text('slack_ts').notNull(),
+  userId: text('user_id').notNull(),
+  userName: text('user_name').notNull(),
+  text: text('text').notNull(),
+  threadTs: text('thread_ts'),
+  ts: integer('ts').notNull(),
+  editedTs: text('edited_ts'),
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  channelTsUq: uniqueIndex('uq_slack_messages_channel_ts').on(table.channelId, table.slackTs),
+  channelTsIdx: index('idx_slack_messages_channel_ts').on(table.channelId, table.ts),
+}))
+
+export type SlackConnection = typeof slackConnections.$inferSelect
+export type SlackChannel = typeof slackChannels.$inferSelect
+export type SlackMessage = typeof slackMessages.$inferSelect
+
 // ─── Notification preferences (per type × channel routing) ───────────────────
 
 export const notificationPreferences = sqliteTable('notification_preferences', {
@@ -1358,7 +1451,7 @@ export const whatsappDmSummaries = sqliteTable('whatsapp_dm_summaries', {
 
 export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
 export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
-export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice'] as const
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel'] as const
 export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
 export const COMMITMENT_OWNERS = ['me', 'them'] as const
 export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
@@ -1419,6 +1512,10 @@ export const personEmailThreads = sqliteTable('person_email_threads', {
   date: text('date').notNull(),
   snippet: text('snippet'),
   messageCount: integer('message_count').notNull().default(1),
+  /** needs_reply | fyi | chatter. Null until the reply-need gate classifies the thread. */
+  replyNeed: text('reply_need'),
+  /** ISO timestamp of the classification. Cleared when a newer message moves `date`. */
+  replyNeedAt: text('reply_need_at'),
   lastSyncedAt: text('last_synced_at').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => ({

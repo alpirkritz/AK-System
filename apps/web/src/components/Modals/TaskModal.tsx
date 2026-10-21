@@ -7,6 +7,7 @@ import { StatusChips } from '@/components/StatusChips'
 import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
 import type { PeopleSyncResult } from '@/lib/notion-people-sync-message'
 import type { Person } from '@ak-system/database'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 
 type MeetingOption = { id: string; title: string }
 type ProjectOption = { id: string; name: string }
@@ -24,6 +25,7 @@ export function TaskModal({
   projects,
   workspaces = [],
   initialValues,
+  explanations,
   onCreated,
   onPeopleSync,
 }: {
@@ -44,6 +46,12 @@ export function TaskModal({
     dueDate?: string
     assigneeId?: string
   }
+  /**
+   * Hebrew explanations to show under each field, explaining why a value was suggested.
+   * Keys match field names: title, dueDate, projectId, assigneeId, meetingId.
+   * Only shown when creating (not editing).
+   */
+  explanations?: Record<string, string>
   /** Fired after a successful create with the Notion push outcome (`null` when the workspace has no Notion link). */
   onCreated?: (notionSync: { ok: boolean } | null, task?: { id: string }) => void
   /** Fired after the related people are saved, with the outcome of pushing them to the Notion relation. */
@@ -228,6 +236,9 @@ export function TaskModal({
                   onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                   placeholder="מה צריך לעשות?"
                 />
+                {!isEdit && explanations?.title && (
+                  <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.title}</p>
+                )}
               </div>
               <div>
                 <label className="label">תאריך יעד</label>
@@ -237,20 +248,18 @@ export function TaskModal({
                   value={form.dueDate}
                   onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
                 />
+                {!isEdit && explanations?.dueDate && (
+                  <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.dueDate}</p>
+                )}
               </div>
               {workspaces.length > 0 && (
                 <div>
-                  <label className="label">מקור</label>
-                  <select
-                    className="select"
+                  <label className="label" htmlFor="task-world">עולם</label>
+                  <WorkspacePicker
+                    id="task-world"
                     value={form.workspaceId}
-                    onChange={(e) => setForm((f) => ({ ...f, workspaceId: e.target.value }))}
-                  >
-                    <option value="">ללא מקור</option>
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>{w.name}</option>
-                    ))}
-                  </select>
+                    onChange={(workspaceId) => setForm((f) => ({ ...f, workspaceId }))}
+                  />
                   {!isEdit && (() => {
                     const selected = workspaces.find((w) => w.id === form.workspaceId)
                     return selected?.hasNotionLink ? (
@@ -273,6 +282,9 @@ export function TaskModal({
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
+                {!isEdit && explanations?.projectId && (
+                  <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.projectId}</p>
+                )}
               </div>
               <div>
                 <label className="label">פגישה קשורה</label>
@@ -294,6 +306,9 @@ export function TaskModal({
                     מסונכרן עם Notion — קישור לפגישה יעודכן גם שם
                   </p>
                 ) : null}
+                {!isEdit && !form.meetingId && explanations?.meetingId && (
+                  <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.meetingId}</p>
+                )}
               </div>
               <div>
                 <label className="label" id="task-assignee-label">אחראי</label>
@@ -305,6 +320,9 @@ export function TaskModal({
                   selfId={selfPerson?.id ?? null}
                   onChange={(personId) => setForm((f) => ({ ...f, assigneeId: personId }))}
                 />
+                {!isEdit && explanations?.assigneeId && (
+                  <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.assigneeId}</p>
+                )}
               </div>
               <div>
                 <label className="label" id="task-related-people-label">קשור לאנשים</label>

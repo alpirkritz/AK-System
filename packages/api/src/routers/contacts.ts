@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { syncGoogleContacts } from '../services/google-contacts-sync'
 import { applyGooglePhones, previewGooglePhones } from '../services/google-phone-fill'
+import { applyGoogleProfiles, previewGoogleProfiles } from '../services/google-profile-fill'
 
 export const contactsRouter = router({
   syncGoogle: protectedProcedure
@@ -25,5 +26,17 @@ export const contactsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return applyGooglePhones(ctx.db, input.fills)
+    }),
+
+  /** Proposed company / job title / notes fills for existing people. Writes nothing. */
+  previewGoogleProfiles: protectedProcedure.mutation(async ({ ctx }) => {
+    return previewGoogleProfiles(ctx.db)
+  }),
+
+  /** Applies the reviewed people from a fresh preview; only still-empty fields are written. */
+  applyGoogleProfiles: protectedProcedure
+    .input(z.object({ personIds: z.array(z.string().min(1)).max(1000) }))
+    .mutation(async ({ ctx, input }) => {
+      return applyGoogleProfiles(ctx.db, input.personIds)
     }),
 })

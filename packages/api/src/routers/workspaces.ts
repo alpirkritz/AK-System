@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
-import { workspaces, workspaceNotionDatabases, tasks } from '@ak-system/database'
+import { workspaces, workspaceNotionDatabases, tasks, personWorkspaces, WORKSPACE_KINDS } from '@ak-system/database'
 import { eq } from 'drizzle-orm'
 import {
   extractNotionDatabaseId,
@@ -10,11 +10,15 @@ import {
   resolveDatabases,
 } from '../services/notion-tasks-sync'
 import { fetchDatabaseInfo } from '../services/notion-people-directory'
+import { assertValidParent, mergePreview, mergeWorkspaces } from '../services/workspace-scope'
 
 const createInput = z.object({
   name: z.string().min(1),
   color: z.string().optional(),
   notionAccountLabel: z.string().nullable().optional(),
+  kind: z.enum(WORKSPACE_KINDS).nullable().optional(),
+  description: z.string().nullable().optional(),
+  parentId: z.string().nullable().optional(),
 })
 
 const updateInput = z.object({
@@ -22,6 +26,9 @@ const updateInput = z.object({
   name: z.string().min(1).optional(),
   color: z.string().optional(),
   notionAccountLabel: z.string().nullable().optional(),
+  kind: z.enum(WORKSPACE_KINDS).nullable().optional(),
+  description: z.string().nullable().optional(),
+  parentId: z.string().nullable().optional(),
 })
 
 const idInput = z.object({ id: z.string().min(1) })
@@ -212,6 +219,11 @@ export const workspacesRouter = router({
   }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    try {
+      await assertValidParent(ctx.db, null, input.parentId ?? null)
+    } catch (err) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'שיוך לא תקין' })
+    }
     const id = 'ws' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     await ctx.db.insert(workspaces).values({
@@ -219,6 +231,9 @@ export const workspacesRouter = router({
       name: input.name,
       color: input.color ?? '#2dd4bf',
       notionAccountLabel: input.notionAccountLabel?.trim() || null,
+      kind: input.kind ?? null,
+      description: input.description?.trim() || null,
+      parentId: input.parentId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -233,15 +248,61 @@ export const workspacesRouter = router({
     if (input.notionAccountLabel !== undefined) {
       updates.notionAccountLabel = input.notionAccountLabel?.trim() || null
     }
+    if (input.kind !== undefined) updates.kind = input.kind
+    if (input.description !== undefined) updates.description = input.description?.trim() || null
+    if (input.parentId !== undefined) {
+      try {
+        await assertValidParent(ctx.db, input.id, input.parentId)
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'שיוך לא תקין' })
+      }
+      updates.parentId = input.parentId
+    }
     await ctx.db.update(workspaces).set(updates).where(eq(workspaces.id, input.id))
     const [row] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, input.id))
     return row ?? null
   }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    const children = await ctx.db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.parentId, input.id))
+    if (children.length > 0) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'יש סביבות עבודה בתוך העולם הזה. העבר או מחק אותן קודם.' })
+    }
     await ctx.db.update(tasks).set({ workspaceId: null }).where(eq(tasks.workspaceId, input.id))
     await ctx.db.delete(workspaceNotionDatabases).where(eq(workspaceNotionDatabases.workspaceId, input.id))
+    await ctx.db.delete(personWorkspaces).where(eq(personWorkspaces.workspaceId, input.id))
     await ctx.db.delete(workspaces).where(eq(workspaces.id, input.id))
     return { ok: true }
   }),
+
+  /** Worlds with the workspaces nested under them. Rows with no parent are worlds. */
+  tree: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.select().from(workspaces).orderBy(workspaces.name)
+    const worlds = rows.filter((w) => !w.parentId)
+    return worlds.map((world) => ({
+      ...world,
+      children: rows.filter((w) => w.parentId === world.id),
+    }))
+  }),
+
+  mergePreview: protectedProcedure
+    .input(z.object({ fromId: z.string().min(1), intoId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await mergePreview(ctx.db, input.fromId, input.intoId)
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'מיזוג לא אפשרי' })
+      }
+    }),
+
+  merge: protectedProcedure
+    .input(z.object({ fromId: z.string().min(1), intoId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const moved = await mergeWorkspaces(ctx.db, input.fromId, input.intoId)
+        return { ok: true, moved }
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'המיזוג נכשל' })
+      }
+    }),
 })

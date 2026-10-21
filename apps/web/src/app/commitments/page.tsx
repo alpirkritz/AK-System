@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { Check, ExternalLink, X } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
+import { TaskModal } from '@/components/Modals/TaskModal'
 
 type OwnerFilter = 'all' | 'me' | 'them'
 
@@ -39,10 +40,6 @@ function sourceTimeLabel(ms: number, now: number | null): string {
 
 function dateLabel(iso: string | null): string {
   return iso ? format(new Date(`${iso}T00:00:00`), 'dd/MM') : ''
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
 }
 
 function senderLabel(name: string | null): string | null {
@@ -101,13 +98,18 @@ export default function CommitmentsPage() {
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const { data: items = [], isLoading } = trpc.commitments.listProposed.useQuery({ owner })
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const { data: peopleList = [] } = trpc.people.list.useQuery()
+  const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
+  const { data: projectsList = [] } = trpc.projects.list.useQuery()
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const [personQuery, setPersonQuery] = useState('')
   const { data: contacts = [] } = trpc.people.list.useQuery(undefined, { enabled: linkingId != null })
-  const [title, setTitle] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [workspaceId, setWorkspaceId] = useState('')
+  // TaskModal state
+  const [taskModalCommitmentId, setTaskModalCommitmentId] = useState<string | null>(null)
+  const { data: prefillData } = trpc.commitments.taskPrefill.useQuery(
+    { commitmentId: taskModalCommitmentId! },
+    { enabled: taskModalCommitmentId != null },
+  )
   const [lastAccepted, setLastAccepted] = useState<string | null>(null)
   const [now, setNow] = useState<number | null>(null)
   useEffect(() => setNow(Date.now()), [items])
@@ -118,7 +120,7 @@ export default function CommitmentsPage() {
   }
   const accept = trpc.commitments.accept.useMutation({
     onSuccess: (res) => {
-      setEditingId(null)
+      setTaskModalCommitmentId(null)
       setLastAccepted(res.notionSynced ? 'נוצרה משימה ונשלחה לנושן' : 'נוצרה משימה')
       utils.tasks.list.invalidate()
       refresh()
@@ -137,12 +139,9 @@ export default function CommitmentsPage() {
     .filter((p) => !personQuery.trim() || p.name.includes(personQuery.trim()))
     .slice(0, 8)
 
-  const startAccept = (c: (typeof items)[number]) => {
-    setEditingId(c.id)
-    setTitle(c.content)
-    setDueDate(c.dueInferred ?? todayIso())
-    setWorkspaceId('')
+  const openTaskModal = (c: (typeof items)[number]) => {
     setLastAccepted(null)
+    setTaskModalCommitmentId(c.id)
   }
 
   return (
@@ -228,10 +227,9 @@ export default function CommitmentsPage() {
                     </a>
                   )}
                 </div>
-                {editingId !== c.id && (
-                  <div className="flex flex-wrap gap-1.5 shrink-0">
+                <div className="flex flex-wrap gap-1.5 shrink-0">
                     {!unknown && (
-                      <button type="button" className="btn btn-primary text-xs py-1 px-3 inline-flex items-center gap-1" onClick={() => startAccept(c)}>
+                      <button type="button" className="btn btn-primary text-xs py-1 px-3 inline-flex items-center gap-1" onClick={() => openTaskModal(c)}>
                         <Check className="w-3.5 h-3.5" aria-hidden />
                         קבל
                       </button>
@@ -268,7 +266,6 @@ export default function CommitmentsPage() {
                       דחה
                     </button>
                   </div>
-                )}
               </div>
 
               {unknown && linkingId === c.id && (
@@ -302,47 +299,38 @@ export default function CommitmentsPage() {
                   )}
                 </div>
               )}
-
-              {editingId === c.id && (
-                <form
-                  className="mt-3 pt-3 border-t border-[#223052] grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    accept.mutate({
-                      commitmentId: c.id,
-                      taskTitle: title.trim() || undefined,
-                      taskDueDate: dueDate || null,
-                      taskWorkspaceId: workspaceId || null,
-                    })
-                  }}
-                >
-                  <label className="sr-only" htmlFor={`title-${c.id}`}>כותרת המשימה</label>
-                  <input id={`title-${c.id}`} className="input text-sm" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-                  <label className="sr-only" htmlFor={`due-${c.id}`}>תאריך יעד</label>
-                  <input id={`due-${c.id}`} type="date" className="input text-sm" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-                  <label className="sr-only" htmlFor={`ws-${c.id}`}>סביבת עבודה</label>
-                  <select id={`ws-${c.id}`} className="input text-sm" value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-                    <option value="">ללא סביבת עבודה</option>
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>{w.name}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-1.5">
-                    <button type="submit" className="btn btn-primary text-xs py-1 px-3" disabled={accept.isPending || !title.trim()}>
-                      {accept.isPending ? 'יוצר…' : 'צור משימה'}
-                    </button>
-                    <button type="button" className="btn btn-ghost text-xs py-1 px-3" onClick={() => setEditingId(null)}>
-                      ביטול
-                    </button>
-                  </div>
-                  {accept.error && <p className="text-xs text-red-400 sm:col-span-4">{accept.error.message}</p>}
-                </form>
-              )}
             </li>
             )
           })}
         </ul>
       )}
+      {/* TaskModal for accepting a commitment as a full task */}
+      <TaskModal
+        open={taskModalCommitmentId != null}
+        onClose={() => setTaskModalCommitmentId(null)}
+        meetingId={prefillData?.meetingId ?? null}
+        projectId={prefillData?.projectId ?? null}
+        people={peopleList}
+        meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
+        projects={projectsList.map((p) => ({ id: p.id, name: p.name }))}
+        workspaces={workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
+        }))}
+        initialValues={{
+          title: prefillData?.title ?? '',
+          dueDate: prefillData?.dueDate ?? undefined,
+          assigneeId: prefillData?.assigneeId ?? undefined,
+        }}
+        explanations={prefillData?.explanations}
+        onCreated={(_notionSync, task) => {
+          if (taskModalCommitmentId && task?.id) {
+            // Link the created task back to the commitment, then close
+            accept.mutate({ commitmentId: taskModalCommitmentId, taskId: task.id })
+          }
+        }}
+      />
     </div>
   )
 }

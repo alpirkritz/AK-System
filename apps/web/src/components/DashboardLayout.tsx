@@ -30,6 +30,8 @@ import {
 import { isKeyboardOpen, mobileAssistantShellStyle } from '@/lib/chat-layout'
 import { useIsNarrowPhone, useVisualViewportFrame } from '@/lib/use-keyboard-overlap'
 import { NotificationBell } from './NotificationBell'
+import { WorldFilterProvider } from '@/lib/world-filter'
+import { WorldSwitcher } from './WorldSwitcher'
 
 const QuickAddTaskModal = dynamic(
   () => import('./QuickAddTaskModal').then((m) => m.QuickAddTaskModal),
@@ -157,6 +159,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const isMoreActive = MORE_ITEMS.some((item) => isActive(item.href))
 
   return (
+    <WorldFilterProvider>
     <div
       className={`flex overflow-x-hidden ${
         isAssistant ? 'overflow-hidden max-md:h-dvh md:h-dvh' : 'min-h-screen'
@@ -234,7 +237,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             : undefined
         }
       >
-        <div className={`flex justify-end shrink-0 ${isAssistant ? 'mb-2' : 'mb-4 md:mb-6'}`}>
+        <div className={`flex items-center justify-between gap-3 shrink-0 ${isAssistant ? 'mb-2' : 'mb-4 md:mb-6'}`}>
+          <WorldSwitcher />
           <NotificationBell />
         </div>
         <div className={isAssistant ? 'flex-1 min-h-0 flex flex-col' : undefined}>
@@ -361,5 +365,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
     </div>
+    </WorldFilterProvider>
   )
 }

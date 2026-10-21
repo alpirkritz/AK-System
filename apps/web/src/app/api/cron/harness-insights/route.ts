@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { eq, isNull } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { harnessInsights } from '@ak-system/database'
-import { formatInsightLines, listOpenInsights } from '@ak-system/api'
+import { formatInsightLines, listOpenInsights, selectInsightsToPush } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
@@ -14,7 +14,8 @@ const NOTIFICATION_TYPE = 'harness_insight'
  *
  * Indexing and reasoning always run — the dashboard widget and `harness.worldState`
  * read the result regardless of whether anything was worth a notification. Only
- * `urgent` insights are pushed, at most once a day, so this never becomes noise.
+ * `urgent` insights (up to 5) and unpushed situation-level `attention` insights (up to 3)
+ * are pushed once each. Person-scoped attention stays on the dashboard.
  *
  * Optional: Authorization: Bearer <CRON_SECRET>
  */
@@ -43,12 +44,8 @@ async function runHarnessInsights(request: NextRequest): Promise<NextResponse> {
     const indexed = await caller.harness.syncToGraph({})
     const reasoned = await caller.harness.runReasoner()
 
-    // Only push insights that have never been pushed before (notified_at IS NULL).
-    // Prefer urgent; fall back to one attention if nothing urgent is new.
     const allOpen = await listOpenInsights(db, { limit: 50 })
-    const unpushed = allOpen.filter((i) => !(i as { notifiedAt?: string | null }).notifiedAt)
-    const urgentNew = unpushed.filter((i) => i.severity === 'urgent')
-    const toSend = urgentNew.length > 0 ? urgentNew.slice(0, 5) : unpushed.filter((i) => i.severity === 'attention').slice(0, 1)
+    const toSend = selectInsightsToPush(allOpen)
 
     if (toSend.length === 0) {
       return NextResponse.json({

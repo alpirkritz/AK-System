@@ -16,7 +16,7 @@ function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
 // Auth gate for page routes. API routes are excluded via the matcher below and
 // enforce their own auth:
 //   - /api/trpc      → tRPC protectedProcedure (getServerSession)
-//   - /api/whatsapp, /api/telegram, /api/cron → Bearer/secret tokens
+//   - /api/whatsapp, /api/telegram, /api/cron, /api/slack → Bearer/secret tokens
 //   - /api/auth      → NextAuth itself
 // Static assets (sw.js, manifest.json, icons) are also excluded so the PWA installs.
 export function middleware(req: NextRequest) {
@@ -39,6 +39,11 @@ export function middleware(req: NextRequest) {
   // API routes enforce their own auth (tRPC session, Bearer secrets, NextAuth).
   // Never HTML-redirect them — clients expect JSON and otherwise hit "JSON Parse Error".
   if (req.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next()
+  }
+
+  // The Helm APK is installed from the phone browser before a session exists.
+  if (req.nextUrl.pathname === '/helm.apk') {
     return NextResponse.next()
   }
 
@@ -71,6 +76,6 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/api/:path*',
-    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|login).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|login|helm\\.apk).*)',
   ],
 }

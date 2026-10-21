@@ -29,6 +29,11 @@ export interface AnalyzeTranscriptOptions {
   meetingTitle: string
   meetingDate: string
   participantNames?: string[]
+  /** Project name to give Gemini business context for action-item attribution. */
+  projectName?: string
+  /** CRM profiles of confirmed attendees. Gemini uses these as reference — it will not
+   *  hard-map speaker labels to names without voice-diarization confirmation. */
+  knownPeople?: { name: string; role?: string; company?: string }[]
 }
 
 export interface AnalysisParticipant {
@@ -139,10 +144,30 @@ const GEMINI_JSON_SCHEMA = {
 }
 
 function buildAnalysisPrompt(options: AnalyzeTranscriptOptions): string {
-  const { transcriptText, meetingTitle, meetingDate, participantNames } = options
+  const { transcriptText, meetingTitle, meetingDate, participantNames, projectName, knownPeople } = options
 
   const participantsNote = participantNames?.length
     ? `\n\nKnown participants from the meeting record: ${participantNames.join(', ')}`
+    : ''
+
+  // Build an enriched context block when CRM data is available.
+  const contextLines: string[] = []
+  if (projectName) {
+    contextLines.push(`Project: ${projectName}`)
+  }
+  if (knownPeople?.length) {
+    const profiles = knownPeople
+      .map((p) => {
+        const parts = [p.name]
+        if (p.role) parts.push(p.role)
+        if (p.company) parts.push(p.company)
+        return parts.join(', ')
+      })
+      .join('\n  - ')
+    contextLines.push(`Confirmed attendees from CRM:\n  - ${profiles}`)
+  }
+  const contextBlock = contextLines.length
+    ? `\n\nCONTEXT (confirmed before recording started):\n${contextLines.join('\n')}\n\nUse this context to enrich attribution and action-item ownership. Do NOT hard-assign speaker labels to names — speaker identification is handled separately.`
     : ''
 
   return `${ownerIdentityPrompt()}
@@ -150,7 +175,7 @@ function buildAnalysisPrompt(options: AnalyzeTranscriptOptions): string {
 You are a conversation analyst. Analyze the following meeting transcript and provide deep qualitative insights.
 
 Meeting: ${meetingTitle}
-Date: ${meetingDate}${participantsNote}
+Date: ${meetingDate}${participantsNote}${contextBlock}
 
 ANALYTICAL HATS CATALOG:
 1. McKinsey + Tech Innovation — Strategy, digital transformation, organizational change

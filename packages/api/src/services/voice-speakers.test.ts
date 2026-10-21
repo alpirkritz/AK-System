@@ -4,22 +4,33 @@ import * as path from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
+  meetingAnalyses,
   notifications,
   people,
+  voicePrints,
   voiceRecordingPeople,
   voiceRecordings,
   voiceSpeakerIdentities,
   voiceTranscriptSegments,
 } from '@ak-system/database'
 import { createTestCaller, getTestDb, resetDb } from '../test-utils'
-import { parseTranscription, processVoiceRecording, saveVoiceUpload, type TranscriptResult } from './voice'
 import {
+  parseTranscription,
+  processVoiceRecording,
+  refreshVoiceAnalysisAfterSpeakerResolution,
+  saveVoiceUpload,
+  type TranscriptResult,
+} from './voice'
+import {
+  attributedTranscript,
+  autoIdentifyTwoPersonConversation,
   identifySpeaker,
   listRecordingSpeakers,
   notifyUnknownSpeakers,
   resolveSelfSpeakerLabel,
 } from './voice-diarization'
 import type { AnalysisResult } from './meeting-analysis'
+import { ensureSelfPerson } from './self-person'
 
 let voiceDir = ''
 
@@ -172,8 +183,8 @@ describe('listRecordingSpeakers', () => {
     return recordingId
   }
 
-  async function addPerson(id: string) {
-    await getTestDb().insert(people).values({ id, name: 'דנה לוי', status: 'confirmed', source: 'manual', createdAt: new Date().toISOString() })
+  async function addPerson(id: string, name = 'דנה לוי') {
+    await getTestDb().insert(people).values({ id, name, status: 'confirmed', source: 'manual', createdAt: new Date().toISOString() })
   }
 
   it('offers the longest turn of each speaker as the sample', async () => {
@@ -183,6 +194,7 @@ describe('listRecordingSpeakers', () => {
         speakerLabel: 'דובר 1',
         state: 'unknown',
         personId: null,
+        personName: null,
         sampleStartMs: 0,
         sampleEndMs: 4500,
         sampleText: 'בוקר טוב, נתחיל',
@@ -192,6 +204,7 @@ describe('listRecordingSpeakers', () => {
         speakerLabel: 'דובר 2',
         state: 'unknown',
         personId: null,
+        personName: null,
         sampleStartMs: 4500,
         sampleEndMs: 6000,
         sampleText: 'בוקר',
@@ -248,8 +261,143 @@ describe('listRecordingSpeakers', () => {
     const caller = await createTestCaller()
     const recordingId = await recording()
     expect((await caller.voice.speakers({ recordingId })).map((s) => s.speakerLabel)).toEqual(['דובר 1', 'דובר 2'])
-    expect(await caller.voice.identifySpeaker({ recordingId, speakerLabel: 'דובר 2', personId: null })).toEqual({ state: 'skipped' })
+    expect(await caller.voice.identifySpeaker({ recordingId, speakerLabel: 'דובר 2', personId: null })).toEqual({
+      state: 'skipped',
+      analysisRefreshed: false,
+    })
     expect((await caller.voice.speakers({ recordingId })).find((s) => s.speakerLabel === 'דובר 2')?.state).toBe('skipped')
+  })
+})
+
+describe('safe two-person attribution', () => {
+  async function recording(): Promise<string> {
+    const recordingId = await upload()
+    await runProcessing(recordingId, async () => MODEL_JSON)
+    return recordingId
+  }
+
+  async function seedSelfAndOther(recordingId: string) {
+    const db = getTestDb()
+    const owner = await ensureSelfPerson(db)
+    const now = new Date().toISOString()
+    await db.insert(voicePrints).values({
+      id: 'vp_owner',
+      personId: owner.id,
+      embedding: '[]',
+      model: 'test',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(voiceSpeakerIdentities).values({
+      id: 'vsi_owner',
+      recordingId,
+      speakerLabel: 'דובר 1',
+      personId: owner.id,
+      state: 'auto',
+      createdAt: now,
+    })
+    await db.insert(people).values({
+      id: 'p_dana',
+      name: 'דנה לוי',
+      status: 'confirmed',
+      source: 'manual',
+      createdAt: now,
+    })
+    await db.insert(voiceRecordingPeople).values({ recordingId, personId: 'p_dana' })
+    return owner
+  }
+
+  it('auto-identifies the only other confirmed person and exposes the mapped name', async () => {
+    const db = getTestDb()
+    const recordingId = await recording()
+    const owner = await seedSelfAndOther(recordingId)
+
+    expect(await autoIdentifyTwoPersonConversation(db, recordingId)).toBe(true)
+    expect(await autoIdentifyTwoPersonConversation(db, recordingId)).toBe(false)
+
+    const speakers = await listRecordingSpeakers(db, recordingId)
+    expect(speakers.find((speaker) => speaker.speakerLabel === 'דובר 1')).toMatchObject({
+      state: 'auto',
+      personId: owner.id,
+      personName: owner.name,
+    })
+    expect(speakers.find((speaker) => speaker.speakerLabel === 'דובר 2')).toMatchObject({
+      state: 'auto',
+      personId: 'p_dana',
+      personName: 'דנה לוי',
+    })
+
+    const attributed = await attributedTranscript(
+      db,
+      recordingId,
+      'דובר 1: בוקר טוב, נתחיל\nדובר 2: בוקר\nדובר 1: אז מה המצב בפרויקט',
+    )
+    expect(attributed.allResolved).toBe(true)
+    expect(attributed.text).toBe(`${owner.name}: בוקר טוב, נתחיל\nדנה לוי: בוקר\n${owner.name}: אז מה המצב בפרויקט`)
+  })
+
+  it('refuses to guess when more than one external participant is linked', async () => {
+    const db = getTestDb()
+    const recordingId = await recording()
+    await seedSelfAndOther(recordingId)
+    await db.insert(people).values({
+      id: 'p_ron',
+      name: 'רון כהן',
+      status: 'confirmed',
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+    })
+    await db.insert(voiceRecordingPeople).values({ recordingId, personId: 'p_ron' })
+
+    expect(await autoIdentifyTwoPersonConversation(db, recordingId)).toBe(false)
+    expect((await listRecordingSpeakers(db, recordingId)).find((speaker) => speaker.speakerLabel === 'דובר 2')).toMatchObject({
+      state: 'unknown',
+      personId: null,
+    })
+  })
+
+  it('refreshes the existing analysis from attributed text without changing the stored transcript', async () => {
+    const db = getTestDb()
+    const recordingId = await recording()
+    await seedSelfAndOther(recordingId)
+    await autoIdentifyTwoPersonConversation(db, recordingId)
+    let analyzedText = ''
+
+    const refreshed = await refreshVoiceAnalysisAfterSpeakerResolution(db, recordingId, {
+      analyze: async (options) => {
+        analyzedText = options.transcriptText
+        return {
+          ...analysis(),
+          topic: 'שיחה מיוחסת',
+          keyInsight: 'דנה אישרה את לוח הזמנים',
+          actionItems: [{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי' }],
+        }
+      },
+    })
+
+    expect(refreshed).toBe(true)
+    expect(analyzedText).toContain('דנה לוי: בוקר')
+    expect(analyzedText).not.toContain('דובר 2: בוקר')
+    const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
+    expect(rec.transcriptText).toContain('דובר 2: בוקר')
+    const [stored] = await db.select().from(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId!))
+    expect(stored.transcriptText).toContain('דנה לוי: בוקר')
+    expect(stored.topic).toBe('שיחה מיוחסת')
+    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי' }])
+  })
+
+  it('does not refresh while any speaker is still unknown', async () => {
+    const recordingId = await recording()
+    let called = false
+    expect(
+      await refreshVoiceAnalysisAfterSpeakerResolution(getTestDb(), recordingId, {
+        analyze: async () => {
+          called = true
+          return analysis()
+        },
+      }),
+    ).toBe(false)
+    expect(called).toBe(false)
   })
 })
 

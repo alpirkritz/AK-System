@@ -44,6 +44,11 @@ const SOURCE_KIND_LABEL: Record<string, string> = {
   whatsapp_signal: 'וואטסאפ',
   voice_recording: 'הקלטה',
   email_thread: 'מייל',
+  project: 'פרויקט',
+  invoice: 'חשבונית',
+  vat_period: 'מע״מ',
+  calendar_day: 'יום ביומן',
+  reply_queue: 'תור תשובות',
 }
 
 function severityOf(raw: string): Severity {

@@ -182,7 +182,8 @@ export async function syncEmailThreads(
       lastSyncedAt: syncedAt,
     }
     if (existing) {
-      await db.update(personEmailThreads).set(fields).where(eq(personEmailThreads.id, existing.id))
+      // A newer message makes the previous reply/FYI label stale.
+      await db.update(personEmailThreads).set({ ...fields, replyNeed: null, replyNeedAt: null }).where(eq(personEmailThreads.id, existing.id))
       result.updated++
     } else {
       await db.insert(personEmailThreads).values({

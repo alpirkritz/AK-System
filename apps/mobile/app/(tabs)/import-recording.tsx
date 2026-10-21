@@ -1,16 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
+import { fetchPeople, fetchProjects, type MobileProject } from '../../lib/data'
 import { colors } from '../../lib/theme'
 import { uploadVoiceRecording } from '../../lib/voice'
 import { VOICE_MIN_SECONDS } from '../../lib/voice-format'
+import { RecordingContextEditor } from '../../components/RecordingContextEditor'
 
 /**
  * Import an externally-recorded audio file (e.g. Samsung's native call recorder) into the same
  * transcription/analysis/self-voice-matching pipeline as an in-app recording.
  * See docs/specs/recording-background-and-speaker-id.md.
+ *
+ * A review step (people + project) was added by docs/specs/recording-context-before-upload.md.
  *
  * Note: this screen only covers the "pick a file from the app" path. The Android share-sheet
  * path (sharing directly from the call-recorder/Files app into ARO) additionally needs an
@@ -19,7 +23,8 @@ import { VOICE_MIN_SECONDS } from '../../lib/voice-format'
  * a small additional linking-handler piece not included in this pass.
  */
 
-type Phase = 'pick' | 'ready' | 'uploading' | 'done'
+type Named = { id: string; name: string }
+type Phase = 'pick' | 'ready' | 'review' | 'uploading' | 'done'
 
 export default function ImportRecordingScreen() {
   const { token } = useAuth()
@@ -29,6 +34,23 @@ export default function ImportRecordingScreen() {
   const [consent, setConsent] = useState(false)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
+  const [people, setPeople] = useState<Named[]>([])
+  const [project, setProject] = useState<Named | null>(null)
+  const [directory, setDirectory] = useState<{ people: Named[]; projects: MobileProject[] } | null>(null)
+
+  // Load people + projects for the context editor as soon as we have a token.
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    void Promise.all([fetchPeople(token), fetchProjects(token)])
+      .then(([loadedPeople, loadedProjects]) => {
+        if (!cancelled) setDirectory({ people: loadedPeople, projects: loadedProjects })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   const pick = async () => {
     setMessage(null)
@@ -58,7 +80,8 @@ export default function ImportRecordingScreen() {
         {
           uri: file.uri,
           durationSeconds: VOICE_MIN_SECONDS + 1,
-          personIds: [],
+          personIds: people.map((p) => p.id),
+          projectId: project?.id ?? null,
           source: 'imported',
           fileName: file.name,
           mimeType: file.mimeType,
@@ -67,7 +90,7 @@ export default function ImportRecordingScreen() {
       )
       setPhase('done')
     } catch (err) {
-      setPhase('ready')
+      setPhase('review')
       setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
     }
   }
@@ -113,13 +136,38 @@ export default function ImportRecordingScreen() {
           <Pressable
             style={[styles.primaryBtn, !consent && styles.disabled]}
             disabled={!consent}
-            onPress={() => void upload()}
+            onPress={() => { setPeople([]); setProject(null); setPhase('review') }}
             accessibilityRole="button"
           >
-            <Text style={styles.primaryBtnText}>העלה ועבד</Text>
+            <Text style={styles.primaryBtnText}>המשך לבחירת הקשר</Text>
           </Pressable>
           <Pressable onPress={() => { setFile(null); setPhase('pick') }} accessibilityRole="button">
             <Text style={styles.link}>בחר קובץ אחר</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Review phase: select attendees and project before uploading */}
+      {phase === 'review' && file ? (
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>אישור לפני העלאה</Text>
+          <Text style={styles.muted}>בחר משתתפים ופרויקט (אופציונלי) ואז לחץ ״העלה שיחה״.</Text>
+          <RecordingContextEditor
+            people={people}
+            project={project}
+            directory={directory}
+            onChangePeople={setPeople}
+            onChangeProject={setProject}
+          />
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => void upload()}
+            accessibilityRole="button"
+          >
+            <Text style={styles.primaryBtnText}>העלה שיחה</Text>
+          </Pressable>
+          <Pressable onPress={() => setPhase('ready')} accessibilityRole="button">
+            <Text style={styles.link}>חזרה</Text>
           </Pressable>
         </View>
       ) : null}
@@ -162,6 +210,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 17, fontWeight: '700', ...rtl },
   body: { color: colors.text, fontSize: 15, lineHeight: 22, ...rtl },
   muted: { color: colors.textMuted, fontSize: 13, lineHeight: 19, ...rtl },
+  sectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', ...rtl },
   error: { color: colors.error, fontSize: 13, ...rtl },
   link: { color: colors.accent, fontSize: 14, fontWeight: '600', paddingVertical: 10, ...rtl },
   consentRow: { flexDirection: 'row-reverse', alignItems: 'flex-start', gap: 12, minHeight: 44 },

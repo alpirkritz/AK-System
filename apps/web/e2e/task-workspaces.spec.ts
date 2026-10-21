@@ -14,7 +14,7 @@ test.describe('Task workspaces', () => {
     await expect(modal.getByLabel('כותרת')).toBeFocused()
 
     await modal.getByLabel('כותרת').fill(title)
-    await modal.getByLabel('מקור').selectOption({ label: 'Dragontail' })
+    await modal.getByLabel('עולם').selectOption({ label: 'Dragontail' })
     await modal.getByRole('button', { name: 'הוסף' }).click()
 
     await expect(modal).toBeHidden({ timeout: 10000 })
@@ -50,7 +50,7 @@ test.describe('Task workspaces', () => {
       const modal = page.locator('.modal')
       await expect(modal).toBeVisible({ timeout: 10000 })
       await modal.getByLabel('כותרת').fill(title)
-      await modal.getByLabel('מקור').selectOption({ label: workspace })
+      await modal.getByLabel('עולם').selectOption({ label: workspace })
       await modal.getByRole('button', { name: 'הוסף' }).click()
       await expect(modal).toBeHidden({ timeout: 10000 })
     }
@@ -59,26 +59,27 @@ test.describe('Task workspaces', () => {
     await expect(page.locator('.task-row').filter({ hasText: dazTitle })).toBeVisible({ timeout: 20000 })
     await expect(page.locator('.task-row').filter({ hasText: personalTitle })).toBeVisible()
 
-    await page.getByRole('button', { name: 'סינון', exact: true }).click()
-    const sourceFilter = page.getByRole('group', { name: 'סינון לפי מקור' })
-    await sourceFilter.getByRole('button', { name: 'DAZ', exact: true }).click()
+    await page.getByTestId('world-switcher').click()
+    const panel = page.getByTestId('world-switcher-panel')
+    await panel.getByRole('option', { name: 'DAZ', exact: true }).click()
+    await expect(page.getByTestId('filtered-world-chip')).toContainText('DAZ')
     await expect(page.locator('.task-row').filter({ hasText: dazTitle })).toBeVisible()
     await expect(page.locator('.task-row').filter({ hasText: personalTitle })).toHaveCount(0)
 
-    await sourceFilter.getByRole('button', { name: 'הכל', exact: true }).click()
+    await page.getByTestId('filtered-world-chip').click()
     await expect(page.locator('.task-row').filter({ hasText: personalTitle })).toBeVisible()
   })
 
   test('workspaces settings page lists the seeded sources and saves a notion label', async ({ page }) => {
     await page.goto('/settings')
-    const link = page.getByRole('link', { name: /מקורות/ })
+    const link = page.getByRole('link', { name: /עולמות/ })
     await expect(link).toBeVisible({ timeout: 20000 })
     await link.click()
 
     await expect(page).toHaveURL(/\/settings\/workspaces/)
     await expect(page.getByTestId('workspaces-settings')).toBeVisible({ timeout: 20000 })
     for (const name of ['Alpir Consulting', 'Dragontail', 'DAZ', 'פרטי']) {
-      await expect(page.locator('.text-sm').getByText(name, { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: `ערוך את ${name}`, exact: true })).toBeVisible()
     }
 
     await page.getByRole('button', { name: 'ערוך את Dragontail' }).click()

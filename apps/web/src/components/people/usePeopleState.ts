@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { trpc } from '@/lib/trpc'
+import { useWorldFilter } from '@/lib/world-filter'
 
 export type SortField = 'name' | 'company' | 'lastContact' | 'createdAt' | 'goal' | 'role'
 export type SortDir = 'asc' | 'desc'
@@ -45,6 +46,7 @@ function lastContactPresetToDates(preset: string) {
 }
 
 export function usePeopleState() {
+  const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
   const [viewMode, setViewMode] = useState<ViewMode>('table')
   const [filters, setFilters] = useState<PeopleFilters>({ ...EMPTY_FILTERS })
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -55,6 +57,11 @@ export function usePeopleState() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [drawerPersonId, setDrawerPersonId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+
+  // Cards fit a folded phone (~390px); the table needs sideways scrolling there.
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 767px)').matches) setViewMode('cards')
+  }, [])
 
   const setSearch = useCallback((value: string) => {
     setFilters(f => ({ ...f, search: value }))
@@ -96,6 +103,10 @@ export function usePeopleState() {
     setPage(1)
   }, [sortBy])
 
+  useEffect(() => {
+    setPage(1)
+  }, [worldFilter])
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -125,12 +136,14 @@ export function usePeopleState() {
     goal: filters.goal || undefined,
     company: filters.company || undefined,
     contactNow: filters.contactNow || undefined,
+    workspaceId: worldFilter || undefined,
     ...dateFilters,
-  }), [page, sortBy, sortDir, debouncedSearch, filters.tags, filters.goal, filters.company, filters.contactNow, dateFilters])
+  }), [page, sortBy, sortDir, debouncedSearch, filters.tags, filters.goal, filters.company, filters.contactNow, worldFilter, dateFilters])
 
   const { data, isLoading, isError, refetch } = trpc.people.listPaginated.useQuery(queryInput, {
     staleTime: 30_000,
     keepPreviousData: true,
+    enabled: worldReady,
   })
 
   const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, {
@@ -163,5 +176,6 @@ export function usePeopleState() {
     isError,
     refetch,
     filterOptions,
+    worldFilter,
   }
 }

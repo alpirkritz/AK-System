@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people, TASK_STATUSES, workspaceNotionDatabases } from '@ak-system/database'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, isNull, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import {
   syncNotionTasks,
   isNotionTasksConfigured,
@@ -81,7 +82,12 @@ export const tasksRouter = router({
     .input(z.object({ workspaceId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       if (input?.workspaceId) {
-        return ctx.db.select().from(tasks).where(eq(tasks.workspaceId, input.workspaceId)).orderBy(tasks.createdAt)
+        const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+        return ctx.db
+          .select()
+          .from(tasks)
+          .where(or(inArray(tasks.workspaceId, ids), isNull(tasks.workspaceId)))
+          .orderBy(tasks.createdAt)
       }
       return ctx.db.select().from(tasks).orderBy(tasks.createdAt)
     }),

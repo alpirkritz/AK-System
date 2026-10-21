@@ -524,7 +524,13 @@ const MEETING_PREP_GROUNDING_RETRY_PROMPT =
   '"לא נמצאו משימות קשורות לפגישה זו" — NEVER dump the full open backlog. ' +
   'Reply in the same language as the user.'
 
-type FunctionCall = { name: string; args: ToolArgs }
+type FunctionCall = { name: string; args: ToolArgs; id?: string }
+
+type ToolResponsePart = {
+  functionResponse: { name: string; id?: string; response: { result: unknown } }
+}
+
+type GeminiContent = { role?: string; parts: unknown[] }
 
 const FOCUS_TITLE_TOOLS = new Set(['get_notion_meeting_notes', 'get_notion_tasks'])
 
@@ -569,14 +575,54 @@ async function processToolCalls(
         toolResult = { error: err instanceof Error ? err.message : 'Tool execution failed' }
       }
       toolResults.set(call.name, toolResult)
-      return { functionResponse: { name: call.name, response: { result: toolResult } } }
+      return {
+        functionResponse: {
+          name: call.name,
+          ...(call.id ? { id: call.id } : {}),
+          response: { result: toolResult },
+        },
+      }
     }),
   )
 }
 
+/**
+ * Gemini 3 rejects role "function". The SDK assigns that role inside
+ * chat.sendMessage, so tool results go out through generateContent as role
+ * "user", with the function-call id and the thought signature already stored
+ * on the model turn. Chats whose model has no generateContent keep sendMessage.
+ */
+async function sendToolResults(
+  chat: {
+    sendMessage: (request: ToolResponsePart[]) => Promise<GeminiChatResult>
+    getHistory?: () => Promise<GeminiContent[]>
+  },
+  model: {
+    generateContent?: (request: { contents: GeminiContent[] }) => Promise<GeminiChatResult>
+  },
+  responses: ToolResponsePart[],
+): Promise<GeminiChatResult> {
+  if (model.generateContent && chat.getHistory) {
+    const history = await chat.getHistory()
+    const toolTurn: GeminiContent = { role: 'user', parts: responses }
+    const result = await model.generateContent({ contents: [...history, toolTurn] })
+    const content = result.response.candidates?.[0]?.content as GeminiContent | undefined
+    if (content?.parts?.length) {
+      history.push(toolTurn)
+      history.push({ role: content.role || 'model', parts: content.parts })
+    }
+    return result
+  }
+  return chat.sendMessage(responses)
+}
+
+type GeminiChat = ReturnType<ReturnType<GoogleGenerativeAI['getGenerativeModel']>['startChat']>
+type GeminiChatResult = Awaited<ReturnType<GeminiChat['sendMessage']>>
+
 async function runToolLoop(
-  chat: ReturnType<ReturnType<GoogleGenerativeAI['getGenerativeModel']>['startChat']>,
-  initialResult: Awaited<ReturnType<typeof chat.sendMessage>>,
+  chat: GeminiChat,
+  model: { generateContent?: (request: { contents: GeminiContent[] }) => Promise<GeminiChatResult> },
+  initialResult: GeminiChatResult,
   caller: Awaited<ReturnType<typeof createApiCaller>>,
   toolCtx: ToolExecutionContext | undefined,
   toolsCalled: Set<string>,
@@ -592,7 +638,7 @@ async function runToolLoop(
     if (!rawCalls || rawCalls.length === 0) break
     const calls = withSingleMeetingFocus(rawCalls, agentId, message)
     const responses = await processToolCalls(calls, caller, toolCtx, toolsCalled, toolResults)
-    result = await chat.sendMessage(responses)
+    result = await sendToolResults(chat, model, responses)
     iterations++
   }
   return result
@@ -632,6 +678,7 @@ async function runChatLoop(
   logger.log('Starting chat loop', { agentId, message: message.slice(0, 100), allowTools })
   let result = await runToolLoop(
     chat,
+    model,
     await chat.sendMessage(message),
     caller,
     toolCtx,
@@ -679,6 +726,7 @@ async function runChatLoop(
     geminiCalls++
     result = await runToolLoop(
       chat,
+      model,
       await chat.sendMessage(DELEGATION_RETRY_PROMPT),
       caller,
       toolCtx,
@@ -703,6 +751,7 @@ async function runChatLoop(
     geminiCalls++
     result = await runToolLoop(
       chat,
+      model,
       await chat.sendMessage(HARNESS_SURFACING_RETRY_PROMPT),
       caller,
       toolCtx,
@@ -727,6 +776,7 @@ async function runChatLoop(
     geminiCalls++
     result = await runToolLoop(
       chat,
+      model,
       await chat.sendMessage(MEETING_PREP_GROUNDING_RETRY_PROMPT),
       caller,
       toolCtx,

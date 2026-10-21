@@ -4,16 +4,17 @@ import {
   Alert,
   AppState,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
 import { useBringFocusedFieldIntoView } from '../../components/KeyboardSafe'
+import { RecordingContextEditor } from '../../components/RecordingContextEditor'
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -49,8 +50,7 @@ import {
   VOICE_MIN_SECONDS,
   VOICE_STATUS_LABELS,
 } from '../../lib/voice-format'
-
-type Phase = 'consent' | 'recording' | 'paused' | 'uploading' | 'result'
+type Phase = 'consent' | 'recording' | 'paused' | 'review' | 'uploading' | 'result'
 type Named = { id: string; name: string }
 
 /**
@@ -69,7 +69,6 @@ type PendingUpload = {
   meetingId?: string
 }
 const PENDING_VOICE_UPLOAD_KEY = 'helm_pending_voice_upload'
-type PickerMode = { kind: 'person'; replaceId?: string } | { kind: 'project' }
 /** Rows shown before "עוד פגישות להיום" — keeps the first screen scannable. */
 const MEETINGS_COLLAPSED = 5
 
@@ -115,115 +114,6 @@ function MeetingRow({
         {detail || (showDate ? '' : 'הקש להתחלת הקלטה')}
       </Text>
     </Pressable>
-  )
-}
-
-function RecordingContextEditor({
-  people,
-  project,
-  directory,
-  onChangePeople,
-  onChangeProject,
-}: {
-  people: Named[]
-  project: Named | null
-  directory: { people: Named[]; projects: MobileProject[] } | null
-  onChangePeople: (next: Named[]) => void
-  onChangeProject: (next: Named | null) => void
-}) {
-  const [mode, setMode] = useState<PickerMode | null>(null)
-  const [query, setQuery] = useState('')
-  const q = query.trim().toLowerCase()
-  const personMatches = !directory || mode?.kind !== 'person'
-    ? []
-    : directory.people.filter((p) => !people.some((x) => x.id === p.id) && p.name.toLowerCase().includes(q)).slice(0, 6)
-  const projectMatches = !directory || mode?.kind !== 'project'
-    ? []
-    : directory.projects.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 6)
-
-  const open = (next: PickerMode) => {
-    setMode(next)
-    setQuery('')
-  }
-  const pickPerson = (person: Named) => {
-    if (mode?.kind === 'person' && mode.replaceId) {
-      onChangePeople(people.map((p) => (p.id === mode.replaceId ? person : p)))
-    } else {
-      onChangePeople([...people, person])
-    }
-    setMode(null)
-    setQuery('')
-  }
-  const pickProject = (next: Named) => {
-    onChangeProject(next)
-    setMode(null)
-    setQuery('')
-  }
-
-  return (
-    <View style={styles.block}>
-      <Text style={styles.sectionLabel}>משתתפים</Text>
-      {people.length === 0 ? <Text style={styles.muted}>עדיין אין משתתפים</Text> : null}
-      {people.map((p) => (
-        <View key={p.id} style={styles.itemRow}>
-          <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{p.name}</Text>
-          <Pressable onPress={() => open({ kind: 'person', replaceId: p.id })} hitSlop={8} accessibilityRole="button" accessibilityLabel={`ערוך את ${p.name}`}>
-            <Text style={styles.linkBtn}>ערוך</Text>
-          </Pressable>
-          <Pressable onPress={() => onChangePeople(people.filter((x) => x.id !== p.id))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`הסר את ${p.name}`}>
-            <Text style={styles.removeBtn}>הסר</Text>
-          </Pressable>
-        </View>
-      ))}
-      <Pressable onPress={() => open({ kind: 'person' })} accessibilityRole="button">
-        <Text style={styles.link}>הוסף משתתף</Text>
-      </Pressable>
-
-      <Text style={styles.sectionLabel}>פרויקט</Text>
-      {project ? (
-        <View style={styles.itemRow}>
-          <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{project.name}</Text>
-          <Pressable onPress={() => open({ kind: 'project' })} hitSlop={8} accessibilityRole="button" accessibilityLabel={`ערוך את ${project.name}`}>
-            <Text style={styles.linkBtn}>ערוך</Text>
-          </Pressable>
-          <Pressable onPress={() => onChangeProject(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`הסר את ${project.name}`}>
-            <Text style={styles.removeBtn}>הסר</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <Pressable onPress={() => open({ kind: 'project' })} accessibilityRole="button">
-          <Text style={styles.link}>הוסף פרויקט</Text>
-        </Pressable>
-      )}
-
-      {mode ? (
-        <View style={styles.block}>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={mode.kind === 'person' ? 'חפש אדם' : 'חפש פרויקט'}
-            placeholderTextColor={colors.textMuted}
-            style={styles.search}
-            textAlign="right"
-            autoFocus
-            autoCorrect={false}
-          />
-          {(mode.kind === 'person' ? personMatches : projectMatches).map((item) => (
-            <Pressable
-              key={item.id}
-              style={styles.match}
-              onPress={() => (mode.kind === 'person' ? pickPerson(item) : pickProject(item))}
-              accessibilityRole="button"
-            >
-              <Text style={styles.body}>{item.name}</Text>
-            </Pressable>
-          ))}
-          {q && (mode.kind === 'person' ? personMatches : projectMatches).length === 0 ? (
-            <Text style={styles.muted}>אין תוצאות</Text>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
   )
 }
 
@@ -460,6 +350,10 @@ export default function RecordScreen() {
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  // URI and duration of a stopped recording awaiting context confirmation before upload.
+  // (docs/specs/recording-context-before-upload.md)
+  const [pendingUri, setPendingUri] = useState<string | null>(null)
+  const [pendingDuration, setPendingDuration] = useState(0)
   // The calendar meeting this recording belongs to, picked before recording starts. Participants
   // and project then come from the meeting server-side (docs/specs/record-from-calendar-meeting.md).
   const [meeting, setMeeting] = useState<MobileMeetingChoice | null>(null)
@@ -468,6 +362,7 @@ export default function RecordScreen() {
   const [presetMeeting, setPresetMeeting] = useState<MobileMeetingChoice | null>(null)
   const [showAllMeetings, setShowAllMeetings] = useState(false)
   const [resending, setResending] = useState(false)
+  const [showMeetingChangePicker, setShowMeetingChangePicker] = useState(false)
   const phaseRef = useRef(phase)
   const scrollRef = useRef<ScrollView>(null)
   useBringFocusedFieldIntoView(scrollRef)
@@ -509,15 +404,15 @@ export default function RecordScreen() {
           if (!cancelled) setPresetMeeting(m)
         })
         .catch(() => undefined)
-    } else {
-      void fetchMeetingChoices(token)
-        .then((list) => {
-          if (!cancelled) setMeetingChoices(list)
-        })
-        .catch(() => {
-          if (!cancelled) setMeetingsFailed(true)
-        })
     }
+    // Always fetch the full day list so it's available for the meeting-change picker in review phase.
+    void fetchMeetingChoices(token)
+      .then((list) => {
+        if (!cancelled) setMeetingChoices(list)
+      })
+      .catch(() => {
+        if (!cancelled && !params.meetingId) setMeetingsFailed(true)
+      })
     return () => {
       cancelled = true
     }
@@ -558,11 +453,15 @@ export default function RecordScreen() {
   useEffect(() => {
     return navigation.addListener('beforeRemove', (e) => {
       const p = phaseRef.current
-      if (p !== 'recording' && p !== 'paused' && p !== 'uploading') return
+      if (p !== 'recording' && p !== 'paused' && p !== 'review' && p !== 'uploading') return
       e.preventDefault()
       Alert.alert(
-        p === 'uploading' ? 'ההעלאה עדיין רצה' : 'ההקלטה תימחק',
-        p === 'uploading' ? 'יציאה עכשיו עלולה לבטל את ההעלאה.' : 'לצאת בלי לשלוח את ההקלטה?',
+        p === 'uploading' ? 'ההעלאה עדיין רצה' : p === 'review' ? 'לבטל את ההקלטה?' : 'ההקלטה תימחק',
+        p === 'uploading'
+          ? 'יציאה עכשיו עלולה לבטל את ההעלאה.'
+          : p === 'review'
+          ? 'לצאת בלי לשלוח את ההקלטה? הקובץ יימחק.'
+          : 'לצאת בלי לשלוח את ההקלטה?',
         [
           { text: 'להישאר', style: 'cancel' },
           {
@@ -570,6 +469,11 @@ export default function RecordScreen() {
             style: 'destructive',
             onPress: () => {
               if (p !== 'uploading') void recorder.stop().catch(() => undefined)
+              if (p === 'review' && pendingUri) {
+                void import('expo-file-system/legacy')
+                  .then(({ deleteAsync }) => deleteAsync(pendingUri, { idempotent: true }))
+                  .catch(() => undefined)
+              }
               phaseRef.current = 'consent'
               navigation.dispatch(e.data.action)
             },
@@ -577,7 +481,7 @@ export default function RecordScreen() {
         ],
       )
     })
-  }, [navigation, recorder])
+  }, [navigation, recorder, pendingUri])
 
   const start = async (forMeeting: MobileMeetingChoice | null = null) => {
     if (pendingUpload) {
@@ -632,7 +536,11 @@ export default function RecordScreen() {
     setPhase('recording')
   }
 
-  const stopAndUpload = async () => {
+  /**
+   * Stop the recorder and transition to the context-review phase before uploading.
+   * (docs/specs/recording-context-before-upload.md)
+   */
+  const stopRecording = async () => {
     if (!token) return
     const durationSeconds = state.durationMillis / 1000
     await recorder.stop()
@@ -648,39 +556,75 @@ export default function RecordScreen() {
       setMessage(`ההקלטה קצרה מ-${VOICE_MIN_SECONDS} שניות ולא נשמרה`)
       return
     }
+    // Pre-seed people/project from the meeting context if this was a meeting recording.
+    if (meeting) {
+      setPeople(meeting.people.map((p) => ({ id: p.id, name: p.name })))
+      const meetingProject = directory?.projects.find((pr) => pr.id === meeting.projectId) ?? null
+      setProject(meetingProject ? { id: meetingProject.id, name: meetingProject.name } : null)
+    }
+    setPendingUri(uri)
+    setPendingDuration(durationSeconds)
+    setPhase('review')
+  }
+
+  /** Upload the reviewed recording. Called from the review-phase "העלה שיחה" button. */
+  const confirmUpload = async () => {
+    if (!token || !pendingUri) return
     setProgress(0)
     setPhase('uploading')
     try {
       const { recordingId: id } = await uploadVoiceRecording(
         token,
         {
-          uri,
-          durationSeconds,
-          // A meeting brings its own attendees and project server-side, so nothing is sent here.
-          personIds: meeting ? [] : people.map((p) => p.id),
+          uri: pendingUri,
+          durationSeconds: pendingDuration,
+          personIds: people.map((p) => p.id),
           meetingId: meeting?.id,
-          projectId: meeting ? undefined : project?.id,
+          projectId: project?.id ?? null,
         },
         setProgress,
       )
       setConsent(false)
+      setPendingUri(null)
       setRecordingId(id)
       setPhase('result')
     } catch (err) {
       const pending: PendingUpload = {
-        uri,
-        durationSeconds,
-        personIds: meeting ? [] : people.map((p) => p.id),
-        personNames: meeting ? meeting.people.map((p) => p.name) : people.map((p) => p.name),
-        projectId: meeting ? undefined : project?.id,
-        projectName: meeting ? meeting.projectName ?? undefined : project?.name,
+        uri: pendingUri,
+        durationSeconds: pendingDuration,
+        personIds: people.map((p) => p.id),
+        personNames: people.map((p) => p.name),
+        projectId: project?.id,
+        projectName: project?.name,
         meetingId: meeting?.id,
       }
+      setPendingUri(null)
       setPendingUpload(pending)
       await storage.setItem(PENDING_VOICE_UPLOAD_KEY, JSON.stringify(pending))
       setPhase('consent')
       setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
     }
+  }
+
+  /** Discard the stopped recording without uploading. */
+  const discardReview = () => {
+    Alert.alert('לבטל את ההקלטה?', 'הקובץ שהוקלט יימחק לצמיתות.', [
+      { text: 'להישאר', style: 'cancel' },
+      {
+        text: 'מחק',
+        style: 'destructive',
+        onPress: () => {
+          const uri = pendingUri
+          setPendingUri(null)
+          setPhase('consent')
+          if (uri) {
+            void import('expo-file-system/legacy')
+              .then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true }))
+              .catch(() => undefined)
+          }
+        },
+      },
+    ])
   }
 
   const retryPendingUpload = async () => {
@@ -872,13 +816,13 @@ export default function RecordScreen() {
           ) : null}
           {savedContext ? <Text style={styles.success}>נשמר</Text> : null}
           <Pressable
-            style={[styles.primaryBtn, !consent && styles.disabled]}
+            style={[params.meetingId ? styles.secondaryBtn : styles.primaryBtn, !consent && styles.disabled]}
             disabled={!consent}
             onPress={() => void start(null)}
             accessibilityRole="button"
             accessibilityHint={consent ? undefined : 'צריך לאשר הסכמה קודם'}
           >
-            <Text style={styles.primaryBtnText}>{phase === 'result' ? 'הקלטה חדשה' : 'התחל הקלטה'}</Text>
+            <Text style={params.meetingId ? styles.secondaryBtnText : styles.primaryBtnText}>{phase === 'result' ? 'הקלטה חדשה' : params.meetingId ? 'הקלט בלי פגישה' : 'התחל הקלטה'}</Text>
           </Pressable>
           {permissionDenied ? (
             <View style={styles.block}>
@@ -915,7 +859,7 @@ export default function RecordScreen() {
                 <Text style={styles.secondaryBtnText}>המשך</Text>
               </Pressable>
             )}
-            <Pressable style={styles.primaryBtn} onPress={() => void stopAndUpload()} accessibilityRole="button">
+            <Pressable style={styles.primaryBtn} onPress={() => void stopRecording()} accessibilityRole="button">
               <Text style={styles.primaryBtnText}>עצור ושלח</Text>
             </Pressable>
           </View>
@@ -930,6 +874,103 @@ export default function RecordScreen() {
           </View>
         </View>
       ) : null}
+
+      {/* Review phase: confirm context before upload (docs/specs/recording-context-before-upload.md) */}
+      {phase === 'review' ? (
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>אישור לפני העלאה</Text>
+          <Text style={styles.muted}>בדוק את ההקשר ולחץ ״העלה שיחה״ כשהכל מוכן.</Text>
+          <RecordingContextEditor
+            people={people}
+            project={project}
+            directory={directory}
+            onChangePeople={setPeople}
+            onChangeProject={setProject}
+          />
+          {/* Show the linked meeting (if any) so the user can see / change it before uploading */}
+          <View style={styles.reviewMeetingRow}>
+            <Text style={styles.sectionLabel}>פגישה</Text>
+            {meeting ? (
+              <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 8, flex: 1 }}>
+                <Text style={[styles.body, { flex: 1 }]} numberOfLines={1}>{meeting.title}</Text>
+                <Pressable onPress={() => setShowMeetingChangePicker(true)} accessibilityRole="button">
+                  <Text style={styles.link}>החלף</Text>
+                </Pressable>
+                <Pressable onPress={() => setMeeting(null)} accessibilityRole="button">
+                  <Text style={[styles.link, { color: colors.error }]}>הסר</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.muted}>ללא פגישה</Text>
+                {meetingChoices && meetingChoices.length > 0 && (
+                  <Pressable onPress={() => setShowMeetingChangePicker(true)} accessibilityRole="button">
+                    <Text style={styles.link}>שייך לפגישה</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
+          <View style={styles.controls}>
+            <Pressable
+              style={styles.primaryBtn}
+              onPress={() => void confirmUpload()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.primaryBtnText}>העלה שיחה</Text>
+            </Pressable>
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={discardReview}
+              accessibilityRole="button"
+            >
+              <Text style={styles.secondaryBtnText}>ביטול</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Meeting-change picker Modal for review phase */}
+      <Modal
+        visible={showMeetingChangePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMeetingChangePicker(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowMeetingChangePicker(false)}
+          accessibilityRole="button"
+          accessibilityLabel="סגור"
+        >
+          <View style={styles.modalSheet}>
+            <Text style={[styles.sectionLabel, { marginBottom: 4 }]}>בחר פגישה</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Pressable
+                style={styles.meetingRow}
+                onPress={() => { setMeeting(null); setShowMeetingChangePicker(false) }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.body}>ללא פגישה</Text>
+              </Pressable>
+              {(meetingChoices ?? []).map((m) => (
+                <Pressable
+                  key={m.id}
+                  style={[styles.meetingRow, meeting?.id === m.id && { borderColor: colors.accent }]}
+                  onPress={() => { setMeeting(m); setShowMeetingChangePicker(false) }}
+                  accessibilityRole="button"
+                >
+                  <View style={styles.meetingRowTop}>
+                    <Text style={styles.muted}>{meetingRange(m)}</Text>
+                    <Text style={[styles.body, styles.itemName]} numberOfLines={1}>{m.title}</Text>
+                    {m.state === 'now' ? <Text style={styles.nowPill}>עכשיו</Text> : null}
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       {message ? <Text style={styles.error} accessibilityRole="alert">{message}</Text> : null}
 
@@ -1071,4 +1112,18 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
   },
   match: { minHeight: 44, justifyContent: 'center' },
+  reviewMeetingRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: colors.surfaceCard,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    gap: 8,
+    maxHeight: '70%',
+  },
 })

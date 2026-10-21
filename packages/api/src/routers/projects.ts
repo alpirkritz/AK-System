@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
   projects,
@@ -9,8 +10,10 @@ import {
   meetingNotes,
   meetingNoteProjects,
   companies,
+  workspaces,
 } from '@ak-system/database'
-import { eq, desc, inArray } from 'drizzle-orm'
+import { eq, desc, inArray, isNull, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { pushProjectPeople } from '../services/notion-task-writeback'
 import { projectWarmth } from '../services/warmth'
 import { readProjectStanding, writeProjectStanding } from '../services/project-standing'
@@ -18,7 +21,14 @@ import { readProjectStanding, writeProjectStanding } from '../services/project-s
 const createInput = z.object({
   name: z.string().min(1),
   color: z.string().optional(),
+  workspaceId: z.string().nullable().optional(),
 })
+
+async function assertWorkspace(db: import('../trpc').Context['db'], workspaceId: string | null | undefined) {
+  if (!workspaceId) return
+  const [row] = await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId))
+  if (!row) throw new TRPCError({ code: 'BAD_REQUEST', message: 'העולם לא נמצא' })
+}
 
 const updateInput = createInput.extend({
   id: z.string().min(1),
@@ -56,9 +66,19 @@ async function replaceProjectPeople(
 }
 
 export const projectsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(projects).orderBy(projects.name)
-  }),
+  list: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!input?.workspaceId) {
+        return ctx.db.select().from(projects).orderBy(projects.name)
+      }
+      const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+      return ctx.db
+        .select()
+        .from(projects)
+        .where(or(inArray(projects.workspaceId, ids), isNull(projects.workspaceId)))
+        .orderBy(projects.name)
+    }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const [row] = await ctx.db
@@ -66,6 +86,7 @@ export const projectsRouter = router({
         id: projects.id,
         name: projects.name,
         color: projects.color,
+        workspaceId: projects.workspaceId,
         notionPageId: projects.notionPageId,
         companyId: projects.companyId,
         companyName: companies.name,
@@ -198,6 +219,7 @@ export const projectsRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    await assertWorkspace(ctx.db, input.workspaceId)
     const id = 'proj' + Date.now()
     const now = new Date().toISOString()
     await ctx.db.insert(projects).values({
@@ -205,6 +227,7 @@ export const projectsRouter = router({
       name: input.name,
       color: input.color ?? '#47b8e8',
       source: 'manual',
+      workspaceId: input.workspaceId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -213,11 +236,13 @@ export const projectsRouter = router({
   }),
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+    if (input.workspaceId !== undefined) await assertWorkspace(ctx.db, input.workspaceId)
     await ctx.db
       .update(projects)
       .set({
         name: input.name,
         color: input.color ?? undefined,
+        ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(projects.id, input.id))

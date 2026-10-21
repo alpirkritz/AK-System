@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { SyncToast } from '@/components/SyncToast'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 
 const COLORS = ['#38bdf8', '#2dd4bf', '#fb7185', '#47e8a8', '#b847e8']
 
@@ -16,7 +17,7 @@ export function ProjectModal({
   onClose: () => void
   editingId: string | null
 }) {
-  const [form, setForm] = useState({ name: '', color: '#38bdf8' })
+  const [form, setForm] = useState({ name: '', color: '#38bdf8', workspaceId: '' })
   const [personIds, setPersonIds] = useState<string[]>([])
   const [peopleQuery, setPeopleQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -69,9 +70,9 @@ export function ProjectModal({
     setSyncMessage(null)
     setPeopleQuery('')
     if (editingId && project) {
-      setForm({ name: project.name, color: project.color ?? '#38bdf8' })
+      setForm({ name: project.name, color: project.color ?? '#38bdf8', workspaceId: project.workspaceId ?? '' })
     } else {
-      setForm({ name: '', color: '#38bdf8' })
+      setForm({ name: '', color: '#38bdf8', workspaceId: '' })
       setPersonIds([])
     }
   }, [open, editingId, project])
@@ -92,9 +93,9 @@ export function ProjectModal({
     const name = form.name.trim()
     if (!name) return
     if (editingId) {
-      update.mutate({ id: editingId, name, color: form.color })
+      update.mutate({ id: editingId, name, color: form.color, workspaceId: form.workspaceId || null })
     } else {
-      create.mutate({ name, color: form.color })
+      create.mutate({ name, color: form.color, workspaceId: form.workspaceId || null })
     }
   }
 
@@ -150,6 +151,14 @@ export function ProjectModal({
                 />
               ))}
             </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="project-world">עולם</label>
+            <WorkspacePicker
+              id="project-world"
+              value={form.workspaceId}
+              onChange={(workspaceId) => setForm((f) => ({ ...f, workspaceId }))}
+            />
           </div>
           <div>
             <label className="label">אנשים משויכים</label>

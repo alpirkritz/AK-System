@@ -13,6 +13,8 @@ import { PeopleCardGrid } from '@/components/people/PeopleCardGrid'
 import { BulkActionsToolbar } from '@/components/people/BulkActionsToolbar'
 import { PeopleReviewQueue } from '@/components/people/PeopleReviewQueue'
 import { GooglePhoneFillModal } from '@/components/people/GooglePhoneFillModal'
+import { GoogleProfileFillModal } from '@/components/people/GoogleProfileFillModal'
+import { FilteredWorldChip } from '@/components/WorldSwitcher'
 
 const PersonDetailDrawer = dynamic(
   () => import('@/components/people/PersonDetailDrawer').then(m => m.PersonDetailDrawer),
@@ -51,6 +53,7 @@ export default function PeoplePage() {
   const state = usePeopleState()
   const [tab, setTab] = useState<'contacts' | 'review'>('contacts')
   const [phoneFillOpen, setPhoneFillOpen] = useState(false)
+  const [profileFillOpen, setProfileFillOpen] = useState(false)
   const { data: reviewQueue = [] } = trpc.people.reviewQueue.useQuery()
   const { data: duplicates } = trpc.people.findDuplicates.useQuery(undefined, { staleTime: 60_000 })
   const { data: flags } = trpc.insights.relationshipFlags.useQuery(undefined, { staleTime: 60_000 })
@@ -92,7 +95,7 @@ export default function PeoplePage() {
       />
 
       {/* Tabs: contacts vs review queue */}
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
         <button
           type="button"
           className="filter-chip"
@@ -135,6 +138,14 @@ export default function PeoplePage() {
         >
           טלפונים מגוגל
         </button>
+        <button
+          type="button"
+          className="btn btn-ghost text-xs py-1 px-3"
+          data-testid="google-profile-fill"
+          onClick={() => setProfileFillOpen(true)}
+        >
+          פרטים מגוגל
+        </button>
       </div>
 
       {syncMessage && (
@@ -147,6 +158,7 @@ export default function PeoplePage() {
         <PeopleReviewQueue />
       ) : (
       <>
+      <FilteredWorldChip />
       <PeopleFilterBar
         filters={state.filters}
         onSetFilter={state.setFilter}
@@ -175,6 +187,7 @@ export default function PeoplePage() {
           sortDir={state.sortDir}
           selectedIds={state.selectedIds}
           hasActiveFilters={state.hasActiveFilters}
+          showUnassignedGroup={!!state.worldFilter}
           onToggleSort={state.toggleSort}
           onToggleSelect={state.toggleSelect}
           onSelectAll={state.selectAll}
@@ -195,6 +208,7 @@ export default function PeoplePage() {
           isLoading={state.isLoading}
           isError={state.isError}
           hasActiveFilters={state.hasActiveFilters}
+          showUnassignedGroup={!!state.worldFilter}
           onOpenDrawer={state.setDrawerPersonId}
           onPageChange={state.setPage}
           onAddPerson={() => state.setIsCreateOpen(true)}
@@ -219,6 +233,7 @@ export default function PeoplePage() {
       />
 
       {phoneFillOpen && <GooglePhoneFillModal onClose={() => setPhoneFillOpen(false)} />}
+      {profileFillOpen && <GoogleProfileFillModal onClose={() => setProfileFillOpen(false)} />}
     </div>
   )
 }

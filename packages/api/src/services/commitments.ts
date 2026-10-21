@@ -25,6 +25,7 @@ export const COMMITMENT_SOURCE_LABELS: Record<CommitmentSource, string> = {
   whatsapp_group: 'מהוואטסאפ',
   email: 'מאימייל',
   voice: 'מהקלטה',
+  slack_channel: 'מסלאק',
 }
 
 export function sourceLabel(source: string): string {
@@ -90,10 +91,19 @@ export function gmailThreadUrl(threadKey: string): string | null {
 }
 
 /** Where the commitment came from, or null when there is nothing to open (WhatsApp). */
-export function commitmentSourceUrl(c: { source: string; sourceId: string | null }): string | null {
+export function commitmentSourceUrl(c: { source: string; sourceId: string | null; sourceChatJid?: string | null }): string | null {
   if (!c.sourceId) return null
   if (c.source === 'email') return gmailThreadUrl(c.sourceId)
   if (c.source === 'meeting_analysis' || c.source === 'voice') return `/meetings/${c.sourceId}`
+  if (c.source === 'slack_channel' && c.sourceChatJid) {
+    // sourceId is the internal sm_ id; derive Slack permalink from sourceChatJid (channelId) and sourceId suffix
+    // Format: sm_<channelId>_<ts_with_underscore> → extract ts
+    const match = c.sourceId.match(/^sm_[^_]+_(.+)$/)
+    if (match) {
+      const slackTs = match[1].replace('_', '.')
+      return `https://slack.com/archives/${c.sourceChatJid}/p${slackTs.replace('.', '')}`
+    }
+  }
   return null
 }
 

@@ -7,6 +7,11 @@ import {
   meetingPeople,
   meetings,
   people,
+  personEmailThreads,
+  projects,
+  salesDocumentPayments,
+  salesDocuments,
+  vatEntries,
   whatsappDmMessages,
 } from '@ak-system/database'
 import { getTestDb, resetDb } from '../test-utils'
@@ -19,6 +24,7 @@ import {
   phraseInsights,
   reasonAndPersist,
   runDetectors,
+  selectInsightsToPush,
   type HarnessInsightDraft,
 } from './harness-reasoner'
 
@@ -26,10 +32,16 @@ const NOW = new Date().toISOString()
 const iso = (daysFromNow: number) => new Date(Date.now() + daysFromNow * 86_400_000).toISOString().slice(0, 10)
 const isoTs = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString()
 
-/** `resetDb` leaves finance alone, as the finance suites clear it themselves. */
+/** `resetDb` leaves finance, invoices, and VAT alone — those suites clear their own rows.
+ *  Detectors read all three, so this file has to clear them or a previous suite leaves
+ *  an insight open and retire-on-miss fails. */
 async function resetAll() {
   await resetDb()
-  await getTestDb().delete(financeTransactions)
+  const db = getTestDb()
+  await db.delete(salesDocumentPayments)
+  await db.delete(salesDocuments)
+  await db.delete(financeTransactions)
+  await db.delete(vatEntries)
 }
 
 async function seedPerson(id = 'p1', name = 'דנה') {
@@ -340,5 +352,174 @@ describe('closeInsightsForCommitment', () => {
 
     const [row] = await db.select().from(harnessInsights)
     expect(row.status).toBe('open')
+  })
+})
+
+async function seedThread(id: string, subject: string, snippet: string, extra: { replyNeed?: string } = {}) {
+  await getTestDb().insert(personEmailThreads).values({
+    id,
+    personId: 'p1',
+    gmailThreadId: `me@x.com::${id}`,
+    accountEmail: 'me@x.com',
+    subject,
+    from: 'Dana <dana@x.com>',
+    to: 'me@x.com',
+    date: isoTs(10),
+    snippet,
+    messageCount: 1,
+    replyNeed: extra.replyNeed ?? null,
+    lastSyncedAt: NOW,
+    createdAt: NOW,
+  })
+}
+
+describe('situation detectors', () => {
+  beforeEach(async () => {
+    await resetAll()
+    await seedPerson()
+  })
+
+  it('flags a recent meeting that had an attendee and produced nothing', async () => {
+    const db = getTestDb()
+    await db.insert(meetings).values({
+      id: 'm_old', title: 'סיכום לקוח', date: iso(-1), time: '10:00', createdAt: NOW, updatedAt: NOW,
+    })
+    await db.insert(meetingPeople).values({ meetingId: 'm_old', personId: 'p1' })
+
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'meeting_no_followthrough')
+    expect(hit?.personId).toBeNull()
+    expect(hit?.title).toContain('סיכום לקוח')
+  })
+
+  it('stays quiet when the meeting already has notes', async () => {
+    const db = getTestDb()
+    await db.insert(meetings).values({
+      id: 'm_old', title: 'סיכום לקוח', date: iso(-1), time: '10:00', notes: 'דיברנו', createdAt: NOW, updatedAt: NOW,
+    })
+    await db.insert(meetingPeople).values({ meetingId: 'm_old', personId: 'p1' })
+    expect((await runDetectors(db)).find((i) => i.kind === 'meeting_no_followthrough')).toBeUndefined()
+  })
+
+  it('flags overlapping meetings today as urgent', async () => {
+    const db = getTestDb()
+    await db.insert(meetings).values([
+      { id: 'a', title: 'א', date: iso(0), time: '10:00', endTime: '11:00', createdAt: NOW, updatedAt: NOW },
+      { id: 'b', title: 'ב', date: iso(0), time: '10:30', endTime: '11:30', createdAt: NOW, updatedAt: NOW },
+    ])
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'calendar_overload')
+    expect(hit?.severity).toBe('urgent')
+    expect(hit?.personId).toBeNull()
+  })
+
+  it('turns a due promise with no task into one card and keeps it out of stale', async () => {
+    const db = getTestDb()
+    await db.insert(commitments).values({
+      id: 'c_due', personId: 'p1', owner: 'me', content: 'לשלוח הצעה',
+      source: 'whatsapp_dm', status: 'accepted', dueInferred: iso(-1),
+      createdAt: isoTs(30), updatedAt: isoTs(30),
+    })
+    const insights = await runDetectors(db)
+    expect(insights.find((i) => i.kind === 'commitment_due_no_task')?.severity).toBe('urgent')
+    expect(insights.find((i) => i.kind === 'stale_commitment')).toBeUndefined()
+  })
+
+  it('piles proposed commitments that are not already due', async () => {
+    const db = getTestDb()
+    await db.insert(commitments).values([1, 2, 3].map((n) => ({
+      id: `c_p${n}`, personId: 'p1', owner: 'them', content: `הבטחה ${n}`,
+      source: 'whatsapp_dm', status: 'proposed', createdAt: isoTs(5), updatedAt: isoTs(5),
+    })))
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'proposed_commitment_pile')
+    expect(hit?.title).toContain('3')
+    expect(hit?.personId).toBeNull()
+  })
+
+  it('flags an issued invoice past its due date', async () => {
+    const db = getTestDb()
+    await db.delete(salesDocumentPayments)
+    await db.delete(salesDocuments)
+    await db.insert(salesDocuments).values({
+      id: 'inv1', docType: 'tax_invoice', status: 'issued', issueDate: iso(-40), dueDate: iso(-20),
+      clientName: 'דגימה', total: '1000', createdAt: NOW, updatedAt: NOW,
+    })
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'unpaid_invoice')
+    expect(hit?.severity).toBe('urgent')
+    expect(hit?.personId).toBeNull()
+  })
+
+  it('flags a project that moved and then stopped', async () => {
+    const db = getTestDb()
+    await db.insert(projects).values({ id: 'pr1', name: 'אלגו', source: 'manual', createdAt: NOW, updatedAt: NOW })
+    await db.insert(meetings).values({
+      id: 'm_p', title: 'סטטוס', date: iso(-40), time: '09:00', projectId: 'pr1', createdAt: NOW, updatedAt: NOW,
+    })
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'project_gone_quiet')
+    expect(hit?.body).toContain('אלגו')
+    expect(hit?.personId).toBeNull()
+  })
+
+  it('counts ask-emails and ignores FYI, as one card', async () => {
+    await seedThread('t1', 'תקציב', 'אפשר לשלוח את הקובץ')
+    await seedThread('t2', 'הצעה', 'תוכל לאשר')
+    await seedThread('t3', 'שאלה', 'מתי?')
+    await seedThread('t4', 'לידיעה', 'תוכל להתעלם')
+
+    const db = getTestDb()
+    const hit = (await runDetectors(db)).find((i) => i.kind === 'reply_backlog')
+    expect(hit?.title).toContain('3')
+    expect(hit?.personId).toBeNull()
+    const [fyi] = await db.select().from(personEmailThreads).where(eq(personEmailThreads.id, 't4'))
+    expect(fyi.replyNeed).toBe('fyi')
+  })
+
+  it('does not treat an FYI thread as unanswered before a meeting', async () => {
+    await seedUpcomingMeeting()
+    await seedThread('t_fyi', 'לידיעה', 'מצורף לעיון')
+    const insights = await runDetectors(getTestDb())
+    expect(insights.find((i) => i.kind === 'unanswered_thread')).toBeUndefined()
+  })
+
+  it('does treat an ask as unanswered before a meeting', async () => {
+    await seedUpcomingMeeting()
+    await seedThread('t_ask', 'תקציב', 'אפשר לשלוח')
+    const hit = (await runDetectors(getTestDb())).find((i) => i.kind === 'unanswered_thread')
+    expect(hit?.personId).toBe('p1')
+  })
+
+  it('opens the VAT window in the first days of a filing month', async () => {
+    const hit = (await runDetectors(getTestDb(), new Date('2026-11-05T12:00:00.000Z')))
+      .find((i) => i.kind === 'vat_filing_window')
+    expect(hit?.severity).toBe('attention')
+    expect(hit?.dedupeKey).toBe('vat_filing_window:2026:5')
+    expect(hit?.personId).toBeNull()
+  })
+
+  it('stays quiet on VAT outside a filing month', async () => {
+    const hit = (await runDetectors(getTestDb(), new Date('2026-10-12T12:00:00.000Z')))
+      .find((i) => i.kind === 'vat_filing_window')
+    expect(hit).toBeUndefined()
+  })
+})
+
+describe('selectInsightsToPush', () => {
+  const row = (kind: string, severity: string, notifiedAt: string | null = null) =>
+    ({ kind, severity, notifiedAt })
+
+  it('pushes urgent cards and up to three situation attention cards', () => {
+    const picked = selectInsightsToPush([
+      row('silent_before_meeting', 'urgent'),
+      row('silent_before_meeting', 'attention'),
+      row('meeting_no_followthrough', 'attention'),
+      row('reply_backlog', 'attention'),
+      row('unpaid_invoice', 'attention', NOW),
+      row('project_gone_quiet', 'attention'),
+      row('vat_filing_window', 'attention'),
+    ])
+    expect(picked.map((i) => i.kind)).toEqual([
+      'silent_before_meeting',
+      'meeting_no_followthrough',
+      'reply_backlog',
+      'project_gone_quiet',
+    ])
   })
 })

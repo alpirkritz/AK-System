@@ -3,10 +3,14 @@
  * analyzed into a meeting (the one it belongs to, or a placeholder `source='voice'` meeting).
  */
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, type GenerateContentResult } from '@google/generative-ai'
 import { FileState, GoogleAIFileManager } from '@google/generative-ai/server'
 import { and, desc, eq, inArray, ne } from 'drizzle-orm'
+import { cosineSimilarity, decodeToPcm16, extractSpeechSegments, type SpeechSegment } from './audio-features'
 import {
   commitments,
   getDbPath,
@@ -24,10 +28,17 @@ import {
 import { analyzeTranscript, type AnalysisResult, type AnalyzeTranscriptOptions } from './meeting-analysis'
 import { omitSelfParticipants, ownerIdentityPrompt } from './self-person'
 import { proposeCommitmentsFromAnalysis } from './commitments'
-import { notifyUnknownSpeakers, runSelfVoiceDetection } from './voice-diarization'
+import {
+  attributedTranscript,
+  autoIdentifyTwoPersonConversation,
+  notifyUnknownSpeakers,
+  runSelfVoiceDetection,
+} from './voice-diarization'
 import { getAgentCalendarIds } from './agent-calendar-scope'
 
 type Db = ReturnType<typeof getDb>
+
+const execFileAsync = promisify(execFile)
 
 /**
  * Gemini's inline-request audio limit is ~20MB per request; above this, `transcribeWithGemini`
@@ -38,6 +49,44 @@ const GEMINI_INLINE_MAX_BYTES = 19 * 1024 * 1024
 /** How long to wait for an uploaded Gemini file to leave the PROCESSING state. */
 const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 60_000
 const GEMINI_FILE_POLL_INTERVAL_MS = 2000
+/**
+ * Recordings longer than this are split into chunks before transcription instead of being sent to
+ * Gemini as one request (see docs/specs/voice-chunked-long-transcription.md). A single very long
+ * recording (~1h+) asks Gemini for a single huge speaker-by-speaker JSON transcript in one response;
+ * in practice this sometimes comes back with `finishReason: 'OTHER'` (no usable text at all) instead
+ * of a result — almost certainly the response approaching an internal output-size/complexity limit.
+ * Chunking keeps each request's expected output small and makes a single bad chunk retryable/
+ * isolated instead of failing the whole recording.
+ */
+export const VOICE_CHUNK_THRESHOLD_SECONDS = Number(process.env.VOICE_CHUNK_THRESHOLD_SECONDS) || 45 * 60
+/** Target length of each chunk once a recording is over the threshold above. */
+export const VOICE_CHUNK_DURATION_SECONDS = Number(process.env.VOICE_CHUNK_DURATION_SECONDS) || 20 * 60
+/**
+ * Cosine-similarity cutoff (same log-mel voiceprint heuristic as self-voice matching, see
+ * audio-features.ts) for deciding that a speaker label in one chunk is the same person as a label
+ * already seen in an earlier chunk. Gemini renumbers "דובר 1/2/…" independently per request, so
+ * without this, chunking would silently scramble who-said-what across chunk boundaries.
+ */
+const CHUNK_SPEAKER_MATCH_THRESHOLD = Number(process.env.VOICE_CHUNK_SPEAKER_MATCH_THRESHOLD ?? '0.75')
+/**
+ * How many times to ask Gemini again for the same audio when a response comes back blocked
+ * (finishReason other than STOP) or otherwise fails — `finishReason: 'OTHER'` in particular has
+ * been observed to be non-deterministic: the same audio can succeed on a retry.
+ */
+const TRANSCRIBE_MAX_ATTEMPTS = 2
+/**
+ * This is a verbatim-transcription task over the user's own consented recordings, not content
+ * generation — Gemini's default (moderate) safety thresholds have been observed to block entirely
+ * ordinary conversation (an animated business discussion, a disagreement, mention of an illness,
+ * etc.) with `finishReason: 'OTHER'` and no transcript at all. Relaxing them here does not affect
+ * any other Gemini call in the app (meeting analysis, agents, …), only this transcription request.
+ */
+const TRANSCRIPTION_SAFETY_SETTINGS = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+].map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_NONE }))
 /** App-level sanity ceiling on upload size — generous, effectively "don't accept absurd files". */
 export const VOICE_MAX_BYTES = 300 * 1024 * 1024
 export const VOICE_MIN_SECONDS = 10
@@ -129,6 +178,12 @@ export interface VoiceUploadInput {
   personIds?: string[]
   meetingId?: string | null
   projectId?: string | null
+  /**
+   * The user reviewed attendees and project before upload. When true, `personIds` and
+   * `projectId` are the confirmed context — calendar invitees are not merged in, and an
+   * empty list stays empty. Old clients omit this and keep the previous merge behavior.
+   */
+  contextConfirmed?: boolean
   now?: number
   /** 'live' (recorded in-app, default) or 'imported' (e.g. a phone call recording picked/shared from device storage) */
   source?: 'live' | 'imported'
@@ -183,10 +238,15 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
     consentConfirmedAt: at,
     createdAt: at,
     updatedAt: at,
-    projectId: (await existingProjectId(db, input.projectId)) ?? (await existingProjectId(db, meetingProjectId)),
+    projectId: input.contextConfirmed
+      ? await existingProjectId(db, input.projectId)
+      : (await existingProjectId(db, input.projectId)) ?? (await existingProjectId(db, meetingProjectId)),
     source: input.source ?? 'live',
   })
-  const personIds = new Set([...(await existingPersonIds(db, input.personIds ?? [])), ...meetingPersonIds])
+  const confirmedPeople = await existingPersonIds(db, input.personIds ?? [])
+  // A reviewed upload is the source of truth for who was actually in the room. Old clients
+  // still inherit calendar attendees when they send a meeting without confirming context.
+  const personIds = input.contextConfirmed ? confirmedPeople : [...new Set([...confirmedPeople, ...meetingPersonIds])]
   for (const personId of personIds) {
     await db.insert(voiceRecordingPeople).values({ recordingId: id, personId })
   }
@@ -254,34 +314,44 @@ function turnOf(raw: unknown): TranscriptTurn | null {
 }
 
 /**
- * Reads the model's JSON turns. A response that is not parseable JSON degrades to a plain
- * transcript rather than failing the recording. Timings are only needed for speaker samples,
- * so a turn the model timed badly still contributes its text — never leave the raw JSON as
- * the transcript, which is what the user and the analysis step read.
+ * Parses the model's JSON turns, or `null` when the response isn't parseable JSON (or has no
+ * usable turns) — callers fall back to treating the raw text as a plain transcript in that case.
  */
-export function parseTranscription(raw: string): TranscriptResult {
+function parseTranscriptionTurns(raw: string): TranscriptTurn[] | null {
   const body = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
   let parsed: unknown
   try {
     parsed = JSON.parse(body)
   } catch {
-    return { text: raw, segments: [] }
+    return null
   }
   const rows = Array.isArray(parsed)
     ? parsed
     : Array.isArray((parsed as { segments?: unknown })?.segments)
       ? (parsed as { segments: unknown[] }).segments
       : null
-  if (!rows) return { text: raw, segments: [] }
+  if (!rows) return null
 
   const turns = rows.map(turnOf).filter((t): t is TranscriptTurn => t !== null)
-  if (turns.length === 0) return { text: raw, segments: [] }
+  return turns.length === 0 ? null : turns
+}
 
+function turnsToResult(turns: TranscriptTurn[], fallbackRaw: string): TranscriptResult {
   const segments: TranscriptSegment[] = turns
     .filter((t) => t.timing !== null)
     .map((t) => ({ speakerLabel: t.speakerLabel, text: t.text, ...t.timing! }))
+  return { text: turns.length ? turns.map((t) => `${t.speakerLabel}: ${t.text}`).join('\n') : fallbackRaw, segments }
+}
 
-  return { text: turns.map((t) => `${t.speakerLabel}: ${t.text}`).join('\n'), segments }
+/**
+ * Reads the model's JSON turns. A response that is not parseable JSON degrades to a plain
+ * transcript rather than failing the recording. Timings are only needed for speaker samples,
+ * so a turn the model timed badly still contributes its text — never leave the raw JSON as
+ * the transcript, which is what the user and the analysis step read.
+ */
+export function parseTranscription(raw: string): TranscriptResult {
+  const turns = parseTranscriptionTurns(raw)
+  return turns ? turnsToResult(turns, raw) : { text: raw, segments: [] }
 }
 
 function toTranscriptResult(raw: string | TranscriptResult): TranscriptResult {
@@ -292,8 +362,49 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * `result.response.text()` throws the SDK's own (English, implementation-detail) message whenever
+ * the candidate didn't finish normally — e.g. `finishReason: 'OTHER'`, which Gemini sometimes
+ * returns with no usable text at all for very long/complex requests. Surface a clear Hebrew error
+ * with the finish reason instead of letting that raw SDK string reach the user.
+ */
+function readTranscriptionText(result: GenerateContentResult): string {
+  let text: string
+  try {
+    text = result.response.text()
+  } catch (err) {
+    const finishReason = result.response.candidates?.[0]?.finishReason
+    const reasonNote = finishReason ? ` (finishReason=${finishReason})` : ''
+    throw new Error(
+      `Gemini לא החזיר תמלול להקלטה${reasonNote} — ייתכן שההקלטה ארוכה/מורכבת מדי לבקשה אחת. נסה שוב, או פצל אותה למקטעים קצרים יותר.`,
+    )
+  }
+  text = text.trim()
+  if (!text) throw new Error('Empty transcription')
+  return text
+}
+
+type GeminiModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>
+
+/** Calls `generateContent` and reads its text, retrying (same request) a blocked/failed response up to `TRANSCRIBE_MAX_ATTEMPTS` times. */
+async function generateTranscription(model: GeminiModel, parts: Parameters<GeminiModel['generateContent']>[0]): Promise<string> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= TRANSCRIBE_MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await model.generateContent(parts)
+      return readTranscriptionText(result)
+    } catch (err) {
+      lastError = err
+      if (attempt < TRANSCRIBE_MAX_ATTEMPTS) {
+        console.warn(`[voice] transcription attempt ${attempt} failed, retrying:`, err instanceof Error ? err.message : err)
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 /** Uploads a large file to Gemini, waits for it to leave PROCESSING, transcribes by reference, and always cleans up. */
-async function transcribeViaFilesApi(key: string, model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>, audio: Buffer, mimeType: string): Promise<string> {
+async function transcribeViaFilesApi(key: string, model: GeminiModel, audio: Buffer, mimeType: string): Promise<string> {
   const fileManager = new GoogleAIFileManager(key)
   const uploaded = await fileManager.uploadFile(audio, { mimeType, displayName: 'ak-voice-recording' })
   let file = uploaded.file
@@ -305,13 +416,10 @@ async function transcribeViaFilesApi(key: string, model: ReturnType<GoogleGenera
     }
     if (file.state === FileState.FAILED) throw new Error('עיבוד ההקלטה ב-Gemini נכשל')
     if (file.state !== FileState.ACTIVE) throw new Error('עיבוד ההקלטה ב-Gemini נמשך זמן רב מדי')
-    const result = await model.generateContent([
+    return await generateTranscription(model, [
       { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
       { text: TRANSCRIBE_PROMPT },
     ])
-    const text = result.response.text().trim()
-    if (!text) throw new Error('Empty transcription')
-    return text
   } finally {
     await fileManager.deleteFile(file.name).catch((err) => {
       console.warn('[voice] failed to delete Gemini file:', err)
@@ -322,17 +430,198 @@ async function transcribeViaFilesApi(key: string, model: ReturnType<GoogleGenera
 export const transcribeWithGemini: VoiceTranscriber = async (audio, mimeType) => {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY not configured')
-  const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' })
+  const model = new GoogleGenerativeAI(key).getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    safetySettings: TRANSCRIPTION_SAFETY_SETTINGS,
+  })
 
   if (audio.length > GEMINI_INLINE_MAX_BYTES) return transcribeViaFilesApi(key, model, audio, mimeType)
 
-  const result = await model.generateContent([
+  return generateTranscription(model, [
     { inlineData: { data: audio.toString('base64'), mimeType } },
     { text: TRANSCRIBE_PROMPT },
   ])
-  const text = result.response.text().trim()
-  if (!text) throw new Error('Empty transcription')
-  return text
+}
+
+/** One chunk of a long recording, cut from the original audio file. */
+interface AudioChunk {
+  path: string
+  startSeconds: number
+}
+
+/** `[{ startSeconds, lengthSeconds }, …]` covering `durationSeconds` in `VOICE_CHUNK_DURATION_SECONDS`-sized steps. */
+function buildChunkPlan(durationSeconds: number): { startSeconds: number; lengthSeconds: number }[] {
+  const plan: { startSeconds: number; lengthSeconds: number }[] = []
+  for (let start = 0; start < durationSeconds; start += VOICE_CHUNK_DURATION_SECONDS) {
+    plan.push({ startSeconds: start, lengthSeconds: Math.min(VOICE_CHUNK_DURATION_SECONDS, durationSeconds - start) })
+  }
+  return plan
+}
+
+/**
+ * Cuts one time range out of `inputPath` with a stream copy (no re-encode — audio formats split
+ * cleanly this way, unlike video keyframes). Requires the `ffmpeg` binary on PATH, same as
+ * audio-features.ts's `decodeToPcm16`.
+ */
+async function splitAudioChunk(inputPath: string, outputPath: string, startSeconds: number, lengthSeconds: number): Promise<void> {
+  try {
+    await execFileAsync('ffmpeg', [
+      '-v', 'error',
+      '-i', inputPath,
+      '-ss', String(startSeconds),
+      '-t', String(lengthSeconds),
+      '-c', 'copy',
+      outputPath,
+    ])
+  } catch (err) {
+    throw new Error(`פיצול ההקלטה לקטעים נכשל (ffmpeg, is it installed?): ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function meanVector(vectors: number[][]): number[] {
+  const dims = vectors[0]?.length ?? 0
+  const out = new Array(dims).fill(0)
+  for (const v of vectors) for (let i = 0; i < dims; i++) out[i] += v[i] / vectors.length
+  return out
+}
+
+/**
+ * One raw ("דובר N", chunk-local) speaker label's voiceprint, built by pooling the VAD segments
+ * that fall inside that label's turns. Labels with no overlapping speech (e.g. a mistimed turn)
+ * are skipped — they fall back to an unmatched, chunk-unique label in `reconcileChunk`.
+ */
+function labelEmbeddings(turns: TranscriptTurn[], vadSegments: SpeechSegment[]): Map<string, number[]> {
+  const byLabel = new Map<string, number[][]>()
+  const timed = turns.filter((t): t is TranscriptTurn & { timing: NonNullable<TranscriptTurn['timing']> } => t.timing !== null)
+  for (const seg of vadSegments) {
+    let bestLabel: string | null = null
+    let bestOverlap = 0
+    for (const turn of timed) {
+      const overlap = Math.max(0, Math.min(seg.endMs, turn.timing.endMs) - Math.max(seg.startMs, turn.timing.startMs))
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap
+        bestLabel = turn.speakerLabel
+      }
+    }
+    if (bestLabel) byLabel.get(bestLabel)?.push(seg.embedding) ?? byLabel.set(bestLabel, [seg.embedding])
+  }
+  return new Map([...byLabel.entries()].map(([label, vectors]) => [label, meanVector(vectors)]))
+}
+
+/**
+ * Speakers already seen in earlier chunks, so a label in chunk 2 can be recognised as "the same
+ * person as chunk 1's דובר 1" rather than renumbered into a brand-new label — see
+ * `VOICE_CHUNK_THRESHOLD_SECONDS`'s comment for why chunking needs this at all.
+ */
+class GlobalSpeakerRegistry {
+  private speakers: { label: string; embedding: number[]; count: number }[] = []
+  private nextIndex = 0
+
+  /** Matches an embedding against known speakers, or registers it as a new one; returns the stable global label. */
+  resolve(embedding: number[] | null): string {
+    if (embedding) {
+      let best: { speaker: (typeof this.speakers)[number]; sim: number } | null = null
+      for (const speaker of this.speakers) {
+        const sim = cosineSimilarity(embedding, speaker.embedding)
+        if (!best || sim > best.sim) best = { speaker, sim }
+      }
+      if (best && best.sim >= CHUNK_SPEAKER_MATCH_THRESHOLD) {
+        const { speaker } = best
+        const total = speaker.count + 1
+        speaker.embedding = speaker.embedding.map((v, i) => (v * speaker.count + embedding[i]) / total)
+        speaker.count = total
+        return speaker.label
+      }
+    }
+    this.nextIndex += 1
+    const label = `דובר ${this.nextIndex}`
+    this.speakers.push({ label, embedding: embedding ?? new Array(24).fill(0), count: embedding ? 1 : 0 })
+    return label
+  }
+}
+
+function formatClock(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60)
+  const s = Math.floor(totalSeconds % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * Transcribes one chunk and remaps its (chunk-local, time-relative) turns onto the full recording's
+ * timeline and global speaker labels. A chunk that still fails to transcribe after
+ * `transcribeWithGemini`'s own retries does NOT fail the whole (possibly hour-plus) recording — it
+ * becomes one clearly-marked gap in an otherwise complete transcript.
+ */
+async function reconcileChunk(chunk: AudioChunk, mimeType: string, registry: GlobalSpeakerRegistry): Promise<TranscriptTurn[]> {
+  let raw: string | TranscriptResult
+  try {
+    raw = await transcribeWithGemini(fs.readFileSync(chunk.path), mimeType)
+  } catch (err) {
+    console.warn(`[voice] chunk at ${formatClock(chunk.startSeconds)} failed to transcribe, leaving a gap and continuing:`, err)
+    const message = err instanceof Error ? err.message : String(err)
+    const offsetMs = chunk.startSeconds * 1000
+    return [
+      {
+        speakerLabel: registry.resolve(null),
+        text: `[לא ניתן היה לתמלל את הקטע החל מ-${formatClock(chunk.startSeconds)}: ${message}]`,
+        timing: { startMs: offsetMs, endMs: offsetMs },
+      },
+    ]
+  }
+  const text = typeof raw === 'string' ? raw : raw.text
+  const turns = parseTranscriptionTurns(text)
+  if (!turns) return [{ speakerLabel: registry.resolve(null), text, timing: null }]
+
+  let embeddingsByLabel = new Map<string, number[]>()
+  try {
+    const pcm = await decodeToPcm16(chunk.path)
+    embeddingsByLabel = labelEmbeddings(turns, extractSpeechSegments(pcm))
+  } catch (err) {
+    // Best-effort: a chunk whose voiceprint we can't extract still keeps its text, just without
+    // cross-chunk speaker matching (each of its labels becomes its own new global speaker).
+    console.warn('[voice] chunk voiceprint extraction failed, speaker labels will not match across chunks for this chunk:', err)
+  }
+
+  const localToGlobal = new Map<string, string>()
+  for (const label of new Set(turns.map((t) => t.speakerLabel))) {
+    localToGlobal.set(label, registry.resolve(embeddingsByLabel.get(label) ?? null))
+  }
+
+  const offsetMs = chunk.startSeconds * 1000
+  return turns.map((turn) => ({
+    speakerLabel: localToGlobal.get(turn.speakerLabel) ?? turn.speakerLabel,
+    text: turn.text,
+    timing: turn.timing ? { startMs: turn.timing.startMs + offsetMs, endMs: turn.timing.endMs + offsetMs } : null,
+  }))
+}
+
+/**
+ * Transcribes a recording longer than `VOICE_CHUNK_THRESHOLD_SECONDS` by splitting it into
+ * `VOICE_CHUNK_DURATION_SECONDS`-long pieces, transcribing each one independently (via the same
+ * inline/Files-API logic as a normal recording), and reconciling speaker labels and timestamps
+ * back onto the original timeline. See docs/specs/voice-chunked-long-transcription.md.
+ */
+export async function transcribeLongRecordingWithGemini(audioPath: string, mimeType: string, durationSeconds: number): Promise<TranscriptResult> {
+  const ext = EXT_BY_MIME[mimeType.split(';')[0].trim().toLowerCase()] || path.extname(audioPath).replace(/^\./, '') || 'webm'
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ak-voice-chunk-'))
+  try {
+    const plan = buildChunkPlan(durationSeconds)
+    const chunks: AudioChunk[] = []
+    for (const [i, { startSeconds, lengthSeconds }] of plan.entries()) {
+      const chunkPath = path.join(tmpDir, `chunk_${i}.${ext}`)
+      await splitAudioChunk(audioPath, chunkPath, startSeconds, lengthSeconds)
+      chunks.push({ path: chunkPath, startSeconds })
+    }
+
+    const registry = new GlobalSpeakerRegistry()
+    const allTurns: TranscriptTurn[] = []
+    for (const chunk of chunks) {
+      allTurns.push(...(await reconcileChunk(chunk, mimeType, registry)))
+    }
+    return turnsToResult(allTurns, allTurns.map((t) => t.text).join('\n'))
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
 }
 
 async function recordingPeople(db: Db, recordingId: string) {
@@ -378,9 +667,19 @@ export async function processVoiceRecording(
   await db.update(voiceRecordings).set({ status: 'processing', error: null, updatedAt: stamp() }).where(eq(voiceRecordings.id, rec.id))
   let analysisId: string | null = null
   try {
-    const transcribed = rec.transcriptText
-      ? { text: rec.transcriptText, segments: [] as TranscriptSegment[] }
-      : toTranscriptResult(await (options.transcribe ?? transcribeWithGemini)(fs.readFileSync(rec.audioPath), rec.mimeType))
+    let transcribed: TranscriptResult
+    if (rec.transcriptText) {
+      transcribed = { text: rec.transcriptText, segments: [] }
+    } else if (options.transcribe) {
+      transcribed = toTranscriptResult(await options.transcribe(fs.readFileSync(rec.audioPath), rec.mimeType))
+    } else if (rec.duration > VOICE_CHUNK_THRESHOLD_SECONDS) {
+      // Long recording: split into chunks rather than one huge request (see
+      // VOICE_CHUNK_THRESHOLD_SECONDS's comment and docs/specs/voice-chunked-long-transcription.md).
+      // Read straight from disk per-chunk instead of loading the whole (possibly 100s of MB) file here.
+      transcribed = await transcribeLongRecordingWithGemini(rec.audioPath, rec.mimeType, rec.duration)
+    } else {
+      transcribed = toTranscriptResult(await transcribeWithGemini(fs.readFileSync(rec.audioPath), rec.mimeType))
+    }
     const transcript = transcribed.text
     await db.update(voiceRecordings).set({ transcriptText: transcript, updatedAt: stamp() }).where(eq(voiceRecordings.id, rec.id))
     await saveTranscriptSegments(db, rec.id, transcribed.segments, options.now)
@@ -389,9 +688,13 @@ export async function processVoiceRecording(
     await runSelfVoiceDetection(db, rec.id).catch((err) => {
       console.warn('[voice] self-voice detection failed:', err)
     })
+    await autoIdentifyTwoPersonConversation(db, rec.id).catch((err) => {
+      console.warn('[voice] two-person speaker attribution failed:', err)
+    })
     await notifyUnknownSpeakers(db, rec.id).catch((err) => {
       console.warn('[voice] unknown-speaker prompt failed:', err)
     })
+    const analysisTranscript = (await attributedTranscript(db, rec.id, transcript)).text
 
     const attendees = await recordingPeople(db, rec.id)
     const [fresh] = await db.select({ projectId: voiceRecordings.projectId }).from(voiceRecordings).where(eq(voiceRecordings.id, rec.id))
@@ -436,13 +739,25 @@ export async function processVoiceRecording(
       .where(eq(voiceRecordings.id, rec.id))
 
     const [meeting] = await db.select({ title: meetings.title, date: meetings.date }).from(meetings).where(eq(meetings.id, meetingId))
-    const participantNames = (
-      await db
-        .select({ name: people.name })
-        .from(meetingPeople)
-        .innerJoin(people, eq(people.id, meetingPeople.personId))
-        .where(eq(meetingPeople.meetingId, meetingId))
-    ).map((p) => p.name)
+    // Gemini sees who was confirmed on this recording, not every calendar invitee.
+    const participantRows = attendees.length
+      ? await db
+          .select({ name: people.name, role: people.role, company: people.company })
+          .from(people)
+          .where(inArray(people.id, attendees.map((a) => a.id)))
+      : []
+    const participantNames = participantRows.map((p) => p.name)
+    const knownPeople = participantRows.map((p) => ({
+      name: p.name,
+      ...(p.role ? { role: p.role } : {}),
+      ...(p.company ? { company: p.company } : {}),
+    }))
+    // Load the project name for Gemini context when a project is attached.
+    let projectName: string | undefined
+    if (projectId) {
+      const [proj] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, projectId))
+      projectName = proj?.name
+    }
 
     if (rec.analysisId) await db.delete(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId))
     analysisId = newId('ma_voice')
@@ -450,7 +765,7 @@ export async function processVoiceRecording(
       id: analysisId,
       meetingId,
       source: 'voice',
-      transcriptText: transcript,
+      transcriptText: analysisTranscript,
       audioPath: rec.audioPath,
       status: 'pending',
       consentConfirmedAt: rec.consentConfirmedAt,
@@ -458,10 +773,12 @@ export async function processVoiceRecording(
       updatedAt: stamp(),
     })
     const result = await (options.analyze ?? analyzeTranscript)({
-      transcriptText: transcript,
+      transcriptText: analysisTranscript,
       meetingTitle: meeting?.title ?? VOICE_PLACEHOLDER_TITLE,
       meetingDate: meeting?.date ?? rec.createdAt.slice(0, 10),
       participantNames,
+      projectName,
+      knownPeople,
     })
     await db
       .update(meetingAnalyses)
@@ -483,6 +800,21 @@ export async function processVoiceRecording(
         updatedAt: stamp(),
       })
       .where(eq(meetingAnalyses.id, analysisId))
+
+    // Update the meeting title from the AI topic only when this is a placeholder meeting
+    // created by the recording pipeline (not a calendar event or manually-named meeting).
+    // (docs/specs/recording-context-before-upload.md)
+    if (
+      result.topic &&
+      createdMeetingId === meetingId &&
+      meeting?.title?.startsWith(VOICE_PLACEHOLDER_TITLE)
+    ) {
+      const safeTitle = result.topic.trim().slice(0, 120)
+      if (safeTitle) {
+        await db.update(meetings).set({ title: safeTitle, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
+      }
+    }
+
     await db
       .update(voiceRecordings)
       .set({ analysisId, status: 'completed', updatedAt: stamp() })
@@ -504,6 +836,103 @@ export async function processVoiceRecording(
   }
   const [after] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, rec.id))
   return after
+}
+
+/**
+ * Re-runs only the text analysis once every transcript speaker has been answered. The recording is
+ * never read or transcribed here. Existing analysis data remains untouched if Gemini fails.
+ */
+export async function refreshVoiceAnalysisAfterSpeakerResolution(
+  db: Db,
+  recordingId: string,
+  options: { analyze?: VoiceAnalyzer; now?: number } = {},
+): Promise<boolean> {
+  const [rec] = await db
+    .select({
+      analysisId: voiceRecordings.analysisId,
+      meetingId: voiceRecordings.meetingId,
+      projectId: voiceRecordings.projectId,
+      transcriptText: voiceRecordings.transcriptText,
+    })
+    .from(voiceRecordings)
+    .where(eq(voiceRecordings.id, recordingId))
+  if (!rec?.analysisId || !rec.meetingId || !rec.transcriptText) return false
+
+  const attributed = await attributedTranscript(db, recordingId, rec.transcriptText)
+  if (!attributed.allResolved || attributed.text === rec.transcriptText) return false
+
+  const [analysis] = await db
+    .select({ id: meetingAnalyses.id })
+    .from(meetingAnalyses)
+    .where(eq(meetingAnalyses.id, rec.analysisId))
+  const [meeting] = await db
+    .select({ title: meetings.title, date: meetings.date })
+    .from(meetings)
+    .where(eq(meetings.id, rec.meetingId))
+  if (!analysis || !meeting) return false
+
+  const attendees = await recordingPeople(db, recordingId)
+  await linkMeetingPeople(db, rec.meetingId, attendees.map((attendee) => attendee.id))
+  const participantRows = attendees.length
+    ? await db
+        .select({ name: people.name, role: people.role, company: people.company })
+        .from(people)
+        .where(inArray(people.id, attendees.map((attendee) => attendee.id)))
+    : []
+  let projectName: string | undefined
+  if (rec.projectId) {
+    const [project] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, rec.projectId))
+    projectName = project?.name
+  }
+
+  const result = await (options.analyze ?? analyzeTranscript)({
+    transcriptText: attributed.text,
+    meetingTitle: meeting.title,
+    meetingDate: meeting.date,
+    participantNames: participantRows.map((participant) => participant.name),
+    projectName,
+    knownPeople: participantRows.map((participant) => ({
+      name: participant.name,
+      ...(participant.role ? { role: participant.role } : {}),
+      ...(participant.company ? { company: participant.company } : {}),
+    })),
+  })
+  const stamp = new Date(options.now ?? Date.now()).toISOString()
+  await db
+    .update(meetingAnalyses)
+    .set({
+      transcriptText: attributed.text,
+      hatName: result.hatName,
+      topic: result.topic,
+      mood: result.mood,
+      subtext: result.subtext,
+      keyInsight: result.keyInsight,
+      score: result.score,
+      scoreRationale: result.scoreRationale,
+      kaizenKeep: result.kaizenKeep,
+      kaizenImprove: result.kaizenImprove,
+      openQuestion: result.openQuestion,
+      participantsJson: JSON.stringify(omitSelfParticipants(result.participants ?? [])),
+      actionItemsJson: JSON.stringify(result.actionItems),
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      status: 'completed',
+      error: null,
+      updatedAt: stamp,
+    })
+    .where(eq(meetingAnalyses.id, rec.analysisId))
+
+  // Replace only proposals that are still awaiting review. Accepted/dismissed history is retained.
+  await db
+    .delete(commitments)
+    .where(
+      and(
+        eq(commitments.source, 'voice'),
+        eq(commitments.sourceId, rec.meetingId),
+        eq(commitments.status, 'proposed'),
+      ),
+    )
+  await proposeCommitmentsFromAnalysis(db, rec.analysisId, 'voice')
+  return true
 }
 
 /**

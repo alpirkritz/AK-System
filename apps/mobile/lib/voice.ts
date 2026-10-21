@@ -69,6 +69,7 @@ export function uploadVoiceRecording(
   form.append('durationSeconds', String(Math.round(input.durationSeconds)))
   form.append('consentConfirmed', 'true')
   form.append('personIds', input.personIds.join(','))
+  form.append('contextConfirmed', 'true')
   form.append('source', input.source ?? 'live')
   if (input.meetingId) form.append('meetingId', input.meetingId)
   if (input.projectId) form.append('projectId', input.projectId)

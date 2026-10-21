@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { DAYS_HE } from '@ak-system/types'
+import { WorldBadge } from '@/components/WorldBadge'
 import { formatMeetingTitle } from '../lib/format-title'
 
 const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
@@ -32,6 +33,7 @@ export interface MeetingCardData {
   calendarEventId?: string | null
   calendarSource?: string | null
   source?: string | null
+  workspaceId?: string | null
   peopleIds?: string[]
   taskIds?: string[]
 }
@@ -104,6 +106,7 @@ export function MeetingCard({
                     עבר
                   </span>
                 )}
+                <WorldBadge workspaceId={m.workspaceId} />
                 {importance !== 'compact' && proj && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded shrink-0"

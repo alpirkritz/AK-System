@@ -8,7 +8,7 @@
  *
  * Node and edge ids are deterministic, so a re-index updates in place.
  */
-import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import {
   commitments,
   financeTransactions,
@@ -18,6 +18,8 @@ import {
   meetings,
   people,
   personEmailThreads,
+  slackMessages,
+  slackChannels,
   voiceRecordings,
   whatsappDmMessages,
   whatsappGroups,
@@ -26,6 +28,7 @@ import {
 } from '@ak-system/database'
 import { gmailThreadUrl } from './commitments'
 import { mirrorToGrag } from './harness-grag'
+import { listAffiliations, type PersonAffiliation } from './person-workspaces'
 
 type Db = ReturnType<typeof getDb>
 
@@ -34,6 +37,7 @@ export type HarnessScope =
   | 'meetings'
   | 'commitments'
   | 'whatsapp'
+  | 'slack'
   | 'finance'
   | 'voice'
   | 'email'
@@ -43,6 +47,7 @@ export const HARNESS_SCOPES: HarnessScope[] = [
   'meetings',
   'commitments',
   'whatsapp',
+  'slack',
   'finance',
   'voice',
   'email',
@@ -118,6 +123,30 @@ function middayMs(value: string | null | undefined): number | null {
   if (!day) return null
   const ms = new Date(`${day}T12:00:00.000Z`).getTime()
   return Number.isFinite(ms) ? ms : null
+}
+
+const WORKSPACE_KIND_LABELS: Record<string, string> = {
+  employer: 'מעסיק',
+  own_company: 'חברה שלי',
+  personal: 'אישי',
+  other: 'אחר',
+}
+
+/** `"Dragontail · מעסיק · colleague · מדווח ל: מיכל | פרטי · אישי · friend"` — the line the reasoner reads. */
+export function describeAffiliations(affiliations: PersonAffiliation[]): string | null {
+  if (affiliations.length === 0) return null
+  return affiliations
+    .map((a) =>
+      [
+        a.workspaceName,
+        a.workspaceKind ? WORKSPACE_KIND_LABELS[a.workspaceKind] ?? a.workspaceKind : null,
+        a.relationshipType,
+        a.reportsToName ? `מדווח ל: ${a.reportsToName}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    )
+    .join(' | ')
 }
 
 function truncate(text: string | null | undefined, max = 180): string | null {
@@ -259,15 +288,29 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
       .where(eq(people.status, 'confirmed'))
       .limit(SCOPE_LIMIT)
 
+    const affiliationsByPerson = await listAffiliations(db, rows.map((p) => p.id))
+
     for (const p of rows) {
       const descriptor = [p.role, p.company].filter(Boolean).join(' · ')
+      const affiliations = affiliationsByPerson.get(p.id) ?? []
+      const domainLine = describeAffiliations(affiliations)
       nodes.push({
         id: nodeId('person', p.id),
         kind: 'person',
         entityId: p.id,
         label: p.name,
-        summary: descriptor || null,
-        attrs: { email: p.email, phone: p.phone, lastContact: p.lastContact },
+        summary: [domainLine, descriptor].filter(Boolean).join(' — ') || null,
+        attrs: {
+          email: p.email,
+          phone: p.phone,
+          lastContact: p.lastContact,
+          workspaces: affiliations.map((a) => ({
+            name: a.workspaceName,
+            kind: a.workspaceKind,
+            relationshipType: a.relationshipType,
+            reportsToName: a.reportsToName,
+          })),
+        },
         occurredAt: null,
       })
     }
@@ -411,6 +454,37 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
       }
     }
     byScope.whatsapp = groupRows.length + dmRows.length
+  }
+
+  if (scopes.has('slack')) {
+    const channelRows = await db
+      .select({
+        id: slackMessages.id,
+        channelId: slackMessages.channelId,
+        userId: slackMessages.userId,
+        userName: slackMessages.userName,
+        text: slackMessages.text,
+        ts: slackMessages.ts,
+        channelName: slackChannels.name,
+      })
+      .from(slackMessages)
+      .leftJoin(slackChannels, eq(slackChannels.channelId, slackMessages.channelId))
+      .where(and(gte(slackMessages.ts, windowStartMs), sql`${slackMessages.deleted} = 0`))
+      .orderBy(desc(slackMessages.ts))
+      .limit(SCOPE_LIMIT)
+
+    for (const m of channelRows) {
+      nodes.push({
+        id: nodeId('slack_signal', m.id),
+        kind: 'slack_signal',
+        entityId: m.id,
+        label: m.channelName ? `#${m.channelName} · ${m.userName}` : m.userName,
+        summary: truncate(m.text, 160),
+        attrs: { channel: 'channel', channelId: m.channelId, channelName: m.channelName, userId: m.userId },
+        occurredAt: new Date(m.ts).toISOString(),
+      })
+    }
+    byScope.slack = channelRows.length
   }
 
   if (scopes.has('email')) {

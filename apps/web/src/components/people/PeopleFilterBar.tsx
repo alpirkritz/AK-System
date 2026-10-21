@@ -194,8 +194,9 @@ export function PeopleFilterBar({
   ]
 
   return (
+    <>
     <div className="flex items-center gap-3 mb-4 flex-wrap">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
         {quickFilters.map(qf => (
           <button
             key={qf.label}
@@ -266,5 +267,6 @@ export function PeopleFilterBar({
         </>
       )}
     </div>
+    </>
   )
 }

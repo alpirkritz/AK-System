@@ -166,15 +166,20 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
   const stopAtRef = useRef<number | null>(null)
   const [playing, setPlaying] = useState<string | null>(null)
   const [picks, setPicks] = useState<Record<string, PersonOption[]>>({})
+  const [correcting, setCorrecting] = useState<string | null>(null)
   const identify = trpc.voice.identifySpeaker.useMutation({
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
+      setCorrecting(null)
+      setPicks((previous) => ({ ...previous, [variables.speakerLabel]: [] }))
       utils.voice.speakers.invalidate({ recordingId })
       utils.voice.get.invalidate({ recordingId })
+      utils.voice.getAnalysis.invalidate({ recordingId })
     },
   })
 
-  const unknown = speakers.filter((s) => s.state === 'unknown')
-  if (unknown.length === 0) return null
+  const visibleSpeakers = speakers.filter((speaker) => speaker.state === 'unknown' || speaker.state === 'auto')
+  const hasUnknown = visibleSpeakers.some((speaker) => speaker.state === 'unknown')
+  if (visibleSpeakers.length === 0) return null
 
   const playSample = (speakerLabel: string, startMs: number, endMs: number) => {
     const el = audioRef.current
@@ -189,7 +194,11 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
     <div className="pt-3 border-t border-[#223052] space-y-3" data-testid="voice-speakers">
       <div>
         <p className="label">מי מדבר?</p>
-        <p className="text-xs text-[#97a4c2]">שמע דגימה וסמן את האדם. מה שלא מזוהה אפשר לדלג עליו.</p>
+        <p className="text-xs text-[#97a4c2]">
+          {hasUnknown
+            ? 'שמע דגימה וסמן את האדם. מה שלא מזוהה אפשר לדלג עליו.'
+            : 'הדוברים זוהו אוטומטית לפי הקול שלך והמשתתפים שאישרת.'}
+        </p>
       </div>
       <audio
         ref={audioRef}
@@ -205,13 +214,24 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
         }}
         onEnded={() => setPlaying(null)}
       />
-      {unknown.map((speaker) => {
+      {visibleSpeakers.map((speaker) => {
         const selected = picks[speaker.speakerLabel] ?? []
+        const isAuto = speaker.state === 'auto'
+        const isEditing = !isAuto || correcting === speaker.speakerLabel
         return (
-          <div key={speaker.speakerLabel} className="card p-3 space-y-2">
+          <div
+            key={speaker.speakerLabel}
+            className="card p-3 space-y-2"
+            data-testid={isAuto ? 'voice-auto-speaker' : 'voice-unknown-speaker'}
+          >
             <div className="flex flex-wrap items-center gap-2">
               <span className="pill text-xs">{speaker.speakerLabel}</span>
               <span className="text-xs text-[#5a688c]">{speaker.segmentCount} קטעי דיבור</span>
+              {isAuto && (
+                <span className="pill text-[11px] text-[#2dd4bf]">
+                  זוהה אוטומטית{speaker.personName ? `: ${speaker.personName}` : ''}
+                </span>
+              )}
               <button
                 type="button"
                 className="btn-ghost text-[11px] inline-flex items-center gap-1"
@@ -223,34 +243,64 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
               </button>
             </div>
             <p className="text-xs text-[#b8c4dc] leading-relaxed">“{speaker.sampleText}”</p>
-            <PeoplePicker
-              inputId={`speaker-${speaker.speakerLabel.replace(/\s+/g, '-')}`}
-              selected={selected}
-              onChange={(next) => setPicks((prev) => ({ ...prev, [speaker.speakerLabel]: next.slice(-1) }))}
-            />
-            <div className="flex flex-wrap items-center gap-2">
+            {isAuto && !isEditing && (
               <button
                 type="button"
-                className="btn btn-primary text-xs py-1 px-3"
-                disabled={selected.length === 0 || identify.isPending}
-                onClick={() =>
-                  identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: selected[0].id })
-                }
+                className="btn-ghost text-[11px]"
+                onClick={() => setCorrecting(speaker.speakerLabel)}
               >
-                זה הוא
+                לא נכון? תקן
               </button>
-              <button
-                type="button"
-                className="btn btn-ghost text-xs py-1 px-3"
-                disabled={identify.isPending}
-                onClick={() => identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: null })}
-              >
-                לא מזהה
-              </button>
-            </div>
+            )}
+            {isEditing && (
+              <>
+                <PeoplePicker
+                  inputId={`speaker-${speaker.speakerLabel.replace(/\s+/g, '-')}`}
+                  selected={selected}
+                  onChange={(next) => setPicks((prev) => ({ ...prev, [speaker.speakerLabel]: next.slice(-1) }))}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-primary text-xs py-1 px-3"
+                    disabled={selected.length === 0 || identify.isPending}
+                    onClick={() =>
+                      identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: selected[0].id })
+                    }
+                  >
+                    {isAuto ? 'שמור תיקון' : 'זה הוא'}
+                  </button>
+                  {!isAuto && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-xs py-1 px-3"
+                      disabled={identify.isPending}
+                      onClick={() => identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: null })}
+                    >
+                      לא מזהה
+                    </button>
+                  )}
+                  {isAuto && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-xs py-1 px-3"
+                      disabled={identify.isPending}
+                      onClick={() => {
+                        setCorrecting(null)
+                        setPicks((previous) => ({ ...previous, [speaker.speakerLabel]: [] }))
+                      }}
+                    >
+                      ביטול
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )
       })}
+      {identify.isPending && <p className="text-xs text-[#97a4c2]" role="status">שומר ומעדכן את הניתוח…</p>}
+      {identify.error && <p className="text-xs text-red-400" role="alert">{identify.error.message}</p>}
     </div>
   )
 }
@@ -423,6 +473,19 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
   )
 }
 
+/**
+ * Holds a recorded blob awaiting user confirmation before the actual HTTP upload.
+ * Introduced by docs/specs/recording-context-before-upload.md.
+ */
+type PendingReview = {
+  blob: Blob
+  durationSeconds: number
+  /** The calendar meeting ID to attach, if the recording was started from a meeting row. */
+  meetingId: string | null
+  /** Display title for the linked meeting (shown in the review panel). */
+  meetingTitle: string | null
+}
+
 function VoicePageInner() {
   const router = useRouter()
   const params = useSearchParams()
@@ -444,6 +507,16 @@ function VoicePageInner() {
   // Kept when an upload fails, so the user can resend the exact same audio without re-recording
   // (see docs/specs/voice-upload-retry-without-rerecording.md). Cleared on success or discard.
   const [failedUpload, setFailedUpload] = useState<{ blob: Blob; durationSeconds: number; meetingId: string | null } | null>(null)
+  // Blob captured after stopping, waiting for the user to confirm context before uploading.
+  // (docs/specs/recording-context-before-upload.md)
+  const [pendingReview, setPendingReview] = useState<PendingReview | null>(null)
+  // Separate people/project/meeting state for the review step, pre-seeded from the active context.
+  const [reviewPeople, setReviewPeople] = useState<PersonOption[]>([])
+  const [reviewProjectId, setReviewProjectId] = useState('')
+  // Meeting linked during review (overrides pendingReview.meetingId when set explicitly)
+  const [reviewMeetingId, setReviewMeetingId] = useState<string | null>(null)
+  const [reviewMeetingTitle, setReviewMeetingTitle] = useState<string | null>(null)
+  const [showReviewMeetingPicker, setShowReviewMeetingPicker] = useState(false)
   const recordingId = params.get('recording')
   const presetPerson = params.get('person')
   const presetMeeting = params.get('meeting')
@@ -454,6 +527,13 @@ function VoicePageInner() {
   )
   const todayMeetings = meetingsQuery.data?.meetings ?? []
   const presetMeetingChoice = presetMeetingQuery.data ?? null
+  // Calendar meetings on the same date as a recording under review (for the meeting-change picker)
+  const reviewDate = pendingReview ? new Date(Date.now() - (pendingReview.durationSeconds ?? 0) * 1000).toISOString().slice(0, 10) : null
+  const reviewDayMeetingsQuery = trpc.meetings.calendarOnDate.useQuery(
+    { date: reviewDate ?? '' },
+    { enabled: Boolean(pendingReview && showReviewMeetingPicker) },
+  )
+  const reviewDayMeetings = reviewDayMeetingsQuery.data?.meetings ?? []
 
   useEffect(() => {
     if (!presetPerson || people.length > 0) return
@@ -463,21 +543,29 @@ function VoicePageInner() {
 
   const active = recorder.state !== 'idle'
 
-  const doUpload = async (blob: Blob, durationSeconds: number, meetingId: string | null) => {
+  const doUpload = async (blob: Blob, durationSeconds: number, meetingId: string | null, uploadPeople: PersonOption[], uploadProjectId: string) => {
     const form = new FormData()
     const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm'
     form.append('audio', blob, `recording.${ext}`)
     form.append('durationSeconds', String(durationSeconds))
     form.append('consentConfirmed', 'true')
-    form.append('personIds', meetingId ? '' : people.map((p) => p.id).join(','))
+    // Always send the confirmed personIds list (may be empty); server skips merging meeting
+    // attendees automatically when this flag is present. meetingId still wires the recording
+    // to the correct calendar event for the meeting title / project inheritance.
+    form.append('personIds', uploadPeople.map((p) => p.id).join(','))
+    form.append('contextConfirmed', 'true')
     if (meetingId) form.append('meetingId', meetingId)
-    else if (projectId) form.append('projectId', projectId)
+    if (uploadProjectId) form.append('projectId', uploadProjectId)
     setMessage(null)
     setUpload({ progress: 0 })
     try {
       const { recordingId: id } = await uploadRecording(form, (progress) => setUpload({ progress }))
       setUpload(null)
       setFailedUpload(null)
+      setPendingReview(null)
+      setReviewMeetingId(null)
+      setReviewMeetingTitle(null)
+      setShowReviewMeetingPicker(false)
       setConsent(true)
       setMeeting(null)
       utils.voice.list.invalidate()
@@ -485,28 +573,58 @@ function VoicePageInner() {
     } catch (err) {
       setUpload(null)
       setFailedUpload({ blob, durationSeconds, meetingId })
+      setPendingReview(null)
       setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
     }
   }
 
-  const stopAndUpload = async () => {
+  /** Stop the recorder and open the review panel instead of uploading immediately. */
+  const stopAndReview = async () => {
     const result = await recorder.stop()
     if (!result) return
     if (result.durationSeconds < MIN_SECONDS) {
       setMessage(`ההקלטה קצרה מ-${MIN_SECONDS} שניות ולא נשמרה`)
       return
     }
-    await doUpload(result.blob, result.durationSeconds, meeting?.id ?? null)
+    // Pre-seed review state from the current context.
+    if (meeting) {
+      setReviewPeople(meeting.people.map((p) => ({ id: p.id, name: p.name })))
+      setReviewProjectId(meeting.projectId ?? '')
+    } else {
+      setReviewPeople(people)
+      setReviewProjectId(projectId)
+    }
+    setReviewMeetingId(meeting?.id ?? null)
+    setReviewMeetingTitle(meeting?.title ?? null)
+    setShowReviewMeetingPicker(false)
+    setPendingReview({ blob: result.blob, durationSeconds: result.durationSeconds, meetingId: meeting?.id ?? null, meetingTitle: meeting?.title ?? null })
+  }
+
+  /** Confirm the review and send the upload. */
+  const confirmUpload = async () => {
+    if (!pendingReview) return
+    await doUpload(pendingReview.blob, pendingReview.durationSeconds, reviewMeetingId, reviewPeople, reviewProjectId)
+  }
+
+  /** Discard captured audio and return to idle. */
+  const cancelReview = () => {
+    setPendingReview(null)
+    setMessage(null)
+    setReviewMeetingId(null)
+    setReviewMeetingTitle(null)
+    setShowReviewMeetingPicker(false)
   }
 
   const retryUpload = async () => {
     if (!failedUpload) return
-    await doUpload(failedUpload.blob, failedUpload.durationSeconds, failedUpload.meetingId)
+    // Retry with whatever people/project are currently set in the main state.
+    await doUpload(failedUpload.blob, failedUpload.durationSeconds, failedUpload.meetingId, people, projectId)
   }
 
   const startFresh = (forMeeting: MeetingChoice | null = null) => {
     if (failedUpload && !window.confirm('יש הקלטה שממתינה לשליחה — להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?')) return
     setFailedUpload(null)
+    setPendingReview(null)
     setMessage(null)
     setMeeting(forMeeting)
     void recorder.start()
@@ -596,13 +714,13 @@ function VoicePageInner() {
                 )}
                 <button
                   type="button"
-                  className="btn btn-primary inline-flex items-center gap-2"
+                  className={presetMeetingChoice ? 'btn btn-ghost inline-flex items-center gap-1 text-xs' : 'btn btn-primary inline-flex items-center gap-2'}
                   disabled={!consent}
                   onClick={() => startFresh(null)}
                   data-testid="voice-start"
                 >
                   <Mic className="w-4 h-4" aria-hidden />
-                  התחל הקלטה
+                  {presetMeetingChoice ? 'הקלטה חופשית — בלי הפגישה' : 'התחל הקלטה'}
                 </button>
               </div>
 
@@ -703,7 +821,7 @@ function VoicePageInner() {
                   המשך
                 </button>
               )}
-              <button type="button" className="btn btn-primary inline-flex items-center gap-1" onClick={() => void stopAndUpload()}>
+              <button type="button" className="btn btn-primary inline-flex items-center gap-1" onClick={() => void stopAndReview()}>
                 <Square className="w-4 h-4" aria-hidden />
                 עצור ושלח
               </button>
@@ -720,10 +838,101 @@ function VoicePageInner() {
           </div>
         )}
 
+        {/* Review step: shown after stopping, before the actual upload */}
+        {pendingReview && !upload && (
+          <div className="space-y-4 pt-3 border-t border-[#223052]" data-testid="voice-review-panel">
+            <p className="text-sm font-semibold text-[#eef3fb]">אישור לפני העלאה</p>
+            <p className="text-xs text-[#97a4c2]">בדוק את ההקשר ולחץ &ldquo;העלה שיחה&rdquo; כשהכל מוכן.</p>
+            {/* Meeting link row */}
+            <div>
+              <label className="label">פגישה</label>
+              {reviewMeetingId && reviewMeetingTitle ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[#eef3fb] font-medium">{reviewMeetingTitle}</span>
+                  <button type="button" className="btn-ghost text-[11px]" onClick={() => setShowReviewMeetingPicker((v) => !v)}>
+                    החלף
+                  </button>
+                  <button type="button" className="btn-ghost text-[11px] text-[#97a4c2]" onClick={() => { setReviewMeetingId(null); setReviewMeetingTitle(null); setShowReviewMeetingPicker(false) }}>
+                    נקה
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[#5a688c]">בלי פגישה</span>
+                  <button type="button" className="btn-ghost text-[11px]" onClick={() => setShowReviewMeetingPicker((v) => !v)}>
+                    שייך לפגישה
+                  </button>
+                </div>
+              )}
+              {showReviewMeetingPicker && (
+                <div className="mt-2 space-y-1" data-testid="voice-review-meeting-picker">
+                  {reviewDayMeetingsQuery.isPending ? (
+                    <p className="text-xs text-[#5a688c]">טוען פגישות…</p>
+                  ) : reviewDayMeetings.length === 0 ? (
+                    <p className="text-xs text-[#5a688c]">אין פגישות יומן בתאריך הזה</p>
+                  ) : (
+                    reviewDayMeetings.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className="btn btn-ghost text-xs py-1 px-3 w-full text-start"
+                        onClick={() => {
+                          setReviewMeetingId(m.id)
+                          setReviewMeetingTitle(m.title)
+                          setShowReviewMeetingPicker(false)
+                        }}
+                      >
+                        <span className="tabular-nums text-[#5a688c] me-2">{m.time}{m.endTime ? `–${m.endTime}` : ''}</span>
+                        {m.title}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="label" htmlFor="review-people">משתתפים</label>
+              <PeoplePicker inputId="review-people" selected={reviewPeople} onChange={setReviewPeople} />
+            </div>
+            <div>
+              <label className="label" htmlFor="review-project">פרויקט</label>
+              <select
+                id="review-project"
+                className="select w-full"
+                value={reviewProjectId}
+                onChange={(e) => setReviewProjectId(e.target.value)}
+              >
+                <option value="">ללא פרויקט</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                onClick={() => void confirmUpload()}
+                data-testid="voice-review-confirm"
+              >
+                העלה שיחה
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost text-sm"
+                onClick={cancelReview}
+                data-testid="voice-review-cancel"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        )}
+
         {(recorder.error || message) && (
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-red-400" role="alert">{recorder.error ?? message}</p>
-            {failedUpload && !upload && (
+            {failedUpload && !upload && !pendingReview && (
               <button type="button" className="btn btn-ghost text-xs py-1 px-3" onClick={() => void retryUpload()}>
                 שלח שוב
               </button>

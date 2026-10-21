@@ -38,6 +38,14 @@ import {
   resolveDatabaseFieldMappings,
 } from '../services/notion-tasks-sync'
 import { fetchDatabaseInfo } from '../services/notion-people-directory'
+import {
+  clearPersonWorkspaces,
+  listAffiliations,
+  personIdsInWorkspace,
+  removeAffiliation,
+  repointPersonWorkspaces,
+  upsertAffiliation,
+} from '../services/person-workspaces'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
 
@@ -103,9 +111,20 @@ export const peopleRouter = router({
       lastContactBefore: z.string().optional(),
       contactNow: z.boolean().optional(),
       includeStatuses: z.array(statusEnum).optional(),
+      workspaceId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const conditions = []
+
+      let affiliationFirst: ReturnType<typeof sql> | null = null
+      if (input.workspaceId) {
+        const ids = await personIdsInWorkspace(ctx.db, input.workspaceId)
+        const unaffiliated = sql`NOT EXISTS (SELECT 1 FROM person_workspaces WHERE person_id = ${people.id})`
+        conditions.push(ids.length > 0 ? or(inArray(people.id, ids), unaffiliated)! : unaffiliated)
+        if (ids.length > 0) {
+          affiliationFirst = sql`CASE WHEN ${people.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) THEN 0 ELSE 1 END`
+        }
+      }
 
       // Default: only confirmed people. Review queue passes includeStatuses explicitly.
       if (input.includeStatuses && input.includeStatuses.length > 0) {
@@ -169,7 +188,7 @@ export const peopleRouter = router({
           .select()
           .from(people)
           .where(where)
-          .orderBy(orderFn(col))
+          .orderBy(...(affiliationFirst ? [affiliationFirst, orderFn(col)] : [orderFn(col)]))
           .limit(input.pageSize)
           .offset(offset),
         ctx.db
@@ -178,8 +197,10 @@ export const peopleRouter = router({
           .where(where),
       ])
 
+      const affiliations = await listAffiliations(ctx.db, items.map((p) => p.id))
+
       return {
-        items,
+        items: items.map((p) => ({ ...p, affiliations: affiliations.get(p.id) ?? [] })),
         total: countResult[0]?.count ?? 0,
         page: input.page,
         pageSize: input.pageSize,
@@ -496,6 +517,7 @@ export const peopleRouter = router({
       }
 
       await repointPersonExternalIds(ctx.db, input.fromId, input.toId)
+      await repointPersonWorkspaces(ctx.db, input.fromId, input.toId)
       await ctx.db.update(seriesRoster).set({ personId: input.toId }).where(eq(seriesRoster.personId, input.fromId))
       await ctx.db.update(whatsappPersonLinks).set({ personId: input.toId }).where(eq(whatsappPersonLinks.personId, input.fromId))
       await ctx.db.update(whatsappDmMessages).set({ personId: input.toId }).where(eq(whatsappDmMessages.personId, input.fromId))
@@ -783,13 +805,70 @@ export const peopleRouter = router({
   }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await clearPersonWorkspaces(ctx.db, [input.id])
     await ctx.db.delete(people).where(eq(people.id, input.id))
     return { ok: true }
   }),
 
+  /** One person's life-domain affiliations, for the detail drawer. */
+  affiliations: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      return (await listAffiliations(ctx.db, [input.personId])).get(input.personId) ?? []
+    }),
+
+  /** Upserts the (person, workspace) row — a person may hold rows in several workspaces at once. */
+  linkToWorkspace: protectedProcedure
+    .input(z.object({
+      personId: z.string().min(1),
+      workspaceId: z.string().min(1),
+      relationshipType: z.string().trim().min(1),
+      reportsToPersonId: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await upsertAffiliation(ctx.db, input)
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'השיוך נכשל' })
+      }
+    }),
+
+  unlinkFromWorkspace: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), workspaceId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await removeAffiliation(ctx.db, input.personId, input.workspaceId)
+      return { ok: true }
+    }),
+
+  /** Confirmed people in one workspace with their role there — also the reports-to picker's source. */
+  listByWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const ids = await personIdsInWorkspace(ctx.db, input.workspaceId)
+      if (ids.length === 0) return []
+      const rows = await ctx.db
+        .select()
+        .from(people)
+        .where(and(inArray(people.id, ids), eq(people.status, 'confirmed')))
+        .orderBy(people.name)
+      const affiliations = await listAffiliations(ctx.db, rows.map((p) => p.id))
+      return rows.map((person) => {
+        const here = affiliations.get(person.id)?.find((a) => a.workspaceId === input.workspaceId)
+        return {
+          person,
+          relationshipType: here?.relationshipType ?? '',
+          reportsToPersonId: here?.reportsToPersonId ?? null,
+          reportsToName: here?.reportsToName ?? null,
+          notes: here?.notes ?? null,
+        }
+      })
+    }),
+
   bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string().min(1)).min(1) }))
     .mutation(async ({ ctx, input }) => {
+      await clearPersonWorkspaces(ctx.db, input.ids)
       await ctx.db.delete(people).where(inArray(people.id, input.ids))
       return { ok: true, deleted: input.ids.length }
     }),

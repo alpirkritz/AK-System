@@ -2156,3 +2156,238 @@ guardrails not applicable. No PII written to any artifact.
 
 ### Performance Improvements
 - Identity is enforced in code (name filter), not only in the prompt, so an old analysis that already listed אלפיר stops offering him as someone to add.
+
+---
+
+## 2026-10-12 — Dev — harness-situation-alerts
+
+**Workflow:** apps/ engineering — spec then implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Situation alerts in the Harness, plus an email reply-need gate, deployed to EC2.
+- **Context:** Insights were mostly about one person, and a single-message email counted as a reply debt.
+
+### Actions Taken
+1. Wrote `docs/specs/harness-situation-alerts.md`.
+2. Added eight situation detectors and the reply-need gate (`reply_need` on `person_email_threads`).
+3. Push now sends up to 5 urgent cards and up to 3 unpushed situation attention cards.
+4. Deployed with `SKIP_CI=1 pnpm deploy:ec2`. BUILD_ID matched. Public HTTPS health check was still warming.
+
+### Outputs
+- `docs/specs/harness-situation-alerts.md`
+- `packages/api/src/services/harness-reasoner.ts`
+- `packages/api/src/services/email-reply-need.ts`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- FYI and noreply mail is excluded before any model call. Ambiguous threads fail closed when Gemini is down.
+
+---
+
+## 2026-10-13 — Dev Agent — recording-context-before-upload
+
+**Workflow:** S_Skills (dev pipeline) — PM → Dev → Dev Tests → QA → Reviewer
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Add a context-confirmation step before any voice recording uploads, pass confirmed people/project to Gemini, and auto-rename placeholder meeting titles from AI topic.
+- **Context:** User requested that both web and mobile show a review screen (project + attendees) before upload. Decision: confirmation gate only (not mandatory selection). Meeting title policy: rename only voice-created placeholders.
+
+### Actions Taken
+1. Wrote PM spec at `docs/specs/recording-context-before-upload.md`.
+2. **Web** (`apps/web/src/app/voice/page.tsx`): replaced `stopAndUpload` with `stopAndReview` (stores blob into `pendingReview`) and added a review panel with `PeoplePicker` + project `<select>` + "העלה שיחה" / "ביטול" buttons; `doUpload` now receives explicit people/project from review state.
+3. **Mobile live recording** (`apps/mobile/app/(tabs)/record.tsx`): added `'review'` to `Phase`; split `stopAndUpload` into `stopRecording` (→ review) + `confirmUpload` (→ upload) + `discardReview`; updated `beforeRemove` guard to cover `'review'`; meeting-based recordings now pre-seed people/project in review from meeting context.
+4. **Mobile import** (`apps/mobile/app/(tabs)/import-recording.tsx`): added `'review'` phase after file pick + consent; integrated `RecordingContextEditor`.
+5. Extracted `RecordingContextEditor` from `record.tsx` into new shared `apps/mobile/components/RecordingContextEditor.tsx`.
+6. **Backend analysis** (`packages/api/src/services/meeting-analysis.ts`): added `projectName?` and `knownPeople?` to `AnalyzeTranscriptOptions`; `buildAnalysisPrompt` adds a CONTEXT block when these fields are set.
+7. **Backend voice** (`packages/api/src/services/voice.ts`): `processVoiceRecording` now loads people profiles (role, company) and project name; passes them to `analyzeTranscript`; after saving analysis, renames `meetings.title` from `result.topic` when the meeting was created by the recording pipeline and its title still starts with `שיחה מוקלטת`.
+8. Updated existing test that expected placeholder title; added 7 new Vitest tests in `packages/api/src/services/recording-context-before-upload.test.ts`.
+9. Wrote reviewer report at `reports/recording-context-before-upload.md`.
+
+### Output Paths
+- `docs/specs/recording-context-before-upload.md`
+- `apps/web/src/app/voice/page.tsx`
+- `apps/mobile/app/(tabs)/record.tsx`
+- `apps/mobile/app/(tabs)/import-recording.tsx`
+- `apps/mobile/components/RecordingContextEditor.tsx` (new)
+- `packages/api/src/services/meeting-analysis.ts`
+- `packages/api/src/services/voice.ts`
+- `packages/api/src/services/recording-context-before-upload.test.ts` (new)
+- `packages/api/src/routers/email-voice-commitments.test.ts` (updated)
+- `reports/recording-context-before-upload.md`
+
+### Compliance
+- [x] Business logic in structured code under `apps/` and `packages/` (standard engineering)
+- [x] No PII exposed or stored beyond what already existed
+- [x] All 1300+ Vitest tests pass; 1 pre-existing failure in harness-reasoner (unrelated)
+- [x] `pnpm -r run lint` — no new errors
+- [x] `pnpm --filter @ak-system/web build` — clean
+
+### Performance Notes
+- Gemini prompt is enriched with CRM context on every voice analysis; negligible token overhead (~50–150 tokens for 2–3 people profiles).
+- Meeting title rename is a single `db.update` after analysis; no additional LLM call.
+
+---
+
+## 2026-10-13 — Dev Agent — auto-identify-two-person-speakers
+
+**Workflow:** dev pipeline — PM → UI/UX → Dev → Dev Tests → QA → Reviewer
+**Status:** Completed; unrelated full-E2E baseline failures documented
+
+### Stand-up
+- **Goal:** Safely infer the only other speaker in a confirmed one-on-one recording and feed resolved names back into analysis without retranscribing audio.
+- **Context:** Speaker answers were stored only as recording-local links after analysis, so analysis remained on `דובר N` labels.
+
+### Actions Taken
+1. Wrote and approved `docs/specs/auto-identify-two-person-speakers.md`.
+2. Added conservative two-person inference: exactly two labels, enrolled owner already matched, and exactly one confirmed external participant.
+3. Added analysis-only attributed transcripts and a text refresh after all manual answers are resolved.
+4. Kept the original recording transcript unchanged and avoided a second model call when attribution is known before initial analysis.
+5. Added visible “זוהה אוטומטית” UI with an explicit correction path.
+6. Added Vitest safety/refresh coverage and a Playwright automatic-match correction flow.
+7. Wrote QA and reviewer reports.
+
+### Output Paths
+- `docs/specs/auto-identify-two-person-speakers.md`
+- `packages/api/src/services/voice-diarization.ts`
+- `packages/api/src/services/voice.ts`
+- `packages/api/src/routers/voice.ts`
+- `packages/api/src/services/voice-speakers.test.ts`
+- `apps/web/src/app/voice/page.tsx`
+- `apps/web/e2e/email-voice-commitments.spec.ts`
+- `reports/qa-auto-identify-two-person-speakers.md`
+- `reports/auto-identify-two-person-speakers.md`
+
+### Compliance
+- [x] Standard `apps/` / `packages/` engineering pipeline followed
+- [x] No third-party biometric voiceprints added
+- [x] No automatic guess in ambiguous conversations
+- [x] Full unit suite: 1,609/1,609 passing
+- [x] Focused voice E2E: 7/7 passing
+- [x] Lint and production build passing
+- [ ] Full E2E baseline: 98 passing, 2 skipped, 28 unrelated failures
+
+### Performance Notes
+- Safe one-on-one attribution happens before the original analysis call, so it adds no Gemini request.
+- Manual completion triggers at most one text-only refresh; all-skipped/no-change results avoid that call.
+- No deployment was performed in the implementation run. If requested, use `SKIP_CI=1 pnpm deploy:ec2` while retaining the production build step.
+
+---
+
+## 2026-10-13 — Dev Agent — auto-identify-two-person-speakers deploy
+
+**Workflow:** EC2 deploy with `SKIP_CI=1`
+**Status:** Completed
+
+### Actions Taken
+1. Deployed with `SKIP_CI=1 pnpm deploy:ec2`, which still ran `AK_DEPLOY_BUILD=1 pnpm build`.
+2. Docker images were rebuilt on EC2 and containers recreated.
+3. Confirmed the running web container `BUILD_ID` equals the Mac build: `eZ1z_kp5htnS_2JAqi6sR`.
+4. Confirmed the shipped voice bundle contains the automatic-identification UI copy.
+
+### Compliance
+- [x] CI skipped by explicit user policy
+- [x] Production bundle rebuilt before sync
+- [x] Container build identity verified
+
+---
+
+## 2026-10-19 — Dev Agent — calendar-link-and-commitment-task-modal
+
+**Workflow:** dev-pipeline — full feature implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Fix two UX gaps: (1) calendar meeting link lost after recording, (2) commitment accept opens TaskModal with prefill
+- **Context:** Spec at `docs/specs/calendar-link-and-commitment-task-modal.md`, all todos completed
+
+### Actions Taken
+1. **Backend — `packages/api/src/routers/meetings.ts`**: Added `calendarOnDate` query (returns calendar-source meetings for a date) and `attachToCalendar` mutation (merges voice/notion/manual meeting into a calendar event — moves analyses, recordings, commitments, people, then deletes source). Added source-is-calendar guard.
+2. **Backend — `packages/api/src/routers/commitments.ts`**: Added `taskPrefill` query (returns prefill data + Hebrew explanations for each field). Extended `accept` to accept an optional `taskId` for the fast-path when the caller already created a task via TaskModal.
+3. **Web — `apps/web/src/app/voice/page.tsx`**: Added `reviewMeetingId`/`reviewMeetingTitle`/`showReviewMeetingPicker` state; show meeting link row in review panel; "free recording" button becomes secondary/ghost when a preset calendar meeting is active.
+4. **Web — `apps/web/src/app/meetings/[id]/page.tsx`**: Added "📅 שייך לאירוע ביומן" button + same-day calendar meeting picker (only shown for non-calendar meetings).
+5. **Web — `apps/web/src/components/Modals/TaskModal.tsx`**: Added `explanations?: Record<string, string>` prop; renders 💡 hints under each relevant field.
+6. **Web — `apps/web/src/app/commitments/page.tsx`**: Replaced inline mini-form with `TaskModal` + `commitments.taskPrefill` prefill. Added meetings/projects/people queries. "קבל" button opens modal.
+7. **Mobile — `apps/mobile/app/(tabs)/record.tsx`**: Added `Modal` import; always fetch `meetingChoices` (for picker even when `params.meetingId` is set); added `showMeetingChangePicker` state; added meeting display row in review phase with "החלף"/"הסר" controls and a bottom-sheet modal; free-recording button deprioritized when preset meeting is set.
+8. **Tests**: Added `packages/api/src/routers/calendar-link-and-commitment-task-modal.test.ts` (11 Vitest tests) + `apps/web/e2e/calendar-link-and-commitment-task-modal.spec.ts` (4 Playwright specs).
+
+### Output Paths
+- `packages/api/src/routers/meetings.ts` (calendarOnDate, attachToCalendar)
+- `packages/api/src/routers/commitments.ts` (taskPrefill, accept extended)
+- `apps/web/src/app/voice/page.tsx`
+- `apps/web/src/app/meetings/[id]/page.tsx`
+- `apps/web/src/components/Modals/TaskModal.tsx`
+- `apps/web/src/app/commitments/page.tsx`
+- `apps/mobile/app/(tabs)/record.tsx`
+- `packages/api/src/routers/calendar-link-and-commitment-task-modal.test.ts`
+- `apps/web/e2e/calendar-link-and-commitment-task-modal.spec.ts`
+
+### Compliance
+- [x] No PII exposed; all data stays within user's own DB
+- [x] Lint: warnings only (pre-existing), no errors
+- [x] Tests: 1321 passed, 0 new failures
+
+---
+
+## 2026-10-20 — Dev Agent — people-domain-hierarchy
+
+### Stand-up
+- **Goal:** Model Alpir's life domains (DAZ startup, Dragontail employer, Alpir Consulting, personal) so people belong to one or more domains with a free-text relationship and a per-domain reports-to; feed it to the Harness; enrich company/job title/notes from Google Contacts; responsive for Galaxy Z Fold 7.
+- **Workflow:** dev pipeline (PM spec → UI review → Dev → Tests → QA → Reviewer). Spec: `docs/specs/people-domain-hierarchy.md`.
+
+### Actions Taken
+1. **DB:** `workspaces.kind` + `description`; new many-to-many `person_workspaces` (relationship_type, reports_to_person_id, notes). Both schemas + SQLite bootstrap + default-kind seed.
+2. **API:** `people.affiliations / linkToWorkspace / unlinkFromWorkspace / listByWorkspace`, `listPaginated.workspaceId` + per-row affiliations, merge/delete cleanup; `workspaces.create/update` kind + description; `contacts.previewGoogleProfiles / applyGoogleProfiles` (additive only).
+3. **Harness:** person nodes now carry domains, relationship and manager in summary + attrs.
+4. **Web:** workspace filter chips, badges in table/cards, affiliations editor in the person drawer, "פרטים מגוגל" review dialog, kind/description in the workspace modal; drawer full-width and cards by default below 768px.
+5. **EC2 schema check:** probed the production SQLite schema read-only. Found that `db:push` always fails and rolls back in production (pre-existing drizzle-kit duplicate-index bug), so the `getDb()` bootstrap is the real migration path. Rewrote the `person_workspaces` bootstrap DDL in drizzle-kit's form so push sees no diff, and verified the bootstrap on a production replica.
+
+### Output Paths
+- `docs/specs/people-domain-hierarchy.md`, `reports/people-domain-hierarchy.md`, `reports/qa-people-domain-hierarchy.md`
+- `packages/database/src/{schema.pg.ts,schema.ts,index.ts}`
+- `packages/api/src/services/{person-workspaces.ts,google-profile-fill.ts,harness-context.ts}`, `packages/api/src/routers/{people.ts,workspaces.ts,contacts.ts}`
+- `apps/web/src/components/people/{affiliations.ts,WorkspaceBadges.tsx,PersonAffiliations.tsx,GoogleProfileFillModal.tsx,...}`, `apps/web/src/components/Modals/WorkspaceModal.tsx`
+- Tests: `packages/api/src/routers/people-domain-hierarchy.test.ts` (19), `apps/web/e2e/people-domain-hierarchy.spec.ts` (3)
+
+### Compliance
+- [x] No PII exported: the production probe read schema DDL and workspace names only
+- [x] Google enrichment never overwrites user-entered fields
+- [x] Lint: warnings only; build passes
+
+### Performance Notes
+- Production `db:push` has been silently failing on every deploy. It is worth a dedicated bugfix spec, because new tables that rely only on push never reach production.
+
+### Deployment — 2026-10-20 15:20
+- Created a transactionally consistent production DB backup: `/data/backups/pre-people-domain-20261020-152056.sqlite` (45 MB).
+- Tagged the prior web image as `ak-system-web:rollback-20261020-152056`.
+- First deploy attempt used a stale/missing local `.next` after e2e cleanup; verification caught it, the site was immediately restored from the rollback image, and health returned HTTP 307 / Next Ready.
+- Rebuilt the Next.js bundle locally and redeployed successfully. BUILD_ID matched: `0c9k2J3W_YO5nv9ZV_ByX`.
+- Post-deploy health: local and public HTTP 307 (expected auth redirect).
+- Production schema verified: `workspaces.kind`, `workspaces.description`, and `person_workspaces` are present.
+- Existing Notion database links and task counts were verified unchanged; no workspace, database link, or task was merged/deleted/moved.
+
+---
+
+## 2026-10-20 — Dev Agent — worlds-and-workspaces phase 1A deploy
+
+### Stand-up
+- **Goal:** Deploy the non-destructive world → workspace hierarchy and settings assignment control while preserving every existing workspace, Notion database link, and task assignment.
+- **Workflow:** `docs/specs/worlds-and-workspaces.md` — approved decisions; partial Phase 1A only.
+
+### Actions Taken
+1. Added nullable hierarchy/entity columns to SQLite + Postgres schemas and EC2 bootstrap: `workspaces.parent_id`, `projects.workspace_id`, `meetings.workspace_id/workspace_source`, `meeting_series.workspace_id`.
+2. Added hierarchy validation, tree query, merge preview, and same-world merge service/API. No automatic reparenting or merging.
+3. Added "בתוך עולם" control to the workspace modal and nested display in Settings.
+4. Added 4 hierarchy tests; combined hierarchy suites pass 23/23. Lint has no errors; production build passes.
+5. Created `/data/backups/pre-worlds-20261020-202938.sqlite` and rollback image `ak-system-web:rollback-20261020-202938`.
+6. First image build stopped before container replacement because EC2 Docker storage was full. Removed only unused build/image artifacts and one obsolete rollback image, retaining the current rollback + DB backup. Retry deployed successfully with BUILD_ID `FU_i9OCzh167IGm2fvfp-`.
+7. Post-deploy verification: local/public HTTP 307; all new columns present; all six existing workspaces still `parent_id = NULL`; all Notion DB links and task counts unchanged.
+
+### Compliance
+- [x] No existing workspace, task, person, project, meeting, or Notion DB link moved
+- [x] Rollback DB + image created before deploy
+- [x] Production schema and data shape verified after deploy

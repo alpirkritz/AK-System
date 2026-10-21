@@ -5,7 +5,8 @@ import { Mail, Phone, StickyNote } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { he } from 'date-fns/locale'
 import { cn } from '@/lib/cn'
-import type { Person } from '@ak-system/database'
+import { WorkspaceBadges } from './WorkspaceBadges'
+import type { PersonWithAffiliations } from './affiliations'
 
 const TAG_COLORS: Record<string, string> = {
   business: '#38bdf8',
@@ -30,7 +31,7 @@ function getContactHealth(lastContact: string | null, frequencyDays: number | nu
 }
 
 interface Props {
-  person: Person
+  person: PersonWithAffiliations
   selected: boolean
   warmth?: 'warming' | 'cooling' | null
   onToggleSelect: () => void
@@ -79,9 +80,16 @@ export const PersonRow = memo(function PersonRow({ person, selected, warmth, onT
           >
             {person.name[0]}
           </div>
-          <span className="font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
-            {person.name}
-          </span>
+          <div className="min-w-0">
+            <span className="block font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
+              {person.name}
+            </span>
+            {person.affiliations && person.affiliations.length > 0 && (
+              <div className="mt-0.5">
+                <WorkspaceBadges affiliations={person.affiliations} max={2} />
+              </div>
+            )}
+          </div>
           {warmth ? (
             <span
               className="pill text-[10px] shrink-0"

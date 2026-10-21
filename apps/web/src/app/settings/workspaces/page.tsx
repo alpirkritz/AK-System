@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Pencil, Trash2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { workspaceKindLabel } from '@/components/people/affiliations'
 import dynamic from 'next/dynamic'
 const WorkspaceModal = dynamic(
   () => import('@/components/Modals/WorkspaceModal').then((m) => m.WorkspaceModal),
@@ -31,7 +32,7 @@ export default function WorkspacesSettingsPage() {
     (tasksList as Array<{ workspaceId?: string | null }>).filter((t) => t.workspaceId === workspaceId).length
 
   const handleDelete = (id: string, name: string) => {
-    if (!window.confirm(`למחוק את המקור "${name}"? המשימות יישארו אך יאבדו את השיוך.`)) return
+    if (!window.confirm(`למחוק את העולם "${name}"? המשימות יישארו אך יאבדו את השיוך.`)) return
     remove.mutate({ id })
   }
 
@@ -42,7 +43,7 @@ export default function WorkspacesSettingsPage() {
           ← חזרה להגדרות
         </Link>
         <div className="flex justify-between items-center mt-2">
-          <h1 className="text-xl font-bold">מקורות</h1>
+          <h1 className="text-xl font-bold">עולמות</h1>
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -50,11 +51,11 @@ export default function WorkspacesSettingsPage() {
               setModalOpen(true)
             }}
           >
-            + מקור חדש
+            + עולם חדש
           </button>
         </div>
         <p className="text-xs text-[#5a688c] mt-1">
-          כל משימה משויכת למקור — Alpir Consulting, Dragontail, DAZ או פרטי. תווית Notion ממפה משימות מסונכרנות אוטומטית.
+          כל עולם הוא חלק מהחיים — DAZ, Dragontail, Alpir Consulting או פרטי. סביבת עבודה יושבת בתוך עולם. בסיס נתונים ב-Notion עדיין קובע מאיפה משימה הגיעה.
         </p>
       </div>
 
@@ -65,8 +66,8 @@ export default function WorkspacesSettingsPage() {
         </div>
       ) : workspaces.length === 0 ? (
         <div className="card text-center py-12">
-          <div className="text-[#eef3fb] font-medium mb-1">אין מקורות</div>
-          <div className="text-sm text-[#647399] mb-4">הוסף מקור ראשון כדי לשייך אליו משימות.</div>
+          <div className="text-[#eef3fb] font-medium mb-1">אין עולמות</div>
+          <div className="text-sm text-[#647399] mb-4">הוסף עולם ראשון כדי לשייך אליו משימות, פגישות ואנשים.</div>
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -74,19 +75,23 @@ export default function WorkspacesSettingsPage() {
               setModalOpen(true)
             }}
           >
-            + מקור חדש
+            + עולם חדש
           </button>
         </div>
       ) : (
         <div className="card py-1 px-4">
-          {workspaces.map((w) => (
-            <div key={w.id} className="task-row">
+          {workspaces.filter((w) => !w.parentId).map((w) => (
+            <div key={w.id}>
+            <div className="task-row">
               <span
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ background: w.color ?? '#2dd4bf' }}
               />
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-[#eef3fb]">{w.name}</div>
+                <div className="text-sm text-[#eef3fb]">
+                  {w.name}
+                  {w.kind && <span className="text-[#7a89ab]"> · {workspaceKindLabel(w.kind)}</span>}
+                </div>
                 <div className="text-[11px] text-[#647399] truncate">
                   {(w as { notionDatabases?: unknown[] }).notionDatabases?.length
                     ? `🔗 ${(w as { notionDatabases: unknown[] }).notionDatabases.length} מקושרים`
@@ -117,6 +122,22 @@ export default function WorkspacesSettingsPage() {
               >
                 <Trash2 size={16} />
               </button>
+            </div>
+            {workspaces.filter((child) => child.parentId === w.id).map((child) => (
+              <div key={child.id} className="task-row ps-6">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: child.color ?? w.color ?? '#2dd4bf' }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-[#eef3fb]">{child.name}</div>
+                  <div className="text-[11px] text-[#647399]">סביבת עבודה בתוך {w.name}</div>
+                </div>
+                <button type="button" className="icon-btn" aria-label={`ערוך את ${child.name}`} onClick={() => { setEditingId(child.id); setModalOpen(true) }}>
+                  <Pencil size={16} />
+                </button>
+                <button type="button" className="icon-btn danger" aria-label={`מחק את ${child.name}`} disabled={remove.isPending} onClick={() => handleDelete(child.id, child.name)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
             </div>
           ))}
         </div>

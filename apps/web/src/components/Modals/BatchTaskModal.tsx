@@ -7,6 +7,7 @@ import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
 import { getSelfPersonName, isSelfPersonName, matchTaskAssigneeId } from '@ak-system/api/lib/self-identity'
 import type { Person } from '@ak-system/database'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 
 type ActionItem = {
   content: string
@@ -242,20 +243,14 @@ export function BatchTaskModal({
                       {/* Workspace */}
                       {workspaces.length > 0 && (
                         <div>
-                          <label className="label text-xs mb-1">מקור</label>
-                          <select
+                          <label className="label text-xs mb-1" htmlFor={`batch-world-${idx}`}>עולם</label>
+                          <WorkspacePicker
+                            id={`batch-world-${idx}`}
                             className="select w-full"
                             value={item.workspaceId}
-                            onChange={(e) => updateItem(idx, { workspaceId: e.target.value })}
+                            onChange={(workspaceId) => updateItem(idx, { workspaceId })}
                             disabled={!item.included}
-                          >
-                            <option value="">ללא מקור</option>
-                            {workspaces.map((w) => (
-                              <option key={w.id} value={w.id}>
-                                {w.name}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                       )}
                     </div>
