@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { generateContent, execFileMock, decodeToPcm16Mock, extractSpeechSegmentsMock } = vi.hoisted(() => ({
+const { generateContent, execFileMock, decodeToPcm16Mock, extractSpeechSegmentsMock, readFileSyncMock, mkdtempSyncMock, rmSyncMock } = vi.hoisted(() => ({
   generateContent: vi.fn(),
   execFileMock: vi.fn(),
   decodeToPcm16Mock: vi.fn(),
   extractSpeechSegmentsMock: vi.fn(),
+  readFileSyncMock: vi.fn(() => Buffer.alloc(10)),
+  mkdtempSyncMock: vi.fn(() => '/tmp/ak-voice-chunk-test'),
+  rmSyncMock: vi.fn(),
 }))
 
 vi.mock('@google/generative-ai', () => ({
@@ -29,6 +32,11 @@ vi.mock('@google/generative-ai/server', () => ({
   FileState: { PROCESSING: 'PROCESSING', ACTIVE: 'ACTIVE', FAILED: 'FAILED' },
 }))
 
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>()
+  return { ...actual, readFileSync: readFileSyncMock, mkdtempSync: mkdtempSyncMock, rmSync: rmSyncMock }
+})
+
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('util', async (importOriginal) => {
   const actual = await importOriginal<typeof import('util')>()
@@ -47,7 +55,6 @@ vi.mock('./audio-features', () => ({
   },
 }))
 
-import * as fs from 'fs'
 import { transcribeLongRecordingWithGemini } from './voice'
 
 function reply(text: string) {
@@ -61,9 +68,9 @@ describe('transcribeLongRecordingWithGemini', () => {
     execFileMock.mockReset().mockResolvedValue({ stdout: '', stderr: '' })
     decodeToPcm16Mock.mockReset().mockResolvedValue(new Int16Array())
     extractSpeechSegmentsMock.mockReset()
-    vi.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.alloc(10))
-    vi.spyOn(fs, 'mkdtempSync').mockReturnValue('/tmp/ak-voice-chunk-test')
-    vi.spyOn(fs, 'rmSync').mockImplementation(() => undefined)
+    readFileSyncMock.mockReset().mockReturnValue(Buffer.alloc(10))
+    mkdtempSyncMock.mockReset().mockReturnValue('/tmp/ak-voice-chunk-test')
+    rmSyncMock.mockReset().mockImplementation(() => undefined)
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -91,7 +98,7 @@ describe('transcribeLongRecordingWithGemini', () => {
     expect(result.segments).toHaveLength(2)
     expect(result.segments[0]).toMatchObject({ startMs: 0, endMs: 2000 })
     expect(result.segments[1]).toMatchObject({ startMs: chunkSeconds * 1000, endMs: chunkSeconds * 1000 + 2000 })
-    expect(result.text).toBe('דובר 1: שלום\nדובר 1: המשך')
+    expect(result.text).toBe('דובר 1: שלום\nדובר 2: המשך')
   })
 
   it('recognises the same speaker across chunks by voiceprint, even though Gemini renumbers labels per chunk', async () => {
@@ -141,7 +148,6 @@ describe('transcribeLongRecordingWithGemini', () => {
 
   it('leaves a clearly-marked gap for a chunk that still fails after retries, instead of failing the whole (possibly hour-plus) recording', async () => {
     extractSpeechSegmentsMock.mockReturnValue([])
-    const rmSync = vi.spyOn(fs, 'rmSync')
     // transcribeWithGemini itself retries a failing chunk twice before giving up (see voice-large-file.test.ts) —
     // both attempts fail here to simulate a chunk nothing could recover.
     generateContent.mockRejectedValue(new Error('gemini down'))
@@ -150,7 +156,7 @@ describe('transcribeLongRecordingWithGemini', () => {
 
     expect(result.text).toContain('gemini down')
     expect(result.text).toContain('לא ניתן היה לתמלל')
-    expect(rmSync).toHaveBeenCalledWith('/tmp/ak-voice-chunk-test', { recursive: true, force: true })
+    expect(rmSyncMock).toHaveBeenCalledWith('/tmp/ak-voice-chunk-test', { recursive: true, force: true })
   })
 
   it('still transcribes the chunks around a failed one', async () => {

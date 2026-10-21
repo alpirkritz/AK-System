@@ -220,7 +220,7 @@ export const projectsRouter = router({
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     await assertWorkspace(ctx.db, input.workspaceId)
-    const id = 'proj' + Date.now()
+    const id = 'proj' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     await ctx.db.insert(projects).values({
       id,
