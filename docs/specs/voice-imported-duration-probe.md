@@ -22,8 +22,26 @@ Live recordings of 54–59 min on the same model (`gemini-3.8-flash`) succeeded 
 - [ ] On upload, the server reads the file's duration with `ffprobe`; when it succeeds, that value is stored instead of the client's.
 - [ ] When `ffprobe` is unavailable or the container has no duration (e.g. some MediaRecorder webm), the client value is kept — no upload is rejected because probing failed.
 - [ ] `processVoiceRecording` re-probes before choosing the transcription path and corrects a stored duration that is off by more than 5 seconds, so retrying an already-failed import takes the chunked path without re-uploading.
-- [ ] Recordings longer than 25 minutes (was 45) are chunked; chunk length stays 20 minutes. Both remain overridable via `VOICE_CHUNK_THRESHOLD_SECONDS` / `VOICE_CHUNK_DURATION_SECONDS`.
+- [ ] Recordings longer than 12 minutes (was 45) are chunked into 10-minute pieces (was 20). Both remain overridable via `VOICE_CHUNK_THRESHOLD_SECONDS` / `VOICE_CHUNK_DURATION_SECONDS`.
 - [ ] The minimum-length check (10s) uses the probed duration when available.
+- [ ] Each transcription request gets 3 attempts (was 2); if the primary model (`GEMINI_MODEL`) still fails, the same audio is sent to `VOICE_TRANSCRIBE_FALLBACK_MODEL` (default `gemini-3.1-pro-preview`, empty disables).
+- [ ] A response with no candidates names `promptFeedback.blockReason` in the stored error, instead of an error with no reason.
+- [ ] During chunked transcription, `updatedAt` is refreshed after each chunk so `voice.retry` does not start a duplicate run of a long recording.
+
+## Second finding (direct Gemini probes, 2026-10-27)
+
+Probing the first 20 minutes of the 73-minute file from the Mac:
+
+| Model | Result |
+|---|---|
+| `gemini-3.8-flash`, 20-min chunk | no response after 336s → `fetch failed` (Node fetch's 300s headers timeout) |
+| `gemini-3.8-flash`, 10-min chunk | STOP in 100s, 5.7K output tokens |
+| `gemini-3.8-flash`, 10-min, thinking low/off | `promptFeedback.blockReason=OTHER`, no candidates |
+| `gemini-3.1-pro-preview`, 20-min chunk | STOP in 220s |
+| `gemini-3.5-transcribe`, 20-min chunk | MAX_TOKENS (32K cap), empty text |
+| `gemini-2.5-pro` | 404, no longer available |
+
+Yesterday's live recording of the same audio (`vr_mvpfnm1x_kwx5to`) had already lost its first 20-minute chunk the same way, so its analysis covered only minutes 20–73.
 
 ## Data model
 

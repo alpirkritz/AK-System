@@ -82,7 +82,7 @@ describe('transcribeLongRecordingWithGemini', () => {
       .mockResolvedValueOnce(reply('[{"speaker":"דובר 1","start":0,"end":2,"text":"שלום"}]'))
       .mockResolvedValueOnce(reply('[{"speaker":"דובר 1","start":0,"end":2,"text":"המשך"}]'))
 
-    const chunkSeconds = 20 * 60
+    const chunkSeconds = 10 * 60
     const result = await transcribeLongRecordingWithGemini('/fake/rec.webm', 'audio/webm', chunkSeconds * 2)
 
     // One ffmpeg split call per chunk.
@@ -125,7 +125,7 @@ describe('transcribeLongRecordingWithGemini', () => {
         { startMs: 3000, endMs: 5000, embedding: [1, 0] },
       ])
 
-    const chunkSeconds = 20 * 60
+    const chunkSeconds = 10 * 60
     const result = await transcribeLongRecordingWithGemini('/fake/rec.webm', 'audio/webm', chunkSeconds * 2)
 
     const byText = new Map(result.segments.map((s) => [s.text, s.speakerLabel]))
@@ -163,9 +163,9 @@ describe('transcribeLongRecordingWithGemini', () => {
     extractSpeechSegmentsMock.mockReturnValue([])
     generateContent
       .mockResolvedValueOnce(reply('[{"speaker":"דובר 1","start":0,"end":2,"text":"קטע ראשון"}]'))
-      .mockRejectedValue(new Error('gemini down')) // both retry attempts for chunk 2 fail
+      .mockRejectedValue(new Error('gemini down')) // every attempt on both models fails for chunk 2
 
-    const chunkSeconds = 20 * 60
+    const chunkSeconds = 10 * 60
     const result = await transcribeLongRecordingWithGemini('/fake/rec.webm', 'audio/webm', chunkSeconds * 2)
 
     expect(result.text).toContain('קטע ראשון')

@@ -134,11 +134,41 @@ describe('transcribeWithGemini', () => {
     }
   }
 
-  it('retries once on a blocked response, and raises a clear Hebrew error (naming the finish reason) if it is still blocked', async () => {
+  it('retries a blocked response, then the fallback model, and raises a clear Hebrew error (naming the finish reason) if all are blocked', async () => {
     generateContent.mockResolvedValue(blockedReply())
 
     await expect(transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')).rejects.toThrow(/finishReason=OTHER/)
-    expect(generateContent).toHaveBeenCalledTimes(2)
+    // 3 attempts on the primary model + 3 on the fallback model
+    expect(generateContent).toHaveBeenCalledTimes(6)
+    const modelNames = getGenerativeModel.mock.calls.map((c) => (c[0] as { model: string }).model)
+    expect(modelNames).toContain('gemini-3.1-pro-preview')
+  })
+
+  it('names the block reason when Gemini returns no candidates at all', async () => {
+    generateContent.mockResolvedValue({
+      response: {
+        text: () => {
+          throw new Error('[GoogleGenerativeAI Error]: Text not available. Response was blocked due to OTHER')
+        },
+        candidates: undefined,
+        promptFeedback: { blockReason: 'OTHER' },
+      },
+    })
+
+    await expect(transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')).rejects.toThrow(/blockReason=OTHER/)
+  })
+
+  it('falls back to the second model when the primary keeps failing', async () => {
+    generateContent
+      .mockResolvedValueOnce(blockedReply())
+      .mockResolvedValueOnce(blockedReply())
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      .mockResolvedValueOnce(reply('דובר 1: מודל הגיבוי תמלל'))
+
+    const text = await transcribeWithGemini(Buffer.alloc(1024, 'a'), 'audio/webm')
+
+    expect(text).toBe('דובר 1: מודל הגיבוי תמלל')
+    expect(generateContent).toHaveBeenCalledTimes(4)
   })
 
   it('recovers when a retry of a blocked response succeeds (finishReason OTHER is non-deterministic in practice)', async () => {

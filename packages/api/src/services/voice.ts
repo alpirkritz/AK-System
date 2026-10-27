@@ -56,12 +56,20 @@ const GEMINI_FILE_POLL_INTERVAL_MS = 2000
  * in practice this sometimes comes back with `finishReason: 'OTHER'` (no usable text at all) instead
  * of a result — almost certainly the response approaching an internal output-size/complexity limit.
  * Chunking keeps each request's expected output small and makes a single bad chunk retryable/
- * isolated instead of failing the whole recording. A 31-minute single request has also been observed
- * to come back empty, so the threshold sits well below that.
+ * isolated instead of failing the whole recording.
+ *
+ * Request time is the other limit: Node's fetch drops a request that has no response headers after
+ * 300s ("fetch failed"), and gemini-3.8-flash took longer than that on 20 minutes of dense Hebrew
+ * (it took ~100s on 10). Chunks stay at 10 minutes to keep each request well inside that window.
  */
-export const VOICE_CHUNK_THRESHOLD_SECONDS = Number(process.env.VOICE_CHUNK_THRESHOLD_SECONDS) || 25 * 60
+export const VOICE_CHUNK_THRESHOLD_SECONDS = Number(process.env.VOICE_CHUNK_THRESHOLD_SECONDS) || 12 * 60
 /** Target length of each chunk once a recording is over the threshold above. */
-export const VOICE_CHUNK_DURATION_SECONDS = Number(process.env.VOICE_CHUNK_DURATION_SECONDS) || 20 * 60
+export const VOICE_CHUNK_DURATION_SECONDS = Number(process.env.VOICE_CHUNK_DURATION_SECONDS) || 10 * 60
+/**
+ * Model tried when the primary one still fails after its retries. gemini-3.1-pro-preview transcribed
+ * a chunk that gemini-3.8-flash kept blocking (`blockReason: OTHER`). Set to an empty string to disable.
+ */
+const TRANSCRIBE_FALLBACK_MODEL = process.env.VOICE_TRANSCRIBE_FALLBACK_MODEL ?? 'gemini-3.1-pro-preview'
 /**
  * Cosine-similarity cutoff (same log-mel voiceprint heuristic as self-voice matching, see
  * audio-features.ts) for deciding that a speaker label in one chunk is the same person as a label
@@ -74,7 +82,7 @@ const CHUNK_SPEAKER_MATCH_THRESHOLD = Number(process.env.VOICE_CHUNK_SPEAKER_MAT
  * (finishReason other than STOP) or otherwise fails — `finishReason: 'OTHER'` in particular has
  * been observed to be non-deterministic: the same audio can succeed on a retry.
  */
-const TRANSCRIBE_MAX_ATTEMPTS = 2
+const TRANSCRIBE_MAX_ATTEMPTS = 3
 /**
  * This is a verbatim-transcription task over the user's own consented recordings, not content
  * generation — Gemini's default (moderate) safety thresholds have been observed to block entirely
@@ -400,7 +408,8 @@ function readTranscriptionText(result: GenerateContentResult): string {
     text = result.response.text()
   } catch (err) {
     const finishReason = result.response.candidates?.[0]?.finishReason
-    const reasonNote = finishReason ? ` (finishReason=${finishReason})` : ''
+    const blockReason = result.response.promptFeedback?.blockReason
+    const reasonNote = finishReason ? ` (finishReason=${finishReason})` : blockReason ? ` (blockReason=${blockReason})` : ''
     throw new Error(
       `Gemini לא החזיר תמלול להקלטה${reasonNote} — ייתכן שההקלטה ארוכה/מורכבת מדי לבקשה אחת. נסה שוב, או פצל אותה למקטעים קצרים יותר.`,
     )
@@ -429,8 +438,24 @@ async function generateTranscription(model: GeminiModel, parts: Parameters<Gemin
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
+/** Tries each model in order (each with its own retries); throws the last model's error if all fail. */
+async function generateWithFallback(models: GeminiModel[], parts: Parameters<GeminiModel['generateContent']>[0]): Promise<string> {
+  let lastError: unknown
+  for (const [i, model] of models.entries()) {
+    try {
+      return await generateTranscription(model, parts)
+    } catch (err) {
+      lastError = err
+      if (i < models.length - 1) {
+        console.warn('[voice] primary transcription model failed, trying fallback model:', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 /** Uploads a large file to Gemini, waits for it to leave PROCESSING, transcribes by reference, and always cleans up. */
-async function transcribeViaFilesApi(key: string, model: GeminiModel, audio: Buffer, mimeType: string): Promise<string> {
+async function transcribeViaFilesApi(key: string, models: GeminiModel[], audio: Buffer, mimeType: string): Promise<string> {
   const fileManager = new GoogleAIFileManager(key)
   const uploaded = await fileManager.uploadFile(audio, { mimeType, displayName: 'ak-voice-recording' })
   let file = uploaded.file
@@ -442,7 +467,7 @@ async function transcribeViaFilesApi(key: string, model: GeminiModel, audio: Buf
     }
     if (file.state === FileState.FAILED) throw new Error('עיבוד ההקלטה ב-Gemini נכשל')
     if (file.state !== FileState.ACTIVE) throw new Error('עיבוד ההקלטה ב-Gemini נמשך זמן רב מדי')
-    return await generateTranscription(model, [
+    return await generateWithFallback(models, [
       { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
       { text: TRANSCRIBE_PROMPT },
     ])
@@ -456,14 +481,15 @@ async function transcribeViaFilesApi(key: string, model: GeminiModel, audio: Buf
 export const transcribeWithGemini: VoiceTranscriber = async (audio, mimeType) => {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY not configured')
-  const model = new GoogleGenerativeAI(key).getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    safetySettings: TRANSCRIPTION_SAFETY_SETTINGS,
-  })
+  const client = new GoogleGenerativeAI(key)
+  const primary = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const models = [...new Set([primary, TRANSCRIBE_FALLBACK_MODEL].filter(Boolean))].map((model) =>
+    client.getGenerativeModel({ model, safetySettings: TRANSCRIPTION_SAFETY_SETTINGS }),
+  )
 
-  if (audio.length > GEMINI_INLINE_MAX_BYTES) return transcribeViaFilesApi(key, model, audio, mimeType)
+  if (audio.length > GEMINI_INLINE_MAX_BYTES) return transcribeViaFilesApi(key, models, audio, mimeType)
 
-  return generateTranscription(model, [
+  return generateWithFallback(models, [
     { inlineData: { data: audio.toString('base64'), mimeType } },
     { text: TRANSCRIBE_PROMPT },
   ])
@@ -635,7 +661,12 @@ async function reconcileChunk(chunk: AudioChunk, mimeType: string, registry: Glo
  * inline/Files-API logic as a normal recording), and reconciling speaker labels and timestamps
  * back onto the original timeline. See docs/specs/voice-chunked-long-transcription.md.
  */
-export async function transcribeLongRecordingWithGemini(audioPath: string, mimeType: string, durationSeconds: number): Promise<TranscriptResult> {
+export async function transcribeLongRecordingWithGemini(
+  audioPath: string,
+  mimeType: string,
+  durationSeconds: number,
+  onChunkDone?: () => Promise<void>,
+): Promise<TranscriptResult> {
   const ext = EXT_BY_MIME[mimeType.split(';')[0].trim().toLowerCase()] || path.extname(audioPath).replace(/^\./, '') || 'webm'
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ak-voice-chunk-'))
   try {
@@ -651,6 +682,7 @@ export async function transcribeLongRecordingWithGemini(audioPath: string, mimeT
     const allTurns: TranscriptTurn[] = []
     for (const chunk of chunks) {
       allTurns.push(...(await reconcileChunk(chunk, mimeType, registry)))
+      await onChunkDone?.()
     }
     return turnsToResult(allTurns, allTurns.map((t) => t.text).join('\n'))
   } finally {
@@ -721,7 +753,10 @@ export async function processVoiceRecording(
       // Long recording: split into chunks rather than one huge request (see
       // VOICE_CHUNK_THRESHOLD_SECONDS's comment and docs/specs/voice-chunked-long-transcription.md).
       // Read straight from disk per-chunk instead of loading the whole (possibly 100s of MB) file here.
-      transcribed = await transcribeLongRecordingWithGemini(rec.audioPath, rec.mimeType, rec.duration)
+      // Each chunk refreshes `updatedAt` so `voice.retry` doesn't treat a long run as stuck and start a second one.
+      transcribed = await transcribeLongRecordingWithGemini(rec.audioPath, rec.mimeType, rec.duration, async () => {
+        await db.update(voiceRecordings).set({ updatedAt: stamp() }).where(eq(voiceRecordings.id, rec.id))
+      })
     } else {
       transcribed = toTranscriptResult(await transcribeWithGemini(fs.readFileSync(rec.audioPath), rec.mimeType))
     }
