@@ -55,7 +55,7 @@ vi.mock('./audio-features', () => ({
   },
 }))
 
-import { transcribeLongRecordingWithGemini } from './voice'
+import { probeAudioDurationSeconds, transcribeLongRecordingWithGemini, VOICE_CHUNK_THRESHOLD_SECONDS } from './voice'
 
 function reply(text: string) {
   return { response: { text: () => text, candidates: [{ finishReason: 'STOP' }] } }
@@ -170,5 +170,31 @@ describe('transcribeLongRecordingWithGemini', () => {
 
     expect(result.text).toContain('קטע ראשון')
     expect(result.text).toContain('לא ניתן היה לתמלל')
+  })
+})
+
+describe('probeAudioDurationSeconds', () => {
+  beforeEach(() => {
+    execFileMock.mockReset()
+  })
+
+  it('reads the container duration from ffprobe', async () => {
+    execFileMock.mockResolvedValue({ stdout: '4379.521300\n', stderr: '' })
+    await expect(probeAudioDurationSeconds('/fake/rec.m4a')).resolves.toBeCloseTo(4379.5213)
+    expect(execFileMock.mock.calls[0][0]).toBe('ffprobe')
+  })
+
+  it('returns null when the file has no duration header', async () => {
+    execFileMock.mockResolvedValue({ stdout: 'N/A\n', stderr: '' })
+    await expect(probeAudioDurationSeconds('/fake/rec.webm')).resolves.toBeNull()
+  })
+
+  it('returns null when ffprobe is missing or fails', async () => {
+    execFileMock.mockRejectedValue(new Error('spawn ffprobe ENOENT'))
+    await expect(probeAudioDurationSeconds('/fake/rec.m4a')).resolves.toBeNull()
+  })
+
+  it('puts a 31-minute recording over the chunking threshold', () => {
+    expect(1838).toBeGreaterThan(VOICE_CHUNK_THRESHOLD_SECONDS)
   })
 })

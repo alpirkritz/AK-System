@@ -56,9 +56,10 @@ const GEMINI_FILE_POLL_INTERVAL_MS = 2000
  * in practice this sometimes comes back with `finishReason: 'OTHER'` (no usable text at all) instead
  * of a result — almost certainly the response approaching an internal output-size/complexity limit.
  * Chunking keeps each request's expected output small and makes a single bad chunk retryable/
- * isolated instead of failing the whole recording.
+ * isolated instead of failing the whole recording. A 31-minute single request has also been observed
+ * to come back empty, so the threshold sits well below that.
  */
-export const VOICE_CHUNK_THRESHOLD_SECONDS = Number(process.env.VOICE_CHUNK_THRESHOLD_SECONDS) || 45 * 60
+export const VOICE_CHUNK_THRESHOLD_SECONDS = Number(process.env.VOICE_CHUNK_THRESHOLD_SECONDS) || 25 * 60
 /** Target length of each chunk once a recording is over the threshold above. */
 export const VOICE_CHUNK_DURATION_SECONDS = Number(process.env.VOICE_CHUNK_DURATION_SECONDS) || 20 * 60
 /**
@@ -114,6 +115,26 @@ export function voiceStorageDir(): string {
 }
 
 export class VoiceUploadError extends Error {}
+
+/**
+ * Real length of an audio file in seconds via `ffprobe`, or null when it can't be read (binary
+ * missing, or a container without a duration header such as some MediaRecorder webm). Imported
+ * files arrive with a placeholder duration from the client, so this is what decides chunking.
+ */
+export async function probeAudioDurationSeconds(audioPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'csv=p=0',
+      audioPath,
+    ])
+    const seconds = Number(String(stdout).trim())
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+  } catch {
+    return null
+  }
+}
 
 function timezone(): string {
   return process.env.TIMEZONE || 'Asia/Jerusalem'
@@ -193,12 +214,20 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
   if (!input.consentConfirmed) throw new VoiceUploadError('נדרש אישור שכל המשתתפים הסכימו להקלטה')
   if (input.audio.length === 0) throw new VoiceUploadError('קובץ ההקלטה ריק')
   if (input.audio.length > VOICE_MAX_BYTES) throw new VoiceUploadError('ההקלטה גדולה מדי')
-  if (!Number.isFinite(input.durationSeconds) || input.durationSeconds < VOICE_MIN_SECONDS) {
-    throw new VoiceUploadError('ההקלטה קצרה מדי (לפחות 10 שניות)')
-  }
   const mimeType = input.mimeType.split(';')[0].trim().toLowerCase() || 'audio/webm'
   const ext = EXT_BY_MIME[mimeType]
   if (!ext) throw new VoiceUploadError(`סוג קובץ לא נתמך: ${mimeType}`)
+
+  const id = newId('vr')
+  const dir = voiceStorageDir()
+  fs.mkdirSync(dir, { recursive: true })
+  const audioPath = path.join(dir, `${id}.${ext}`)
+  fs.writeFileSync(audioPath, input.audio)
+  const durationSeconds = (await probeAudioDurationSeconds(audioPath)) ?? input.durationSeconds
+  if (!Number.isFinite(durationSeconds) || durationSeconds < VOICE_MIN_SECONDS) {
+    fs.rmSync(audioPath, { force: true })
+    throw new VoiceUploadError('ההקלטה קצרה מדי (לפחות 10 שניות)')
+  }
 
   // Recording a meeting picked from the calendar: its attendees and project come along, so the
   // user never retypes what the calendar already knows (docs/specs/record-from-calendar-meeting.md).
@@ -210,17 +239,14 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
       .select({ id: meetings.id, projectId: meetings.projectId })
       .from(meetings)
       .where(eq(meetings.id, input.meetingId))
-    if (!m) throw new VoiceUploadError('הפגישה לא נמצאה')
+    if (!m) {
+      fs.rmSync(audioPath, { force: true })
+      throw new VoiceUploadError('הפגישה לא נמצאה')
+    }
     meetingId = m.id
     meetingProjectId = m.projectId
     meetingPersonIds = await meetingAttendeeIds(db, m.id)
   }
-
-  const id = newId('vr')
-  const dir = voiceStorageDir()
-  fs.mkdirSync(dir, { recursive: true })
-  const audioPath = path.join(dir, `${id}.${ext}`)
-  fs.writeFileSync(audioPath, input.audio)
 
   const at = new Date(input.now ?? Date.now()).toISOString()
   await db.insert(voiceRecordings).values({
@@ -232,7 +258,7 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
     analysisId: null,
     meetingId,
     createdMeetingId: null,
-    duration: Math.round(input.durationSeconds),
+    duration: Math.round(durationSeconds),
     status: 'uploaded',
     error: null,
     consentConfirmedAt: at,
@@ -673,6 +699,15 @@ export async function processVoiceRecording(
   if (!rec) throw new Error('Recording not found')
   const stamp = () => new Date(options.now ?? Date.now()).toISOString()
   await db.update(voiceRecordings).set({ status: 'processing', error: null, updatedAt: stamp() }).where(eq(voiceRecordings.id, rec.id))
+  // Rows saved before uploads were probed carry the client's placeholder length (imports sent 11s).
+  const needsAudio = !rec.transcriptText || options.retranscribe
+  if (needsAudio && !options.transcribe) {
+    const probed = await probeAudioDurationSeconds(rec.audioPath)
+    if (probed !== null && Math.abs(probed - rec.duration) > 5) {
+      rec.duration = Math.round(probed)
+      await db.update(voiceRecordings).set({ duration: rec.duration }).where(eq(voiceRecordings.id, rec.id))
+    }
+  }
   let analysisId: string | null = null
   try {
     let transcribed: TranscriptResult
