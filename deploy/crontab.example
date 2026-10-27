@@ -6,21 +6,27 @@
 # Adjust if your instance timezone differs (timedatectl set-timezone ...).
 SHELL=/bin/bash
 
+# Minute offsets: the pure polling jobs (calendar/notion/transcript/commitment
+# scans, group summary) are staggered (e.g. 2-59/10) so they don't all hit the
+# 1 GB web container on the same minute as the every-15-min jobs. Jobs that
+# match a configured HH:MM (scheduled-agents, morning briefing, digests,
+# pre-meeting, task reminder) keep their original minutes on purpose.
+
 # Morning briefing — every 15 min; the route sends at the time set in Settings > Notifications (default 07:00 IST)
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/morning-briefing >/dev/null 2>&1
 
 # Calendar → meetings sync — every 15 min
-*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/calendar-sync >/dev/null 2>&1
+3-59/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/calendar-sync >/dev/null 2>&1
 
 # Notion → tasks + people sync (also pulls AI meeting-notes bodies + auto-triggers
 # conversation analysis/WhatsApp when a transcript shows up) — every 10 min
 # (was 30 min; shortened so post-meeting analysis lands closer to real time)
-*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/notion-sync >/dev/null 2>&1
+2-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/notion-sync >/dev/null 2>&1
 
 # Transcript analysis safety net — catches meetings that ended in the last 30 min
 # with a transcript already synced but no analysis yet (belt-and-suspenders for
 # the notion-sync auto-trigger above) — every 10 min
-*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/transcript-analysis >/dev/null 2>&1
+6-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/transcript-analysis >/dev/null 2>&1
 
 # Daily meeting summary — every 15 min; the route sends at the time set in Settings > Notifications (default 20:00 IST)
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/daily-meeting-summary >/dev/null 2>&1
@@ -38,17 +44,17 @@ SHELL=/bin/bash
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-daily-digest >/dev/null 2>&1
 
 # WhatsApp group summary — every 15 min. Skipped for the rest of the local day after the daily digest sends.
-*/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-summary >/dev/null 2>&1
+9-59/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-summary >/dev/null 2>&1
 
 # WhatsApp message retention — daily at 04:15; purges group messages older than WHATSAPP_MESSAGE_RETENTION_DAYS (default 30)
 15 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-message-retention >/dev/null 2>&1
 30 4 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/people-duplicates >/dev/null 2>&1
 # 1:1 WhatsApp commitments — every 10 min. Does not send the nightly summary.
-*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-dm-commitments >/dev/null 2>&1
+4-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-dm-commitments >/dev/null 2>&1
 # Group WhatsApp commitments — every 10 min. Only proposes for a sender resolved to a known person.
-*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-commitments >/dev/null 2>&1
+7-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-commitments >/dev/null 2>&1
 # Slack channel commitments — every 10 min. Only enabled channels.
-*/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/slack-commitments >/dev/null 2>&1
+8-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/slack-commitments >/dev/null 2>&1
 # 1:1 WhatsApp summaries (19:00 UTC ≈ 21:00/22:00 Israel). Commitments are also proposed here if the 10-min scan missed one.
 0 19 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-dm-summary >/dev/null 2>&1
 # Gmail threads with known people (last 30 days) + proposed commitments — hourly

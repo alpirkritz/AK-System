@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   commitments,
   meetingAnalyses,
@@ -21,6 +21,7 @@ import {
   attachCandidates,
   attachVoiceRecording,
   localDateTime,
+  hasTranscriptGaps,
   processVoiceRecording,
   saveVoiceUpload,
   VOICE_MAX_BYTES,
@@ -303,6 +304,27 @@ describe('voice capture', () => {
     expect(failed).toMatchObject({ status: 'failed', error: 'quota' })
     const ok = await processVoiceRecording(db, recordingId, { transcribe: async () => 'שיחה', analyze: async () => analysis([]) })
     expect(ok.status).toBe('completed')
+    expect(await db.select().from(meetingAnalyses)).toHaveLength(1)
+  })
+
+  it('reuses a stored transcript on retry but re-transcribes when asked (long recording with failed chunks)', async () => {
+    const db = getTestDb()
+    const { recordingId } = await upload()
+    const gappy = 'דובר 1: שלום\n[לא ניתן היה לתמלל את הקטע החל מ-20:00: quota]'
+    expect(hasTranscriptGaps(gappy)).toBe(true)
+    expect(hasTranscriptGaps('דובר 1: שלום')).toBe(false)
+    const first = await processVoiceRecording(db, recordingId, { transcribe: async () => gappy, analyze: async () => analysis([]) })
+    expect(first.transcriptText).toBe(gappy)
+
+    // A plain retry keeps using the stored transcript.
+    const transcribe = vi.fn(async () => 'דובר 1: שלום\nדובר 2: המשך השיחה המלאה')
+    await processVoiceRecording(db, recordingId, { transcribe, analyze: async () => analysis([]) })
+    expect(transcribe).not.toHaveBeenCalled()
+
+    // retranscribe replaces it with a fresh transcript and a single, fresh analysis.
+    const again = await processVoiceRecording(db, recordingId, { transcribe, analyze: async () => analysis([]), retranscribe: true })
+    expect(transcribe).toHaveBeenCalledTimes(1)
+    expect(again).toMatchObject({ status: 'completed', transcriptText: 'דובר 1: שלום\nדובר 2: המשך השיחה המלאה' })
     expect(await db.select().from(meetingAnalyses)).toHaveLength(1)
   })
 

@@ -37,11 +37,13 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Row>>(null)
-  const { message: messageParam, agent: agentParam } = useLocalSearchParams<{
+  const { message: messageParam, agent: agentParam, prompt: promptParam } = useLocalSearchParams<{
     message?: string
     agent?: string
+    prompt?: string
   }>()
   const deepLinkHandled = useRef<string | null>(null)
+  const promptHandled = useRef<string | null>(null)
 
   const [selectedId, setSelectedId] = useState(GENERAL_AGENT_ID)
   const [agents, setAgents] = useState<Array<{ id: string; name: string; role: string }>>([])
@@ -177,11 +179,11 @@ export default function ChatScreen() {
     })
   }, [messageParam, pendingDeepLinkIndex])
 
-  const onSend = async () => {
-    const text = input.trim()
+  const onSend = async (textOverride?: string) => {
+    const text = textOverride ?? input.trim()
     if (!text || !token || sending) return
 
-    setInput('')
+    if (!textOverride) setInput('')
     setSending(true)
     setError(null)
 
@@ -225,6 +227,20 @@ export default function ChatScreen() {
       setSending(false)
     }
   }
+
+  // Handles ?prompt=focus — auto-sends the Hugo focus question once chat is ready.
+  // Placed after onSend so the closure captures the initialized reference.
+  useEffect(() => {
+    if (promptParam !== 'focus') return
+    if (promptHandled.current === 'focus') return
+    // Wait until the initial load has settled (either messages loaded or load finished).
+    if (listData.length === 0 && loading) return
+    promptHandled.current = 'focus'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.replace('/(tabs)/chat' as any)
+    void onSend('סכם מה חשוב עכשיו, למה, ומה הצעד הבא')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptParam, listData.length, loading])
 
   const renderItem = ({ item }: { item: Row }) => {
     if (item.role === 'typing') {

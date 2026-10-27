@@ -30,7 +30,8 @@ import {
   whatsappDmMessages,
   type getDb,
 } from '@ak-system/database'
-import { personWarmth } from './warmth'
+import { isDrasticCooling, personWarmth } from './warmth'
+import { isSelfPersonName } from '../lib/self-identity'
 import { nodeId } from './harness-context'
 import { classifyAmbiguousReplyNeed, deterministicReplyNeed, type ReplyNeed } from './email-reply-need'
 
@@ -143,6 +144,8 @@ interface DetectorContext {
   now: Date
   /** Single-message threads, at least UNANSWERED_THREAD_DAYS old, that the gate marked needs_reply. */
   replyNeededThreadIds: Set<string>
+  /** `people` rows that are the owner. Never the subject of a person-scoped insight. */
+  selfIds: Set<string>
 }
 
 /** Upcoming meeting + attendee gone quiet + an open commitment between you. */
@@ -161,7 +164,8 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
     .where(inArray(meetingPeople.meetingId, upcoming.map((m) => m.id)))
   if (links.length === 0) return []
 
-  const personIds = [...new Set(links.map((l) => l.personId))]
+  const personIds = [...new Set(links.map((l) => l.personId))].filter((id) => !ctx.selfIds.has(id))
+  if (personIds.length === 0) return []
   const peopleRows = await db
     .select({ id: people.id, name: people.name })
     .from(people)
@@ -185,6 +189,7 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
   const seen = new Set<string>()
 
   for (const link of links) {
+    if (ctx.selfIds.has(link.personId)) continue
     const name = nameById.get(link.personId)
     if (!name) continue
     const personCommitments = commitmentsByPerson.get(link.personId) ?? []
@@ -241,7 +246,7 @@ async function detectCoolingWithOpenLoop(ctx: DetectorContext): Promise<HarnessI
     .select({ id: commitments.id, personId: commitments.personId, content: commitments.content, owner: commitments.owner })
     .from(commitments)
     .where(inArray(commitments.status, ['accepted']))
-  const personIds = [...new Set(openCommitments.map((c) => c.personId).filter((id): id is string => !!id))]
+  const personIds = [...new Set(openCommitments.map((c) => c.personId).filter((id): id is string => !!id && !ctx.selfIds.has(id)))]
   if (personIds.length === 0) return []
 
   const peopleRows = await db
@@ -252,7 +257,8 @@ async function detectCoolingWithOpenLoop(ctx: DetectorContext): Promise<HarnessI
   const out: HarnessInsightDraft[] = []
   for (const p of peopleRows) {
     const warmth = await personWarmth(db, p.id)
-    if (warmth.trend !== 'cooling') continue
+    // Only a sharp drop is worth a card; a 0.2 drift is on the relationships page, not here.
+    if (warmth.trend !== 'cooling' || !isDrasticCooling(warmth.recentAvg, warmth.olderAvg, warmth.recentCount)) continue
     const theirs = openCommitments.filter((c) => c.personId === p.id)
     out.push({
       kind: 'cooling_with_open_loop',
@@ -308,7 +314,10 @@ async function detectStaleCommitments(ctx: DetectorContext): Promise<HarnessInsi
       : [],
   )
 
-  return rows.filter((r) => !(r.taskId == null && inDueWindow(r.dueInferred, today))).map((r) => {
+  return rows
+    .filter((r) => !(r.personId && ctx.selfIds.has(r.personId)) && !isSelfPersonName(r.senderName))
+    .filter((r) => !(r.taskId == null && inDueWindow(r.dueInferred, today)))
+    .map((r) => {
     const who = r.personId ? nameById.get(r.personId) ?? r.senderName : r.senderName
     const ageDays = Math.round((Date.now() - new Date(r.createdAt).getTime()) / 86400000)
     return {
@@ -392,7 +401,7 @@ async function detectUnansweredThread(ctx: DetectorContext): Promise<HarnessInsi
     .select({ meetingId: meetingPeople.meetingId, personId: meetingPeople.personId })
     .from(meetingPeople)
     .where(inArray(meetingPeople.meetingId, upcoming.map((m) => m.id)))
-  const personIds = [...new Set(links.map((l) => l.personId))]
+  const personIds = [...new Set(links.map((l) => l.personId))].filter((id) => !ctx.selfIds.has(id))
   if (personIds.length === 0) return []
 
   const cutoff = addDays(today, -UNANSWERED_THREAD_DAYS)
@@ -709,6 +718,7 @@ async function detectReplyBacklog(ctx: DetectorContext): Promise<HarnessInsightD
     .orderBy(desc(whatsappDmMessages.ts))
   const latest = new Map<string, { fromMe: boolean; ts: number }>()
   for (const message of messages) {
+    if (ctx.selfIds.has(message.personId)) continue
     if (!latest.has(message.personId)) latest.set(message.personId, { fromMe: !!message.fromMe, ts: message.ts })
   }
   const waCutoff = now.getTime() - WA_REPLY_DAYS * 86400000
@@ -862,12 +872,20 @@ export async function runDetectors(db: Db, now = new Date()): Promise<HarnessIns
   } catch (err) {
     console.warn('[harness-reasoner] reply-need gate failed:', err)
   }
+  let selfIds = new Set<string>()
+  try {
+    const rows = await db.select({ id: people.id, name: people.name }).from(people)
+    selfIds = new Set(rows.filter((r) => isSelfPersonName(r.name)).map((r) => r.id))
+  } catch (err) {
+    console.warn('[harness-reasoner] owner lookup failed:', err)
+  }
   const ctx: DetectorContext = {
     db,
     today,
     horizon: addDays(today, LOOKAHEAD_DAYS),
     now,
     replyNeededThreadIds,
+    selfIds,
   }
 
   const results = await Promise.all(
@@ -880,7 +898,25 @@ export async function runDetectors(db: Db, now = new Date()): Promise<HarnessIns
       }
     }),
   )
-  return results.flat().sort((a, b) => b.score - a.score).slice(0, MAX_INSIGHTS)
+  return onePerPerson(results.flat().filter((d) => !(d.personId && selfIds.has(d.personId))))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_INSIGHTS)
+}
+
+/**
+ * One card per person. A single contact can trip several detectors at once (silent before a
+ * meeting, an old commitment, an unanswered email), and three cards about the same name read as
+ * noise. The strongest wins; the others retire on this run because their dedupeKey is not kept.
+ * Insights with no person (finance, calendar, queues) are untouched.
+ */
+export function onePerPerson(drafts: HarnessInsightDraft[]): HarnessInsightDraft[] {
+  const best = new Map<string, HarnessInsightDraft>()
+  for (const d of drafts) {
+    if (!d.personId) continue
+    const cur = best.get(d.personId)
+    if (!cur || d.score > cur.score) best.set(d.personId, d)
+  }
+  return drafts.filter((d) => !d.personId || best.get(d.personId) === d)
 }
 
 // ─── Gemini phrasing ───────────────────────────────────────────────────────

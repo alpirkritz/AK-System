@@ -15,6 +15,7 @@ import { groupTasksByDueState, sortTasksByPriorityThenDue } from '@/lib/sort-tas
 import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { PersonContextCard } from './PersonContextCard'
 import { PersonAffiliations } from './PersonAffiliations'
+import { StatusButton } from '@/components/StatusButton'
 
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
 
@@ -660,6 +661,12 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                       >
                         {task.done && <CheckSquare className="w-3 h-3" strokeWidth={2.5} />}
                       </button>
+                      <StatusButton
+                        taskId={task.id}
+                        status={task.status}
+                        disabled={task.done}
+                        onUpdated={() => { void utils.people.getRelated.invalidate({ id: personId }) }}
+                      />
                       <button
                         type="button"
                         className={cn(

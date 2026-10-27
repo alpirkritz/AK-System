@@ -23,7 +23,8 @@ import {
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { circlesForPerson, getCircle, occurrenceAttendance, openLoopsForMeetings, type OpenLoop } from './series-roster'
-import { personWarmth, seriesWarmth, type WarmthResult } from './warmth'
+import { isDrasticCooling, personWarmth, seriesWarmth, type WarmthResult } from './warmth'
+import { isSelfPersonName } from '../lib/self-identity'
 import { dmJidsForPerson } from './whatsapp-dm'
 import { commitmentSourceUrl, gmailThreadUrl, prepCommitmentLines } from './commitments'
 import { listVoiceRecordings, type VoiceRecordingSummary } from './voice'
@@ -431,8 +432,11 @@ export async function coolingFlagsForDate(db: Db, date: string): Promise<Cooling
       .innerJoin(people, eq(people.id, meetingPeople.personId))
       .where(and(eq(meetingPeople.meetingId, m.id), eq(people.status, 'confirmed')))
     const coolingPeople: string[] = []
-    for (const p of attendees.slice(0, 10)) {
-      if (!warmthByPerson.has(p.id)) warmthByPerson.set(p.id, (await personWarmth(db, p.id)).trend)
+    for (const p of attendees.filter((a) => !isSelfPersonName(a.name)).slice(0, 10)) {
+      if (!warmthByPerson.has(p.id)) {
+        const w = await personWarmth(db, p.id)
+        warmthByPerson.set(p.id, w.trend === 'cooling' && isDrasticCooling(w.recentAvg, w.olderAvg, w.recentCount) ? 'cooling' : 'stable')
+      }
       if (warmthByPerson.get(p.id) === 'cooling') coolingPeople.push(p.name)
     }
     if (circleCooling || coolingPeople.length > 0) {

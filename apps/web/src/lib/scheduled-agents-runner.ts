@@ -3,6 +3,24 @@ import { getDb } from '@ak-system/database'
 import { listAgentsDueAtTime, migrateAgentSchedulesOnce } from '@ak-system/api'
 import { runAgentTrigger, wasAgentRunInSlot } from './agent-trigger-runner'
 import { getAgentEngine } from './abc-agents'
+import { localTomorrowIso } from '@ak-system/api'
+
+const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
+
+function parseDayOffsets(raw: string | null | undefined): Record<string, 0 | 1> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const result: Record<string, 0 | 1> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v === 0 || v === 1) result[k] = v as 0 | 1
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
 
 function currentTimeInTimezone(timezone: string): string {
   return new Intl.DateTimeFormat('en-GB', {
@@ -71,7 +89,14 @@ export async function runScheduledAgents(request: NextRequest): Promise<NextResp
 
   const results: Record<string, { ok: boolean; error?: string }> = {}
   for (const row of due) {
-    results[row.agentId] = await runAgentTrigger(row.agentId)
+    let calendarPlanDate: string | undefined
+    if (row.agentId === CALENDAR_OPTIMIZER_AGENT_ID) {
+      const offsets = parseDayOffsets(row.scheduleDayOffsets)
+      if (offsets[slot] === 1) {
+        calendarPlanDate = localTomorrowIso()
+      }
+    }
+    results[row.agentId] = await runAgentTrigger(row.agentId, { calendarPlanDate })
   }
 
   const okCount = Object.values(results).filter((r) => r.ok).length

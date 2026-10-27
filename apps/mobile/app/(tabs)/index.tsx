@@ -1,5 +1,6 @@
 import { useFocusEffect, useRouter, type Href } from 'expo-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { API_URL, CLIENT_HEADER } from '../../lib/api'
 import {
   ActivityIndicator,
   Pressable,
@@ -72,6 +73,7 @@ export default function DashboardScreen() {
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [attention, setAttention] = useState<AttentionShift | null>(null)
+  const [digestState, setDigestState] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle')
   const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
@@ -91,7 +93,7 @@ export default function DashboardScreen() {
         setTasks(t)
         setSelfId(self.id)
         setMeetings(m)
-        setAttention(pickAttentionShift([...relationship.people, ...relationship.circles]))
+        setAttention(pickAttentionShift(relationship.people))
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
@@ -153,6 +155,44 @@ export default function DashboardScreen() {
     }
   }
 
+  const handleHugoFocus = () => {
+    router.push('/(tabs)/chat?prompt=focus&agent=01_Hugo_orchestrator' as Href)
+  }
+
+  const digestButtonLabel =
+    digestState === 'loading' ? 'מסכם…' :
+    digestState === 'success' ? 'הסיכום נשלח!' :
+    digestState === 'error' ? 'שגיאה. נסה שוב' :
+    digestState === 'empty' ? 'אין קבוצות במעקב' :
+    'סכם וואטסאפ'
+
+  const handleWhatsAppDigest = async () => {
+    if (!token || digestState === 'loading') return
+    setDigestState('loading')
+    try {
+      const res = await fetch(`${API_URL}/api/trpc/whatsapp.digest.run?batch=1`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-AK-Client': CLIENT_HEADER,
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ '0': { json: {} } }),
+      })
+      const data = await res.json() as Array<{ result?: { data?: { json?: { actionCount?: number } } } }>
+      const result = data[0]?.result?.data?.json
+      if (result?.actionCount === 0) {
+        setDigestState('empty')
+      } else {
+        setDigestState('success')
+      }
+    } catch {
+      setDigestState('error')
+    }
+    setTimeout(() => setDigestState('idle'), 4000)
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -175,8 +215,8 @@ export default function DashboardScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {attention ? (
-        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשר שזז">
-          <Text style={styles.attentionLabel}>קשר שזז</Text>
+        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשר שהתקרר בחדות">
+          <Text style={styles.attentionLabel}>קשר שהתקרר בחדות</Text>
           <Text style={styles.itemTitle}>
             {attention.name} {attention.verb}
             {attention.rest > 0 ? ` · ועוד ${attention.rest}` : ''}
@@ -188,6 +228,20 @@ export default function DashboardScreen() {
           ) : null}
         </Card>
       ) : null}
+
+      <View style={styles.quickActions}>
+        <Pressable onPress={handleHugoFocus} style={styles.quickBtn} accessibilityRole="button">
+          <Text style={styles.quickBtnText}>מה חשוב עכשיו?</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void handleWhatsAppDigest()}
+          style={[styles.quickBtn, digestState === 'loading' && styles.quickBtnDisabled]}
+          disabled={digestState === 'loading'}
+          accessibilityRole="button"
+        >
+          <Text style={styles.quickBtnText}>{digestButtonLabel}</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.kpiRow}>
         <KpiCard
@@ -323,4 +377,16 @@ const styles = StyleSheet.create({
   error: { color: colors.error, textAlign: 'center', padding: 8, marginTop: 8, writingDirection: 'rtl' },
   attention: { marginTop: 16 },
   attentionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl', marginBottom: 4 },
+  quickActions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 12, marginBottom: 4 },
+  quickBtn: {
+    borderWidth: 1,
+    borderColor: colors.accent + '55',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  quickBtnDisabled: { opacity: 0.5 },
+  quickBtnText: { color: colors.accent, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
 })

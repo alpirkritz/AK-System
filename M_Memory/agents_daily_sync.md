@@ -2391,3 +2391,39 @@ guardrails not applicable. No PII written to any artifact.
 - [x] No existing workspace, task, person, project, meeting, or Notion DB link moved
 - [x] Rollback DB + image created before deploy
 - [x] Production schema and data shape verified after deploy
+
+---
+
+### 2026-10-21 — Android APK ARO 1.0.10 built locally
+
+- **Agent:** Dev pipeline (build only; trivial version bump, no spec — zero behavioral change)
+- **Why:** Ship the mobile changes from commit `6f3d189` (tasks chips/priority dot, record screen HH:MM–HH:MM range, FilterChips sizing) to the phone.
+- **Actions:** Bumped `apps/mobile/app.config.ts` to 1.0.10 / versionCode 11. Mobile `tsc --noEmit` clean. `eas build --local --profile preview` with Homebrew openjdk@17 (~20 min Gradle). Verified with `aapt` (versionCode 11) and grepped the JS bundle for the new `clockOf` code. `EXPO_PUBLIC_API_URL` = `retype-engross-strike.ngrok-free.dev`, `/api/health` 200.
+- **Outputs:** `~/Desktop/ARO-1.0.10.apk`, copy in `My Drive/ARO-1.0.10.apk`, and `apps/web/public/helm.apk` (not deployed to EC2).
+- **Compliance:** engineering work under `apps/`; ABC guardrails not applicable.
+
+---
+
+## 2026-10-23 — Dev Agent — WhatsApp bridge capture recovery
+
+### Stand-up
+- **Goal:** Restore group-summary and FOMO capture after the owner reported empty summaries despite active groups.
+- **Workflow:** `docs/specs/whatsapp-bridge-capture-recovery.md` — approved immediate repair and deployment.
+
+### Actions Taken
+1. Read-only production diagnostics confirmed the bridge had 66 watched/FOMO-enabled groups and a valid webhook configuration, but `whatsapp_messages` had zero messages in the previous 24 hours; the latest persisted message was `2026-10-20T21:02:22Z`.
+2. Bridge logs showed repeated `Bad MAC` session errors and recurring reconnects, identifying corrupted WhatsApp linked-device cryptographic state as the capture failure. This explains both empty DB-based summaries and absent FOMO events.
+3. With explicit owner approval, removed only Docker volume `deploy_bridge-auth`; retained `deploy_bridge-config`, so the persisted 66-group and 91-DM capture configuration was preserved.
+4. Rebuilt and force-recreated the production `whatsapp-bridge` container. Post-deploy status: QR available, 66 watched groups restored, webhook configured. The owner must scan the new QR to complete pairing; then live messages will resume capture.
+
+### Output Paths
+- `docs/specs/whatsapp-bridge-capture-recovery.md`
+- Production: `deploy-whatsapp-bridge-1`, `deploy_bridge-auth` (recreated), `deploy_bridge-config` (preserved)
+
+### Compliance
+- [x] No group messages, database records, group rules, or DM capture configuration were exported or deleted.
+- [x] Auth reset was explicitly approved before the destructive volume operation.
+- [x] Deployment built and started successfully; bridge health was checked without exposing credentials.
+
+### Performance Notes
+- Baileys logged a large volume of sensitive session diagnostics while failing (`Bad MAC`). Reduce the Baileys logger verbosity and redaction scope in a separate security/observability change.

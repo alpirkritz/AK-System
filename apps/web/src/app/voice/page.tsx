@@ -182,13 +182,30 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
   const hasUnknown = visibleSpeakers.some((speaker) => speaker.state === 'unknown')
   if (visibleSpeakers.length === 0) return null
 
+  const stopSample = () => {
+    audioRef.current?.pause()
+    stopAtRef.current = null
+    setPlaying(null)
+  }
+
+  // Plays only the quoted segment [startMs, endMs]; clicking the same button again stops it.
   const playSample = (speakerLabel: string, startMs: number, endMs: number) => {
     const el = audioRef.current
     if (!el) return
+    if (playing === speakerLabel) {
+      stopSample()
+      return
+    }
+    el.pause()
     stopAtRef.current = endMs / 1000
-    el.currentTime = startMs / 1000
     setPlaying(speakerLabel)
-    void el.play().catch(() => setPlaying(null))
+    const begin = () => {
+      el.currentTime = startMs / 1000
+      void el.play().catch(stopSample)
+    }
+    // Seeking before the metadata is loaded is ignored by browsers (it restarts at 0).
+    if (el.readyState >= 1) begin()
+    else el.addEventListener('loadedmetadata', begin, { once: true })
   }
 
   return (
@@ -237,10 +254,14 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
                 type="button"
                 className="btn-ghost text-[11px] inline-flex items-center gap-1"
                 onClick={() => playSample(speaker.speakerLabel, speaker.sampleStartMs, speaker.sampleEndMs)}
-                aria-label={`השמע דגימה של ${speaker.speakerLabel}`}
+                aria-label={`${playing === speaker.speakerLabel ? 'עצור דגימה' : 'השמע דגימה'} של ${speaker.speakerLabel}`}
               >
-                <Play className="w-3.5 h-3.5" aria-hidden />
-                {playing === speaker.speakerLabel ? 'מנגן…' : 'השמע דגימה'}
+                {playing === speaker.speakerLabel ? (
+                  <Square className="w-3.5 h-3.5" aria-hidden />
+                ) : (
+                  <Play className="w-3.5 h-3.5" aria-hidden />
+                )}
+                {playing === speaker.speakerLabel ? 'עצור' : 'השמע דגימה'}
               </button>
             </div>
             <p className="text-xs text-[#b8c4dc] leading-relaxed">“{speaker.sampleText}”</p>
@@ -337,6 +358,9 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
 
   if (!rec) return <div className="card text-sm text-[#5a688c]">טוען הקלטה…</div>
   const chosen = people ?? rec.people
+  // A long recording whose later chunks failed to transcribe still shows as completed, with the analysis
+  // covering only what was transcribed — offer to transcribe it again.
+  const hasGaps = (rec.transcriptText ?? '').includes('[לא ניתן היה לתמלל את הקטע')
   const stuck = rec.status === 'processing' && Date.now() - new Date(rec.createdAt).getTime() > STUCK_MS
   // A placeholder meeting isn't a real link, so it keeps showing the plain candidate list.
   const linkedToMeeting = rec.meetingLink === 'chosen' || rec.meetingLink === 'auto'
@@ -362,6 +386,20 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
           >
             <RotateCcw className="w-3.5 h-3.5" aria-hidden />
             {retry.isPending ? 'מנסה שוב…' : 'נסה שוב'}
+          </button>
+        </div>
+      )}
+      {rec.status === 'completed' && hasGaps && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="voice-transcript-gaps">
+          <p className="text-amber-400 text-xs" role="alert">חלק מההקלטה לא תומלל, והניתוח מכסה רק את מה שתומלל.</p>
+          <button
+            type="button"
+            className="btn btn-ghost text-xs py-1 px-3 inline-flex items-center gap-1"
+            disabled={retry.isPending}
+            onClick={() => retry.mutate({ recordingId })}
+          >
+            <RotateCcw className="w-3.5 h-3.5" aria-hidden />
+            {retry.isPending ? 'מתחיל…' : 'תמלל מחדש את כל ההקלטה'}
           </button>
         </div>
       )}

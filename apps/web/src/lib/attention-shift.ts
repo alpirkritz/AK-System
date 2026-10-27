@@ -5,31 +5,46 @@ export interface AttentionShiftCard {
   trend: string | null
   recentAvg: number | null
   olderAvg: number | null
+  /** Analysed meetings in the recent window. Absent on older API responses. */
+  recentCount?: number
   dataReason?: string | null
 }
 
 export interface AttentionShift {
   name: string
-  verb: 'מתקרר' | 'מתחמם'
+  verb: 'מתקרר'
   dataReason: string
   rest: number
 }
 
-function gap(card: AttentionShiftCard): number {
-  return Math.abs((card.recentAvg ?? 0) - (card.olderAvg ?? 0))
+/** Keep in lockstep with DRASTIC_COOLING_DROP / DRASTIC_COOLING_MIN_RECENT in packages/api/src/services/warmth.ts */
+const DRASTIC_COOLING_DROP = 0.5
+const DRASTIC_COOLING_MIN_RECENT = 2
+
+function drop(card: AttentionShiftCard): number {
+  return (card.olderAvg ?? 0) - (card.recentAvg ?? 0)
 }
 
-/** Largest warming/cooling shift. Stable and missing trends stay off the dashboard. */
+/**
+ * The home screen interrupts only for a specific person whose relationship fell sharply.
+ * Warming, mild cooling and stable stay on the relationships page, so on most days this is null
+ * and no card is shown. Pass people only; circles are not a "who".
+ */
 export function pickAttentionShift(cards: AttentionShiftCard[]): AttentionShift | null {
-  const movers = cards.filter((card) => card.trend === 'warming' || card.trend === 'cooling')
-  if (movers.length === 0) return null
-  const ranked = [...movers].sort((a, b) => gap(b) - gap(a))
-  const top = ranked[0]
+  const drastic = cards.filter(
+    (card) =>
+      card.trend === 'cooling' &&
+      card.recentAvg != null &&
+      card.olderAvg != null &&
+      (card.recentCount ?? DRASTIC_COOLING_MIN_RECENT) >= DRASTIC_COOLING_MIN_RECENT &&
+      drop(card) >= DRASTIC_COOLING_DROP,
+  )
+  const top = [...drastic].sort((a, b) => drop(b) - drop(a))[0]
   if (!top) return null
   return {
     name: top.name,
-    verb: top.trend === 'cooling' ? 'מתקרר' : 'מתחמם',
+    verb: 'מתקרר',
     dataReason: top.dataReason?.trim() ?? '',
-    rest: movers.length - 1,
+    rest: drastic.length - 1,
   }
 }

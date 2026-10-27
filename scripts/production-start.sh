@@ -75,4 +75,17 @@ if ! pnpm db:push; then
 fi
 
 echo "→ starting @ak-system/web (ABC_ROOT=$ABC_ROOT)"
-exec pnpm --filter @ak-system/web start
+# Exec the Next.js binary directly instead of going through
+# `pnpm --filter @ak-system/web start`. Via pnpm, a parent pnpm Node process stays
+# resident for the container's whole life just to proxy signals to `next start`
+# (~50-80 MB on a 1 GB box) and SIGTERM has to pass through it on restart.
+# Same cwd, same env, same `next start` — only the extra process goes away.
+# Falls back to the pnpm path if the binary is missing for any reason.
+cd "$ROOT_DIR/apps/web"
+if [ -x "./node_modules/.bin/next" ]; then
+  exec ./node_modules/.bin/next start
+else
+  echo "⚠  apps/web/node_modules/.bin/next not found — falling back to pnpm start"
+  cd "$ROOT_DIR"
+  exec pnpm --filter @ak-system/web start
+fi

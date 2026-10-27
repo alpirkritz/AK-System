@@ -23,7 +23,7 @@ Give warming and cooling relationships one page where the shift, the evidence, a
 - Given a saved note, when I change it and press "שמור", then the new text replaces it and the card shows "נשמר" until the next edit. While the save is in flight the button is disabled. A failure shows "לא הצלחנו לשמור. נסה שוב."
 - Given a saved note, when I press "נקה" and confirm "למחוק את הדעה שלך על {name}?", then the note becomes null and the write control returns.
 - Given more than 280 characters, when I press "שמור", then the note is not saved and the field shows "עד 280 תווים."
-- Given at least one flag, when the web dashboard or the ARO home loads, then one card names the largest shift ("דנה מתקררת") and, when others exist, "ועוד {n}". The card links to `/relationships`. When there are no flags, the card is absent.
+- Given a person (never a circle, never the owner) whose recent-window average is at least 0.5 below the previous window, with at least 2 analysed meetings in the recent window, when the web dashboard or the ARO home loads, then one card, "קשר שהתקרר בחדות", names the sharpest drop ("דנה מתקרר") and, when others exist, "ועוד {n}". The card links to `/relationships`. Warming, a smaller cooling, or no such person: the card is absent. The same threshold gates the harness `cooling_with_open_loop` card and the morning-brief cooling flags. The relationships page itself still lists every mover above 0.2.
 - Given the people list on web and on ARO, when it loads, then the flags block is gone. A person who is warming or cooling shows a pill, "מתקרר" or "מתחמם", on the row.
 - Given the phone, when I open "עוד", then "קשרים" opens the same page, including writing and clearing the note.
 
@@ -65,6 +65,10 @@ Card component `apps/web/src/components/relationship/RelationshipCard.tsx`. Reus
 Mobile: `apps/mobile/app/relationships.tsx`, linked from `apps/mobile/app/(tabs)/more.tsx` and from the home card in `apps/mobile/app/(tabs)/index.tsx`. Remove the flag chip blocks from the home screen and from `apps/mobile/app/people.tsx`. Add the trend pill on the people row. The note field is a `TextInput`, 44px targets, "שמור" disabled while pending.
 
 Loading: skeleton cards, not a blank page. Pull-to-refresh on the phone reloads the board.
+
+## Owner and repeats
+
+The owner (`isSelfPersonName`) is excluded from every warming/cooling list and from every person-scoped harness insight. The harness keeps at most one person-scoped card per person (highest score); the rest retire on the same run.
 
 ## Out of scope
 

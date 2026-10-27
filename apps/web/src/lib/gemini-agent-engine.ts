@@ -191,7 +191,12 @@ function buildDegradedWhatsAppBrief(toolResults: Map<string, unknown>): string |
   return null
 }
 
-async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChannel): Promise<string> {
+async function buildSystemInstruction(
+  agentId: string,
+  channel?: AgentNotifyChannel,
+  /** ISO date to fetch for the calendar context. Defaults to today. Only used for 06_calendar_optimizer. */
+  calendarPlanDate?: string,
+): Promise<string> {
   const instructions = getAgentInstructions(agentId)
   const workflow = getAgentWorkflowContent(agentId)
   const channelLabel =
@@ -337,6 +342,7 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
     try {
       const calCtx = await getAgentCalendarContext({
         forCalendarOptimizer: agentId === CALENDAR_OPTIMIZER_AGENT_ID,
+        planDate: agentId === CALENDAR_OPTIMIZER_AGENT_ID ? calendarPlanDate : undefined,
       })
       parts.push('', formatAgentCalendarContextForPrompt(calCtx), '', '---')
     } catch (err) {
@@ -399,8 +405,9 @@ async function buildSystemInstruction(agentId: string, channel?: AgentNotifyChan
 export async function buildAgentSystemInstruction(
   agentId: string,
   channel?: AgentNotifyChannel,
+  calendarPlanDate?: string,
 ): Promise<string> {
-  return buildSystemInstruction(agentId, channel)
+  return buildSystemInstruction(agentId, channel, calendarPlanDate)
 }
 
 function buildHistoryContents(history: ChatTurn[]): Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> {
@@ -894,6 +901,8 @@ export async function runGeminiAgentChat(options: {
   message: string
   history?: ChatTurn[]
   channel?: AgentNotifyChannel
+  /** ISO date for the calendar context (06_calendar_optimizer scheduled runs only). */
+  calendarPlanDate?: string
 }): Promise<{ text: string }> {
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) throw new Error('GEMINI_API_KEY is not set')
@@ -912,7 +921,7 @@ export async function runGeminiAgentChat(options: {
     channel: options.channel,
     agentId: options.agentId,
   }
-  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel)
+  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel, options.calendarPlanDate)
   const history = options.history ?? []
 
   const buildModel = (modelOpts: ReturnType<typeof getGeminiModelOptions>) =>

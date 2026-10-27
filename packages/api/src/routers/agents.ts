@@ -45,6 +45,8 @@ export const agentsRouter = router({
         agentId: z.string().min(1),
         enabled: z.boolean().optional(),
         scheduleTimes: scheduleTimesSchema.optional(),
+        /** Map of HH:MM → 0 (today) | 1 (tomorrow). Only meaningful for 06_calendar_optimizer. */
+        scheduleDayOffsets: z.record(timeSchema, z.union([z.literal(0), z.literal(1)])).optional(),
         triggerMessage: z.string().max(4000).nullable().optional(),
       }),
     )

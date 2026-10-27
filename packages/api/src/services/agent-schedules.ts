@@ -36,6 +36,8 @@ export interface AgentScheduleConfig {
   role: string
   enabled: boolean
   scheduleTimes: string[]
+  /** Map of HH:MM → 0 (today) | 1 (tomorrow). Only populated for 06_calendar_optimizer. */
+  scheduleDayOffsets: Record<string, 0 | 1>
   triggerMessage: string | null
   defaultTriggerMessage: string
   suggestedScheduleTimes: string[]
@@ -77,6 +79,21 @@ async function listScheduleRows(db: Db): Promise<ScheduleRow[]> {
   return queryRows<ScheduleRow>(db.select().from(agentSchedules))
 }
 
+function parseDayOffsets(raw: string | null | undefined): Record<string, 0 | 1> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const result: Record<string, 0 | 1> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v === 0 || v === 1) result[k] = v
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
 function rowToConfig(
   agent: { id: string; name: string; role: string },
   row: ScheduleRow | undefined,
@@ -88,6 +105,7 @@ function rowToConfig(
     role: agent.role,
     enabled: Boolean(row?.enabled),
     scheduleTimes: row ? parseJsonTimes(row.scheduleTimes) : [],
+    scheduleDayOffsets: parseDayOffsets(row?.scheduleDayOffsets),
     triggerMessage: row?.triggerMessage ?? null,
     defaultTriggerMessage: getDefaultTriggerMessage(agent.id),
     suggestedScheduleTimes: getDefaultScheduleTimes(agent.id),
@@ -168,6 +186,8 @@ export interface SetScheduleInput {
   agentId: string
   enabled?: boolean
   scheduleTimes?: string[]
+  /** Map of HH:MM → 0 (today) | 1 (tomorrow). Keys not in scheduleTimes are dropped. */
+  scheduleDayOffsets?: Record<string, 0 | 1>
   triggerMessage?: string | null
 }
 
@@ -182,10 +202,19 @@ export async function setAgentSchedule(
   const scheduleTimes =
     input.scheduleTimes ?? (prev ? parseJsonTimes(prev.scheduleTimes) : [])
 
+  // Merge incoming offsets with existing, then drop keys not in current scheduleTimes.
+  const prevOffsets = parseDayOffsets(prev?.scheduleDayOffsets)
+  const incomingOffsets = input.scheduleDayOffsets ?? prevOffsets
+  const cleanedOffsets: Record<string, 0 | 1> = {}
+  for (const t of scheduleTimes) {
+    if (incomingOffsets[t] !== undefined) cleanedOffsets[t] = incomingOffsets[t]
+  }
+
   const row = {
     agentId: input.agentId,
     enabled: input.enabled ?? Boolean(prev?.enabled),
     scheduleTimes: stringifyJsonTimes(scheduleTimes),
+    scheduleDayOffsets: JSON.stringify(cleanedOffsets),
     triggerMessage:
       input.triggerMessage !== undefined
         ? input.triggerMessage

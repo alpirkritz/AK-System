@@ -3,6 +3,7 @@
  * Sentiment per analysis lies in [-1, 1]: mostly the 1–10 score, nudged by mood/subtext wording.
  */
 import { and, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
+import { isSelfPersonName } from '../lib/self-identity'
 import { meetingAnalyses, meetingNoteProjects, meetingNotes, meetingPeople, meetingSeries, meetings, people, projectPeople, type getDb } from '@ak-system/database'
 
 type Db = ReturnType<typeof getDb>
@@ -27,10 +28,26 @@ export interface WarmthResult {
   recentAvg: number | null
   olderAvg: number | null
   count: number
+  /** Analysed meetings in the recent window; absent for series/project results. */
+  recentCount?: number
   timeline: SentimentPoint[]
 }
 
 const TREND_THRESHOLD = 0.2
+/**
+ * A cooling this large (on the −1…+1 scale, roughly 3 points of the 1–10 score) is what the
+ * dashboard, the morning brief and the harness treat as worth interrupting for. The
+ * relationships page still lists every mover above TREND_THRESHOLD.
+ * Keep in lockstep with apps/web/src/lib/attention-shift.ts and apps/mobile/lib/attention-shift.ts.
+ */
+export const DRASTIC_COOLING_DROP = 0.5
+/** A drastic cooling needs at least this many analysed meetings in the recent window. */
+export const DRASTIC_COOLING_MIN_RECENT = 2
+
+export function isDrasticCooling(recentAvg: number | null, olderAvg: number | null, recentCount = DRASTIC_COOLING_MIN_RECENT): boolean {
+  if (recentAvg == null || olderAvg == null) return false
+  return recentCount >= DRASTIC_COOLING_MIN_RECENT && olderAvg - recentAvg >= DRASTIC_COOLING_DROP
+}
 const PERSON_MIN_INTERACTIONS = 4
 const SERIES_MIN_INSTANCES = 6
 const SERIES_WINDOW = 8
@@ -146,6 +163,7 @@ export async function personWarmth(db: Db, personId: string, now = new Date()): 
     recentAvg: avg(recent),
     olderAvg: avg(older),
     count: timeline.length,
+    recentCount: recent.length,
     timeline,
   }
 }
@@ -195,6 +213,7 @@ export async function relationshipFlags(db: Db, now = new Date()): Promise<{ coo
     const key = `${r.personId}:${r.meetingId}`
     if (seen.has(key)) continue
     seen.add(key)
+    if (isSelfPersonName(r.name)) continue
     const bucket = byPerson.get(r.personId) ?? { name: r.name, points: [] }
     bucket.points.push({ meetingId: r.meetingId, date: r.date, sentiment: analysisSentiment(r) })
     byPerson.set(r.personId, bucket)
@@ -589,6 +608,8 @@ export interface RelationshipCard {
   count: number
   minForTrend: number
   avgScore: number | null
+  /** Analysed meetings in the recent window the trend was computed from. */
+  recentCount: number
   lastDate: string | null
   latestMood: string | null
   latestInsight: string | null
@@ -646,6 +667,7 @@ function toCard(
     count: timeline.length,
     minForTrend: min,
     avgScore,
+    recentCount: recent.length,
     lastDate: timeline[0]?.date ?? null,
     latestMood: latest?.mood?.trim() ? clip(latest.mood, 80) : null,
     latestInsight: latest?.keyInsight?.trim() ? clip(latest.keyInsight, 140) : null,
@@ -718,6 +740,7 @@ export async function relationshipBoard(db: Db, now = new Date()): Promise<Relat
   const seenPerson = new Set<string>()
   for (const r of personRows) {
     analysedMeetingIds.add(r.meetingId)
+    if (isSelfPersonName(r.name)) continue
     const key = `${r.personId}:${r.meetingId}`
     if (seenPerson.has(key)) continue
     seenPerson.add(key)

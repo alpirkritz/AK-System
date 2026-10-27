@@ -1106,6 +1106,8 @@ const AGENT_TRIGGERS_TABLE = [
     last_run_error TEXT,
     updated_at TEXT NOT NULL
   )`,
+  // Additive column — wrapped in try/catch so re-running is safe on existing DBs
+  `ALTER TABLE agent_schedules ADD COLUMN schedule_day_offsets TEXT NOT NULL DEFAULT '{}'`,
 ]
 
 const NOTIFICATION_PREFERENCES_TABLE = [
@@ -1424,15 +1426,12 @@ function relaxCommitmentsPersonId(sqlite: Database) {
   `)
 }
 
-export function getDb() {
-  if (usePostgres()) {
-    const pool = getPgPool()
-    return drizzlePg(pool, { schema: schemaPg })
-  }
-  const dbPath = getDbPath()
-  const dir = path.dirname(dbPath)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  const sqlite = new Database(dbPath)
+/**
+ * Idempotent, additive schema catch-up (ALTER/CREATE IF NOT EXISTS/seed rows).
+ * Every statement is wrapped in try/catch because most of them fail harmlessly
+ * once the column/table/row already exists.
+ */
+function applySqliteMigrations(sqlite: Database) {
   for (const sql of CALENDAR_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
@@ -1628,7 +1627,76 @@ export function getDb() {
   ]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+}
+
+/**
+ * Per-connection SQLite tuning. All of these are safe for a single Node process
+ * (plus occasional CLI access) on one host:
+ *   - WAL: readers no longer block on writers (cron writes vs. UI reads); the
+ *     mode is persisted in the DB file, so the drizzle-kit / sqlite3 CLI see it too.
+ *   - synchronous=NORMAL: with WAL this is durable against a process crash and
+ *     avoids an fsync on every transaction (big win on EBS gp2/gp3).
+ *   - busy_timeout: wait instead of throwing SQLITE_BUSY when two writers overlap.
+ * foreign_keys is deliberately left at SQLite's default (OFF): turning it on would
+ * start enforcing/cascading constraints the app has never run with.
+ */
+function tuneSqlite(sqlite: Database) {
+  try { sqlite.pragma('journal_mode = WAL') } catch (_) { /* read-only FS etc. */ }
+  try { sqlite.pragma('synchronous = NORMAL') } catch (_) { /* ignore */ }
+  try { sqlite.pragma('busy_timeout = 5000') } catch (_) { /* ignore */ }
+}
+
+type SqliteDrizzle = ReturnType<typeof drizzleSqlite<typeof schemaSqlite>>
+
+/**
+ * Process-wide SQLite connection cache (production only).
+ *
+ * Before this, every getDb() call — i.e. every tRPC request and every cron hit,
+ * ~15 of them a minute — opened a brand-new better-sqlite3 connection and replayed
+ * the whole applySqliteMigrations() block (hundreds of statements, most of them
+ * throwing and being caught). Connections were never closed. On a 1 GB EC2 box
+ * that is the dominant per-request CPU and memory cost.
+ *
+ * Kept on globalThis so Next.js route chunks (which may each get their own copy
+ * of this module) still share one handle. Keyed by path so a DATABASE_PATH change
+ * between calls (tests, scripts) is honoured.
+ *
+ * Not used under vitest or in development: tests wipe tables and rely on the
+ * next getDb() re-seeding defaults, and dev benefits from re-running newly added
+ * migrations without a restart. Behaviour there is exactly as before.
+ */
+type DbCache = { path: string; db: SqliteDrizzle }
+const DB_CACHE_KEY = '__akSystemSqliteDb__'
+
+function shouldCacheConnection(): boolean {
+  if (process.env.VITEST || process.env.NODE_ENV === 'test') return false
+  if (process.env.AK_DB_NO_CACHE === '1') return false
+  return process.env.NODE_ENV === 'production'
+}
+
+function openSqlite(dbPath: string): SqliteDrizzle {
+  const dir = path.dirname(dbPath)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  const sqlite = new Database(dbPath)
+  tuneSqlite(sqlite)
+  applySqliteMigrations(sqlite)
   return drizzleSqlite(sqlite, { schema: schemaSqlite })
+}
+
+export function getDb() {
+  if (usePostgres()) {
+    const pool = getPgPool()
+    return drizzlePg(pool, { schema: schemaPg })
+  }
+  const dbPath = getDbPath()
+  if (!shouldCacheConnection()) return openSqlite(dbPath)
+
+  const g = globalThis as unknown as Record<string, DbCache | undefined>
+  const cached = g[DB_CACHE_KEY]
+  if (cached && cached.path === dbPath) return cached.db
+  const db = openSqlite(dbPath)
+  g[DB_CACHE_KEY] = { path: dbPath, db }
+  return db
 }
 
 // Export the schema that matches the current driver so routers use the correct tables

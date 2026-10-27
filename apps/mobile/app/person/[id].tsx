@@ -22,9 +22,12 @@ import {
   fetchPersonTraitDetail,
   restorePersonTrait,
   setCaptureWhatsapp,
+  toggleTaskDone,
   updatePerson,
+  updateTask,
   writePersonTraits,
   type MobilePersonContext,
+  type MobileTask,
   type MobileTraitDetail,
   type MobileTraitSummary,
   type MobileWarmthPoint,
@@ -38,6 +41,42 @@ function shortDate(iso: string): string {
 }
 
 const SOURCE_LABEL: Record<string, string> = { meeting_analysis: 'פגישה', whatsapp_dm_summary: 'וואטסאפ', email_thread: 'מייל' }
+
+const STATUS_LABELS: Record<string, string> = {
+  not_started: 'לא התחיל',
+  pending: 'ממתין',
+  in_progress: 'בתהליך',
+  blocked: 'תקוע',
+  done: 'הושלם',
+  cancelled: 'בוטל',
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  not_started: '#94a3b8',
+  pending: '#f59e0b',
+  in_progress: '#3b82f6',
+  blocked: '#ef4444',
+  done: '#22c55e',
+  cancelled: '#6b7280',
+}
+
+const STATUSES = ['not_started', 'pending', 'in_progress', 'blocked', 'done', 'cancelled'] as const
+
+function sortPersonTasks(tasks: MobileTask[]): MobileTask[] {
+  const today = new Date().toISOString().slice(0, 10)
+  function duePriority(t: MobileTask): number {
+    if (!t.dueDate) return 3
+    if (t.dueDate < today) return 0
+    if (t.dueDate === today) return 1
+    return 2
+  }
+  return [...tasks].sort((a, b) => {
+    const pa = duePriority(a), pb = duePriority(b)
+    if (pa !== pb) return pa - pb
+    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+    return 0
+  })
+}
 
 function traitClause(label: string, line: string): string {
   return line.startsWith(label) ? line.slice(label.length).trim() : line
@@ -267,6 +306,8 @@ export default function PersonDetailScreen() {
   const [company, setCompany] = useState('')
   const [meetingCount, setMeetingCount] = useState(0)
   const [taskCount, setTaskCount] = useState(0)
+  const [personTasks, setPersonTasks] = useState<MobileTask[]>([])
+  const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null)
   const [context, setContext] = useState<MobilePersonContext | null>(null)
   const [captureSaving, setCaptureSaving] = useState(false)
 
@@ -304,7 +345,9 @@ export default function PersonDetailScreen() {
       if (related && typeof related === 'object') {
         const r = related as { meetings?: unknown[]; tasks?: unknown[] }
         setMeetingCount(r.meetings?.length ?? 0)
-        setTaskCount(r.tasks?.length ?? 0)
+        const tasks = (r.tasks ?? []) as MobileTask[]
+        setPersonTasks(tasks)
+        setTaskCount(tasks.length)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'טעינה נכשלה')
@@ -340,6 +383,50 @@ export default function PersonDetailScreen() {
       setSaving(false)
     }
   }
+
+  const onTogglePersonTask = async (task: MobileTask) => {
+    if (!token || togglingTaskId) return
+    setTogglingTaskId(task.id)
+    try {
+      const updated = await toggleTaskDone(token, task.id)
+      setPersonTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, done: updated.done, status: updated.status } : t)),
+      )
+    } catch {
+      Alert.alert('שגיאה', 'עדכון נכשל')
+    } finally {
+      setTogglingTaskId(null)
+    }
+  }
+
+  const onUpdateTaskStatus = (task: MobileTask) => {
+    if (!token) return
+    Alert.alert(
+      'שינוי סטטוס',
+      task.title,
+      [
+        ...STATUSES.map((s) => ({
+          text: STATUS_LABELS[s] ?? s,
+          onPress: () => {
+            void updateTask(token, task.id, { status: s })
+              .then((updated) => {
+                setPersonTasks((prev) =>
+                  prev.map((t) =>
+                    t.id === task.id ? { ...t, status: updated.status, done: updated.done } : t,
+                  ),
+                )
+              })
+              .catch(() => Alert.alert('שגיאה', 'עדכון נכשל'))
+          },
+        })),
+        { text: 'ביטול', style: 'cancel' },
+      ],
+    )
+  }
+
+  const openPersonTasks = sortPersonTasks(personTasks.filter((t) => !t.done))
+  const displayPersonTasks = openPersonTasks.slice(0, 10)
+  const morePersonTasks = openPersonTasks.length - displayPersonTasks.length
 
   const onDelete = () => {
     Alert.alert('מחיקת איש קשר', 'למחוק את איש הקשר?', [
@@ -389,6 +476,67 @@ export default function PersonDetailScreen() {
           ) : null}
         </View>
       )}
+
+      <View style={styles.contextCard}>
+        <Text style={styles.contextTitle}>משימות</Text>
+        {displayPersonTasks.length === 0 ? (
+          <Text style={styles.contextMuted}>אין משימות פתוחות עם {name}</Text>
+        ) : (
+          <>
+            {displayPersonTasks.map((task) => (
+              <View key={task.id} style={styles.personTaskRow}>
+                <Pressable
+                  onPress={() => void onTogglePersonTask(task)}
+                  disabled={togglingTaskId === task.id}
+                  style={styles.personTaskCheck}
+                  accessibilityRole="button"
+                  accessibilityLabel="סמן כהושלם"
+                >
+                  <Text style={styles.personCheckIcon}>
+                    {togglingTaskId === task.id ? '…' : '○'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUpdateTaskStatus(task)}
+                  style={[
+                    styles.statusChip,
+                    { backgroundColor: (STATUS_COLORS[task.status ?? 'not_started'] ?? '#94a3b8') + '33' },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`סטטוס: ${STATUS_LABELS[task.status ?? 'not_started'] ?? ''}`}
+                >
+                  <Text
+                    style={[
+                      styles.statusChipText,
+                      { color: STATUS_COLORS[task.status ?? 'not_started'] ?? '#94a3b8' },
+                    ]}
+                  >
+                    {STATUS_LABELS[task.status ?? 'not_started'] ?? task.status}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push(`/task/${task.id}` as Href)}
+                  style={styles.personTaskBody}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.contextLine} numberOfLines={2}>{task.title}</Text>
+                  {task.dueDate ? (
+                    <Text style={styles.contextMuted}>{shortDay(task.dueDate)}</Text>
+                  ) : null}
+                </Pressable>
+              </View>
+            ))}
+            {morePersonTasks > 0 ? (
+              <Pressable
+                onPress={() => router.push('/tasks' as Href)}
+                accessibilityRole="link"
+              >
+                <Text style={styles.commitmentsLink}>הצג הכול ({openPersonTasks.length})</Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
+      </View>
 
       {context && token && id ? (
         <TraitsBlock
@@ -624,4 +772,27 @@ const styles = StyleSheet.create({
     borderColor: colors.coral + '66',
   },
   deleteText: { color: colors.coral, fontSize: 16, fontWeight: '600', writingDirection: 'rtl' },
+  personTaskRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+  },
+  personTaskCheck: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personCheckIcon: { color: colors.accent, fontSize: 20, fontWeight: '600' },
+  personTaskBody: { flex: 1, minHeight: 44, justifyContent: 'center' },
+  statusChip: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusChipText: { fontSize: 11, fontWeight: '600', writingDirection: 'rtl' },
 })

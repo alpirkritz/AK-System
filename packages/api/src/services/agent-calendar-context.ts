@@ -16,12 +16,17 @@ export type AgentCalendarContext = {
 export type AgentCalendarContextOptions = {
   /** When true (06_calendar_optimizer), drop all-day and timed events ≥ 8 hours. */
   forCalendarOptimizer?: boolean
+  /**
+   * ISO date (YYYY-MM-DD) to fetch instead of today. Used by the calendar optimizer
+   * when a schedule slot is configured to look ahead to tomorrow (dayOffset = 1).
+   */
+  planDate?: string
 }
 
 export async function getAgentCalendarContext(
   options?: AgentCalendarContextOptions,
 ): Promise<AgentCalendarContext> {
-  const today = localTodayIso()
+  const today = options?.planDate ?? localTodayIso()
   const { timeMin, timeMax } = localDateRangeToUtc(today, today)
   const scopeIds = await getAgentCalendarIds()
   const { events, errors } = await fetchGoogleCalendarEvents(timeMin, timeMax)

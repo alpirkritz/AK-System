@@ -188,7 +188,10 @@ async function runTier1QaAgentTrigger(agentId: string): Promise<{
 }
 
 /** Run an ABC agent from a trigger (manual or cron). */
-export async function runAgentTrigger(agentId: string): Promise<{
+export async function runAgentTrigger(agentId: string, opts?: {
+  /** ISO date for the calendar context. Only applied for 06_calendar_optimizer. */
+  calendarPlanDate?: string
+}): Promise<{
   ok: boolean
   text?: string
   error?: string
@@ -233,6 +236,7 @@ export async function runAgentTrigger(agentId: string): Promise<{
       history,
       channel: 'cron',
       notifyOnComplete: false,
+      calendarPlanDate: opts?.calendarPlanDate,
     })
 
     await saveAgentMessage(agentId, 'assistant', result.text)

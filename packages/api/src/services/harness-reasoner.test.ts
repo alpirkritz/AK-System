@@ -20,6 +20,7 @@ import {
   dismissInsight,
   formatInsightLines,
   listOpenInsights,
+  onePerPerson,
   persistInsights,
   phraseInsights,
   reasonAndPersist,
@@ -521,5 +522,58 @@ describe('selectInsightsToPush', () => {
       'reply_backlog',
       'project_gone_quiet',
     ])
+  })
+})
+
+describe('owner is never the subject', () => {
+  beforeEach(async () => {
+    await resetAll()
+  })
+
+  it('silent_before_meeting and stale_commitment ignore the owner\'s own contact row', async () => {
+    await seedPerson('p_me', 'Alpir Kritzler')
+    await seedUpcomingMeeting('p_me')
+    await seedCommitment('c_me', 'p_me', isoTs(40))
+    const insights = await runDetectors(getTestDb())
+    expect(insights.filter((i) => i.personId === 'p_me')).toEqual([])
+  })
+
+  it('matches the Hebrew alias too', async () => {
+    await seedPerson('p_me2', 'אלפיר קריצלר')
+    await seedUpcomingMeeting('p_me2')
+    await seedCommitment('c_me2', 'p_me2', isoTs(40))
+    const insights = await runDetectors(getTestDb())
+    expect(insights.filter((i) => i.personId === 'p_me2')).toEqual([])
+  })
+
+  it('still reports someone else', async () => {
+    await seedPerson('p_me', 'Alpir Kritzler')
+    await seedPerson('p1', 'דנה')
+    await seedUpcomingMeeting('p1')
+    await seedCommitment('c1', 'p1')
+    const insights = await runDetectors(getTestDb())
+    expect(insights.some((i) => i.personId === 'p1')).toBe(true)
+  })
+})
+
+describe('onePerPerson', () => {
+  const draft = (dedupeKey: string, personId: string | null, score: number): HarnessInsightDraft => ({
+    kind: 'x', title: dedupeKey, body: '', severity: 'attention', score, personId, sources: [], dedupeKey, ttlDays: 1,
+  })
+
+  it('keeps the strongest card per person and leaves person-less cards alone', () => {
+    const out = onePerPerson([
+      draft('a', 'p1', 0.5), draft('b', 'p1', 0.9), draft('c', 'p2', 0.4), draft('d', null, 0.1), draft('e', null, 0.2),
+    ])
+    expect(out.map((d) => d.dedupeKey)).toEqual(['b', 'c', 'd', 'e'])
+  })
+
+  it('collapses a person who trips two detectors into one card end to end', async () => {
+    await resetAll()
+    await seedPerson()
+    await seedUpcomingMeeting()
+    await seedCommitment('c1', 'p1', isoTs(40))
+    const insights = await runDetectors(getTestDb())
+    expect(insights.filter((i) => i.personId === 'p1')).toHaveLength(1)
   })
 })

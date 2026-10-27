@@ -9,6 +9,7 @@ import {
   attachVoiceRecording,
   getMeetingChoice,
   getVoiceRecording,
+  hasTranscriptGaps,
   listMeetingChoices,
   listVoiceRecordings,
   processVoiceRecording,
@@ -85,13 +86,30 @@ export const voiceRouter = router({
     .input(z.object({ recordingId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const [rec] = await ctx.db
-        .select({ status: voiceRecordings.status, updatedAt: voiceRecordings.updatedAt })
+        .select({
+          status: voiceRecordings.status,
+          updatedAt: voiceRecordings.updatedAt,
+          transcriptText: voiceRecordings.transcriptText,
+        })
         .from(voiceRecordings)
         .where(eq(voiceRecordings.id, input.recordingId))
       if (!rec) throw new TRPCError({ code: 'NOT_FOUND', message: 'Recording not found' })
       // A restart mid-run leaves `processing` behind; after this long it is treated as stuck.
       const stuck = Date.now() - Date.parse(rec.updatedAt) > STUCK_PROCESSING_MS
       if (rec.status === 'processing' && !stuck) return { status: rec.status }
+      // A transcript with failed chunks is re-transcribed from the audio; otherwise the stored
+      // transcript is reused. The re-transcription of a long recording takes minutes, so it runs
+      // in the background (the page polls while status is `processing`) instead of holding the request.
+      if (hasTranscriptGaps(rec.transcriptText)) {
+        await ctx.db
+          .update(voiceRecordings)
+          .set({ status: 'processing', error: null, updatedAt: new Date().toISOString() })
+          .where(eq(voiceRecordings.id, input.recordingId))
+        void processVoiceRecording(ctx.db, input.recordingId, { retranscribe: true }).catch((err) => {
+          console.error('[voice] background re-transcription failed:', err)
+        })
+        return { status: 'processing' as const }
+      }
       const after = await processVoiceRecording(ctx.db, input.recordingId)
       return { status: after.status, error: after.error }
     }),

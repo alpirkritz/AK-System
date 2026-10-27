@@ -443,6 +443,14 @@ export const transcribeWithGemini: VoiceTranscriber = async (audio, mimeType) =>
   ])
 }
 
+/** Start of the placeholder line left in a transcript where one chunk of a long recording failed. */
+export const VOICE_TRANSCRIPT_GAP_MARKER = '[לא ניתן היה לתמלל את הקטע'
+
+/** True when a stored transcript has at least one chunk that failed to transcribe. */
+export function hasTranscriptGaps(text: string | null | undefined): boolean {
+  return typeof text === 'string' && text.includes(VOICE_TRANSCRIPT_GAP_MARKER)
+}
+
 /** One chunk of a long recording, cut from the original audio file. */
 interface AudioChunk {
   path: string
@@ -563,7 +571,7 @@ async function reconcileChunk(chunk: AudioChunk, mimeType: string, registry: Glo
     return [
       {
         speakerLabel: registry.resolve(null),
-        text: `[לא ניתן היה לתמלל את הקטע החל מ-${formatClock(chunk.startSeconds)}: ${message}]`,
+        text: `${VOICE_TRANSCRIPT_GAP_MARKER} החל מ-${formatClock(chunk.startSeconds)}: ${message}]`,
         timing: { startMs: offsetMs, endMs: offsetMs },
       },
     ]
@@ -659,7 +667,7 @@ export async function saveTranscriptSegments(
 export async function processVoiceRecording(
   db: Db,
   recordingId: string,
-  options: { transcribe?: VoiceTranscriber; analyze?: VoiceAnalyzer; now?: number } = {},
+  options: { transcribe?: VoiceTranscriber; analyze?: VoiceAnalyzer; now?: number; retranscribe?: boolean } = {},
 ): Promise<VoiceRecording> {
   const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
   if (!rec) throw new Error('Recording not found')
@@ -668,7 +676,9 @@ export async function processVoiceRecording(
   let analysisId: string | null = null
   try {
     let transcribed: TranscriptResult
-    if (rec.transcriptText) {
+    // `retranscribe` ignores a stored transcript (e.g. one with failed chunks) and transcribes the audio
+    // again. The old transcript stays in place until the new one is saved, so a failure loses nothing.
+    if (rec.transcriptText && !options.retranscribe) {
       transcribed = { text: rec.transcriptText, segments: [] }
     } else if (options.transcribe) {
       transcribed = toTranscriptResult(await options.transcribe(fs.readFileSync(rec.audioPath), rec.mimeType))

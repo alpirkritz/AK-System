@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { WorldBadge, UnassignedHeading } from '@/components/WorldBadge'
@@ -67,6 +67,87 @@ const SVG_ARROW_LEFT = (
 
 /** Dashboard shows a short preview; full list lives on /tasks (progressive disclosure). */
 const DASHBOARD_TASK_PREVIEW = 8
+
+function QuickActionsBar() {
+  const digestMutation = trpc.whatsapp.digest.run.useMutation()
+  const [feedback, setFeedback] = useState<{ kind: 'success-groups' | 'success-empty' | 'error'; text?: string } | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function runDigest() {
+    if (digestMutation.isPending) return
+    setFeedback(null)
+    digestMutation.mutate(undefined, {
+      onSuccess: (res) => {
+        if ((res.actionCount ?? 0) > 0) {
+          setFeedback({ kind: 'success-groups' })
+          feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000)
+        } else {
+          setFeedback({ kind: 'success-empty' })
+        }
+      },
+      onError: (err) => {
+        setFeedback({ kind: 'error', text: err.message })
+      },
+    })
+  }
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    }
+  }, [])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2 flex-wrap">
+        <Link href="/chat?prompt=focus" className="btn btn-ghost text-sm">
+          מה חשוב עכשיו?
+        </Link>
+        <button
+          type="button"
+          className="btn btn-ghost text-sm"
+          disabled={digestMutation.isPending}
+          onClick={runDigest}
+        >
+          {digestMutation.isPending ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              מסכם…
+            </span>
+          ) : (
+            'סכם וואטסאפ'
+          )}
+        </button>
+      </div>
+      <div aria-live="polite" className="text-xs">
+        {feedback?.kind === 'success-groups' && (
+          <span className="text-[#2dd4bf]">הסיכום נשלח אליך בוואטסאפ</span>
+        )}
+        {feedback?.kind === 'success-empty' && (
+          <span className="text-[#97a4c2]">
+            עדיין אין קבוצות במעקב.{' '}
+            <Link href="/settings/whatsapp" className="text-[#2dd4bf] hover:underline">
+              בחר קבוצות →
+            </Link>
+          </span>
+        )}
+        {feedback?.kind === 'error' && (
+          <span className="text-red-400 inline-flex items-center gap-1.5">
+            הסיכום לא נשלח. בדוק שוואטסאפ מחובר בהגדרות ונסה שוב.
+            <button
+              type="button"
+              aria-label="סגור הודעת שגיאה"
+              onClick={() => setFeedback(null)}
+              className="text-[#5a688c] hover:text-red-400 leading-none"
+            >
+              ×
+            </button>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function DashboardPage() {
   const [upcomingCount, setUpcomingCount] = useState(5)
@@ -229,6 +310,8 @@ export default function DashboardPage() {
       <FilteredWorldChip />
 
       <AttentionBanner />
+
+      <QuickActionsBar />
 
       {/* ── KPI Strip ───────────────────────────────────────────── */}
       <section aria-label="סיכום מהיר">

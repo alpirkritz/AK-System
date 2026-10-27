@@ -880,6 +880,8 @@ export const agentSchedules = sqliteTable('agent_schedules', {
   agentId: text('agent_id').primaryKey(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
   scheduleTimes: text('schedule_times').notNull().default('[]'), // JSON ["07:00"]
+  /** JSON map { "HH:MM": 0 | 1 } — 0 = today, 1 = tomorrow. Only used for 06_calendar_optimizer. */
+  scheduleDayOffsets: text('schedule_day_offsets').notNull().default('{}'),
   triggerMessage: text('trigger_message'),
   lastRunAt: text('last_run_at'),
   lastRunStatus: text('last_run_status'), // 'ok' | 'error'

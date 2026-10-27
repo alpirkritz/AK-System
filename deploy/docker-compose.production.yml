@@ -26,6 +26,14 @@ services:
     init: true
     shm_size: '256mb'
     restart: unless-stopped
+    # Cap container logs. Docker's default json-file driver keeps *everything*
+    # forever; on a 1 GB / small-disk instance the log file quietly grows and
+    # competes with the DB for disk and page cache.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
 
   whatsapp-bridge:
     profiles:
@@ -50,6 +58,11 @@ services:
       AK_GROUP_CLUSTER_SUMMARY_URL: http://web:3000/api/whatsapp/group-cluster-summary
       AK_MESSAGES_INGEST_URL: http://web:3000/api/whatsapp/messages/ingest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
 
 volumes:
   web-data:

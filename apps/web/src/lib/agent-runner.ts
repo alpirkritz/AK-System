@@ -19,12 +19,15 @@ export async function runAgentForUser(options: {
    * otherwise one run reaches the user as two identical notifications.
    */
   notifyOnComplete?: boolean
+  /** ISO date for the calendar context (06_calendar_optimizer scheduled runs only). */
+  calendarPlanDate?: string
 }): Promise<{ text: string }> {
   const result = await runGeminiAgentChat({
     agentId: options.agentId,
     message: options.message,
     history: options.history,
     channel: options.channel,
+    calendarPlanDate: options.calendarPlanDate,
   })
 
   notifyAgentRunComplete({
