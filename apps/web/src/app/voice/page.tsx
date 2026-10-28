@@ -1,7 +1,7 @@
 'use client'
 
 import { formatTimeRange } from '@/lib/clock-time'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
@@ -10,6 +10,7 @@ import { trpc } from '@/lib/trpc'
 import { uploadRecording, useRecorder } from './lib/use-recorder'
 
 const MIN_SECONDS = 10
+const NOTES_SAVE_MS = 800
 const STUCK_MS = 10 * 60_000
 /** Rows shown before "עוד פגישות להיום" — keeps the first screen scannable. */
 const MEETINGS_COLLAPSED = 5
@@ -525,6 +526,52 @@ type PendingReview = {
   meetingTitle: string | null
 }
 
+/** Prep already stored for the meeting, plus notes to deal with after the recording. Web only. */
+function RecordingAside({
+  meetingId,
+  notes,
+  onNotes,
+}: {
+  meetingId: string | null
+  notes: string
+  onNotes: (value: string) => void
+}) {
+  const prep = trpc.meetings.getPrep.useQuery(
+    { meetingId: meetingId ?? '' },
+    { enabled: Boolean(meetingId) },
+  )
+  return (
+    <div className="space-y-3" data-testid="voice-live-aside">
+      {meetingId && (
+        <div data-testid="voice-meeting-prep">
+          <p className="label">הכנה לפגישה</p>
+          {prep.isPending ? (
+            <p className="text-xs text-[#5a688c]">טוען הכנה…</p>
+          ) : prep.data?.bodyText ? (
+            <div className="max-h-48 overflow-y-auto text-sm text-[#97a4c2] leading-relaxed whitespace-pre-wrap">
+              {prep.data.bodyText}
+            </div>
+          ) : (
+            <p className="text-xs text-[#5a688c]">אין עדיין הכנה לפגישה</p>
+          )}
+        </div>
+      )}
+      <div>
+        <label className="label" htmlFor="voice-capture-notes">הערות להמשך</label>
+        <textarea
+          id="voice-capture-notes"
+          className="input w-full text-sm resize-y"
+          rows={4}
+          value={notes}
+          onChange={(e) => onNotes(e.target.value)}
+          placeholder="דברים לטפל אחרי הפגישה"
+          data-testid="voice-capture-notes"
+        />
+      </div>
+    </div>
+  )
+}
+
 function VoicePageInner() {
   const router = useRouter()
   const params = useSearchParams()
@@ -556,6 +603,12 @@ function VoicePageInner() {
   const [reviewMeetingId, setReviewMeetingId] = useState<string | null>(null)
   const [reviewMeetingTitle, setReviewMeetingTitle] = useState<string | null>(null)
   const [showReviewMeetingPicker, setShowReviewMeetingPicker] = useState(false)
+  const [captureNotes, setCaptureNotes] = useState('')
+  const [notesDirty, setNotesDirty] = useState(false)
+  const saveCapture = trpc.meetings.saveRecordingNotes.useMutation()
+  const saveCaptureRef = useRef(saveCapture.mutateAsync)
+  saveCaptureRef.current = saveCapture.mutateAsync
+  const saveChain = useRef(Promise.resolve())
   const recordingId = params.get('recording')
   const presetPerson = params.get('person')
   const presetMeeting = params.get('meeting')
@@ -581,6 +634,25 @@ function VoicePageInner() {
   }, [presetPerson, everyone, people.length])
 
   const active = recorder.state !== 'idle'
+  const linkedMeetingId = pendingReview ? reviewMeetingId : meeting?.id ?? null
+
+  const queueCaptureSave = useCallback((meetingId: string, notes: string) => {
+    const run = saveCaptureRef.current
+    const next = saveChain.current
+      .then(() => run({ meetingId, notes }))
+      .then(() => undefined)
+      .catch(() => undefined)
+    saveChain.current = next
+    return next
+  }, [])
+
+  useEffect(() => {
+    if (!notesDirty || !linkedMeetingId) return
+    const handle = window.setTimeout(() => {
+      void queueCaptureSave(linkedMeetingId, captureNotes)
+    }, NOTES_SAVE_MS)
+    return () => window.clearTimeout(handle)
+  }, [captureNotes, notesDirty, linkedMeetingId, queueCaptureSave])
 
   const doUpload = async (blob: Blob, durationSeconds: number, meetingId: string | null, uploadPeople: PersonOption[], uploadProjectId: string) => {
     const form = new FormData()
@@ -607,6 +679,8 @@ function VoicePageInner() {
       setShowReviewMeetingPicker(false)
       setConsent(true)
       setMeeting(null)
+      setCaptureNotes('')
+      setNotesDirty(false)
       utils.voice.list.invalidate()
       router.replace(`/voice?recording=${id}`)
     } catch (err) {
@@ -619,6 +693,7 @@ function VoicePageInner() {
 
   /** Stop the recorder and open the review panel instead of uploading immediately. */
   const stopAndReview = async () => {
+    if (meeting?.id && notesDirty) await queueCaptureSave(meeting.id, captureNotes)
     const result = await recorder.stop()
     if (!result) return
     if (result.durationSeconds < MIN_SECONDS) {
@@ -642,6 +717,9 @@ function VoicePageInner() {
   /** Confirm the review and send the upload. */
   const confirmUpload = async () => {
     if (!pendingReview) return
+    if (reviewMeetingId && (notesDirty || captureNotes.trim())) {
+      await queueCaptureSave(reviewMeetingId, captureNotes)
+    }
     await doUpload(pendingReview.blob, pendingReview.durationSeconds, reviewMeetingId, reviewPeople, reviewProjectId)
   }
 
@@ -652,6 +730,8 @@ function VoicePageInner() {
     setReviewMeetingId(null)
     setReviewMeetingTitle(null)
     setShowReviewMeetingPicker(false)
+    setCaptureNotes('')
+    setNotesDirty(false)
   }
 
   const retryUpload = async () => {
@@ -665,6 +745,8 @@ function VoicePageInner() {
     setFailedUpload(null)
     setPendingReview(null)
     setMessage(null)
+    setCaptureNotes('')
+    setNotesDirty(false)
     setMeeting(forMeeting)
     void recorder.start()
   }
@@ -843,6 +925,11 @@ function VoicePageInner() {
                 ? 'ההקלטה ממשיכה גם אם עוברים לטאב אחר. מצב שינה מלא של המחשב עדיין יעצור אותה.'
                 : 'ההקלטה ממשיכה גם אם עוברים לטאב אחר, אבל הדפדפן הזה לא תומך במניעת שינה — מומלץ להשאיר את המחשב ער.'}
             </p>
+            <RecordingAside
+              meetingId={meeting?.id ?? null}
+              notes={captureNotes}
+              onNotes={(value) => { setCaptureNotes(value); setNotesDirty(true) }}
+            />
             {recorder.noCallSignal && (
               <p className="text-xs text-amber-400" role="alert">
                 לא מזוהה אודיו ממקור השיחה (ההתקן שנבחר / הטאב המשותף) — ייתכן שרק הקול שלך נקלט. כדאי לבדוק את ההגדרות.
@@ -881,6 +968,11 @@ function VoicePageInner() {
         {pendingReview && !upload && (
           <div className="space-y-4 pt-3 border-t border-[#223052]" data-testid="voice-review-panel">
             <p className="text-sm font-semibold text-[#eef3fb]">אישור לפני העלאה</p>
+            <RecordingAside
+              meetingId={reviewMeetingId}
+              notes={captureNotes}
+              onNotes={(value) => { setCaptureNotes(value); setNotesDirty(true) }}
+            />
             <p className="text-xs text-[#97a4c2]">בדוק את ההקשר ולחץ &ldquo;העלה שיחה&rdquo; כשהכל מוכן.</p>
             {/* Meeting link row */}
             <div>

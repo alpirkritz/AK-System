@@ -123,6 +123,38 @@ describe('circles router', () => {
     expect(ctx?.circles.map((c) => c.seriesTitle)).toEqual(['Algo 4.0'])
   })
 
+  it('saves typed names as the circle, flipping Last, First and retiring whoever was left out', async () => {
+    await seedSeries([[{ name: 'כהן', email: null }, { name: 'יוסי', email: null }]])
+    const caller = await createTestCaller()
+    await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
+
+    expect(await caller.circles.saveFromNames({ seriesId: 'ms1', names: ['כהן, יוסי', 'דנה לוי'] })).toEqual({ saved: 2 })
+    const circle = await caller.circles.get({ seriesId: 'ms1' })
+    expect(circle.roster.map((r) => r.displayName).sort()).toEqual(['דנה לוי', 'יוסי כהן'])
+    expect(circle.roster.every((r) => r.source === 'manual')).toBe(true)
+    expect(circle.series.rosterSavedAt).toBeTruthy()
+
+    const db = getTestDb()
+    const retired = (await db.select().from(seriesRoster)).filter((r) => r.inactive).map((r) => r.displayName).sort()
+    expect(retired).toEqual(['יוסי', 'כהן'])
+  })
+
+  it('keeps a followed person when the saved name still matches, and does not drop manual names missing from the calendar', async () => {
+    await seedSeries([[{ name: 'Ron', email: 'ron@dt.com' }, { name: 'Dana', email: 'dana@dt.com' }]])
+    const caller = await createTestCaller()
+    await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
+    const before = await caller.circles.get({ seriesId: 'ms1' })
+    const ron = before.roster.find((r) => r.displayName === 'Ron')!
+    const followed = await caller.circles.follow({ rosterId: ron.id })
+
+    await caller.circles.saveFromNames({ seriesId: 'ms1', names: ['Ron'] })
+    const circle = await caller.circles.get({ seriesId: 'ms1' })
+    expect(circle.roster.map((r) => r.displayName)).toEqual(['Ron'])
+    expect(circle.roster[0]?.personId).toBe(followed.personId)
+    expect(circle.diff?.missingFromCalendar ?? []).toEqual([])
+    expect(circle.diff?.newInCalendar.map((p) => p.name)).toEqual(['Dana'])
+  })
+
   it('removeMember retires the row from the roster count', async () => {
     await seedSeries([[{ name: 'Dana', email: null }, { name: 'Ron', email: null }]])
     const caller = await createTestCaller()

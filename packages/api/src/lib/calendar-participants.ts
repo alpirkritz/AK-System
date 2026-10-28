@@ -29,25 +29,25 @@ const PARTICIPANTS_HEADING =
 
 const EMAIL_RE = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
 
+/** One comma in an Outlook "Last, First <email>" stays inside the protected token. */
+const ANGLE_MAIL =
+  /([^<\n;,]+(?:,\s*[^<\n;,]+)?)\s*<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>/g
+
 function descriptionToPlainText(raw: string): string {
   let text = raw.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
-  const protectedParts: string[] = []
-  text = text.replace(
-    /([^<\n,;]+?)\s*<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>/g,
-    (_m, name: string, email: string) => {
-      protectedParts.push(`${name.trim()} <${email}>`)
-      return `__AKMAIL_${protectedParts.length - 1}__`
-    },
-  )
   text = text
-    .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/g, "'")
-    .replace(/\r/g, '')
+  const protectedParts: string[] = []
+  text = text.replace(ANGLE_MAIL, (_m, name: string, email: string) => {
+    protectedParts.push(`${name.trim()} <${email}>`)
+    return `__AKMAIL_${protectedParts.length - 1}__`
+  })
+  text = text.replace(/<[^>]+>/g, ' ').replace(/\r/g, '')
   protectedParts.forEach((part, i) => {
     text = text.replace(`__AKMAIL_${i}__`, part)
   })
@@ -58,21 +58,57 @@ function descriptionToPlainText(raw: string): string {
     .join('\n')
 }
 
+/** Outlook writes "Last, First". Show that as "First Last"; a name with no comma stays as written. */
+export function normalizeDisplayName(name: string): string {
+  const cleaned = name.replace(/^[\s,;•·|]+/, '').replace(/[\s,;•·|]+$/, '').trim()
+  const comma = cleaned.match(/^([^,]+),\s*([^,]+)$/)
+  if (!comma) return cleaned
+  const last = comma[1].trim()
+  const first = comma[2].trim()
+  if (!last || !first) return cleaned
+  return `${first} ${last}`
+}
+
 function parseEntry(part: string): { name: string; email: string | null } | null {
   const trimmed = part.trim().replace(/^["']|["']$/g, '')
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return null
+  let name = trimmed
+  let email: string | null = null
   const angle = trimmed.match(/^(.*?)\s*<([^>]+)>$/)
-  if (angle) {
-    const email = angle[2].trim().toLowerCase()
-    return { name: angle[1].trim() || email, email: EMAIL_RE.test(email) ? email : null }
-  }
   const paren = trimmed.match(/^(.+?)\s*\(([^)]+@[^)]+)\)$/)
-  if (paren) {
-    const email = paren[2].trim().toLowerCase()
-    return { name: paren[1].trim() || email, email: EMAIL_RE.test(email) ? email : null }
+  if (angle) {
+    email = angle[2].trim().toLowerCase()
+    name = angle[1].trim() || email
+    if (!EMAIL_RE.test(email)) email = null
+  } else if (paren) {
+    email = paren[2].trim().toLowerCase()
+    name = paren[1].trim() || email
+    if (!EMAIL_RE.test(email)) email = null
+  } else if (EMAIL_RE.test(trimmed)) {
+    return { name: trimmed.toLowerCase(), email: trimmed.toLowerCase() }
   }
-  if (EMAIL_RE.test(trimmed)) return { name: trimmed.toLowerCase(), email: trimmed.toLowerCase() }
-  return { name: trimmed, email: null }
+  name = normalizeDisplayName(name)
+  if (!name && !email) return null
+  return { name: name || email!, email }
+}
+
+/** One typed circle line. A comma inside the line is "Last, First", not two people. */
+export function parseTypedCircleLine(line: string): { name: string; email: string | null } | null {
+  return parseEntry(line)
+}
+
+/**
+ * Split a participants list without cutting the comma inside "Last, First <email>".
+ * Bare commas still separate people who have no email.
+ */
+function splitParticipantList(block: string): string[] {
+  const re = /([^,;\n•·|]+(?:,\s*[^,;\n•·|<]+)?\s*<[^>]+>|[^,;\n•·|]+)/g
+  const parts: string[] = []
+  for (let match = re.exec(block); match; match = re.exec(block)) {
+    const piece = match[0].trim()
+    if (piece) parts.push(piece)
+  }
+  return parts
 }
 
 export function normalizeParticipantName(name: string): string {
@@ -88,8 +124,7 @@ export function parseDescriptionParticipants(raw: string | null | undefined): { 
   if (!raw?.trim()) return []
   const match = descriptionToPlainText(raw).match(PARTICIPANTS_HEADING)
   if (!match?.[1]) return []
-  return match[1]
-    .split(/,|;|\n|•|·|\|/)
+  return splitParticipantList(match[1])
     .map(parseEntry)
     .filter((e): e is { name: string; email: string | null } => e !== null)
 }

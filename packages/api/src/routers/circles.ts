@@ -13,6 +13,7 @@ import {
   removeException,
   retireRosterMember,
   saveRosterFromCalendar,
+  saveRosterFromNames,
 } from '../services/series-roster'
 
 const seriesInput = z.object({ seriesId: z.string().min(1) })
@@ -38,6 +39,20 @@ export const circlesRouter = router({
       notFound(err)
     }
   }),
+
+  saveFromNames: protectedProcedure
+    .input(seriesInput.extend({
+      names: z.array(z.string().trim().min(1)).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await saveRosterFromNames(ctx.db, input.seriesId, input.names)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Not found'
+        if (message === 'Series not found') notFound(err)
+        throw new TRPCError({ code: 'BAD_REQUEST', message })
+      }
+    }),
 
   applyCalendarDiff: protectedProcedure.input(seriesInput).mutation(async ({ ctx, input }) => {
     try {

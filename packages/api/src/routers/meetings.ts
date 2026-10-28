@@ -42,6 +42,7 @@ import {
 } from '../lib/calendar-participants'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
 import { getMeetingPrep } from '../services/meeting-preps'
+import { mergeRecordingNotes } from '../lib/recording-notes'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -1185,6 +1186,26 @@ export const meetingsRouter = router({
   getPrep: protectedProcedure
     .input(z.object({ meetingId: z.string().min(1) }))
     .query(async ({ ctx, input }) => getMeetingPrep(ctx.db, input.meetingId)),
+
+  /**
+   * Notes typed during a web recording. Only `notes` is written — `update` would also
+   * rewrite title, project, type, and recurrence.
+   */
+  saveRecordingNotes: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1), notes: z.string().max(20000) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ notes: meetings.notes })
+        .from(meetings)
+        .where(eq(meetings.id, input.meetingId))
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Meeting not found' })
+      const notes = mergeRecordingNotes(row.notes, input.notes)
+      await ctx.db
+        .update(meetings)
+        .set({ notes, updatedAt: new Date().toISOString() })
+        .where(eq(meetings.id, input.meetingId))
+      return { notes }
+    }),
 
   linkOrphanedNotes: protectedProcedure.mutation(async () => {
     const { linkOrphanedNotes } = await import('../services/notion-meeting-sync')

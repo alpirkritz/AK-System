@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   parseCalendarParticipants,
   parseDescriptionParticipants,
+  parseTypedCircleLine,
   participantKey,
   seriesTitleKey,
 } from './calendar-participants'
@@ -20,6 +21,31 @@ describe('parseDescriptionParticipants', () => {
   it('returns [] when there is no participants heading', () => {
     expect(parseDescriptionParticipants('Just an agenda')).toEqual([])
     expect(parseDescriptionParticipants(null)).toEqual([])
+  })
+
+  it('keeps an Outlook Last, First email as one person shown First Last', () => {
+    const desc = 'משתתפים: כהן, יוסי <yossi@dt.com>, לוי, דנה <dana@dt.com>'
+    expect(parseDescriptionParticipants(desc)).toEqual([
+      { name: 'יוסי כהן', email: 'yossi@dt.com' },
+      { name: 'דנה לוי', email: 'dana@dt.com' },
+    ])
+  })
+
+  it('keeps Last, First when the email brackets were HTML-escaped', () => {
+    const desc = 'משתתפים: Cohen, Yossi &lt;yossi@dt.com&gt;, Guest Only'
+    expect(parseDescriptionParticipants(desc)).toEqual([
+      { name: 'Yossi Cohen', email: 'yossi@dt.com' },
+      { name: 'Guest Only', email: null },
+    ])
+  })
+})
+
+describe('parseTypedCircleLine', () => {
+  it('treats one line as one person and flips Last, First', () => {
+    expect(parseTypedCircleLine('יוסי כהן')).toEqual({ name: 'יוסי כהן', email: null })
+    expect(parseTypedCircleLine('כהן, יוסי')).toEqual({ name: 'יוסי כהן', email: null })
+    expect(parseTypedCircleLine('כהן, יוסי <yossi@dt.com>')).toEqual({ name: 'יוסי כהן', email: 'yossi@dt.com' })
+    expect(parseTypedCircleLine('  ')).toBeNull()
   })
 })
 

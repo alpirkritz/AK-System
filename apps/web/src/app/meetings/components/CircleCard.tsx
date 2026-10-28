@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Users, UserPlus, UserMinus, RotateCcw, X, CheckSquare, FileText } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
@@ -18,12 +18,20 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
   const { data: attendance } = trpc.circles.attendance.useQuery({ meetingId })
   const [expanded, setExpanded] = useState(false)
   const [newName, setNewName] = useState('')
+  const [namesText, setNamesText] = useState('')
+  const seededFor = useRef<string | null>(null)
 
   const refresh = () => {
     utils.circles.get.invalidate({ seriesId })
     utils.circles.attendance.invalidate({ meetingId })
   }
-  const save = trpc.circles.saveFromCalendar.useMutation({ onSuccess: refresh })
+  const fillNames = async () => {
+    const next = await utils.circles.get.fetch({ seriesId })
+    setNamesText(next.roster.map((r) => r.displayName).join('\n'))
+    refresh()
+  }
+  const save = trpc.circles.saveFromCalendar.useMutation({ onSuccess: () => { void fillNames() } })
+  const saveNames = trpc.circles.saveFromNames.useMutation({ onSuccess: () => { void fillNames() } })
   const apply = trpc.circles.applyCalendarDiff.useMutation({ onSuccess: refresh })
   const dismiss = trpc.circles.dismissCalendarDiff.useMutation({ onSuccess: refresh })
   const follow = trpc.circles.follow.useMutation({ onSuccess: refresh })
@@ -33,8 +41,17 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
   const addMember = trpc.circles.addMember.useMutation({ onSuccess: () => { setNewName(''); refresh() } })
   const removeException = trpc.circles.removeException.useMutation({ onSuccess: refresh })
 
+  useEffect(() => {
+    if (!circle || seededFor.current === seriesId) return
+    seededFor.current = seriesId
+    if (circle.series.rosterSavedAt) {
+      setNamesText(circle.roster.map((r) => r.displayName).join('\n'))
+    }
+  }, [circle, seriesId])
+
   if (!circle) return null
   const saved = !!circle.series.rosterSavedAt
+  const nameLines = namesText.split('\n').map((line) => line.trim()).filter(Boolean)
   const absentByRoster = new Map((attendance?.absent ?? []).map((e) => [e.rosterId, e.id]))
   const roster = expanded ? circle.roster : circle.roster.slice(0, ROSTER_PREVIEW)
   const busy = save.isPending || apply.isPending || dismiss.isPending
@@ -65,6 +82,34 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
           embedded
         />
       )}
+      <form
+        className="space-y-2 mb-4"
+        data-testid="circle-names-form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (nameLines.length > 0) saveNames.mutate({ seriesId, names: nameLines })
+        }}
+      >
+        <label className="label" htmlFor="circle-names">שמות בחוג</label>
+        <textarea
+          id="circle-names"
+          className="input w-full text-sm resize-y"
+          rows={4}
+          value={namesText}
+          onChange={(e) => setNamesText(e.target.value)}
+          placeholder={'שורה לכל אדם, שם מלא\nיוסי כהן'}
+          data-testid="circle-names"
+        />
+        <p className="text-[11px] text-[#5a688c]">שורה אחת לאדם. כהן, יוסי נשמר כיוסי כהן.</p>
+        <button
+          type="submit"
+          className="btn btn-primary text-xs py-1.5 px-3"
+          disabled={nameLines.length === 0 || saveNames.isPending}
+          data-testid="circle-save-names"
+        >
+          {saveNames.isPending ? 'שומר…' : 'שמור כחוג'}
+        </button>
+      </form>
       {!saved ? (
         <div className="space-y-2">
           <p className="text-sm text-[#97a4c2]">

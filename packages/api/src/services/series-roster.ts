@@ -17,8 +17,10 @@ import {
   type MeetingRosterException,
 } from '@ak-system/database'
 import {
+  normalizeDisplayName,
   normalizeParticipantName,
   parseStoredParticipants,
+  parseTypedCircleLine,
   participantKey,
   type CalendarParticipant,
 } from '../lib/calendar-participants'
@@ -143,7 +145,12 @@ async function peopleByEmail(db: Db, emails: string[]): Promise<Map<string, stri
   return out
 }
 
-async function insertRosterRows(db: Db, seriesId: string, participants: CalendarParticipant[], now: string) {
+async function insertRosterRows(
+  db: Db,
+  seriesId: string,
+  participants: { name: string; email: string | null; source: 'attendees' | 'description' | 'manual' }[],
+  now: string,
+) {
   if (participants.length === 0) return
   const known = await peopleByEmail(db, participants.map((p) => p.email ?? ''))
   await db.insert(seriesRoster).values(
@@ -176,6 +183,83 @@ export async function saveRosterFromCalendar(db: Db, seriesId: string): Promise<
     .set({ rosterSavedAt: now, rosterDismissedSig: null, updatedAt: now })
     .where(eq(meetingSeries.id, seriesId))
   return { added: toAdd.length }
+}
+
+function circleNameKeys(name: string): string[] {
+  const keys = [normalizeParticipantName(name), normalizeParticipantName(normalizeDisplayName(name))]
+  return [...new Set(keys.filter(Boolean))]
+}
+
+/**
+ * Replace the active roster with names typed on a meeting. One line is one person.
+ * A matching row keeps its person link; everyone else who was active is retired.
+ */
+export async function saveRosterFromNames(
+  db: Db,
+  seriesId: string,
+  names: string[],
+): Promise<{ saved: number }> {
+  await seriesOrThrow(db, seriesId)
+  const wanted: { name: string; email: string | null }[] = []
+  const seen = new Set<string>()
+  for (const line of names) {
+    const parsed = parseTypedCircleLine(line)
+    if (!parsed?.name) continue
+    const key = circleNameKeys(parsed.name)[0]
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    wanted.push(parsed)
+  }
+  if (wanted.length === 0) throw new Error('No names')
+
+  const roster = await listRoster(db, seriesId, true)
+  const now = new Date().toISOString()
+  const claimed = new Set<string>()
+
+  const rank = (row: SeriesRosterRow) => (row.inactive ? 0 : 2) + (row.personId ? 1 : 0)
+  for (const person of wanted) {
+    const keys = new Set(circleNameKeys(person.name))
+    const match = roster
+      .filter((row) => !claimed.has(row.id))
+      .filter((row) => {
+        if (person.email && row.email && row.email.toLowerCase() === person.email) return true
+        return circleNameKeys(row.displayName).some((key) => keys.has(key))
+      })
+      .sort((a, b) => rank(b) - rank(a))[0]
+    if (match) {
+      claimed.add(match.id)
+      await db
+        .update(seriesRoster)
+        .set({
+          displayName: person.name,
+          email: person.email ?? match.email,
+          source: 'manual',
+          inactive: false,
+          updatedAt: now,
+        })
+        .where(eq(seriesRoster.id, match.id))
+    } else {
+      await insertRosterRows(
+        db,
+        seriesId,
+        [{ name: person.name, email: person.email, source: 'manual' }],
+        now,
+      )
+    }
+  }
+
+  const toRetire = roster.filter((row) => !row.inactive && !claimed.has(row.id)).map((row) => row.id)
+  if (toRetire.length > 0) {
+    await db
+      .update(seriesRoster)
+      .set({ inactive: true, updatedAt: now })
+      .where(inArray(seriesRoster.id, toRetire))
+  }
+  await db
+    .update(meetingSeries)
+    .set({ rosterSavedAt: now, rosterDismissedSig: null, updatedAt: now })
+    .where(eq(meetingSeries.id, seriesId))
+  return { saved: wanted.length }
 }
 
 /** Accept the calendar diff: add newcomers, retire people no longer invited. */
