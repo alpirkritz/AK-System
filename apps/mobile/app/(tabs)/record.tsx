@@ -878,10 +878,21 @@ export default function RecordScreen() {
 
       {phase === 'uploading' ? (
         <View style={styles.card} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}>
-          <Text style={styles.body}>מעלה… {Math.round(progress * 100)}%</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
-          </View>
+          {progress < 1 ? (
+            <>
+              <Text style={styles.body}>מעלה… {Math.round(progress * 100)}%</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+              </View>
+            </>
+          ) : (
+            // All bytes sent — server is writing to disk and registering the recording.
+            // Show a spinner instead of a frozen "100%" bar so the user knows it is still working.
+            <View style={styles.pendingRow}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={styles.body}>מעבד… ממתין לשרת</Text>
+            </View>
+          )}
         </View>
       ) : null}
 

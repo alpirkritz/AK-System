@@ -230,8 +230,14 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
   const dir = voiceStorageDir()
   fs.mkdirSync(dir, { recursive: true })
   const audioPath = path.join(dir, `${id}.${ext}`)
-  fs.writeFileSync(audioPath, input.audio)
-  const durationSeconds = (await probeAudioDurationSeconds(audioPath)) ?? input.durationSeconds
+  // Use async write so large audio files don't block the Node.js event loop (and delay the HTTP
+  // response) while writing to disk. For imported files, probe the real duration with ffprobe
+  // so chunking decisions are correct; live recordings already carry an accurate client duration.
+  await fs.promises.writeFile(audioPath, input.audio)
+  const durationSeconds =
+    input.source === 'imported'
+      ? ((await probeAudioDurationSeconds(audioPath)) ?? input.durationSeconds)
+      : input.durationSeconds
   if (!Number.isFinite(durationSeconds) || durationSeconds < VOICE_MIN_SECONDS) {
     fs.rmSync(audioPath, { force: true })
     throw new VoiceUploadError('ההקלטה קצרה מדי (לפחות 10 שניות)')
