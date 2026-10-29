@@ -102,7 +102,7 @@ export function parseTypedCircleLine(line: string): { name: string; email: strin
  * Bare commas still separate people who have no email.
  */
 function splitParticipantList(block: string): string[] {
-  const re = /([^,;\n•·|]+(?:,\s*[^,;\n•·|<]+)?\s*<[^>]+>|[^,;\n•·|]+)/g
+  const re = /([^,;\n•·|<>]+(?:,\s*[^,;\n•·|<]+)?\s*<[^>]+>|[^,;\n•·|]+)/g
   const parts: string[] = []
   for (let match = re.exec(block); match; match = re.exec(block)) {
     const piece = match[0].trim()

@@ -326,7 +326,7 @@ export const meetingsRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
-    const id = 'm' + Date.now()
+    const id = 'm' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     const seriesId = await ensureManualSeries(ctx, {
       title: input.title,
