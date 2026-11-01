@@ -606,6 +606,11 @@ function VoicePageInner() {
   const [captureNotes, setCaptureNotes] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const saveCapture = trpc.meetings.saveRecordingNotes.useMutation()
+  const createManual = trpc.meetings.createManual.useMutation()
+  const deleteIfEmpty = trpc.meetings.deleteIfEmpty.useMutation()
+  const [notesError, setNotesError] = useState(false)
+  // Meeting created on the fly because the recording had none; cleaned up if it stays empty.
+  const autoMeetingId = useRef<string | null>(null)
   const saveCaptureRef = useRef(saveCapture.mutateAsync)
   saveCaptureRef.current = saveCapture.mutateAsync
   const saveChain = useRef(Promise.resolve())
@@ -640,11 +645,19 @@ function VoicePageInner() {
     const run = saveCaptureRef.current
     const next = saveChain.current
       .then(() => run({ meetingId, notes }))
-      .then(() => undefined)
-      .catch(() => undefined)
+      .then(() => setNotesError(false))
+      .catch(() => setNotesError(true))
     saveChain.current = next
     return next
   }, [])
+
+  /** Drop the on-the-fly meeting unless the recording ends up linked to it. */
+  const dropAutoMeeting = useCallback((keepId: string | null = null) => {
+    const id = autoMeetingId.current
+    if (!id || id === keepId) return
+    autoMeetingId.current = null
+    void deleteIfEmpty.mutateAsync({ meetingId: id }).catch(() => undefined)
+  }, [deleteIfEmpty])
 
   useEffect(() => {
     if (!notesDirty || !linkedMeetingId) return
@@ -698,6 +711,7 @@ function VoicePageInner() {
     if (!result) return
     if (result.durationSeconds < MIN_SECONDS) {
       setMessage(`ההקלטה קצרה מ-${MIN_SECONDS} שניות ולא נשמרה`)
+      dropAutoMeeting()
       return
     }
     // Pre-seed review state from the current context.
@@ -720,11 +734,14 @@ function VoicePageInner() {
     if (reviewMeetingId && (notesDirty || captureNotes.trim())) {
       await queueCaptureSave(reviewMeetingId, captureNotes)
     }
+    dropAutoMeeting(reviewMeetingId)
     await doUpload(pendingReview.blob, pendingReview.durationSeconds, reviewMeetingId, reviewPeople, reviewProjectId)
+    autoMeetingId.current = null
   }
 
   /** Discard captured audio and return to idle. */
   const cancelReview = () => {
+    dropAutoMeeting()
     setPendingReview(null)
     setMessage(null)
     setReviewMeetingId(null)
@@ -740,14 +757,33 @@ function VoicePageInner() {
     await doUpload(failedUpload.blob, failedUpload.durationSeconds, failedUpload.meetingId, people, projectId)
   }
 
-  const startFresh = (forMeeting: MeetingChoice | null = null) => {
+  const startFresh = async (forMeeting: MeetingChoice | null = null) => {
     if (failedUpload && !window.confirm('יש הקלטה שממתינה לשליחה — להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?')) return
     setFailedUpload(null)
     setPendingReview(null)
     setMessage(null)
     setCaptureNotes('')
     setNotesDirty(false)
-    setMeeting(forMeeting)
+    let target = forMeeting
+    if (!target) {
+      // No calendar event: give the recording a meeting now so typed notes have somewhere to go.
+      const now = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`
+      try {
+        const { id } = await createManual.mutateAsync({ title: `שיחה ${date} ${time}`, date, time })
+        autoMeetingId.current = id
+        target = {
+          id, title: `שיחה ${date} ${time}`, date, time, endTime: null, location: null,
+          projectId: null, projectName: null, people: [], state: 'now',
+        }
+      } catch {
+        // Recording still starts; without a meeting the notes are not saved, so say so.
+        setMessage('לא ניתן היה ליצור פגישה להקלטה — הערות לא יישמרו עד שתקשר פגישה')
+      }
+    }
+    setMeeting(target)
     void recorder.start()
   }
 
@@ -925,6 +961,11 @@ function VoicePageInner() {
                 ? 'ההקלטה ממשיכה גם אם עוברים לטאב אחר. מצב שינה מלא של המחשב עדיין יעצור אותה.'
                 : 'ההקלטה ממשיכה גם אם עוברים לטאב אחר, אבל הדפדפן הזה לא תומך במניעת שינה — מומלץ להשאיר את המחשב ער.'}
             </p>
+            {notesError && (
+              <p className="text-xs text-amber-400" role="alert" data-testid="voice-notes-error">
+                השמירה נכשלה — ננסה שוב בהקלדה הבאה. ההערות נשארות בתיבה.
+              </p>
+            )}
             <RecordingAside
               meetingId={meeting?.id ?? null}
               notes={captureNotes}

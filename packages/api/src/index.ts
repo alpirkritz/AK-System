@@ -21,6 +21,8 @@ import { agentsRouter } from './routers/agents'
 import { memoryRouter } from './routers/memory'
 import { settingsRouter } from './routers/settings'
 import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
+import { notionOverridesRouter } from './routers/notion-overrides'
+import { backupRouter } from './routers/backup'
 import { companiesRouter } from './routers/companies'
 import { serviceItemsRouter } from './routers/service-items'
 import { salesDocumentsRouter } from './routers/sales-documents'
@@ -284,6 +286,8 @@ export const appRouter = router({
   memory: memoryRouter,
   settings: settingsRouter,
   notionStatusOverrides: notionStatusOverridesRouter,
+  notionOverrides: notionOverridesRouter,
+  backup: backupRouter,
   companies: companiesRouter,
   serviceItems: serviceItemsRouter,
   salesDocuments: salesDocumentsRouter,
@@ -309,3 +313,11 @@ export {
   type AgentJobPayload,
   type CreateJobOptions,
 } from './services/agent-jobs'
+export {
+  recordBackupRun,
+  checkBackupFreshness,
+  shouldRaiseBackupAlert,
+  BACKUP_STALE_ALERT_TITLE,
+  BACKUP_KINDS,
+  type BackupReport,
+} from './services/backup-runs'

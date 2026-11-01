@@ -403,6 +403,22 @@ describe('shared commitment queue and Hugo', () => {
     expect(c).toMatchObject({ personId: 'p2', owner: 'them', source: 'meeting_analysis', sourceId: 'm1' })
   })
 
+  it('closes the open commitment when a task is made from its action item on the meeting page', async () => {
+    const db = getTestDb()
+    const analysisId = await meetingWith('m2', '2026-09-02', ['p2'], [
+      { content: 'Ron sends the contract', owner: 'Ron' },
+      { content: 'Ron books the venue', owner: 'Ron' },
+    ])
+    await proposeCommitmentsFromAnalysis(db, analysisId)
+    const caller = await createTestCaller()
+    const { createdTaskIds } = await caller.meetings.createTasksFromAnalysis({ analysisId, indices: [0] })
+    const rows = await db.select().from(commitments)
+    const sent = rows.find((c) => c.content === 'Ron sends the contract')
+    const booked = rows.find((c) => c.content === 'Ron books the venue')
+    expect(sent).toMatchObject({ status: 'accepted', taskId: createdTaskIds[0] })
+    expect(booked?.status).toBe('proposed')
+  })
+
   it('morning brief lists today\'s attendees and my other open commitments once', async () => {
     const db = getTestDb()
     const today = '2026-09-24'

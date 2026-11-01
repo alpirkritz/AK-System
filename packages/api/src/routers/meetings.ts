@@ -1112,6 +1112,7 @@ export const meetingsRouter = router({
 
         item.taskId = taskId
         createdTaskIds.push(taskId)
+        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, taskId)
       }
 
       // Update analysis with task IDs
@@ -1168,6 +1169,7 @@ export const meetingsRouter = router({
 
         item.taskId = link.taskId
         linked++
+        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, link.taskId)
       }
 
       // Update analysis with task IDs
@@ -1205,6 +1207,57 @@ export const meetingsRouter = router({
         .set({ notes, updatedAt: new Date().toISOString() })
         .where(eq(meetings.id, input.meetingId))
       return { notes }
+    }),
+
+  /**
+   * Home for a recording started without a calendar event, so notes typed while recording
+   * have a meeting to land on. `source = 'manual'` keeps calendar sync away from it.
+   */
+  createManual: protectedProcedure
+    .input(z.object({
+      title: z.string().min(1).max(200),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      time: z.string().regex(/^\d{2}:\d{2}$/),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = 'm_manual_' + Date.now() + Math.random().toString(36).slice(2, 7)
+      const now = new Date().toISOString()
+      await ctx.db.insert(meetings).values({
+        id,
+        title: input.title,
+        date: input.date,
+        time: input.time,
+        source: 'manual',
+        createdAt: now,
+        updatedAt: now,
+      })
+      return { id }
+    }),
+
+  /**
+   * Removes a manual meeting that ended up with nothing attached (recording cancelled, too
+   * short, or linked to a calendar meeting instead). Notes typed during the recording do not
+   * count as content: they are re-saved onto whichever meeting the recording ends up on.
+   */
+  deleteIfEmpty: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ source: meetings.source, notes: meetings.notes })
+        .from(meetings)
+        .where(eq(meetings.id, input.meetingId))
+      if (!row || row.source !== 'manual') return { deleted: false }
+      if (mergeRecordingNotes(row.notes, '')) return { deleted: false }
+      const { meetingAnalyses, voiceRecordings } = await import('@ak-system/database')
+      const [rec, analysis, task] = await Promise.all([
+        ctx.db.select({ id: voiceRecordings.id }).from(voiceRecordings).where(eq(voiceRecordings.meetingId, input.meetingId)).limit(1),
+        ctx.db.select({ id: meetingAnalyses.id }).from(meetingAnalyses).where(eq(meetingAnalyses.meetingId, input.meetingId)).limit(1),
+        ctx.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.meetingId, input.meetingId)).limit(1),
+      ])
+      if (rec.length || analysis.length || task.length) return { deleted: false }
+      await ctx.db.delete(meetingPeople).where(eq(meetingPeople.meetingId, input.meetingId))
+      await ctx.db.delete(meetings).where(eq(meetings.id, input.meetingId))
+      return { deleted: true }
     }),
 
   linkOrphanedNotes: protectedProcedure.mutation(async () => {

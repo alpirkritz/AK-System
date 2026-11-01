@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { isPublicPagePath } from '@/lib/public-paths'
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -146,7 +147,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, [isAssistant, isNarrow])
 
   // Auth screen and printable documents: render bare, no app chrome.
-  if (pathname === '/login' || pathname.endsWith('/print')) {
+  if (pathname === '/login' || pathname.endsWith('/print') || isPublicPagePath(pathname)) {
     return <>{children}</>
   }
 

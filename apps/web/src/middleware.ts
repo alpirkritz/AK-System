@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { isPublicPagePath } from '@/lib/public-paths'
 
 function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
   const origin = req.headers.get('origin') ?? '*'
@@ -46,6 +47,11 @@ export function middleware(req: NextRequest) {
 
   // The Helm APK is installed from the phone browser before a session exists.
   if (req.nextUrl.pathname === '/helm.apk') {
+    return NextResponse.next()
+  }
+
+  // Public homepage + privacy policy required by Google's OAuth consent screen.
+  if (isPublicPagePath(req.nextUrl.pathname)) {
     return NextResponse.next()
   }
 

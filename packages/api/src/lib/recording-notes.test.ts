@@ -50,3 +50,39 @@ describe('meetings.saveRecordingNotes', () => {
     expect(row.title).toBe('Sync')
   })
 })
+
+describe('meetings.createManual / deleteIfEmpty', () => {
+  const now = new Date().toISOString()
+
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('creates a manual meeting that can hold recording notes', async () => {
+    const db = getTestDb()
+    const caller = await createTestCaller()
+    const { id } = await caller.meetings.createManual({ title: 'שיחה 2026-10-29 14:00', date: '2026-10-29', time: '14:00' })
+    await caller.meetings.saveRecordingNotes({ meetingId: id, notes: 'הערה' })
+    const [row] = await db.select().from(meetings).where(eq(meetings.id, id))
+    expect(row.source).toBe('manual')
+    expect(row.notes).toContain('הערה')
+  })
+
+  it('deletes an untouched manual meeting, including one holding only recording notes', async () => {
+    const db = getTestDb()
+    const caller = await createTestCaller()
+    const { id } = await caller.meetings.createManual({ title: 'שיחה', date: '2026-10-29', time: '14:00' })
+    await caller.meetings.saveRecordingNotes({ meetingId: id, notes: 'הערה' })
+    expect(await caller.meetings.deleteIfEmpty({ meetingId: id })).toEqual({ deleted: true })
+    expect(await db.select().from(meetings).where(eq(meetings.id, id))).toHaveLength(0)
+  })
+
+  it('keeps manual meetings with their own notes and never deletes calendar meetings', async () => {
+    const db = getTestDb()
+    const caller = await createTestCaller()
+    await db.insert(meetings).values({ id: 'm_own', title: 'x', date: '2026-10-29', time: '10:00', source: 'manual', notes: 'כתבתי', createdAt: now, updatedAt: now })
+    await db.insert(meetings).values({ id: 'm_cal', title: 'y', date: '2026-10-29', time: '11:00', source: 'calendar', createdAt: now, updatedAt: now })
+    expect(await caller.meetings.deleteIfEmpty({ meetingId: 'm_own' })).toEqual({ deleted: false })
+    expect(await caller.meetings.deleteIfEmpty({ meetingId: 'm_cal' })).toEqual({ deleted: false })
+  })
+})

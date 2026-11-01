@@ -17,6 +17,8 @@ import {
   workspaceNotionDatabases,
   peopleNotionSources,
   notionStatusOverrides,
+  notionFieldBaselines,
+  backupRuns,
   seriesRoster,
   meetingRosterExceptions,
   whatsappPersonLinks,
@@ -102,6 +104,8 @@ export async function resetDb() {
   await db.delete(personWorkspaces)
   await db.delete(people)
   await db.delete(notionStatusOverrides)
+  await db.delete(notionFieldBaselines)
+  await db.delete(backupRuns)
   await db.delete(workspaceNotionDatabases)
   await db.delete(peopleNotionSources)
   await db.delete(workspaces)

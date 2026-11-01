@@ -13,6 +13,17 @@ type MeetingOption = { id: string; title: string }
 type ProjectOption = { id: string; name: string }
 type WorkspaceOption = { id: string; name: string; hasNotionLink?: boolean }
 
+const OVERRIDE_FIELD_LABELS: Record<string, string> = {
+  title: 'כותרת',
+  dueDate: 'תאריך יעד',
+  priority: 'עדיפות',
+  status: 'סטטוס',
+  assigneeId: 'אחראי',
+  projectId: 'פרויקט',
+  meetingId: 'פגישה',
+  workspaceId: 'עולם',
+}
+
 export function TaskModal({
   open,
   onClose,
@@ -74,6 +85,14 @@ export function TaskModal({
     { id: editingTaskId! },
     { enabled: !!editingTaskId && open }
   )
+  const utilsOverrides = trpc.useUtils()
+  const { data: overrides } = trpc.notionOverrides.get.useQuery(
+    { entity: 'task', id: editingTaskId! },
+    { enabled: !!editingTaskId && open }
+  )
+  const resetOverride = trpc.notionOverrides.reset.useMutation({
+    onSuccess: () => utilsOverrides.notionOverrides.get.invalidate(),
+  })
   const { data: taskPeopleIds } = trpc.tasks.getTaskPeople.useQuery(
     { id: editingTaskId! },
     { enabled: !!editingTaskId && open }
@@ -223,6 +242,26 @@ export function TaskModal({
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-lg mb-6 tracking-tight">{isEdit ? 'ערוך משימה' : 'משימה חדשה'}</div>
+        {isEdit && overrides && overrides.fields.length > 0 && (
+          <div className="mb-4 rounded-lg border border-[#2dd4bf44] bg-[#2dd4bf0d] p-3 text-xs text-[#9fb0d0]">
+            <div className="mb-1 font-semibold text-[#cdd7ea]">נערך אצלך — Notion לא ידרוס:</div>
+            <div className="flex flex-wrap gap-2">
+              {overrides.fields.map((field) => (
+                <span key={field} className="inline-flex items-center gap-1 rounded-full bg-[#1d2b46] px-2 py-0.5">
+                  {OVERRIDE_FIELD_LABELS[field] ?? field}
+                  <button
+                    type="button"
+                    className="text-[#2dd4bf] hover:underline disabled:opacity-50"
+                    disabled={resetOverride.isPending}
+                    onClick={() => resetOverride.mutate({ entity: 'task', id: editingTaskId!, field })}
+                  >
+                    החזר ל-Notion
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {isEdit && isLoadingTask ? (
           <div className="text-[#7a89ab] py-6">טוען...</div>
         ) : (

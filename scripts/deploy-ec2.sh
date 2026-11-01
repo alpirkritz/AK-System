@@ -7,6 +7,7 @@
 #   4. docker compose up -d --build on the instance (image built THERE from the
 #      rsynced tree + the Mac-built .next) — then verify BUILD_ID matches
 #   5. Health check
+#   (+ pre-deploy DB snapshot before step 4, backup cron install after the server cron)
 #
 # Config: deploy/ec2.env (copy from deploy/ec2.env.example).
 set -euo pipefail
@@ -79,6 +80,8 @@ rsync -az --delete \
   --exclude '*.sqlite' \
   --exclude '.turbo' \
   --exclude 'deploy/ec2.env' \
+  --exclude '/backup.age.pub' \
+  --exclude '/rclone.conf' \
   -e "ssh ${SSH_OPTS[*]}" \
   "$ROOT_DIR/" "${REMOTE}:${DEPLOY_PATH}/"
 
@@ -95,6 +98,18 @@ if [ -f "$ROOT_DIR/deploy/whatsapp-bridge.env" ]; then
   step "Sync WhatsApp bridge webhook URL"
   bash "$SCRIPT_DIR/sync-bridge-webhook-url.sh"
   scp "${SSH_OPTS[@]}" "$ROOT_DIR/deploy/whatsapp-bridge.env" "${REMOTE}:${DEPLOY_PATH}/deploy/whatsapp-bridge.env"
+fi
+
+# ── 3b. Pre-deploy snapshot (reversible deploys) ─────────────────────────────
+# Local encrypted snapshot of the live DB before `docker compose up` (migrations run on boot).
+# Skipped on a first deploy (no volume / no age key yet); SKIP_PREDEPLOY_BACKUP=1 to bypass.
+if [ "${SKIP_PREDEPLOY_BACKUP:-0}" != "1" ]; then
+  step "Pre-deploy snapshot"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "cd '$DEPLOY_PATH' && \
+    if [ -f backup.age.pub ] && sudo docker volume ls -q | grep -qE '(^|_)web-data\$'; then \
+      bash scripts/backup-daily.sh --predeploy; \
+    else echo '⚠  pre-deploy snapshot skipped (no backup.age.pub or web-data volume yet - see docs/deploy/backup-and-restore.md)'; fi" \
+    || { echo "✗  Pre-deploy snapshot failed - aborting deploy (SKIP_PREDEPLOY_BACKUP=1 to override)"; exit 1; }
 fi
 
 # ── 4. Build + start ──────────────────────────────────────────────────────────
@@ -156,6 +171,12 @@ step "Install server cron"
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
   "cd '$DEPLOY_PATH' && APP_URL=http://127.0.0.1:3000 bash scripts/install-server-cron.sh" \
   || echo "⚠  cron install skipped (check CRON_SECRET in deploy/production.env)"
+
+# ── 6b. Backup cron (needs server cron installed first - this appends to the crontab) ──
+step "Install backup cron"
+ssh "${SSH_OPTS[@]}" "$REMOTE" \
+  "cd '$DEPLOY_PATH' && APP_URL=http://127.0.0.1:3000 bash scripts/install-backup-cron.sh" \
+  || echo "⚠  backup cron skipped (complete docs/deploy/backup-and-restore.md one-time setup first)"
 
 # ── 7. Re-sync WhatsApp group rules to the bridge ─────────────────────────────
 # The bridge holds its watch config in memory + a persisted file; re-push from the

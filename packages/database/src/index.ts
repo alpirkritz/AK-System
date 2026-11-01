@@ -609,6 +609,33 @@ const NOTION_STATUS_OVERRIDES_TABLE = [
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_notion_status_overrides_raw_label ON notion_status_overrides(raw_label)`,
 ]
 
+const NOTION_FIELD_BASELINES_TABLE = [
+  `CREATE TABLE IF NOT EXISTS notion_field_baselines (
+    id TEXT PRIMARY KEY NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    baseline_value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_notion_field_baselines_entity_field ON notion_field_baselines(entity, entity_id, field)`,
+]
+
+const BACKUP_RUNS_TABLE = [
+  `CREATE TABLE IF NOT EXISTS backup_runs (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    size_bytes INTEGER,
+    sha256 TEXT,
+    drive_file_id TEXT,
+    error TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_backup_runs_kind_started ON backup_runs(kind, started_at)`,
+]
+
 const WORKSPACES_TABLE = [
   `CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
@@ -1477,6 +1504,12 @@ function applySqliteMigrations(sqlite: Database) {
   for (const sql of NOTION_STATUS_OVERRIDES_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of NOTION_FIELD_BASELINES_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
+  for (const sql of BACKUP_RUNS_TABLE) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of FEED_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1712,6 +1745,8 @@ export const WORKSPACE_KINDS = schemaPg.WORKSPACE_KINDS
 export const workspaceNotionDatabases = schema.workspaceNotionDatabases
 export const peopleNotionSources = schema.peopleNotionSources
 export const notionStatusOverrides = schema.notionStatusOverrides
+export const notionFieldBaselines = schema.notionFieldBaselines
+export const backupRuns = schema.backupRuns
 export const MEETING_CATEGORIES = schemaPg.MEETING_CATEGORIES
 export const PEOPLE_STATUSES = schemaPg.PEOPLE_STATUSES
 export const PEOPLE_SOURCES = schemaPg.PEOPLE_SOURCES
@@ -1847,6 +1882,8 @@ export type PeopleNotionSource = typeof schemaPg.peopleNotionSources.$inferSelec
 export type NewPeopleNotionSource = typeof schemaPg.peopleNotionSources.$inferInsert
 export type NotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferSelect
 export type NewNotionStatusOverride = typeof schemaPg.notionStatusOverrides.$inferInsert
+export type BackupRun = typeof schemaPg.backupRuns.$inferSelect
+export type NewBackupRun = typeof schemaPg.backupRuns.$inferInsert
 export const TASK_STATUSES = schemaPg.TASK_STATUSES
 export type TaskStatusValue = (typeof schemaPg.TASK_STATUSES)[number]
 export type Meeting = typeof schemaPg.meetings.$inferSelect

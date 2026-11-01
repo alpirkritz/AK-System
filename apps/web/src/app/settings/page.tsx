@@ -247,6 +247,29 @@ function CalendarCheckboxList({
 const PERSONAL_GOOGLE = 'alpirkritz@gmail.com'
 const DAZ_GOOGLE = 'alpir@daz.guru'
 
+function BackupStatusCard() {
+  const { data } = trpc.backup.status.useQuery()
+  const db = data?.kinds.find((k) => k.kind === 'db')
+  const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('he-IL') : '—')
+  return (
+    <div className="card p-4 mb-4" style={{ border: '1px solid #29395d' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-[#cdd7ea]">גיבוי יומי לדרייב</div>
+        <span className={data?.stale ? 'text-[#f87171] text-xs' : 'text-[#2dd4bf] text-xs'}>
+          {!data ? 'טוען…' : data.stale ? 'לא תקין — אין גיבוי טרי' : 'תקין'}
+        </span>
+      </div>
+      <div className="text-xs text-[#5a688c] mt-1">
+        גיבוי מוצלח אחרון: {fmt(db?.lastOk?.startedAt)}
+        {db?.lastOk?.sizeBytes ? ` · ${(db.lastOk.sizeBytes / 1024 / 1024).toFixed(1)}MB` : ''}
+      </div>
+      {db?.last && db.last.status === 'failed' && (
+        <div className="text-xs text-[#f87171] mt-1">ריצה אחרונה נכשלה: {db.last.error ?? 'סיבה לא ידועה'}</div>
+      )}
+    </div>
+  )
+}
+
 function GoogleAccountsCard() {
   const searchParams = useSearchParams()
   const utils = trpc.useUtils()
@@ -944,6 +967,8 @@ export default function SettingsPage() {
         </div>
         <span className="text-[#2dd4bf] text-lg">🏷️</span>
       </Link>
+
+      <BackupStatusCard />
 
       <Link
         href="/settings/notion-statuses"

@@ -34,6 +34,7 @@ import {
   and,
   inArray,
 } from '@ak-system/database'
+import { resolveNotionPatch } from './notion-local-wins'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
 import { upsertPersonExternalId } from './person-external-ids'
 import {
@@ -1256,19 +1257,31 @@ export async function syncNotionTasks(
         // Non-wipe rule: only set meetingId if Notion has one or if local doesn't have one
         const shouldUpdateMeetingId = meetingId !== null || currentMeetingId === null
         if (!dryRun) {
-          await db
-            .update(tasks)
-            .set({
+          const [currentRow] = await db.select().from(tasks).where(eq(tasks.id, existingTaskId)).limit(1)
+          // Local edits win: only fields the user has not changed locally take Notion's value.
+          const { patch, skipped } = await resolveNotionPatch(
+            db,
+            'task',
+            existingTaskId,
+            (currentRow ?? {}) as Record<string, unknown>,
+            {
               title,
               dueDate,
               priority,
               status,
-              done,
-              notionStatusRaw: notionStatusRaw || null,
               assigneeId,
               projectId,
               ...(shouldUpdateMeetingId ? { meetingId } : {}),
               workspaceId,
+            },
+          )
+          // `done` is derived from `status`; keep them consistent.
+          if (!skipped.includes('status')) patch.done = done
+          await db
+            .update(tasks)
+            .set({
+              ...patch,
+              ...(skipped.includes('status') ? {} : { notionStatusRaw: notionStatusRaw || null }),
               notionAccount: database.accountLabel,
               notionDb: database.name,
               updatedAt: now,

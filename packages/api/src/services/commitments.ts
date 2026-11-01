@@ -176,6 +176,37 @@ export async function proposeCommitmentsFromAnalysis(
   return added
 }
 
+/**
+ * A task made from a meeting's action item is that commitment's answer: close the open
+ * proposal(s) the analysis raised for the same item so they stop showing under התחייבויות.
+ */
+export async function acceptCommitmentsForActionItem(
+  db: Db,
+  meetingId: string,
+  itemContent: string,
+  taskId: string,
+): Promise<number> {
+  const content = itemContent.replace(/\s+/g, ' ').trim().slice(0, 140)
+  if (!content) return 0
+  const open = await db
+    .select({ id: commitments.id })
+    .from(commitments)
+    .where(
+      and(
+        eq(commitments.status, 'proposed'),
+        eq(commitments.sourceId, meetingId),
+        inArray(commitments.source, ['meeting_analysis', 'voice']),
+        eq(commitments.content, content),
+      ),
+    )
+  if (open.length === 0) return 0
+  await db
+    .update(commitments)
+    .set({ status: 'accepted', taskId, updatedAt: new Date().toISOString() })
+    .where(inArray(commitments.id, open.map((c) => c.id)))
+  return open.length
+}
+
 export interface BriefCommitment {
   personName: string
   owner: string

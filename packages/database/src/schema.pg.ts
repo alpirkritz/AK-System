@@ -229,6 +229,40 @@ export const notionStatusOverrides = pgTable('notion_status_overrides', {
   rawLabelUq: uniqueIndex('uq_notion_status_overrides_raw_label').on(table.rawLabel),
 }))
 
+/**
+ * Last value imported from Notion per entity field. A field whose current local value
+ * differs from its baseline was edited locally, so the Notion sync must not overwrite it.
+ */
+export const notionFieldBaselines = pgTable('notion_field_baselines', {
+  id: text('id').primaryKey(),
+  /** task | meeting | project | company */
+  entity: text('entity').notNull(),
+  entityId: text('entity_id').notNull(),
+  field: text('field').notNull(),
+  /** JSON-encoded value */
+  baselineValue: text('baseline_value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  entityFieldUq: uniqueIndex('uq_notion_field_baselines_entity_field').on(table.entity, table.entityId, table.field),
+}))
+
+/** One row per backup job run (db snapshot, audio upload, audio cleanup), reported by the host scripts. */
+export const backupRuns = pgTable('backup_runs', {
+  id: text('id').primaryKey(),
+  /** db | audio | audio_cleanup */
+  kind: text('kind').notNull(),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  /** ok | failed */
+  status: text('status').notNull(),
+  sizeBytes: integer('size_bytes'),
+  sha256: text('sha256'),
+  driveFileId: text('drive_file_id'),
+  error: text('error'),
+}, (table) => ({
+  kindStartedIdx: index('idx_backup_runs_kind_started').on(table.kind, table.startedAt),
+}))
+
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
