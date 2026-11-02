@@ -7,7 +7,7 @@ import { WaitingListView, withoutItem } from '../../components/WaitingList'
 import { useAuth } from '../../lib/auth'
 import { fetchWaiting, type MobileWaitingBuckets } from '../../lib/data'
 import { colors } from '../../lib/theme'
-import { dueNow, flattenWaiting, groupByPerson, type WaitingView } from '../../lib/waiting'
+import { flattenWaiting, groupByPerson, type WaitingView } from '../../lib/waiting'
 
 const VIEWS = [
   { key: 'today', label: 'היום' },
@@ -92,8 +92,6 @@ export default function WaitingScreen() {
         >
           {!shown || all.length === 0 ? (
             <Text style={styles.empty}>אף אחד לא חייב לך משהו כרגע</Text>
-          ) : view === 'today' && dueNow(shown).length === 0 ? (
-            <Text style={styles.empty}>אף אחד לא חייב לך משהו להיום</Text>
           ) : (
             <Card>
               <WaitingListView

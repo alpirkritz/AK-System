@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import {
-  WaitingView as WaitingViewList, dueNow, flattenWaiting, groupByPerson,
+  WaitingView as WaitingViewList, flattenWaiting, groupByPerson,
   type WaitingView,
 } from '@/components/waiting/WaitingList'
 
@@ -23,7 +23,6 @@ export default function WaitingPage() {
   const filtered = buckets && personId
     ? Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.filter((i) => i.personId === personId)])) as typeof buckets
     : buckets
-  const nowCount = filtered ? dueNow(filtered).length : 0
 
   return (
     <div>
@@ -70,11 +69,6 @@ export default function WaitingPage() {
       ) : all.length === 0 ? (
         <div className="card text-sm text-[#97a4c2]" data-testid="waiting-empty">
           אף אחד לא חייב לך משהו כרגע. משימות שמשויכות לאחרים, והתחייבויות שלהם, יופיעו כאן.
-        </div>
-      ) : view === 'today' && nowCount === 0 ? (
-        <div className="card text-sm text-[#97a4c2]" data-testid="waiting-today-empty">
-          אף אחד לא חייב לך משהו להיום.{' '}
-          <button type="button" className="underline" onClick={() => setView('time')}>לכל הרשימה</button>
         </div>
       ) : (
         <div className="card p-4" data-testid="waiting-list">

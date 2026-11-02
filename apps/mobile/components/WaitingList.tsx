@@ -98,12 +98,41 @@ function PersonBlocks({
   )
 }
 
+/** Today first; the late ones sit below, folded, so a long backlog cannot bury today. */
+function TodayView({
+  buckets, overdueIds, onDone,
+}: { buckets: MobileWaitingBuckets; overdueIds: Set<string>; onDone: RowProps['onDone'] }) {
+  const [showLate, setShowLate] = useState(false)
+  return (
+    <View style={styles.blocks}>
+      <View style={styles.block}>
+        <Text style={[styles.section, { color: colors.warning }]}>להיום ({buckets.today.length})</Text>
+        {buckets.today.length === 0 ? (
+          <Text style={styles.meta}>אף אחד לא חייב לך משהו להיום</Text>
+        ) : (
+          <PersonBlocks groups={groupByPerson(buckets.today)} overdueIds={overdueIds} onDone={onDone} />
+        )}
+      </View>
+      {buckets.overdue.length > 0 ? (
+        <View style={styles.block}>
+          <Pressable onPress={() => setShowLate((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: showLate }}>
+            <Text style={[styles.section, { color: colors.error }]}>
+              {showLate ? '▾' : '◂'} באיחור ({buckets.overdue.length})
+            </Text>
+          </Pressable>
+          {showLate ? (
+            <PersonBlocks groups={groupByPerson(buckets.overdue)} overdueIds={overdueIds} onDone={onDone} />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 /** One list, three shapes: today (late + due, by person), by person, or by time. */
 export function WaitingListView({ buckets, view, showPerson = true, onDone }: Props) {
   const overdueIds = new Set(buckets.overdue.map((i) => i.id))
-  if (view === 'today') {
-    return <PersonBlocks groups={groupByPerson(dueNow(buckets))} overdueIds={overdueIds} onDone={onDone} />
-  }
+  if (view === 'today') return <TodayView buckets={buckets} overdueIds={overdueIds} onDone={onDone} />
   if (view === 'person') {
     return <PersonBlocks groups={groupByPersonUrgentFirst(buckets)} overdueIds={overdueIds} onDone={onDone} />
   }

@@ -18,7 +18,7 @@ export function WaitingTodayCard() {
     <section aria-label="חייבים לי היום" className="card p-4" data-testid="waiting-today-card">
       <div className="flex items-center justify-between mb-2 gap-2">
         <h2 className="text-base font-semibold text-[#eef3fb]">חייבים לי היום</h2>
-        <span className="pill">{items.length}</span>
+        <span className="pill" title="להיום · באיחור">{buckets.today.length}{buckets.overdue.length > 0 ? ` · ${buckets.overdue.length} באיחור` : ''}</span>
         <Link href="/waiting" className="section-link ms-auto shrink-0">לכל הרשימה</Link>
       </div>
       <ul>

@@ -8,9 +8,9 @@ const item = (id: string, personId: string): MobileWaitingItem => ({
 const empty: MobileWaitingBuckets = { overdue: [], today: [], thisWeek: [], later: [], noDate: [] }
 
 describe('waiting helpers', () => {
-  it('dueNow is late then today', () => {
+  it('dueNow is today then late', () => {
     const b = { ...empty, overdue: [item('a', 'x')], today: [item('b', 'y')], thisWeek: [item('c', 'z')] }
-    expect(dueNow(b).map((i) => i.id)).toEqual(['a', 'b'])
+    expect(dueNow(b).map((i) => i.id)).toEqual(['b', 'a'])
   })
 
   it('puts people with something due now first', () => {

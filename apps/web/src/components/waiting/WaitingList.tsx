@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Check } from 'lucide-react'
@@ -40,8 +41,8 @@ export const SECTION_LABELS: { key: keyof WaitingBuckets; label: string; tone: s
 export const flattenWaiting = (b: WaitingBuckets): WaitingItem[] =>
   SECTION_LABELS.flatMap((s) => b[s.key])
 
-/** Items due today or already late: the "who owes me what today" set. */
-export const dueNow = (b: WaitingBuckets): WaitingItem[] => [...b.overdue, ...b.today]
+/** Items due today first, then the ones already late: the "who owes me what today" set. */
+export const dueNow = (b: WaitingBuckets): WaitingItem[] => [...b.today, ...b.overdue]
 
 const SOURCE_NAMES: Record<string, string> = { meeting: 'פגישה', manual: 'ידני', notion: 'Notion' }
 const sourceName = (s: string) => SOURCE_NAMES[s] ?? commitmentSourceLabel(s)
@@ -116,14 +117,49 @@ function PersonBlocks({ items, overdueIds }: { items: WaitingItem[]; overdueIds:
   )
 }
 
+/** What is due today comes first; the late ones sit below, folded, so a long backlog cannot bury today. */
+function TodayView({ buckets, overdueIds }: { buckets: WaitingBuckets; overdueIds: Set<string> }) {
+  const [showLate, setShowLate] = useState(false)
+  return (
+    <div className="space-y-4">
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: '#e8c547' }}>
+          להיום ({buckets.today.length})
+        </h3>
+        {buckets.today.length === 0 ? (
+          <p className="text-sm text-[#97a4c2]" data-testid="waiting-today-none">אף אחד לא חייב לך משהו להיום</p>
+        ) : (
+          <PersonBlocks items={buckets.today} overdueIds={overdueIds} />
+        )}
+      </section>
+      {buckets.overdue.length > 0 && (
+        <section>
+          <button
+            type="button"
+            className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1"
+            style={{ color: '#e57373' }}
+            aria-expanded={showLate}
+            onClick={() => setShowLate((v) => !v)}
+            data-testid="waiting-late-toggle"
+          >
+            <span aria-hidden>{showLate ? '▾' : '◂'}</span>
+            באיחור ({buckets.overdue.length})
+          </button>
+          {showLate && (
+            <div className="mt-2">
+              <PersonBlocks items={buckets.overdue} overdueIds={overdueIds} />
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  )
+}
+
 /** One list, three shapes: today (late + due, by person), by person, or by time. */
 export function WaitingView({ buckets, view, showPerson = true }: { buckets: WaitingBuckets; view: WaitingView; showPerson?: boolean }) {
   const overdueIds = new Set(buckets.overdue.map((i) => i.id))
-  if (view === 'today') {
-    const items = dueNow(buckets)
-    if (items.length === 0) return null
-    return <PersonBlocks items={items} overdueIds={overdueIds} />
-  }
+  if (view === 'today') return <TodayView buckets={buckets} overdueIds={overdueIds} />
   if (view === 'person') {
     const all = flattenWaiting(buckets)
     const urgent = new Set(dueNow(buckets).map((i) => i.personId))

@@ -13,8 +13,8 @@ export const WAITING_SECTIONS: { key: keyof MobileWaitingBuckets; label: string;
 export const flattenWaiting = (b: MobileWaitingBuckets): MobileWaitingItem[] =>
   WAITING_SECTIONS.flatMap((s) => b[s.key])
 
-/** Late or due today: the "who owes me what today" set. */
-export const dueNow = (b: MobileWaitingBuckets): MobileWaitingItem[] => [...b.overdue, ...b.today]
+/** Due today first, then late: the "who owes me what today" set. */
+export const dueNow = (b: MobileWaitingBuckets): MobileWaitingItem[] => [...b.today, ...b.overdue]
 
 export function groupByPerson(items: MobileWaitingItem[]): { personId: string; personName: string; items: MobileWaitingItem[] }[] {
   const map = new Map<string, { personId: string; personName: string; items: MobileWaitingItem[] }>()
