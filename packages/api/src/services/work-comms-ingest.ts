@@ -8,18 +8,62 @@
  * forwards rows.
  */
 import type { getDb } from '@ak-system/database'
-import { syncEmailThreads, type EmailHeaderMessage, type EmailSyncResult } from './email-sync'
+import {
+  syncEmailThreads,
+  knownEmailAddresses,
+  extractAddresses,
+  type EmailHeaderMessage,
+  type EmailSyncResult,
+} from './email-sync'
+import { queueUnknownEmailSender } from './person-resolution'
 import { ingestTeamsMessage, scanTeamsCommitments, upsertTeamsChat, type TeamsCommitmentScanResult } from './teams'
 
 type Db = ReturnType<typeof getDb>
 
+/** Cap how many unknown senders we queue per run so the first 30-day pull can't flood the review list. */
+const MAX_SUGGESTED_SENDERS = 50
+
+export interface WorkMailIngestResult extends EmailSyncResult {
+  /** New non-contact senders queued for "add to People" review this run. */
+  suggestedSenders: number
+}
+
+/** Parse a `"Name" <addr>` header into its display name, if present. */
+function senderName(from: string): string | null {
+  return from.match(/^\s*"?([^"<@]+?)"?\s*</)?.[1]?.trim() || null
+}
+
 /**
- * Persist Outlook mail headers pushed from the bridge. Reuses the Gmail archive path by
- * feeding the posted messages through a one-shot fetcher, so matching, alias learning and
- * reply-need all behave exactly as they do for Gmail.
+ * Persist Outlook mail headers pushed from the bridge. Reuses the Gmail archive path (matching,
+ * alias learning, reply-need) for threads that touch a known person, then surfaces the remaining
+ * real-human senders for "add to People" review — their mail archives once they're added.
  */
-export async function ingestWorkMail(db: Db, messages: EmailHeaderMessage[]): Promise<EmailSyncResult> {
-  return syncEmailThreads(db, { fetch: async () => ({ messages, accountErrors: [] }) })
+export async function ingestWorkMail(db: Db, messages: EmailHeaderMessage[]): Promise<WorkMailIngestResult> {
+  const result = await syncEmailThreads(db, { fetch: async () => ({ messages, accountErrors: [] }) })
+
+  // Surface senders we don't know yet (review-first; mail itself isn't stored for them).
+  const known = await knownEmailAddresses(db)
+  const freq = new Map<string, { name: string | null; count: number }>()
+  for (const m of messages) {
+    const account = m.accountEmail.toLowerCase()
+    const addrs = extractAddresses(m.from)
+    if (addrs.length === 0) continue
+    const addr = addrs[0]! // the From address
+    if (addr === account || known.has(addr)) continue
+    const cur = freq.get(addr) ?? { name: senderName(m.from), count: 0 }
+    cur.count++
+    if (!cur.name) cur.name = senderName(m.from)
+    freq.set(addr, cur)
+  }
+
+  const ranked = [...freq.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, MAX_SUGGESTED_SENDERS)
+  let suggestedSenders = 0
+  for (const [email, { name }] of ranked) {
+    if (await queueUnknownEmailSender(db, { name: name ?? email, email, context: 'מייל עבודה' })) {
+      suggestedSenders++
+    }
+  }
+  return { ...result, suggestedSenders }
 }
 
 export interface WorkTeamsIngestPayload {

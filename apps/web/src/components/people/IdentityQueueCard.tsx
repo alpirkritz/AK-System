@@ -33,6 +33,7 @@ export function IdentityQueueCard() {
         {item.candidate ? <>״{item.name}״. זה <strong>{item.candidate.name}</strong>?</> : <>מי זה ״{item.name}״?</>}
         {count > 1 && <span className="text-[11px] text-[#5a688c] ms-2">עוד {count - 1} בתור</span>}
       </p>
+      {item.email && <p className="text-[11px] text-[#8fa0c4] mt-0.5 ltr-text" dir="ltr">{item.email}</p>}
       {where && <p className="text-[11px] text-[#5a688c] mt-0.5">{where}</p>}
       <div className="flex flex-wrap gap-2 mt-2">
         {item.candidate && (

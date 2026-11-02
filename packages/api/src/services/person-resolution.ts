@@ -257,3 +257,52 @@ export async function resolveOrQueue(
   }
   return null
 }
+
+/**
+ * Heuristic: is this an automated/bulk sender we should never surface as a person?
+ * Matches common no-reply / system / newsletter patterns on the local-part or display name.
+ */
+export function isAutomatedSender(address: string | null | undefined, name?: string | null): boolean {
+  const addr = (address ?? '').toLowerCase().trim()
+  if (!addr || !addr.includes('@')) return true
+  const local = addr.split('@')[0] ?? ''
+  const hay = `${local} ${(name ?? '').toLowerCase()}`.trim()
+  const PATTERNS = [
+    /no[\s-]?reply/, /do[\s-]?not[\s-]?reply/, /mailer[\s-]?daemon/, /postmaster/, /\bbounce/, /bounces?[-.]/,
+    /\bnotifications?\b/, /newsletter/, /\bdigest\b/, /\bmailer\b/,
+    /automated/, /\balerts?\b/, /^info\b/, /^support\b/, /@.*\.mailgun\b/,
+    /\bmarketing\b/, /\bcampaign/, /sendgrid|mailchimp|hubspot|salesforce/,
+  ]
+  return PATTERNS.some((re) => re.test(hay))
+}
+
+/**
+ * Queue a brand-new email sender (no matching person) for review so the user can add them to
+ * People with their address. Unlike resolveOrQueue, this handles the `none` case and carries
+ * the email. Deduped by email among non-dismissed rows.
+ */
+export async function queueUnknownEmailSender(
+  db: Db,
+  input: { name: string; email: string; context?: string },
+): Promise<boolean> {
+  const email = input.email.toLowerCase().trim()
+  if (!email || isAutomatedSender(email, input.name)) return false
+  const existing = await db
+    .select({ id: identityQueue.id, status: identityQueue.status })
+    .from(identityQueue)
+    .where(eq(identityQueue.email, email))
+  // Skip if already queued (pending) or already decided (linked/new/dismissed).
+  if (existing.length > 0) return false
+  await db.insert(identityQueue).values({
+    id: 'iq' + Date.now() + Math.random().toString(36).slice(2, 7),
+    name: (input.name || email).trim(),
+    nameNorm: normalizeAlias(input.name || email),
+    source: 'email',
+    context: input.context ?? null,
+    email,
+    candidatePersonId: null,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  })
+  return true
+}

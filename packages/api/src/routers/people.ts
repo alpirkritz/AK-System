@@ -27,7 +27,7 @@ import {
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from '../services/self-person'
-import { repointPersonExternalIds } from '../services/person-external-ids'
+import { repointPersonExternalIds, upsertPersonExternalId } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
 import { AliasConflictError, addAlias, listAliases, moveAliasesOnMerge, removeAlias } from '../services/person-resolution'
 import { createNotification } from '../lib/notification-store'
@@ -626,7 +626,7 @@ export const peopleRouter = router({
       const [candidate] = row.candidatePersonId
         ? await ctx.db.select({ id: people.id, name: people.name }).from(people).where(eq(people.id, row.candidatePersonId)).limit(1)
         : []
-      return { id: row.id, name: row.name, source: row.source, context: row.context, candidate: candidate ?? null }
+      return { id: row.id, name: row.name, source: row.source, context: row.context, email: row.email ?? null, candidate: candidate ?? null }
     }),
 
     answer: protectedProcedure
@@ -649,11 +649,21 @@ export const peopleRouter = router({
             if (err instanceof AliasConflictError) throw new TRPCError({ code: 'CONFLICT', message: err.message })
             throw err
           }
+          // Attach the sender address so the person's mail archives from now on.
+          if (row.email) {
+            await upsertPersonExternalId(ctx.db, {
+              personId,
+              provider: 'email',
+              accountKey: 'work-mail',
+              externalId: row.email,
+            })
+          }
           await ctx.db.update(identityQueue).set({ status: 'linked' }).where(eq(identityQueue.id, row.id))
         } else if (input.action === 'new') {
           await ctx.db.insert(people).values({
             id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
             name: row.name,
+            email: row.email ?? null,
             status: 'confirmed',
             source: 'manual',
             color: '#2dd4bf',

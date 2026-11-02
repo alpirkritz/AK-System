@@ -1011,6 +1011,8 @@ export const identityQueue = pgTable('identity_queue', {
   source: text('source').notNull(),
   /** One line of where the name was seen. */
   context: text('context'),
+  /** Sender address for source='email' entries — attached to the person when added. */
+  email: text('email'),
   candidatePersonId: text('candidate_person_id').references(() => people.id, { onDelete: 'cascade' }),
   /** pending | linked | new | dismissed */
   status: text('status').notNull().default('pending'),
