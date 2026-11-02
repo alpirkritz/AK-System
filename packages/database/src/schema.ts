@@ -849,6 +849,7 @@ export const userSettings = sqliteTable('user_settings', {
   whatsappGroupCommitmentScanCursor: text('whatsapp_group_commitment_scan_cursor'), // ms ts (as text) of the newest whatsapp_messages row already scanned for group commitments
   whatsappSelfJid: text('whatsapp_self_jid'), // bridge's own JID cached after last successful getBridgeStatus — fallback when bridge is offline during group-commitment scan
   slackCommitmentScanCursor: text('slack_commitment_scan_cursor'), // ms ts (as text) of the newest slack_messages row already scanned for channel commitments
+  teamsCommitmentScanCursor: text('teams_commitment_scan_cursor'), // ms ts (as text) of the newest teams_messages row already scanned
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1240,6 +1241,34 @@ export type SlackConnection = typeof slackConnections.$inferSelect
 export type SlackChannel = typeof slackChannels.$inferSelect
 export type SlackMessage = typeof slackMessages.$inferSelect
 
+/** Microsoft Teams chat pulled by the local work-comms bridge (SQLite mirror). */
+export const teamsChats = sqliteTable('teams_chats', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').notNull().unique(),
+  topic: text('topic'),
+  chatType: text('chat_type').notNull(),
+  memberNames: text('member_names').notNull().default('[]'),
+  enabled: integer('enabled').notNull().default(1),
+  lastMessageAt: integer('last_message_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const teamsMessages = sqliteTable('teams_messages', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').notNull(),
+  fromName: text('from_name').notNull(),
+  fromEmail: text('from_email'),
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(),
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  chatTsIdx: index('idx_teams_messages_chat_ts').on(table.chatId, table.ts),
+}))
+
+export type TeamsChat = typeof teamsChats.$inferSelect
+export type TeamsMessage = typeof teamsMessages.$inferSelect
+
 // ─── Notification preferences (per type × channel routing) ───────────────────
 
 export const notificationPreferences = sqliteTable('notification_preferences', {
@@ -1528,7 +1557,7 @@ export const whatsappDmSummaries = sqliteTable('whatsapp_dm_summaries', {
 
 export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
 export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
-export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel'] as const
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel', 'teams_chat'] as const
 export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
 export const COMMITMENT_OWNERS = ['me', 'them'] as const
 export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]

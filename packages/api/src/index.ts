@@ -139,7 +139,12 @@ export {
   freshCommitments,
   COMMITMENT_FRESH_HOURS,
 } from './services/commitments'
-export { syncEmailThreads, type EmailSyncResult } from './services/email-sync'
+export { syncEmailThreads, type EmailSyncResult, type EmailHeaderMessage } from './services/email-sync'
+export {
+  ingestWorkMail,
+  ingestWorkTeams,
+  type WorkTeamsIngestPayload,
+} from './services/work-comms-ingest'
 export {
   saveVoiceUpload,
   processVoiceRecording,
@@ -263,6 +268,12 @@ export {
   slackTsToMs,
   type SlackCommitmentScanResult,
 } from './services/slack'
+export {
+  upsertTeamsChat,
+  ingestTeamsMessage,
+  scanTeamsCommitments,
+  type TeamsCommitmentScanResult,
+} from './services/teams'
 
 export const appRouter = router({
   people: peopleRouter,

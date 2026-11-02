@@ -27,6 +27,7 @@ export const COMMITMENT_SOURCE_LABELS: Record<CommitmentSource, string> = {
   email: 'מאימייל',
   voice: 'מהקלטה',
   slack_channel: 'מסלאק',
+  teams_chat: 'מ-Teams',
 }
 
 export function sourceLabel(source: string): string {
@@ -104,6 +105,10 @@ export function commitmentSourceUrl(c: { source: string; sourceId: string | null
       const slackTs = match[1].replace('_', '.')
       return `https://slack.com/archives/${c.sourceChatJid}/p${slackTs.replace('.', '')}`
     }
+  }
+  if (c.source === 'teams_chat' && c.sourceChatJid) {
+    // sourceChatJid is the Graph chat id; open the thread in Teams.
+    return `https://teams.microsoft.com/l/chat/${encodeURIComponent(c.sourceChatJid)}/conversations`
   }
   return null
 }

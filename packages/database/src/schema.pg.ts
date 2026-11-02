@@ -1065,6 +1065,8 @@ export const userSettings = pgTable('user_settings', {
   whatsappSelfJid: text('whatsapp_self_jid'),
   /** ms timestamp (as text) of the newest slack_messages row already scanned for channel commitments */
   slackCommitmentScanCursor: text('slack_commitment_scan_cursor'),
+  /** ms timestamp (as text) of the newest teams_messages row already scanned for commitments */
+  teamsCommitmentScanCursor: text('teams_commitment_scan_cursor'),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -1303,7 +1305,7 @@ export const whatsappDmSummaries = pgTable('whatsapp_dm_summaries', {
 
 export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
 export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
-export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel'] as const
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel', 'teams_chat'] as const
 export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
 export const COMMITMENT_OWNERS = ['me', 'them'] as const
 export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
@@ -1413,6 +1415,40 @@ export const slackMessages = pgTable('slack_messages', {
 export type SlackConnection = typeof slackConnections.$inferSelect
 export type SlackChannel = typeof slackChannels.$inferSelect
 export type SlackMessage = typeof slackMessages.$inferSelect
+
+/** A Microsoft Teams 1:1 or group chat pulled by the local work-comms bridge. */
+export const teamsChats = pgTable('teams_chats', {
+  id: text('id').primaryKey(),
+  /** Graph chat id */
+  chatId: text('chat_id').notNull().unique(),
+  /** Group topic; null for 1:1 */
+  topic: text('topic'),
+  /** oneOnOne | group | meeting */
+  chatType: text('chat_type').notNull(),
+  /** JSON string[] of member display names */
+  memberNames: text('member_names').notNull().default('[]'),
+  enabled: integer('enabled').notNull().default(1),
+  lastMessageAt: integer('last_message_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** Rolling archive of Teams chat messages for commitments/insights. */
+export const teamsMessages = pgTable('teams_messages', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').notNull(),
+  fromName: text('from_name').notNull(),
+  fromEmail: text('from_email'),
+  text: text('text').notNull(),
+  /** Epoch ms for range queries */
+  ts: integer('ts').notNull(),
+  deleted: boolean('deleted').notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  chatTsIdx: index('idx_teams_messages_chat_ts').on(table.chatId, table.ts),
+}))
+
+export type TeamsChat = typeof teamsChats.$inferSelect
+export type TeamsMessage = typeof teamsMessages.$inferSelect
 
 /** Latest state of an email thread with a known person, one row per (thread, person). */
 export const personEmailThreads = pgTable('person_email_threads', {

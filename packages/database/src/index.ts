@@ -327,6 +327,30 @@ const SLACK_TABLES = [
 
 const SLACK_COLUMNS: string[] = []
 
+const TEAMS_TABLES = [
+  `CREATE TABLE IF NOT EXISTS teams_chats (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL UNIQUE,
+    topic TEXT,
+    chat_type TEXT NOT NULL,
+    member_names TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_message_at INTEGER,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS teams_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    from_name TEXT NOT NULL,
+    from_email TEXT,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_teams_messages_chat_ts ON teams_messages(chat_id, ts)`,
+]
+
 /** Cross-domain world model written by the harness indexer. */
 const HARNESS_TABLES = [
   `CREATE TABLE IF NOT EXISTS harness_nodes (
@@ -1671,6 +1695,9 @@ function applySqliteMigrations(sqlite: Database) {
   for (const sql of SLACK_COLUMNS) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }
+  for (const sql of TEAMS_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of [
     'ALTER TABLE people ADD COLUMN warmth_note TEXT',
     'ALTER TABLE people ADD COLUMN warmth_note_updated_at TEXT',
@@ -1682,6 +1709,7 @@ function applySqliteMigrations(sqlite: Database) {
     'ALTER TABLE person_email_threads ADD COLUMN reply_need TEXT',
     'ALTER TABLE person_email_threads ADD COLUMN reply_need_at TEXT',
     'ALTER TABLE user_settings ADD COLUMN slack_commitment_scan_cursor TEXT',
+    'ALTER TABLE user_settings ADD COLUMN teams_commitment_scan_cursor TEXT',
     'ALTER TABLE people ADD COLUMN attention_ack_at TEXT',
   ]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
@@ -1860,6 +1888,8 @@ export const whatsappMessages = schema.whatsappMessages
 export const slackConnections = schema.slackConnections
 export const slackChannels = schema.slackChannels
 export const slackMessages = schema.slackMessages
+export const teamsChats = schema.teamsChats
+export const teamsMessages = schema.teamsMessages
 export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
@@ -1947,6 +1977,8 @@ export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
 export type SlackConnection = typeof schemaPg.slackConnections.$inferSelect
 export type SlackChannel = typeof schemaPg.slackChannels.$inferSelect
 export type SlackMessage = typeof schemaPg.slackMessages.$inferSelect
+export type TeamsChat = typeof schemaPg.teamsChats.$inferSelect
+export type TeamsMessage = typeof schemaPg.teamsMessages.$inferSelect
 export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect
 export type VoiceRecording = typeof schemaPg.voiceRecordings.$inferSelect
 export type VoiceRecordingStatus = (typeof schemaPg.VOICE_RECORDING_STATUSES)[number]
