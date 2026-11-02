@@ -31,7 +31,12 @@ import {
   unlinkWhatsappSender,
   unlinkedWhatsappSenders,
 } from '../services/person-context'
-import { relationshipBoard, relationshipFlags, setWarmthNote } from '../services/warmth'
+import { setWarmthNote } from '../services/warmth'
+import {
+  acknowledgeAttention,
+  needs1on1Flags,
+  relationshipBoardWithAttention,
+} from '../services/relationship-attention'
 import { analysisBacklogSummary, runAnalysisBacklog } from '../services/analysis-backlog'
 import {
   dismissPersonTrait,
@@ -436,11 +441,17 @@ export const insightsRouter = router({
       }))
 
       const lastNoteDate = noteRows[0]?.date ?? null
+      const extras = await buildPersonContext(ctx.db, input.personId)
+      const attention = extras?.attention ?? null
+      const today = new Date().toISOString().slice(0, 10)
       const lastContactAt =
+        attention?.lastContact?.date ??
         [lastMeetingDate, lastNoteDate, person.lastContact]
-          .filter(Boolean)
+          .filter((d): d is string => !!d && d.slice(0, 10) <= today)
           .sort()
-          .reverse()[0] ?? null
+          .reverse()[0] ??
+        null
+      const lastContactChannel = attention?.lastContact?.channel ?? null
 
       const sharedProjects = await ctx.db
         .select({
@@ -462,11 +473,11 @@ export const insightsRouter = router({
         .from(personExternalIds)
         .where(eq(personExternalIds.personId, input.personId))
 
-      const extras = await buildPersonContext(ctx.db, input.personId)
       const traits = await readPersonTraits(ctx.db, input.personId)
 
       return {
         lastContactAt,
+        lastContactChannel,
         cadence,
         sharedProjects,
         recentMeetingNotes,
@@ -523,13 +534,32 @@ export const insightsRouter = router({
     .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ ctx, input }) => coolingFlagsForDate(ctx.db, input.date)),
 
-  /** People whose relationship is warming or cooling, for the list — not per opened card. */
-  relationshipFlags: protectedProcedure.query(async ({ ctx }) => relationshipFlags(ctx.db)),
+  /**
+   * People who need a 1:1, for list pills and the home card. `cooling` / `warming` keep installed
+   * phone builds working: they read a needs-1:1 person as cooling.
+   */
+  relationshipFlags: protectedProcedure.query(async ({ ctx }) => {
+    const needs1on1 = await needs1on1Flags(ctx.db)
+    return {
+      needs1on1,
+      cooling: needs1on1.map((f) => ({ personId: f.personId, name: f.name, trend: 'cooling' as const, recentAvg: null, olderAvg: null, count: 0 })),
+      warming: [] as { personId: string; name: string; trend: 'warming'; recentAvg: null; olderAvg: null; count: number }[],
+    }
+  }),
 
   relationshipBoard: protectedProcedure.query(async ({ ctx }) => {
-    const [board, backlog] = await Promise.all([relationshipBoard(ctx.db), analysisBacklogSummary(ctx.db)])
+    const [board, backlog] = await Promise.all([relationshipBoardWithAttention(ctx.db), analysisBacklogSummary(ctx.db)])
     return { ...board, summary: { ...board.summary, pendingBacklog: backlog.pending } }
   }),
+
+  /** "ראיתי": hide the needs-1:1 flag until a new meeting with this person, or 30 days. */
+  acknowledgeAttention: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), ack: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const saved = await acknowledgeAttention(ctx.db, input.personId, input.ack)
+      if (!saved) throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+      return saved
+    }),
 
   /** Meetings with a note body that were never analysed, inside the board's 180-day window. */
   analysisBacklog: protectedProcedure.query(async ({ ctx }) => analysisBacklogSummary(ctx.db)),

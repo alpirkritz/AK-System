@@ -23,7 +23,8 @@ import {
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { circlesForPerson, getCircle, occurrenceAttendance, openLoopsForMeetings, type OpenLoop } from './series-roster'
-import { isDrasticCooling, personWarmth, seriesWarmth, type WarmthResult } from './warmth'
+import { personWarmth, seriesWarmth, type WarmthResult } from './warmth'
+import { INTERRUPT_SEVERITY, attentionReasonText, isInterrupting, isOpenFlag, loadAttention, personAttention, type PersonAttention } from './relationship-attention'
 import { isSelfPersonName } from '../lib/self-identity'
 import { dmJidsForPerson } from './whatsapp-dm'
 import { commitmentSourceUrl, gmailThreadUrl, prepCommitmentLines } from './commitments'
@@ -77,6 +78,8 @@ export interface PersonContextExtras {
   whatsappSenders: { jid: string; matchedBy: string }[]
   circles: CircleSummary[]
   warmth: WarmthResult
+  /** One status across every channel: good, steady, or needs a 1:1. Null when the relationship is too thin. */
+  attention: PersonAttention | null
   captureWhatsapp: boolean
   /** Has a phone or a manual link, so a 1:1 chat can be recognised */
   captureReachable: boolean
@@ -164,9 +167,16 @@ export function personRecommendation(input: {
     parts.push(quoteChat ? `אין פגישה מתועדת · התחל מהוואטסאפ: "${quote(wa.text)}"` : 'אין פגישה מתועדת · השיחה האחרונה בוואטסאפ')
   }
   if (input.openLoopCount > 0) parts.push(`${input.openLoopCount} משימות פתוחות מולו`)
-  if (input.trend === 'cooling') parts.push('השיחות האחרונות פחות חמות · כדאי לברר')
+  if (input.trend === 'cooling') parts.push('נראה שהוא לא במיטבו · כדאי לקבוע 1:1')
   if (input.trend === 'warming') parts.push('הקשר משתפר · המשך כך')
   return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/** The recommendation's tone word, from the cross-channel status when there is one. */
+function attentionTrend(attention: PersonAttention | null, fallback: WarmthResult['trend']): WarmthResult['trend'] {
+  if (!attention || attention.status == null) return fallback
+  if (isOpenFlag(attention)) return 'cooling'
+  return attention.status === 'good' ? 'warming' : 'stable'
 }
 
 export async function buildPersonContext(db: Db, personId: string, today = new Date().toISOString().slice(0, 10)): Promise<PersonContextExtras | null> {
@@ -282,6 +292,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
 
   const circles = await circlesForPerson(db, personId)
   const warmth = await personWarmth(db, personId)
+  const attention = await personAttention(db, personId)
 
   return {
     recommendation: personRecommendation({
@@ -289,7 +300,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
       latestWhatsapp: merged.find((r) => r.text !== '[expired]') ?? null,
       whatsappSinceCount: whatsappSinceMeeting.length,
       openLoopCount: openLoopsForPerson.length,
-      trend: warmth.trend,
+      trend: attentionTrend(attention, warmth.trend),
     }),
     lastNotionMeetingDate,
     openLoopsForPerson,
@@ -298,6 +309,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     whatsappSenders,
     circles,
     warmth,
+    attention,
     captureWhatsapp: !!person.captureWhatsapp,
     captureReachable: (await dmJidsForPerson(db, personId, person.phone)).length > 0,
     latestDmSummary: latestSummary ?? null,
@@ -383,13 +395,15 @@ export async function meetingPrepRelationship(db: Db, meetingId: string): Promis
       latestWhatsapp: ctx.whatsappSinceMeeting[0] ?? ctx.olderWhatsapp[0] ?? null,
       whatsappSinceCount: ctx.whatsappSinceMeeting.length,
       openLoopCount: ctx.openLoopsForPerson.length,
-      trend: ctx.warmth.trend,
+      trend: attentionTrend(ctx.attention, ctx.warmth.trend),
       quoteChat: false,
     })
     if (rec) lines.push(`${p.name}: ${rec}`)
     for (const loop of ctx.openLoopsForPerson.slice(0, 3)) lines.push(`${p.name} · משימה פתוחה: ${loop.content}`)
     if (ctx.circles.length > 0) lines.push(`${p.name} · חוגים: ${ctx.circles.map((c) => c.seriesTitle).join(', ')}`)
-    if (ctx.warmth.trend === 'cooling') lines.push(`שים לב: הקשר עם ${p.name} נראה מתקרר.`)
+    if (ctx.attention && isOpenFlag(ctx.attention)) {
+      lines.push(`שים לב: כדאי לקבוע 1:1 עם ${p.name} · ${attentionReasonText(ctx.attention).join(' · ')}.`)
+    }
     lines.push(...(await prepCommitmentLines(db, p.personId, p.name)))
   }
   return { kind: lines.length > 0 ? 'people' : 'none', lines, circleTitle: null, rosterCount: null }
@@ -399,7 +413,7 @@ export interface CoolingFlag {
   meetingId: string
   calendarEventId: string | null
   title: string
-  /** Followed people on this meeting whose relationship is cooling */
+  /** Followed people on this meeting who need a 1:1 (sharp enough to interrupt) */
   coolingPeople: string[]
   /** The recurring meeting itself (saved circle) is cooling */
   circleCooling: boolean
@@ -411,7 +425,7 @@ export async function coolingFlagsForDate(db: Db, date: string): Promise<Cooling
     .select({ id: meetings.id, title: meetings.title, seriesId: meetings.seriesId, calendarEventId: meetings.calendarEventId })
     .from(meetings)
     .where(eq(meetings.date, date))
-  const warmthByPerson = new Map<string, WarmthResult['trend']>()
+  const needsByPerson = new Map<string, boolean>()
   const warmthBySeries = new Map<string, boolean>()
   const flags: CoolingFlag[] = []
   for (const m of dayMeetings) {
@@ -432,13 +446,17 @@ export async function coolingFlagsForDate(db: Db, date: string): Promise<Cooling
       .innerJoin(people, eq(people.id, meetingPeople.personId))
       .where(and(eq(meetingPeople.meetingId, m.id), eq(people.status, 'confirmed')))
     const coolingPeople: string[] = []
-    for (const p of attendees.filter((a) => !isSelfPersonName(a.name)).slice(0, 10)) {
-      if (!warmthByPerson.has(p.id)) {
-        const w = await personWarmth(db, p.id)
-        warmthByPerson.set(p.id, w.trend === 'cooling' && isDrasticCooling(w.recentAvg, w.olderAvg, w.recentCount) ? 'cooling' : 'stable')
+    const followed = attendees.filter((a) => !isSelfPersonName(a.name)).slice(0, 10)
+    const unseen = followed.filter((p) => !needsByPerson.has(p.id)).map((p) => p.id)
+    if (unseen.length > 0) {
+      const loaded = await loadAttention(db, { personIds: unseen })
+      for (const id of unseen) {
+        const a = loaded.get(id)
+        // A 1:1 booked for today is the moment to act, so "scheduled" doesn't hide it here.
+        needsByPerson.set(id, !!a && (isInterrupting(a) || (a.suppressed === 'scheduled' && a.severity >= INTERRUPT_SEVERITY)))
       }
-      if (warmthByPerson.get(p.id) === 'cooling') coolingPeople.push(p.name)
     }
+    for (const p of followed) if (needsByPerson.get(p.id)) coolingPeople.push(p.name)
     if (circleCooling || coolingPeople.length > 0) {
       flags.push({ meetingId: m.id, calendarEventId: m.calendarEventId, title: m.title, coolingPeople, circleCooling })
     }

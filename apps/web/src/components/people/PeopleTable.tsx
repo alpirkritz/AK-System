@@ -25,7 +25,7 @@ interface Props {
   onToggleSelect: (id: string) => void
   onSelectAll: (ids: string[]) => void
   onDeselectAll: () => void
-  warmthById?: Record<string, 'warming' | 'cooling'>
+  warmthById?: Record<string, 'needs_1on1'>
   onOpenDrawer: (id: string) => void
   onPageChange: (page: number) => void
   onAddPerson: () => void

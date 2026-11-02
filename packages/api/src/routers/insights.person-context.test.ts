@@ -93,7 +93,7 @@ describe('personRecommendation', () => {
       trend: 'cooling',
     })
     expect(text).toContain('התחל מהוואטסאפ')
-    expect(text).toContain('פחות חמות')
+    expect(text).toContain('כדאי לקבוע 1:1')
   })
 
   it('returns null with no signal at all', () => {
@@ -200,7 +200,7 @@ describe('insights.relationshipFlags', () => {
     await resetDb()
   })
 
-  it('lists cooling and warming people without opening a card', async () => {
+  it('lists who needs a 1:1 without opening a card', async () => {
     const db = getTestDb()
     const today = new Date()
     const iso = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86_400_000).toISOString().slice(0, 10)
@@ -220,9 +220,11 @@ describe('insights.relationshipFlags', () => {
       await db.insert(meetingAnalyses).values({ id: `fa${i}`, meetingId: `f${i}`, source: 'transcript', score, status: 'completed', createdAt: NOW, updatedAt: NOW })
     }
     const flags = await (await createTestCaller()).insights.relationshipFlags()
+    expect(flags.needs1on1.map((f) => f.personId)).toEqual(['cool'])
+    expect(flags.needs1on1[0]?.reasons).toContain('low_1on1')
+    // Installed phone builds read the same people as cooling.
     expect(flags.cooling.map((f) => f.personId)).toEqual(['cool'])
-    expect(flags.warming.map((f) => f.personId)).toEqual(['warm'])
-    expect(flags.cooling[0]?.recentAvg).toBeLessThan(flags.cooling[0]?.olderAvg ?? 0)
+    expect(flags.warming).toEqual([])
   })
 })
 
@@ -252,8 +254,8 @@ describe('relationship board', () => {
     const caller = await createTestCaller()
     const board = await caller.insights.relationshipBoard()
     expect(board.people.map((p) => p.id)).toEqual(['cool'])
-    expect(board.people[0]?.dataReason).toContain('הציון ירד')
-    expect(board.people[0]?.dataReason).toContain('מתוחה')
+    expect(board.people[0]?.attention?.status).toBe('needs_1on1')
+    expect(board.people[0]?.dataReason).toContain('ה-1:1 האחרון')
 
     const saved = await caller.insights.setWarmthNote({ subject: 'person', id: 'cool', note: '  הוא מתרחק  ' })
     expect(saved.note).toBe('הוא מתרחק')
@@ -296,7 +298,8 @@ describe('relationship board', () => {
       ['early', null],
     ])
     const busy = board.people[0]!
-    expect(busy.dataReason).toContain('הציון ירד מ־9 ל־3')
+    expect(busy.attention?.status).toBe('needs_1on1')
+    expect(busy.dataReason).toContain('3/10')
     expect(busy.avgScore).toBe(6)
     expect(busy.lastDate).toBe(iso(5))
     const early = board.people[2]!

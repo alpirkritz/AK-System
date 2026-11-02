@@ -2,49 +2,34 @@
 
 export interface AttentionShiftCard {
   name: string
-  trend: string | null
-  recentAvg: number | null
-  olderAvg: number | null
-  /** Analysed meetings in the recent window. Absent on older API responses. */
-  recentCount?: number
   dataReason?: string | null
+  /** The cross-channel status from `relationshipBoard`. Absent on older API responses. */
+  attention?: {
+    status: 'needs_1on1' | 'steady' | 'good' | null
+    severity: number
+    suppressed: 'scheduled' | 'acknowledged' | null
+  } | null
 }
 
 export interface AttentionShift {
   name: string
-  verb: 'מתקרר'
   dataReason: string
   rest: number
 }
 
-/** Keep in lockstep with DRASTIC_COOLING_DROP / DRASTIC_COOLING_MIN_RECENT in packages/api/src/services/warmth.ts */
-const DRASTIC_COOLING_DROP = 0.5
-const DRASTIC_COOLING_MIN_RECENT = 2
-
-function drop(card: AttentionShiftCard): number {
-  return (card.olderAvg ?? 0) - (card.recentAvg ?? 0)
-}
+/** Keep in lockstep with INTERRUPT_SEVERITY in packages/api/src/services/relationship-attention.ts */
+const INTERRUPT_SEVERITY = 2
 
 /**
- * The home screen interrupts only for a specific person whose relationship fell sharply.
- * Warming, mild cooling and stable stay on the relationships page, so on most days this is null
- * and no card is shown. Pass people only; circles are not a "who".
+ * The home screen interrupts only for someone who clearly needs a 1:1 and has neither one booked
+ * nor been marked as seen. Milder flags stay on the relationships page, so on most days this is
+ * null. Pass people only; circles are not a "who".
  */
 export function pickAttentionShift(cards: AttentionShiftCard[]): AttentionShift | null {
-  const drastic = cards.filter(
-    (card) =>
-      card.trend === 'cooling' &&
-      card.recentAvg != null &&
-      card.olderAvg != null &&
-      (card.recentCount ?? DRASTIC_COOLING_MIN_RECENT) >= DRASTIC_COOLING_MIN_RECENT &&
-      drop(card) >= DRASTIC_COOLING_DROP,
-  )
-  const top = [...drastic].sort((a, b) => drop(b) - drop(a))[0]
+  const sharp = cards
+    .filter((c) => c.attention?.status === 'needs_1on1' && !c.attention.suppressed && c.attention.severity >= INTERRUPT_SEVERITY)
+    .sort((a, b) => b.attention!.severity - a.attention!.severity)
+  const top = sharp[0]
   if (!top) return null
-  return {
-    name: top.name,
-    verb: 'מתקרר',
-    dataReason: top.dataReason?.trim() ?? '',
-    rest: drastic.length - 1,
-  }
+  return { name: top.name, dataReason: top.dataReason?.trim() ?? '', rest: sharp.length - 1 }
 }

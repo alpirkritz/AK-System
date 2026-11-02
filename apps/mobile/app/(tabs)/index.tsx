@@ -223,10 +223,10 @@ export default function DashboardScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {attention ? (
-        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="קשר שהתקרר בחדות">
-          <Text style={styles.attentionLabel}>קשר שהתקרר בחדות</Text>
+        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="כדאי לקבוע 1:1">
+          <Text style={styles.attentionLabel}>כדאי לקבוע 1:1</Text>
           <Text style={styles.itemTitle}>
-            {attention.name} {attention.verb}
+            {attention.name}
             {attention.rest > 0 ? ` · ועוד ${attention.rest}` : ''}
           </Text>
           {attention.dataReason ? (

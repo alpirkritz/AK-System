@@ -74,8 +74,8 @@ export default function RelationshipsScreen() {
   }
 
   const groups: { title: string; cards: MobileBoardCard[]; subject: 'person' | 'circle' }[] = [
-    { title: 'מתקררים', cards: people.filter((c) => c.trend === 'cooling'), subject: 'person' },
-    { title: 'מתחממים', cards: people.filter((c) => c.trend === 'warming'), subject: 'person' },
+    { title: 'צריך 1:1', cards: people.filter((c) => c.trend === 'cooling'), subject: 'person' },
+    { title: 'במצב טוב', cards: people.filter((c) => c.trend === 'warming'), subject: 'person' },
     { title: 'חוגים מתקררים', cards: circles.filter((c) => c.trend === 'cooling'), subject: 'circle' },
     { title: 'חוגים מתחממים', cards: circles.filter((c) => c.trend === 'warming'), subject: 'circle' },
   ]
@@ -89,7 +89,7 @@ export default function RelationshipsScreen() {
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />}
     >
-      <Text style={styles.subtitle}>מי מתקרר ומי מתחמם, לפי השיחות של חצי השנה האחרונה.</Text>
+      <Text style={styles.subtitle}>מי צריך שיחה אישית ממך, לפי הטון בפגישות ולפי מתי דיברתם לאחרונה בכל ערוץ.</Text>
       {error ? (
         <View>
           <Text style={styles.error}>לא הצלחנו לטעון את הקשרים.</Text>
@@ -106,6 +106,7 @@ export default function RelationshipsScreen() {
             <BoardCardView
               key={card.id}
               card={card}
+              subject={g.subject}
               onOpen={() => {
                 if (g.subject === 'person') router.push(`/person/${card.id}` as Href)
                 else if (card.timeline[0]) router.push(`/meeting/${card.timeline[0].meetingId}` as Href)
@@ -121,10 +122,12 @@ export default function RelationshipsScreen() {
 
 function BoardCardView({
   card,
+  subject,
   onOpen,
   onSave,
 }: {
   card: MobileBoardCard
+  subject: 'person' | 'circle'
   onOpen: () => void
   onSave: (note: string | null) => Promise<void>
 }) {
@@ -155,7 +158,7 @@ function BoardCardView({
     <View style={styles.card}>
       <View style={styles.row}>
         <Text style={styles.name}>{card.name}</Text>
-        <Text style={[styles.pill, cooling ? styles.cool : styles.warm]}>{cooling ? 'מתקרר' : 'מתחמם'}</Text>
+        <Text style={[styles.pill, cooling ? styles.cool : styles.warm]}>{subject === 'person' ? (cooling ? 'צריך 1:1' : 'במצב טוב') : cooling ? 'מתקרר' : 'מתחמם'}</Text>
         <Pressable onPress={onOpen} accessibilityRole="button" hitSlop={8}><Text style={styles.link}>פתח כרטיס</Text></Pressable>
       </View>
       <View style={styles.chart}>

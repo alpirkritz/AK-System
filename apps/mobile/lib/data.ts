@@ -547,7 +547,13 @@ export interface MobileRelationshipFlag {
 export interface MobileBoardCard {
   id: string
   name: string
+  /** For people the server maps "needs a 1:1" to cooling and "in good shape" to warming. */
   trend: 'warming' | 'cooling'
+  attention?: {
+    status: 'needs_1on1' | 'steady' | 'good' | null
+    severity: number
+    suppressed: 'scheduled' | 'acknowledged' | null
+  } | null
   recentAvg: number | null
   olderAvg: number | null
   dataReason: string

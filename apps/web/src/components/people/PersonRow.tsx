@@ -1,6 +1,7 @@
 'use client'
 
 import { memo } from 'react'
+import { ATTENTION_STATUS_LABELS } from '@ak-system/types'
 import { Mail, Phone, StickyNote } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { he } from 'date-fns/locale'
@@ -33,7 +34,8 @@ function getContactHealth(lastContact: string | null, frequencyDays: number | nu
 interface Props {
   person: PersonWithAffiliations
   selected: boolean
-  warmth?: 'warming' | 'cooling' | null
+  /** Shown as a pill when this person needs a 1:1 */
+  warmth?: 'needs_1on1' | null
   onToggleSelect: () => void
   onOpenDrawer: () => void
 }
@@ -94,12 +96,13 @@ export const PersonRow = memo(function PersonRow({ person, selected, warmth, onT
             <span
               className="pill text-[10px] shrink-0"
               style={{
-                background: warmth === 'cooling' ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.12)',
-                color: warmth === 'cooling' ? '#facc15' : '#4ade80',
-                borderColor: warmth === 'cooling' ? 'rgba(234,179,8,0.35)' : 'rgba(34,197,94,0.35)',
+                background: 'rgba(234,179,8,0.12)',
+                color: '#facc15',
+                borderColor: 'rgba(234,179,8,0.35)',
               }}
+              data-testid="person-needs-1on1"
             >
-              {warmth === 'cooling' ? 'מתקרר' : 'מתחמם'}
+              {ATTENTION_STATUS_LABELS[warmth]}
             </span>
           ) : null}
         </div>

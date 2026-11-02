@@ -73,9 +73,8 @@ export default function PeoplePage() {
     },
     onError: (err) => setSyncMessage(err.message || 'הסנכרון נכשל'),
   })
-  const warmthById: Record<string, 'warming' | 'cooling'> = {}
-  for (const p of flags?.cooling ?? []) warmthById[p.personId] = 'cooling'
-  for (const p of flags?.warming ?? []) warmthById[p.personId] = 'warming'
+  const warmthById: Record<string, 'needs_1on1'> = {}
+  for (const p of flags?.needs1on1 ?? []) warmthById[p.personId] = 'needs_1on1'
   const duplicateCount = duplicates?.pairs.length ?? 0
 
   const items = state.data?.items ?? []

@@ -1682,6 +1682,7 @@ function applySqliteMigrations(sqlite: Database) {
     'ALTER TABLE person_email_threads ADD COLUMN reply_need TEXT',
     'ALTER TABLE person_email_threads ADD COLUMN reply_need_at TEXT',
     'ALTER TABLE user_settings ADD COLUMN slack_commitment_scan_cursor TEXT',
+    'ALTER TABLE people ADD COLUMN attention_ack_at TEXT',
   ]) {
     try { sqlite.prepare(sql).run() } catch (_) { /* column already exists */ }
   }

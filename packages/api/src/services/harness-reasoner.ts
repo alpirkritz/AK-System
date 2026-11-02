@@ -30,7 +30,7 @@ import {
   whatsappDmMessages,
   type getDb,
 } from '@ak-system/database'
-import { isDrasticCooling, personWarmth } from './warmth'
+import { attentionReasonText, isInterrupting, loadAttention } from './relationship-attention'
 import { isSelfPersonName } from '../lib/self-identity'
 import { nodeId } from './harness-context'
 import { classifyAmbiguousReplyNeed, deterministicReplyNeed, type ReplyNeed } from './email-reply-need'
@@ -239,7 +239,7 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
   return out
 }
 
-/** Relationship trending cold while something is still owed between you. */
+/** Someone who needs a 1:1 while something is still owed between you. */
 async function detectCoolingWithOpenLoop(ctx: DetectorContext): Promise<HarnessInsightDraft[]> {
   const { db } = ctx
   const openCommitments = await db
@@ -254,18 +254,17 @@ async function detectCoolingWithOpenLoop(ctx: DetectorContext): Promise<HarnessI
     .from(people)
     .where(and(inArray(people.id, personIds), eq(people.status, 'confirmed')))
 
+  const attention = await loadAttention(db, { personIds: peopleRows.map((p) => p.id) })
   const out: HarnessInsightDraft[] = []
   for (const p of peopleRows) {
-    const warmth = await personWarmth(db, p.id)
-    // Only a sharp drop is worth a card; a 0.2 drift is on the relationships page, not here.
-    if (warmth.trend !== 'cooling' || !isDrasticCooling(warmth.recentAvg, warmth.olderAvg, warmth.recentCount)) continue
+    const a = attention.get(p.id)
+    // Only a flag sharp enough to interrupt is worth a card; milder ones live on the relationships page.
+    if (!a || !isInterrupting(a)) continue
     const theirs = openCommitments.filter((c) => c.personId === p.id)
     out.push({
       kind: 'cooling_with_open_loop',
-      title: `הקשר עם ${p.name} מתקרר ויש לולאה פתוחה`,
-      body: `${theirs.length} התחייבויות פתוחות · מגמת הסיכומים האחרונים שלילית${
-        warmth.recentAvg != null ? ` (${warmth.recentAvg})` : ''
-      }`,
+      title: `כדאי לקבוע 1:1 עם ${p.name} · יש לולאה פתוחה`,
+      body: `${theirs.length} התחייבויות פתוחות · ${attentionReasonText(a).join(' · ')}`,
       severity: 'attention',
       score: Math.min(1, 0.5 + theirs.length * 0.1),
       personId: p.id,

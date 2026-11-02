@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
 import { MessageCircle, Users, CheckSquare, FileText, Link2, X, Pin, Handshake, Mail, Mic, ExternalLink, Play } from 'lucide-react'
+import { CONTACT_CHANNEL_LABELS } from '@ak-system/types'
 import { trpc } from '@/lib/trpc'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
 import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
@@ -299,7 +300,12 @@ export function PersonContextCard({ personId }: { personId: string }) {
 
         <div className="pt-2 border-t border-[#223052] space-y-2">
           <div className="text-[#5a688c]">
-            {ctx.lastContactAt && <>קשר אחרון: {dateLabel(ctx.lastContactAt)} · </>}
+            {ctx.lastContactAt && (
+              <>
+                קשר אחרון: {dateLabel(ctx.lastContactAt)}
+                {ctx.lastContactChannel ? ` (${CONTACT_CHANNEL_LABELS[ctx.lastContactChannel]})` : ''} ·{' '}
+              </>
+            )}
             {ctx.meetingCount} פגישות · {ctx.sharedProjects.length} פרויקטים משותפים
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -78,8 +78,10 @@ export const people = sqliteTable('people', {
   /** Owner's one-line reading of why this relationship is warming or cooling */
   warmthNote: text('warmth_note'),
   warmthNoteUpdatedAt: text('warmth_note_updated_at'),
-  /** ISO time of the last character-trait write. Declared last to match the SQLite ALTER order. */
+  /** ISO time of the last character-trait write. */
   traitsAt: text('traits_at'),
+  /** When the owner marked the "needs a 1:1" flag as seen. Declared last to match the SQLite ALTER order. */
+  attentionAckAt: text('attention_ack_at'),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),

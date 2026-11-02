@@ -1,36 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { pickAttentionShift } from './attention-shift'
+import { pickAttentionShift, type AttentionShiftCard } from './attention-shift'
+
+const card = (name: string, attention: AttentionShiftCard['attention'], dataReason = ''): AttentionShiftCard => ({ name, attention, dataReason })
 
 describe('pickAttentionShift', () => {
-  it('returns null when nobody dropped sharply', () => {
+  it('returns null when nobody clearly needs a 1:1', () => {
     expect(pickAttentionShift([])).toBeNull()
     expect(
       pickAttentionShift([
-        { name: 'Guy Gamzu', trend: 'stable', recentAvg: 0.4, olderAvg: 0.4, dataReason: 'יציב' },
-        { name: 'Dana', trend: null, recentAvg: 0.1, olderAvg: null, dataReason: '' },
-        // mild cooling: on the relationships page, not on the dashboard
-        { name: 'Yossi', trend: 'cooling', recentAvg: 0.2, olderAvg: 0.5, dataReason: 'הציון ירד מ־7 ל־6.' },
-        // warming never interrupts
-        { name: 'Noa', trend: 'warming', recentAvg: 0.9, olderAvg: 0.1, dataReason: 'הציון עלה.' },
+        card('Guy', { status: 'steady', severity: 0, suppressed: null }),
+        card('Dana', null),
+        // mild flag: on the relationships page, not on the dashboard
+        card('Yossi', { status: 'needs_1on1', severity: 1.2, suppressed: null }),
+        card('Noa', { status: 'good', severity: 0, suppressed: null }),
+        // booked or already seen
+        card('Ori', { status: 'needs_1on1', severity: 3, suppressed: 'scheduled' }),
+        card('Tal', { status: 'needs_1on1', severity: 3, suppressed: 'acknowledged' }),
       ]),
     ).toBeNull()
   })
 
-  it('names the sharpest drop and counts only other sharp drops', () => {
+  it('names the sharpest flag and counts only other sharp ones', () => {
     expect(
       pickAttentionShift([
-        { name: 'Dana', trend: 'cooling', recentAvg: -0.2, olderAvg: 0.5, dataReason: 'הציון ירד מ־8 ל־3.' },
-        { name: 'Ori', trend: 'cooling', recentAvg: 0, olderAvg: 0.5, dataReason: 'הציון ירד מ־8 ל־5.' },
-        { name: 'Yossi', trend: 'cooling', recentAvg: 0.3, olderAvg: 0.5, dataReason: 'קל' },
+        card('Ori', { status: 'needs_1on1', severity: 2.1, suppressed: null }, 'b'),
+        card('Dana', { status: 'needs_1on1', severity: 3.4, suppressed: null }, 'הטון בשיחות האחרונות ירד.'),
+        card('Yossi', { status: 'needs_1on1', severity: 1, suppressed: null }),
       ]),
-    ).toEqual({ name: 'Dana', verb: 'מתקרר', dataReason: 'הציון ירד מ־8 ל־3.', rest: 1 })
-  })
-
-  it('ignores a drop built on a single recent meeting', () => {
-    expect(
-      pickAttentionShift([
-        { name: 'Dana', trend: 'cooling', recentAvg: -0.4, olderAvg: 0.5, recentCount: 1, dataReason: 'x' },
-      ]),
-    ).toBeNull()
+    ).toEqual({ name: 'Dana', dataReason: 'הטון בשיחות האחרונות ירד.', rest: 1 })
   })
 })

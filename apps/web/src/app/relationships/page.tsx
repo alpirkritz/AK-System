@@ -11,11 +11,21 @@ const PersonDetailDrawer = dynamic(
   { ssr: false },
 )
 
-const PERSON_SECTIONS: { title: string; trend: BoardTrend }[] = [
-  { title: 'מתקררים', trend: 'cooling' },
-  { title: 'מתחממים', trend: 'warming' },
-  { title: 'יציבים', trend: 'stable' },
-  { title: 'עוד אין מגמה', trend: null },
+type PersonSection = 'needs' | 'handled' | 'good' | 'steady' | 'thin'
+
+function personSection(card: BoardCard): PersonSection {
+  const a = card.attention
+  if (!a || a.status == null) return 'thin'
+  if (a.status === 'needs_1on1') return a.suppressed ? 'handled' : 'needs'
+  return a.status === 'good' ? 'good' : 'steady'
+}
+
+const PERSON_SECTIONS: { title: string; key: PersonSection; collapsed?: boolean }[] = [
+  { title: 'צריך 1:1', key: 'needs' },
+  { title: 'בטיפול', key: 'handled' },
+  { title: 'במצב טוב', key: 'good', collapsed: true },
+  { title: 'יציבים', key: 'steady', collapsed: true },
+  { title: 'עוד אין מספיק קשר כדי לשפוט', key: 'thin', collapsed: true },
 ]
 
 const CIRCLE_SECTIONS: { title: string; trend: BoardTrend }[] = [
@@ -54,7 +64,7 @@ export default function RelationshipsPage() {
     <div className="space-y-6 max-w-3xl">
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-[#eef3fb]">קשרים</h1>
-        <p className="text-sm text-[#7a89ab] mt-1">מי מתקרר, מי מתחמם ומי יציב, לפי השיחות המנותחות של חצי השנה האחרונה.</p>
+        <p className="text-sm text-[#7a89ab] mt-1">מי צריך שיחה אישית ממך, לפי הטון בפגישות ולפי מתי דיברתם לאחרונה בכל ערוץ.</p>
       </header>
 
       {isLoading ? (
@@ -113,13 +123,17 @@ export default function RelationshipsPage() {
         </p>
       ) : null}
 
+      {!isLoading && !isError && people.length > 0 && !people.some((c) => personSection(c) === 'needs') ? (
+        <p className="text-sm text-[#4ade80]" data-testid="relationships-all-clear">אף אחד לא מחכה ל-1:1 כרגע.</p>
+      ) : null}
       {PERSON_SECTIONS.map((s) => (
         <Section
           key={s.title}
           title={s.title}
-          cards={people.filter((c) => c.trend === s.trend)}
+          cards={people.filter((c) => personSection(c) === s.key)}
           subject="person"
           onOpen={setPersonId}
+          collapsible={s.collapsed}
         />
       ))}
       {CIRCLE_SECTIONS.map((s) => (
@@ -149,21 +163,33 @@ function Section({
   cards,
   subject,
   onOpen,
+  collapsible = false,
 }: {
   title: string
   cards: BoardCard[]
   subject: 'person' | 'circle'
   onOpen: (id: string) => void
+  collapsible?: boolean
 }) {
+  const [open, setOpen] = useState(!collapsible)
   if (cards.length === 0) return null
+  const heading = (
+    <>
+      {title} <span className="text-[#3f4c6b] font-normal">· {cards.length}</span>
+    </>
+  )
   return (
     <section className="space-y-2">
       <h2 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider">
-        {title} <span className="text-[#3f4c6b] font-normal">· {cards.length}</span>
+        {collapsible ? (
+          <button type="button" className="inline-flex items-center gap-1 hover:text-[#97a4c2]" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            <span aria-hidden>{open ? '▾' : '◂'}</span> {heading}
+          </button>
+        ) : heading}
       </h2>
-      {cards.map((card) => (
+      {open ? cards.map((card) => (
         <RelationshipCard key={card.id} card={card} subject={subject} onOpen={() => onOpen(card.id)} />
-      ))}
+      )) : null}
     </section>
   )
 }

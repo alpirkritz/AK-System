@@ -209,7 +209,7 @@ export default function PeopleScreen() {
                     <Text style={styles.name}>{item.name}</Text>
                     {warmthById.get(item.id) ? (
                       <Text style={[styles.pill, warmthById.get(item.id) === 'cooling' ? styles.pillCool : styles.pillWarm]}>
-                        {warmthById.get(item.id) === 'cooling' ? 'מתקרר' : 'מתחמם'}
+                        {warmthById.get(item.id) === 'cooling' ? 'צריך 1:1' : 'מתחמם'}
                       </Text>
                     ) : null}
                   </View>
