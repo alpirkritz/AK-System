@@ -5,6 +5,7 @@
  *
  *   node scripts/release-notes.mjs              build, save and send
  *   node scripts/release-notes.mjs --dry-run    build and save only
+ *   node scripts/release-notes.mjs --print-next print the number the next release will get
  *   node scripts/release-notes.mjs --since <sha>
  *
  * Env: RELEASE_NOTES_TO (default alpirkritz@gmail.com), GEMINI_API_KEY / GEMINI_MODEL (else read
@@ -250,6 +251,10 @@ export function pickRange() {
 
 async function main() {
   const args = process.argv.slice(2)
+  if (args.includes('--print-next')) {
+    console.log(pickRange().next)
+    return
+  }
   const dryRun = args.includes('--dry-run')
   const sinceIdx = args.indexOf('--since')
   const { head, base: taggedBase, next: version } = pickRange()

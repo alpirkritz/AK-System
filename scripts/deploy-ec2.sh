@@ -44,6 +44,13 @@ if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1
   bash "$SCRIPT_DIR/ec2-ensure-ssh-access.sh"
 fi
 
+# ── 0b. Release number shown in the app: baked into the web build as NEXT_PUBLIC_* ──
+# (the same number the release-notes mail gets; the tag itself is placed after the deploy)
+NEXT_PUBLIC_APP_RELEASE="$(node "$SCRIPT_DIR/release-notes.mjs" --print-next 2>/dev/null || true)"
+NEXT_PUBLIC_APP_COMMIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+export NEXT_PUBLIC_APP_RELEASE NEXT_PUBLIC_APP_COMMIT
+echo "→ Release ${NEXT_PUBLIC_APP_RELEASE:-?} (${NEXT_PUBLIC_APP_COMMIT:-no git})"
+
 # ── 1. Local CI gate ──────────────────────────────────────────────────────────
 if [ "${SKIP_CI:-0}" != "1" ]; then
   step "Local CI (set SKIP_CI=1 to skip)"

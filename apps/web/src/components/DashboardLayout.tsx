@@ -1,5 +1,6 @@
 'use client'
 
+import { formatAppVersion } from '@/lib/app-version'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
@@ -221,6 +222,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <LogOut size={18} className="opacity-90" strokeWidth={2} />
             התנתק
           </button>
+          <div className="px-3 pt-2 pb-1 text-[11px] text-[#4d5b7d] tabular-nums" data-testid="app-version">
+            {formatAppVersion(process.env.NEXT_PUBLIC_APP_RELEASE, process.env.NEXT_PUBLIC_APP_COMMIT)}
+          </div>
         </div>
       </aside>
 
@@ -335,6 +339,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <LogOut size={18} strokeWidth={2} />
                 התנתק
               </button>
+              <div className="col-span-3 text-center text-[11px] text-[#4d5b7d] tabular-nums">
+                {formatAppVersion(process.env.NEXT_PUBLIC_APP_RELEASE, process.env.NEXT_PUBLIC_APP_COMMIT)}
+              </div>
             </div>
           </div>
         </>
