@@ -190,6 +190,13 @@ if [ -n "$COMPOSE_PROFILES" ]; then
 fi
 
 echo ""
+# ── Release notes mail (best effort: never fails or rolls back the deploy) ────
+if [ "${RELEASE_NOTES:-1}" != "0" ] && command -v node >/dev/null 2>&1; then
+  step "Release notes → email (RELEASE_NOTES=0 to skip)"
+  RELEASE_NOTES_BUILD_ID="${LOCAL_BUILD_ID:-}" node "$SCRIPT_DIR/release-notes.mjs" \
+    || echo "⚠  release notes were not sent (the deploy itself is unaffected)"
+fi
+
 echo "════════════════════════════════════════════════════════════"
 echo "✓  Deploy complete → ${REMOTE}:${DEPLOY_PATH}"
 echo "   Logs:   ssh ${REMOTE} 'cd $DEPLOY_PATH && docker compose -f $COMPOSE_FILE logs -f web'"

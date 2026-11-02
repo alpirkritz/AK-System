@@ -35,3 +35,7 @@ debug-screenshot.png
 screenshot-*.png
 capture-screenshots.mjs
 debug-browser.mjs
+
+# Release notes: last deployed commit and saved mails (scripts/release-notes.mjs)
+deploy/.last-deployed-sha
+deploy/releases/
