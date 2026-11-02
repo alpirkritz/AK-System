@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error plain ESM script, no types
-import { esc, fallbackSummary, normalizeSummary, parseGitLog, renderHtml, renderText } from './release-notes.mjs'
+import { esc, fallbackSummary, normalizeSummary, parseGitLog, releaseNumbers, renderHtml, renderText } from './release-notes.mjs'
 
 const raw =
   ['aaa1111111\x1fAlpir\x1f2026-11-02T10:00:00+02:00\x1fAdd a waiting view\x1fBody line\n\nCo-Authored-By: Claude <x@y>\x1e',
@@ -8,7 +8,7 @@ const raw =
 
 describe('release notes', () => {
   const commits = parseGitLog(raw)
-  const meta = { build: 'abc', dateLabel: 'יום שני', uncommitted: 0, subject: 'נושא' }
+  const meta = { version: 7, build: 'abc', dateLabel: 'יום שני', uncommitted: 0, subject: 'נושא' }
 
   it('parses commits and drops the co-author trailer', () => {
     expect(commits.map((c: { short: string }) => c.short)).toEqual(['aaa1111', 'bbb2222'])
@@ -54,6 +54,13 @@ describe('release notes', () => {
     expect(html).toContain('2 קבצים')
     expect(html).not.toContain('<script>')
     expect(html).toContain('aaa1111')
+    expect(html).toContain('גרסה 7 עלתה')
+    expect(renderText({ summary, commits, meta })).toContain('גרסה 7')
     expect(renderText({ summary, commits, meta })).toContain('חדש:')
+  })
+
+  it('reads release numbers from tags and ignores other tags', () => {
+    expect(releaseNumbers(['release-2', 'v1', 'release-10', 'release-x', 'release-1', ''])).toEqual([1, 2, 10])
+    expect(releaseNumbers([])).toEqual([])
   })
 })

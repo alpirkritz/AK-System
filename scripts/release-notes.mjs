@@ -9,6 +9,8 @@
  *
  * Env: RELEASE_NOTES_TO (default alpirkritz@gmail.com), GEMINI_API_KEY / GEMINI_MODEL (else read
  * from deploy/production.env), RELEASE_NOTES_BUILD_ID (shown in the header).
+ * Releases are numbered 1, 2, 3 … by local git tags `release-N` placed on the deployed commit once
+ * the mail went out; the next number and the commit range both come from the latest tag.
  * Never exits non-zero for a delivery problem: the deploy has already succeeded.
  */
 import { execFileSync } from 'node:child_process'
@@ -18,12 +20,20 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const LAST_SHA_FILE = path.join(ROOT, 'deploy', '.last-deployed-sha')
 const RELEASES_DIR = path.join(ROOT, 'deploy', 'releases')
 const DEFAULT_RECIPIENT = 'alpirkritz@gmail.com'
 const FALLBACK_COMMITS = 10
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim()
+
+/** Release numbers already used, from tags named `release-<n>`. */
+export function releaseNumbers(tags) {
+  return tags
+    .map((t) => /^release-(\d+)$/.exec(t.trim())?.[1])
+    .filter(Boolean)
+    .map(Number)
+    .sort((a, b) => a - b)
+}
 
 export const esc = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -139,9 +149,9 @@ export function renderHtml({ summary, commits, meta }) {
     `<body style="margin:0;padding:24px 12px;background:#eef2f7;font-family:-apple-system,'Segoe UI',Arial,'Noto Sans Hebrew',sans-serif;direction:rtl;">` +
     `<table role="presentation" align="center" width="100%" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 2px 12px rgba(15,23,42,.08);">` +
     `<tr><td style="background:#0f766e;background-image:linear-gradient(135deg,#0f766e,#2dd4bf);padding:28px;color:#ffffff;">` +
-    `<div style="font-size:13px;letter-spacing:1px;opacity:.9;">ARO · גרסה חדשה עלתה</div>` +
+    `<div style="font-size:13px;letter-spacing:1px;opacity:.9;">ARO · גרסה ${meta.version} עלתה</div>` +
     `<div style="font-size:24px;font-weight:800;line-height:1.3;margin-top:6px;">${esc(summary.headline)}</div>` +
-    `<div style="font-size:13px;opacity:.9;margin-top:10px;">${esc(meta.dateLabel)} · build ${esc(meta.build)} · ${commits.length} שינויים</div>` +
+    `<div style="font-size:13px;opacity:.9;margin-top:10px;">${esc(meta.dateLabel)} · גרסה ${meta.version} · build ${esc(meta.build)} · ${commits.length} שינויים</div>` +
     `</td></tr>` +
     (summary.intro ? `<tr><td style="padding:22px 28px 0 28px;font-size:15px;line-height:1.7;color:#334155;">${esc(summary.intro)}</td></tr>` : '') +
     dirty + actions + sectionHtml +
@@ -153,7 +163,7 @@ export function renderHtml({ summary, commits, meta }) {
 }
 
 export function renderText({ summary, commits, meta }) {
-  const lines = [`ARO · גרסה חדשה עלתה`, summary.headline, `${meta.dateLabel} · build ${meta.build} · ${commits.length} שינויים`, '']
+  const lines = [`ARO · גרסה ${meta.version} עלתה`, summary.headline, `${meta.dateLabel} · גרסה ${meta.version} · build ${meta.build} · ${commits.length} שינויים`, '']
   if (summary.intro) lines.push(summary.intro, '')
   if (meta.uncommitted) lines.push(`שים לב: ${meta.uncommitted} קבצים שלא נכנסו ל-commit נשלחו בדיפלוי.`, '')
   if (summary.needsAction.length) lines.push('דורש פעולה ממך:', ...summary.needsAction.map((a) => `  • ${a}`), '')
@@ -229,31 +239,27 @@ end run`
   execFileSync('osascript', ['-e', script, htmlPath, textPath, subject, to], { stdio: 'inherit' })
 }
 
+/** Latest release tag, its commit, and the number the next release gets. */
 export function pickRange() {
   const head = git('rev-parse', 'HEAD')
-  let base = ''
-  try {
-    base = fs.readFileSync(LAST_SHA_FILE, 'utf8').trim()
-    git('cat-file', '-e', `${base}^{commit}`)
-  } catch {
-    base = ''
-  }
-  return { head, base }
+  const numbers = releaseNumbers(git('tag', '--list', 'release-*').split('\n'))
+  const last = numbers.at(-1)
+  const base = last ? git('rev-list', '-n', '1', `release-${last}`) : ''
+  return { head, base, next: (last ?? 0) + 1 }
 }
 
 async function main() {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const sinceIdx = args.indexOf('--since')
-  const { head, base: storedBase } = pickRange()
-  const base = sinceIdx >= 0 ? args[sinceIdx + 1] : storedBase
+  const { head, base: taggedBase, next: version } = pickRange()
+  const base = sinceIdx >= 0 ? args[sinceIdx + 1] : taggedBase
 
   const logArgs = ['log', '--no-merges', '--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e']
   const raw = base ? git(...logArgs, `${base}..${head}`) : git(...logArgs, `-n`, String(FALLBACK_COMMITS))
   const commits = parseGitLog(raw)
   if (commits.length === 0) {
     console.log('[release-notes] no new commits since the last deploy; nothing to send')
-    if (!dryRun) fs.writeFileSync(LAST_SHA_FILE, head + '\n')
     return
   }
   const files = base ? git('diff', '--name-only', `${base}..${head}`).split('\n').filter(Boolean) : []
@@ -262,10 +268,11 @@ async function main() {
 
   const now = new Date()
   const meta = {
+    version,
     build: process.env.RELEASE_NOTES_BUILD_ID || head.slice(0, 7),
     dateLabel: now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }),
     uncommitted,
-    subject: `ARO · גרסה חדשה · ${now.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${head.slice(0, 7)}`,
+    subject: `ARO · גרסה ${version} · ${now.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${head.slice(0, 7)}`,
   }
   const summary = normalizeSummary(await summarizeWithGemini(commits, files), commits)
   const html = renderHtml({ summary, commits, meta })
@@ -273,17 +280,22 @@ async function main() {
 
   fs.mkdirSync(RELEASES_DIR, { recursive: true })
   const stamp = now.toISOString().slice(0, 16).replace(/[:T]/g, '-')
-  const htmlPath = path.join(RELEASES_DIR, `${stamp}-${head.slice(0, 7)}.html`)
+  const htmlPath = path.join(RELEASES_DIR, `v${version}-${stamp}-${head.slice(0, 7)}.html`)
   const textPath = htmlPath.replace(/\.html$/, '.txt')
   fs.writeFileSync(htmlPath, html)
   fs.writeFileSync(textPath, text)
-  console.log(`[release-notes] saved ${path.relative(ROOT, htmlPath)}`)
+  console.log(`[release-notes] release ${version}: saved ${path.relative(ROOT, htmlPath)}`)
 
   if (dryRun) return
   const to = process.env.RELEASE_NOTES_TO || DEFAULT_RECIPIENT
   sendWithMail({ to, subject: meta.subject, htmlPath, textPath })
-  fs.writeFileSync(LAST_SHA_FILE, head + '\n')
-  console.log(`[release-notes] sent to ${to}`)
+  // The mail is out: this commit is now release <version>. An existing tag is left alone.
+  try {
+    git('tag', `release-${version}`, head)
+  } catch {
+    console.warn(`[release-notes] could not tag release-${version}`)
+  }
+  console.log(`[release-notes] release ${version} sent to ${to}`)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
