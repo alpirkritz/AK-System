@@ -24,6 +24,7 @@ import {
 } from '@/lib/sort-keys'
 import { ThenBySort } from '@/components/ThenBySort'
 import { WaitingTodayCard } from '@/components/waiting/WaitingTodayCard'
+import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
 import { groupTasksByDueState, limitTaskGroups } from '@/lib/sort-tasks'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
 import { isMyTask } from '@/lib/my-tasks'
@@ -310,308 +311,333 @@ export default function DashboardPage() {
       </header>
       <FilteredWorldChip />
 
-      <AttentionBanner />
-
-      <QuickActionsBar />
-
-      {/* ── KPI Strip ───────────────────────────────────────────── */}
-      <section aria-label="סיכום מהיר">
-        {/* Three tiles side by side at every width; on phones they are compact
-            (number + label) so the strip stays one glance instead of three tall cards. */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
-          {/* Calendar meetings KPI. Toggles stay here; the number opens that range. */}
-          <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
-            <div className="flex items-start justify-between gap-1 mb-1 sm:mb-2">
-              <Link href={calendarHref} className="no-underline">
-                <div
-                  className="text-xl sm:text-2xl font-bold tabular-nums leading-none"
-                  style={{ color: '#2dd4bf' }}
-                >
-                  {calMeetingCount}
-                </div>
-              </Link>
-              <div className="hidden sm:flex gap-1" role="group" aria-label="טווח זמן">
-                {(['today', 'week'] as const).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setCalRange(r)}
-                    aria-pressed={calRange === r}
-                    className="toggle-btn"
-                  >
-                    {r === 'today' ? 'היום' : 'שבוע'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <Link href={calendarHref} className="text-xs sm:text-sm font-semibold text-[#eef3fb] no-underline block truncate">
-              אירועים ביומן
-            </Link>
-            <div className="hidden sm:block text-xs text-[#6f7ea0] mt-0.5">
-              {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
-            </div>
-            {/* Phone: the range toggle sits under the label as two tiny segments */}
-            <div className="flex sm:hidden gap-1 mt-2" role="group" aria-label="טווח זמן">
-              {(['today', 'week'] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setCalRange(r)}
-                  aria-pressed={calRange === r}
-                  className="toggle-btn !px-2 !py-0.5 !text-[11px]"
-                >
-                  {r === 'today' ? 'היום' : 'שבוע'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Open tasks KPI. The count opens the open list; overdue is its own link. */}
-          <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
-            <Link href="/tasks?status=open" className="block no-underline">
-              <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#fb7185' }}>
-                {openTasks.length}
-              </div>
-              <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">המשימות שלי</div>
-            </Link>
-            {overdueCount > 0 ? (
-              <Link href="/tasks?status=overdue" className="text-[11px] sm:text-xs text-[#fb7185] sm:text-[#eef3fb] mt-1 sm:mt-0.5 inline-block no-underline hover:underline truncate">
-                {overdueCount} באיחור
-              </Link>
-            ) : (
-              <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5">אין איחור</div>
-            )}
-          </div>
-
-          {/* Upcoming CRM meetings KPI */}
-          <Link href="/meetings" className="card card-interactive no-underline flex flex-col min-w-0 !p-3 sm:!p-5">
-            <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#38bdf8' }}>
-              {futureMeetings.length}
-            </div>
-            <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">פגישות קרובות</div>
-            <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5 truncate">
-              {recurringMeetings.length > 0 ? `כולל ${recurringMeetings.length} חוזרות` : 'ניהול פגישות'}
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Quick Actions ───────────────────────────────────────── */}
-      <section aria-label="פעולות מהירות">
-        <div className="flex flex-wrap gap-2 sm:gap-3">
-          <Link
-            href="/meetings?new=1"
-            className="btn btn-primary flex items-center gap-2 no-underline min-h-[44px]"
-          >
-            {SVG_PLUS}
-            פגישה חדשה
-          </Link>
-          <button
-            type="button"
-            className="btn btn-secondary flex items-center gap-2 min-h-[44px]"
-            onClick={() => {
-              setEditingTaskId(null)
-              setTaskModalOpen(true)
-            }}
-          >
-            {SVG_PLUS}
-            משימה חדשה
-          </button>
-          <Link
-            href="/calendar"
-            className="btn btn-ghost flex items-center gap-2 no-underline min-h-[44px]"
-          >
-            {SVG_CALENDAR}
-            יומן
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Alerts: Calendar Conflicts ──────────────────────────── */}
-      <ConflictsWidget />
-
-      {/* ── Who owes me something today ─────────────────────────── */}
-      <WaitingTodayCard />
-
-      {/* ── Cross-domain insights from the harness ──────────────── */}
-      <HarnessWidget />
-
-      {/* ── Content Grid — equal cols, minmax(0) so long titles cannot widen the page ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 min-w-0 w-full max-w-full overflow-x-hidden">
-        {/* Upcoming Meetings */}
-        <section aria-label="פגישות קרובות" className="min-w-0 max-w-full overflow-hidden">
-          <div className="flex items-center justify-between mb-4 gap-2 min-w-0">
-            <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-              <h2 className="text-base font-semibold text-[#eef3fb] truncate">פגישות קרובות</h2>
-              {pastCount > 0 && (
-                <button
-                  onClick={() => setShowPast((v) => !v)}
-                  aria-pressed={showPast}
-                  className="toggle-btn shrink-0"
-                >
-                  {showPast ? 'הסתר עבר' : `עבר (${pastCount})`}
-                </button>
-              )}
-            </div>
-            <Link href="/meetings" className="section-link shrink-0">
-              {SVG_ARROW_LEFT}
-              הכל
-            </Link>
-          </div>
-
-          {upcomingMeetings.length === 0 ? (
-            <div className="card text-sm text-[#6f7ea0] py-4 px-5">
-              אין פגישות קרובות
-            </div>
-          ) : (
-            <div className="space-y-2 min-w-0 max-w-full">
-              {upcomingMeetings.map((m) => {
-                const past = isPastMeeting(m.date, m.time, timezone)
-                return (
-                  <Link
-                    key={m.id}
-                    href={`/meetings/${m.id}`}
-                    className={`meeting-card min-w-0 max-w-full overflow-hidden ${past ? 'opacity-55 grayscale-[20%]' : ''}`}
-                  >
-                    <div className={`font-semibold text-sm truncate ${past ? 'text-[#7a89ab]' : 'text-[#eef3fb]'}`}>
-                      {m.title}
+      <ReorderableBlocks
+        screen="dashboard"
+        blocks={[
+          { id: 'attention', label: 'התראות חשובות', node: (
+            <>
+              <AttentionBanner />
+            </>
+          ) },
+          { id: 'quick-bar', label: 'פעולות מהירות (סרגל)', node: (
+            <>
+              <QuickActionsBar />
+            </>
+          ) },
+          { id: 'kpi', label: 'סיכום מהיר', node: (
+            <>
+              <section aria-label="סיכום מהיר">
+                {/* Three tiles side by side at every width; on phones they are compact
+                    (number + label) so the strip stays one glance instead of three tall cards. */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                  {/* Calendar meetings KPI. Toggles stay here; the number opens that range. */}
+                  <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
+                    <div className="flex items-start justify-between gap-1 mb-1 sm:mb-2">
+                      <Link href={calendarHref} className="no-underline">
+                        <div
+                          className="text-xl sm:text-2xl font-bold tabular-nums leading-none"
+                          style={{ color: '#2dd4bf' }}
+                        >
+                          {calMeetingCount}
+                        </div>
+                      </Link>
+                      <div className="hidden sm:flex gap-1" role="group" aria-label="טווח זמן">
+                        {(['today', 'week'] as const).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => setCalRange(r)}
+                            aria-pressed={calRange === r}
+                            className="toggle-btn"
+                          >
+                            {r === 'today' ? 'היום' : 'שבוע'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <WorldBadge workspaceId={m.workspaceId} />
-                    <div className="text-xs text-[#8593b3] mt-1.5 truncate">
-                      {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
-                      {m.recurring ? ` · ${DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}` : ''}
-                      {past ? ' · עבר' : ''}
+                    <Link href={calendarHref} className="text-xs sm:text-sm font-semibold text-[#eef3fb] no-underline block truncate">
+                      אירועים ביומן
+                    </Link>
+                    <div className="hidden sm:block text-xs text-[#6f7ea0] mt-0.5">
+                      {calRange === 'today' ? 'היום' : '7 ימים קדימה'} · ללא כל-יום
                     </div>
-                  </Link>
-                )
-              })}
-            </div>
-          )}
-          {worldFilter && unassignedMeetings.some((m) => !isPastMeeting(m.date, m.time, timezone)) && (
-            <div className="mt-4">
-              <UnassignedHeading count={unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).length} />
-              <div className="space-y-2">
-                {unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).slice(0, 5).map((m) => (
-                  <Link key={m.id} href={`/meetings/${m.id}`} className="meeting-card block">
-                    <div className="font-semibold text-sm text-[#eef3fb] truncate">{m.title}</div>
-                    <WorldBadge workspaceId={null} />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Open Tasks — checkbox + title (+ priority dot). Details live in TaskModal. */}
-        <section aria-label="המשימות שלי" className="min-w-0 max-w-full overflow-hidden">
-          <div className="flex items-center justify-between mb-3 gap-2 min-w-0">
-            <h2 className="text-base font-semibold text-[#eef3fb] truncate">המשימות שלי</h2>
-            <Link href="/tasks" className="section-link shrink-0">
-              {SVG_ARROW_LEFT}
-              לרשימה
-            </Link>
-          </div>
-          <div className="mb-3">
-            <ThenBySort
-              value={effectiveSort}
-              onChange={setTaskSortAndPersist}
-              fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
-              showReset={hasOverride}
-              onReset={resetToDefault}
-            />
-          </div>
-
-          {openTasks.length === 0 ? (
-            <div className="card text-sm text-[#6f7ea0] py-4 px-5">
-              אין משימות שמוקצות אליך
-            </div>
-          ) : (
-            <div className="space-y-2 min-w-0 max-w-full">
-              {previewGroups.map((group) => (
-                <div key={group.key}>
-                  <div className="text-xs font-semibold text-[#7a89ab] mb-1">{group.label}</div>
-                  {group.tasks.map((t) => {
-                const priorityKey = t.priority as keyof typeof PRIORITY_COLORS
-                const priorityColor = PRIORITY_COLORS[priorityKey] ?? PRIORITY_COLORS.medium
-                const priorityLabel = PRIORITY_LABELS[priorityKey] ?? PRIORITY_LABELS.medium
-
-                return (
-                  <div key={t.id} className="task-row dashboard-open-task">
-                    <button
-                      type="button"
-                      role="checkbox"
-                      aria-checked={t.done}
-                      aria-label={`סמן "${t.title}" כבוצע`}
-                      className="checkbox-btn shrink-0"
-                      onClick={() => toggleTask.mutate({ id: t.id })}
-                    >
-                      {t.done && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                          <path d="M2 5.5L4 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-open-task__title"
-                      dir="auto"
-                      onClick={() => {
-                        setEditingTaskId(t.id)
-                        setTaskModalOpen(true)
-                      }}
-                      title={t.title}
-                    >
-                      {t.title}
-                    </button>
-                    <WorldBadge workspaceId={t.workspaceId} />
-                    {formatDueLabel(t) && (
-                      <span className="text-[11px] text-[#647399] shrink-0">{formatDueLabel(t)}</span>
-                    )}
-                    <span
-                      className="dashboard-open-task__dot"
-                      style={{ background: priorityColor }}
-                      title={`עדיפות ${priorityLabel}`}
-                      aria-label={`עדיפות ${priorityLabel}`}
-                    />
+                    {/* Phone: the range toggle sits under the label as two tiny segments */}
+                    <div className="flex sm:hidden gap-1 mt-2" role="group" aria-label="טווח זמן">
+                      {(['today', 'week'] as const).map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setCalRange(r)}
+                          aria-pressed={calRange === r}
+                          className="toggle-btn !px-2 !py-0.5 !text-[11px]"
+                        >
+                          {r === 'today' ? 'היום' : 'שבוע'}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )
-                  })}
+
+                  {/* Open tasks KPI. The count opens the open list; overdue is its own link. */}
+                  <div className="card flex flex-col min-w-0 !p-3 sm:!p-5">
+                    <Link href="/tasks?status=open" className="block no-underline">
+                      <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#fb7185' }}>
+                        {openTasks.length}
+                      </div>
+                      <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">המשימות שלי</div>
+                    </Link>
+                    {overdueCount > 0 ? (
+                      <Link href="/tasks?status=overdue" className="text-[11px] sm:text-xs text-[#fb7185] sm:text-[#eef3fb] mt-1 sm:mt-0.5 inline-block no-underline hover:underline truncate">
+                        {overdueCount} באיחור
+                      </Link>
+                    ) : (
+                      <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5">אין איחור</div>
+                    )}
+                  </div>
+
+                  {/* Upcoming CRM meetings KPI */}
+                  <Link href="/meetings" className="card card-interactive no-underline flex flex-col min-w-0 !p-3 sm:!p-5">
+                    <div className="text-xl sm:text-2xl font-bold tabular-nums leading-none mb-1 sm:mb-2" style={{ color: '#38bdf8' }}>
+                      {futureMeetings.length}
+                    </div>
+                    <div className="text-xs sm:text-sm font-semibold text-[#eef3fb] truncate">פגישות קרובות</div>
+                    <div className="text-[11px] sm:text-xs text-[#6f7ea0] mt-1 sm:mt-0.5 truncate">
+                      {recurringMeetings.length > 0 ? `כולל ${recurringMeetings.length} חוזרות` : 'ניהול פגישות'}
+                    </div>
+                  </Link>
                 </div>
-              ))}
-              {moreOpenTasks > 0 && (
-                <Link
-                  href="/tasks"
-                  className="block text-center text-xs text-[#8593b3] hover:text-[#2dd4bf] py-2 transition-colors"
-                >
-                  עוד {moreOpenTasks} משימות בדף המשימות
-                </Link>
-              )}
-            </div>
-          )}
-          {worldFilter && tasksList.some((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)) && (
-            <div className="mt-4">
-              <UnassignedHeading count={tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).length} />
-              <div className="space-y-2">
-                {tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).slice(0, 5).map((t) => (
+              </section>
+            </>
+          ) },
+          { id: 'actions', label: 'פעולות מהירות', node: (
+            <>
+              <section aria-label="פעולות מהירות">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
+                  <Link
+                    href="/meetings?new=1"
+                    className="btn btn-primary flex items-center gap-2 no-underline min-h-[44px]"
+                  >
+                    {SVG_PLUS}
+                    פגישה חדשה
+                  </Link>
                   <button
-                    key={t.id}
                     type="button"
-                    className="task-row w-full text-right"
+                    className="btn btn-secondary flex items-center gap-2 min-h-[44px]"
                     onClick={() => {
-                      setEditingTaskId(t.id)
+                      setEditingTaskId(null)
                       setTaskModalOpen(true)
                     }}
                   >
-                    <span className="flex-1 text-sm truncate">{t.title}</span>
-                    <WorldBadge workspaceId={null} />
+                    {SVG_PLUS}
+                    משימה חדשה
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
+                  <Link
+                    href="/calendar"
+                    className="btn btn-ghost flex items-center gap-2 no-underline min-h-[44px]"
+                  >
+                    {SVG_CALENDAR}
+                    יומן
+                  </Link>
+                </div>
+              </section>
+            </>
+          ) },
+          { id: 'conflicts', label: 'התנגשויות ביומן', node: (
+            <>
+              <ConflictsWidget />
+            </>
+          ) },
+          { id: 'waiting', label: 'חייבים לי היום', node: (
+            <>
+              <WaitingTodayCard />
+            </>
+          ) },
+          { id: 'harness', label: 'תובנות', node: (
+            <>
+              <HarnessWidget />
+            </>
+          ) },
+          { id: 'meetings', label: 'פגישות קרובות', half: true, node: (
+            <>
+                <section aria-label="פגישות קרובות" className="min-w-0 max-w-full overflow-hidden">
+                  <div className="flex items-center justify-between mb-4 gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                      <h2 className="text-base font-semibold text-[#eef3fb] truncate">פגישות קרובות</h2>
+                      {pastCount > 0 && (
+                        <button
+                          onClick={() => setShowPast((v) => !v)}
+                          aria-pressed={showPast}
+                          className="toggle-btn shrink-0"
+                        >
+                          {showPast ? 'הסתר עבר' : `עבר (${pastCount})`}
+                        </button>
+                      )}
+                    </div>
+                    <Link href="/meetings" className="section-link shrink-0">
+                      {SVG_ARROW_LEFT}
+                      הכל
+                    </Link>
+                  </div>
 
-      {/* ── Feed (lowest priority — progressive disclosure) ──── */}
-      <FeedWidget />
+                  {upcomingMeetings.length === 0 ? (
+                    <div className="card text-sm text-[#6f7ea0] py-4 px-5">
+                      אין פגישות קרובות
+                    </div>
+                  ) : (
+                    <div className="space-y-2 min-w-0 max-w-full">
+                      {upcomingMeetings.map((m) => {
+                        const past = isPastMeeting(m.date, m.time, timezone)
+                        return (
+                          <Link
+                            key={m.id}
+                            href={`/meetings/${m.id}`}
+                            className={`meeting-card min-w-0 max-w-full overflow-hidden ${past ? 'opacity-55 grayscale-[20%]' : ''}`}
+                          >
+                            <div className={`font-semibold text-sm truncate ${past ? 'text-[#7a89ab]' : 'text-[#eef3fb]'}`}>
+                              {m.title}
+                            </div>
+                            <WorldBadge workspaceId={m.workspaceId} />
+                            <div className="text-xs text-[#8593b3] mt-1.5 truncate">
+                              {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')} · {m.time}
+                              {m.recurring ? ` · ${DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}` : ''}
+                              {past ? ' · עבר' : ''}
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {worldFilter && unassignedMeetings.some((m) => !isPastMeeting(m.date, m.time, timezone)) && (
+                    <div className="mt-4">
+                      <UnassignedHeading count={unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).length} />
+                      <div className="space-y-2">
+                        {unassignedMeetings.filter((m) => !isPastMeeting(m.date, m.time, timezone)).slice(0, 5).map((m) => (
+                          <Link key={m.id} href={`/meetings/${m.id}`} className="meeting-card block">
+                            <div className="font-semibold text-sm text-[#eef3fb] truncate">{m.title}</div>
+                            <WorldBadge workspaceId={null} />
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+            </>
+          ) },
+          { id: 'tasks', label: 'המשימות שלי', half: true, node: (
+            <>
+                <section aria-label="המשימות שלי" className="min-w-0 max-w-full overflow-hidden">
+                  <div className="flex items-center justify-between mb-3 gap-2 min-w-0">
+                    <h2 className="text-base font-semibold text-[#eef3fb] truncate">המשימות שלי</h2>
+                    <Link href="/tasks" className="section-link shrink-0">
+                      {SVG_ARROW_LEFT}
+                      לרשימה
+                    </Link>
+                  </div>
+                  <div className="mb-3">
+                    <ThenBySort
+                      value={effectiveSort}
+                      onChange={setTaskSortAndPersist}
+                      fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
+                      showReset={hasOverride}
+                      onReset={resetToDefault}
+                    />
+                  </div>
+
+                  {openTasks.length === 0 ? (
+                    <div className="card text-sm text-[#6f7ea0] py-4 px-5">
+                      אין משימות שמוקצות אליך
+                    </div>
+                  ) : (
+                    <div className="space-y-2 min-w-0 max-w-full">
+                      {previewGroups.map((group) => (
+                        <div key={group.key}>
+                          <div className="text-xs font-semibold text-[#7a89ab] mb-1">{group.label}</div>
+                          {group.tasks.map((t) => {
+                        const priorityKey = t.priority as keyof typeof PRIORITY_COLORS
+                        const priorityColor = PRIORITY_COLORS[priorityKey] ?? PRIORITY_COLORS.medium
+                        const priorityLabel = PRIORITY_LABELS[priorityKey] ?? PRIORITY_LABELS.medium
+
+                        return (
+                          <div key={t.id} className="task-row dashboard-open-task">
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={t.done}
+                              aria-label={`סמן "${t.title}" כבוצע`}
+                              className="checkbox-btn shrink-0"
+                              onClick={() => toggleTask.mutate({ id: t.id })}
+                            >
+                              {t.done && (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                                  <path d="M2 5.5L4 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="dashboard-open-task__title"
+                              dir="auto"
+                              onClick={() => {
+                                setEditingTaskId(t.id)
+                                setTaskModalOpen(true)
+                              }}
+                              title={t.title}
+                            >
+                              {t.title}
+                            </button>
+                            <WorldBadge workspaceId={t.workspaceId} />
+                            {formatDueLabel(t) && (
+                              <span className="text-[11px] text-[#647399] shrink-0">{formatDueLabel(t)}</span>
+                            )}
+                            <span
+                              className="dashboard-open-task__dot"
+                              style={{ background: priorityColor }}
+                              title={`עדיפות ${priorityLabel}`}
+                              aria-label={`עדיפות ${priorityLabel}`}
+                            />
+                          </div>
+                        )
+                          })}
+                        </div>
+                      ))}
+                      {moreOpenTasks > 0 && (
+                        <Link
+                          href="/tasks"
+                          className="block text-center text-xs text-[#8593b3] hover:text-[#2dd4bf] py-2 transition-colors"
+                        >
+                          עוד {moreOpenTasks} משימות בדף המשימות
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                  {worldFilter && tasksList.some((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)) && (
+                    <div className="mt-4">
+                      <UnassignedHeading count={tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).length} />
+                      <div className="space-y-2">
+                        {tasksList.filter((t) => !t.workspaceId && !t.done && isMyTask(t.assigneeId, selfPerson?.id)).slice(0, 5).map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className="task-row w-full text-right"
+                            onClick={() => {
+                              setEditingTaskId(t.id)
+                              setTaskModalOpen(true)
+                            }}
+                          >
+                            <span className="flex-1 text-sm truncate">{t.title}</span>
+                            <WorldBadge workspaceId={null} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+            </>
+          ) },
+          { id: 'feed', label: 'פיד', node: (
+            <>
+              <FeedWidget />
+            </>
+          ) },
+        ]}
+      />
 
       <TaskModal
         open={taskModalOpen}

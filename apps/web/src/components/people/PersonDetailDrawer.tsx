@@ -16,6 +16,7 @@ import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { PersonContextCard } from './PersonContextCard'
 import { PersonAffiliations } from './PersonAffiliations'
 import { PersonAliases } from './PersonAliases'
+import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
 import { WaitingView, flattenWaiting } from '@/components/waiting/WaitingList'
 import { StatusButton } from '@/components/StatusButton'
 
@@ -358,377 +359,405 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ scrollbarWidth: 'thin' }}>
-          {/* Tasks come first: what this person owes me, then related tasks */}
-          <section className="mb-6" data-testid="person-tasks-first">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <CheckSquare className="w-3.5 h-3.5" />
-                משימות ({taskCount + waitingCount})
-              </h3>
-              {waitingCount > 0 && (
-                <div className="mb-3" data-testid="person-owes-me">
-                  <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">חייב/ת לי</div>
-                  <WaitingView buckets={waiting!} view="time" showPerson={false} />
-                </div>
-              )}
-              {waitingCount === 0 && taskCount === 0 && (
-                <p className="text-xs text-[#5a688c]">אין משימות פתוחות</p>
-              )}
-              {taskCount > 0 && waitingCount > 0 && (
-                <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">עוד משימות קשורות</div>
-              )}
-              <div className="space-y-2">
-                {taskGroups.map((group) => (
-                  <div key={group.key}>
-                    <div className="text-[11px] font-semibold text-[#7a89ab] mt-2">{group.label}</div>
-                    {group.tasks.map((task) => (
-                  <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toggleTaskDone.mutate({ id: task.id })
-                        }}
-                        disabled={toggleTaskDone.isPending}
-                        className={cn(
-                          'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf] focus-visible:ring-offset-1 focus-visible:ring-offset-[#16233b]',
-                          task.done ? 'bg-success border-success text-white' : 'border-[#4d659c] hover:border-[#647399] hover:bg-[#29395d]'
-                        )}
-                        title={task.done ? 'בטל סימון' : 'סמן בוצע'}
-                        aria-label={task.done ? 'בטל סימון משימה' : 'סמן משימה כבוצעה'}
-                      >
-                        {task.done && <CheckSquare className="w-3 h-3" strokeWidth={2.5} />}
-                      </button>
-                      <StatusButton
-                        taskId={task.id}
-                        status={task.status}
-                        disabled={task.done}
-                        onUpdated={() => { void utils.people.getRelated.invalidate({ id: personId }) }}
-                      />
-                      <button
-                        type="button"
-                        className={cn(
-                          'text-xs truncate flex-1 text-right hover:text-[#eef3fb] transition-colors',
-                          task.done ? 'text-[#5a688c] line-through' : 'text-[#97a4c2]'
-                        )}
-                        onClick={() => {
-                          setEditingTaskId(task.id)
-                          setTaskModalOpen(true)
-                        }}
-                        title="פתח משימה"
-                      >
-                        {task.title}
-                      </button>
-                      {task.workspaceName && (
-                        <WorkspacePill
-                          workspace={{ id: task.workspaceId!, name: task.workspaceName, color: task.workspaceColor }}
-                        />
-                      )}
-                      {task.dueDate && (
-                        <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
-                          {format(new Date(task.dueDate), 'dd/MM')}
-                        </span>
-                      )}
-                    </div>
-                    {(task.meetingTitle || task.projectName) && (
-                      <div className="text-[10px] text-[#5a688c] pr-6 flex flex-wrap gap-x-2 gap-y-0">
-                        {task.meetingTitle && (
-                          <span>מפגישה: {task.meetingTitle}{task.meetingDate ? ` (${format(new Date(task.meetingDate), 'dd/MM/yy')})` : ''}</span>
-                        )}
-                        {task.projectName && (
-                          <span>פרויקט: {task.projectName}</span>
-                        )}
+          <ReorderableBlocks
+            screen="person"
+            tightGap
+            blocks={[
+              { id: 'tasks', label: 'משימות', node: (
+                <>
+                <section className="mb-6" data-testid="person-tasks-first">
+                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      משימות ({taskCount + waitingCount})
+                    </h3>
+                    {waitingCount > 0 && (
+                      <div className="mb-3" data-testid="person-owes-me">
+                        <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">חייב/ת לי</div>
+                        <WaitingView buckets={waiting!} view="time" showPerson={false} />
                       </div>
                     )}
-                  </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-
-          {/* Key fields */}
-          <section className="mb-6">
-            <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">פרטים</h3>
-            {editing ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="label">שם</label>
-                  <input className="input" value={form.name} onChange={set('name')} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <CreatableSelect
-                      label="תפקיד"
-                      value={form.role}
-                      options={filterOptions?.roles ?? []}
-                      onChange={v => setForm(f => ({ ...f, role: v }))}
-                      placeholder="תפקיד"
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Job Title</label>
-                    <input className="input" value={form.jobTitle} onChange={set('jobTitle')} />
-                  </div>
-                </div>
-                <div>
-                  <CreatableSelect
-                    label="חברה"
-                    value={form.company}
-                    options={filterOptions?.companies ?? []}
-                    onChange={v => setForm(f => ({ ...f, company: v }))}
-                    placeholder="חברה"
-                  />
-                </div>
-                <div>
-                  <label className="label">אימייל</label>
-                  <input className="input" value={form.email} onChange={set('email')} />
-                </div>
-                <div>
-                  <label className="label">טלפון</label>
-                  <input className="input" value={form.phone} onChange={set('phone')} dir="ltr" />
-                </div>
-                <div>
-                  <label className="label">LinkedIn</label>
-                  <input className="input" value={form.linkedin} onChange={set('linkedin')} dir="ltr" />
-                </div>
-                <div>
-                  <CreatableMultiSelect
-                    label="תגיות"
-                    value={form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []}
-                    options={filterOptions?.tags ?? []}
-                    onChange={arr => setForm(f => ({ ...f, tags: arr.join(', ') }))}
-                    placeholder="בחר או הוסף תגיות"
-                  />
-                </div>
-                <div>
-                  <CreatableMultiSelect
-                    label="מומחיות"
-                    value={form.expertIn ? form.expertIn.split(',').map(e => e.trim()).filter(Boolean) : []}
-                    options={filterOptions?.expertIn ?? []}
-                    onChange={arr => setForm(f => ({ ...f, expertIn: arr.join(', ') }))}
-                    placeholder="בחר או הוסף מומחיות"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <CreatableSelect
-                      label="יעד קשר"
-                      value={form.goal}
-                      options={(filterOptions?.goals?.length ? filterOptions.goals : GOAL_OPTIONS) as string[]}
-                      onChange={v => setForm(f => ({ ...f, goal: v }))}
-                      placeholder="ללא"
-                    />
-                  </div>
-                  <div>
-                    <label className="label">תדירות (ימים)</label>
-                    <input className="input" type="number" min="1" value={form.contactFrequencyDays} onChange={set('contactFrequencyDays')} />
-                  </div>
-                </div>
-                <div>
-                  <label className="label">קשר אחרון</label>
-                  <input className="input" type="date" value={form.lastContact} onChange={set('lastContact')} />
-                </div>
-                <div>
-                  <label className="label">צבע</label>
-                  <div className="flex gap-2">
-                    {COLORS.map(c => (
-                      <div
-                        key={c}
-                        onClick={() => setForm(f => ({ ...f, color: c }))}
-                        className="w-7 h-7 rounded-full cursor-pointer border-[3px] transition-all"
-                        style={{
-                          background: c,
-                          borderColor: form.color === c ? 'white' : 'transparent',
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="label">הערות</label>
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={form.notes}
-                    onChange={set('notes')}
-                    style={{ resize: 'vertical' }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <FieldRow label="תפקיד" value={person.jobTitle || person.role} />
-                <FieldRow label="חברה" value={person.company} />
-                <FieldRow label="אימייל" value={person.email} dir="ltr" />
-                <FieldRow label="טלפון" value={person.phone} dir="ltr" />
-                {person.tags && (
-                  <div>
-                    <span className="text-[11px] text-[#5a688c]">תגיות</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {person.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
-                        <span key={tag} className="pill text-[10px]">{tag}</span>
+                    {waitingCount === 0 && taskCount === 0 && (
+                      <p className="text-xs text-[#5a688c]">אין משימות פתוחות</p>
+                    )}
+                    {taskCount > 0 && waitingCount > 0 && (
+                      <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">עוד משימות קשורות</div>
+                    )}
+                    <div className="space-y-2">
+                      {taskGroups.map((group) => (
+                        <div key={group.key}>
+                          <div className="text-[11px] font-semibold text-[#7a89ab] mt-2">{group.label}</div>
+                          {group.tasks.map((task) => (
+                        <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toggleTaskDone.mutate({ id: task.id })
+                              }}
+                              disabled={toggleTaskDone.isPending}
+                              className={cn(
+                                'w-5 h-5 rounded-sm border-2 shrink-0 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf] focus-visible:ring-offset-1 focus-visible:ring-offset-[#16233b]',
+                                task.done ? 'bg-success border-success text-white' : 'border-[#4d659c] hover:border-[#647399] hover:bg-[#29395d]'
+                              )}
+                              title={task.done ? 'בטל סימון' : 'סמן בוצע'}
+                              aria-label={task.done ? 'בטל סימון משימה' : 'סמן משימה כבוצעה'}
+                            >
+                              {task.done && <CheckSquare className="w-3 h-3" strokeWidth={2.5} />}
+                            </button>
+                            <StatusButton
+                              taskId={task.id}
+                              status={task.status}
+                              disabled={task.done}
+                              onUpdated={() => { void utils.people.getRelated.invalidate({ id: personId }) }}
+                            />
+                            <button
+                              type="button"
+                              className={cn(
+                                'text-xs truncate flex-1 text-right hover:text-[#eef3fb] transition-colors',
+                                task.done ? 'text-[#5a688c] line-through' : 'text-[#97a4c2]'
+                              )}
+                              onClick={() => {
+                                setEditingTaskId(task.id)
+                                setTaskModalOpen(true)
+                              }}
+                              title="פתח משימה"
+                            >
+                              {task.title}
+                            </button>
+                            {task.workspaceName && (
+                              <WorkspacePill
+                                workspace={{ id: task.workspaceId!, name: task.workspaceName, color: task.workspaceColor }}
+                              />
+                            )}
+                            {task.dueDate && (
+                              <span className="text-[10px] text-[#5a688c] tabular-nums shrink-0">
+                                {format(new Date(task.dueDate), 'dd/MM')}
+                              </span>
+                            )}
+                          </div>
+                          {(task.meetingTitle || task.projectName) && (
+                            <div className="text-[10px] text-[#5a688c] pr-6 flex flex-wrap gap-x-2 gap-y-0">
+                              {task.meetingTitle && (
+                                <span>מפגישה: {task.meetingTitle}{task.meetingDate ? ` (${format(new Date(task.meetingDate), 'dd/MM/yy')})` : ''}</span>
+                              )}
+                              {task.projectName && (
+                                <span>פרויקט: {task.projectName}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                          ))}
+                        </div>
                       ))}
                     </div>
-                  </div>
+                  </section>
+                </>
+              ) },
+              { id: 'details', label: 'פרטים', node: (
+                <>
+                <section className="mb-6">
+                  <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">פרטים</h3>
+                  {editing ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="label">שם</label>
+                        <input className="input" value={form.name} onChange={set('name')} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <CreatableSelect
+                            label="תפקיד"
+                            value={form.role}
+                            options={filterOptions?.roles ?? []}
+                            onChange={v => setForm(f => ({ ...f, role: v }))}
+                            placeholder="תפקיד"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">Job Title</label>
+                          <input className="input" value={form.jobTitle} onChange={set('jobTitle')} />
+                        </div>
+                      </div>
+                      <div>
+                        <CreatableSelect
+                          label="חברה"
+                          value={form.company}
+                          options={filterOptions?.companies ?? []}
+                          onChange={v => setForm(f => ({ ...f, company: v }))}
+                          placeholder="חברה"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">אימייל</label>
+                        <input className="input" value={form.email} onChange={set('email')} />
+                      </div>
+                      <div>
+                        <label className="label">טלפון</label>
+                        <input className="input" value={form.phone} onChange={set('phone')} dir="ltr" />
+                      </div>
+                      <div>
+                        <label className="label">LinkedIn</label>
+                        <input className="input" value={form.linkedin} onChange={set('linkedin')} dir="ltr" />
+                      </div>
+                      <div>
+                        <CreatableMultiSelect
+                          label="תגיות"
+                          value={form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []}
+                          options={filterOptions?.tags ?? []}
+                          onChange={arr => setForm(f => ({ ...f, tags: arr.join(', ') }))}
+                          placeholder="בחר או הוסף תגיות"
+                        />
+                      </div>
+                      <div>
+                        <CreatableMultiSelect
+                          label="מומחיות"
+                          value={form.expertIn ? form.expertIn.split(',').map(e => e.trim()).filter(Boolean) : []}
+                          options={filterOptions?.expertIn ?? []}
+                          onChange={arr => setForm(f => ({ ...f, expertIn: arr.join(', ') }))}
+                          placeholder="בחר או הוסף מומחיות"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <CreatableSelect
+                            label="יעד קשר"
+                            value={form.goal}
+                            options={(filterOptions?.goals?.length ? filterOptions.goals : GOAL_OPTIONS) as string[]}
+                            onChange={v => setForm(f => ({ ...f, goal: v }))}
+                            placeholder="ללא"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">תדירות (ימים)</label>
+                          <input className="input" type="number" min="1" value={form.contactFrequencyDays} onChange={set('contactFrequencyDays')} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="label">קשר אחרון</label>
+                        <input className="input" type="date" value={form.lastContact} onChange={set('lastContact')} />
+                      </div>
+                      <div>
+                        <label className="label">צבע</label>
+                        <div className="flex gap-2">
+                          {COLORS.map(c => (
+                            <div
+                              key={c}
+                              onClick={() => setForm(f => ({ ...f, color: c }))}
+                              className="w-7 h-7 rounded-full cursor-pointer border-[3px] transition-all"
+                              style={{
+                                background: c,
+                                borderColor: form.color === c ? 'white' : 'transparent',
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="label">הערות</label>
+                        <textarea
+                          className="input"
+                          rows={3}
+                          value={form.notes}
+                          onChange={set('notes')}
+                          style={{ resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <FieldRow label="תפקיד" value={person.jobTitle || person.role} />
+                      <FieldRow label="חברה" value={person.company} />
+                      <FieldRow label="אימייל" value={person.email} dir="ltr" />
+                      <FieldRow label="טלפון" value={person.phone} dir="ltr" />
+                      {person.tags && (
+                        <div>
+                          <span className="text-[11px] text-[#5a688c]">תגיות</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {person.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                              <span key={tag} className="pill text-[10px]">{tag}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <FieldRow label="מומחיות" value={person.expertIn} />
+                      <FieldRow label="יעד קשר" value={person.goal} />
+                      {person.contactFrequencyDays && (
+                        <FieldRow label="תדירות" value={`כל ${person.contactFrequencyDays} ימים`} />
+                      )}
+                      {person.lastContact && (
+                        <FieldRow
+                          label="קשר אחרון"
+                          value={formatDistanceToNow(new Date(person.lastContact), { addSuffix: true, locale: he })}
+                        />
+                      )}
+                      {person.notes && (
+                        <div>
+                          <span className="text-[11px] text-[#5a688c]">הערות</span>
+                          <p className="text-sm text-[#b8c4dc] mt-1 whitespace-pre-wrap leading-relaxed">{person.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+                </>
+              ) },
+              { id: 'aliases', label: 'שמות נוספים', node: (
+                <>
+                <PersonAliases personId={personId} />
+                </>
+              ) },
+              { id: 'affiliations', label: 'שיוכים', node: (
+                <>
+                <PersonAffiliations personId={personId} />
+                </>
+              ) },
+              { id: 'cadence', label: 'תדירות קשר', node: (
+                <>
+                {related?.cadence && (related.cadence.totalMeetings > 0) && (
+                  <section className="mb-5">
+                    <div
+                      className="rounded-lg px-3 py-2 text-xs"
+                      style={{ background: '#141f36', border: '1px solid #29395d', color: '#97a4c2' }}
+                    >
+                      {related.cadence.isRecurring ? '↻ קשר חוזר' : 'קשר'}
+                      {' · '}
+                      {related.cadence.recentCount > 0
+                        ? `${related.cadence.recentCount} מפגשים ב-${related.cadence.weeks} השבועות האחרונים`
+                        : `${related.cadence.totalMeetings} מפגשים בסך הכול`}
+                    </div>
+                  </section>
                 )}
-                <FieldRow label="מומחיות" value={person.expertIn} />
-                <FieldRow label="יעד קשר" value={person.goal} />
-                {person.contactFrequencyDays && (
-                  <FieldRow label="תדירות" value={`כל ${person.contactFrequencyDays} ימים`} />
+                </>
+              ) },
+              { id: 'context', label: 'הקשר', node: (
+                <>
+                {personContext && <PersonContextCard personId={personId} />}
+                </>
+              ) },
+              { id: 'identities', label: 'זהויות חיצוניות', node: (
+                <>
+                {related?.identities && related.identities.length > 0 && (
+                  <section className="mb-5">
+                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">
+                      מקורות זהות
+                    </h3>
+                    <div className="flex flex-wrap gap-1.5">
+                      {related.identities.map((id) => (
+                        <span key={id.id} className="pill text-[10px]">
+                          {identityChipLabel(id.provider, id.accountKey)}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
                 )}
-                {person.lastContact && (
-                  <FieldRow
-                    label="קשר אחרון"
-                    value={formatDistanceToNow(new Date(person.lastContact), { addSuffix: true, locale: he })}
-                  />
-                )}
-                {person.notes && (
-                  <div>
-                    <span className="text-[11px] text-[#5a688c]">הערות</span>
-                    <p className="text-sm text-[#b8c4dc] mt-1 whitespace-pre-wrap leading-relaxed">{person.notes}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
-          <PersonAliases personId={personId} />
-
-          <PersonAffiliations personId={personId} />
-
-          {/* Cadence summary */}
-          {related?.cadence && (related.cadence.totalMeetings > 0) && (
-            <section className="mb-5">
-              <div
-                className="rounded-lg px-3 py-2 text-xs"
-                style={{ background: '#141f36', border: '1px solid #29395d', color: '#97a4c2' }}
-              >
-                {related.cadence.isRecurring ? '↻ קשר חוזר' : 'קשר'}
-                {' · '}
-                {related.cadence.recentCount > 0
-                  ? `${related.cadence.recentCount} מפגשים ב-${related.cadence.weeks} השבועות האחרונים`
-                  : `${related.cadence.totalMeetings} מפגשים בסך הכול`}
-              </div>
-            </section>
-          )}
-
-          {/* Relationship insights */}
-          {personContext && <PersonContextCard personId={personId} />}
-
-          {/* External identities */}
-          {related?.identities && related.identities.length > 0 && (
-            <section className="mb-5">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-2">
-                מקורות זהות
-              </h3>
-              <div className="flex flex-wrap gap-1.5">
-                {related.identities.map((id) => (
-                  <span key={id.id} className="pill text-[10px]">
-                    {identityChipLabel(id.provider, id.accountKey)}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Projects — always shown so the user can link from the person */}
-          <section className="mb-6">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider">
-                פרויקטים ({related?.projects?.length ?? 0})
-              </h3>
-              <SearchableAddSelect
-                id="person-add-project"
-                triggerLabel="+ שייך לפרויקט"
-                placeholder="חיפוש פרויקט..."
-                emptyLabel="לא נמצא פרויקט"
-                disabled={addToProject.isPending}
-                options={allProjects
-                  .filter((p) => !(related?.projects ?? []).some((linked) => linked.id === p.id))
-                  .map((p) => ({
-                    id: p.id,
-                    name: p.name,
-                    color: p.color,
-                  }))}
-                onAdd={(projectId) => addToProject.mutate({ projectId, personId })}
-              />
-            </div>
-            <div className="space-y-2">
-              {(related?.projects ?? []).length === 0 && (
-                <p className="text-xs text-[#5a688c]">לא משויך לפרויקטים — בחר מהרשימה למעלה</p>
-              )}
-              {(related?.projects ?? []).map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-2 py-2 border-b border-[#223052] last:border-0 text-xs"
-                >
-                  <a
-                    href={`/projects/${p.id}`}
-                    className="flex items-center gap-2 flex-1 min-w-0 text-[#97a4c2] hover:text-[#eef3fb]"
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ background: p.color ?? '#38bdf8' }}
+                </>
+              ) },
+              { id: 'projects', label: 'פרויקטים', node: (
+                <>
+                <section className="mb-6">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider">
+                      פרויקטים ({related?.projects?.length ?? 0})
+                    </h3>
+                    <SearchableAddSelect
+                      id="person-add-project"
+                      triggerLabel="+ שייך לפרויקט"
+                      placeholder="חיפוש פרויקט..."
+                      emptyLabel="לא נמצא פרויקט"
+                      disabled={addToProject.isPending}
+                      options={allProjects
+                        .filter((p) => !(related?.projects ?? []).some((linked) => linked.id === p.id))
+                        .map((p) => ({
+                          id: p.id,
+                          name: p.name,
+                          color: p.color,
+                        }))}
+                      onAdd={(projectId) => addToProject.mutate({ projectId, personId })}
                     />
-                    <span className="truncate">{p.name}</span>
-                  </a>
-                  <button
-                    type="button"
-                    className="text-[#5a688c] hover:text-[#fb7185] shrink-0 px-1"
-                    title="הסר שיוך"
-                    disabled={removeFromProject.isPending}
-                    onClick={() => removeFromProject.mutate({ projectId: p.id, personId })}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Meeting notes */}
-          {related?.meetingNotes && related.meetingNotes.length > 0 && (
-            <section className="mb-6">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">
-                סיכומי ישיבות ({related.meetingNotes.length})
-              </h3>
-              <div className="space-y-2">
-                {related.meetingNotes.map((note) => (
-                  <NotionSummaryCard
-                    key={note.id}
-                    note={note}
-                    titleHref={note.meetingId ? `/meetings/${note.meetingId}` : null}
-                    compact
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Activity timeline */}
-          {related && related.meetings.length > 0 && (
-            <section className="mb-6">
-              <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" />
-                פגישות ({related.meetings.length})
-              </h3>
-              <div className="space-y-2">
-                {related.meetings.slice(0, 10).map(meeting => (
-                  <div key={meeting.id} className="flex items-center gap-3 py-2 border-b border-[#223052] last:border-0">
-                    <span className="text-[10px] text-[#5a688c] tabular-nums w-[70px] shrink-0">
-                      {format(new Date(meeting.date), 'dd/MM/yy')}
-                    </span>
-                    <span className="text-xs text-[#97a4c2] truncate">{meeting.title}</span>
                   </div>
-                ))}
-                {related.meetings.length > 10 && (
-                  <p className="text-[11px] text-[#5a688c]">+ עוד {related.meetings.length - 10} פגישות</p>
+                  <div className="space-y-2">
+                    {(related?.projects ?? []).length === 0 && (
+                      <p className="text-xs text-[#5a688c]">לא משויך לפרויקטים — בחר מהרשימה למעלה</p>
+                    )}
+                    {(related?.projects ?? []).map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-2 py-2 border-b border-[#223052] last:border-0 text-xs"
+                      >
+                        <a
+                          href={`/projects/${p.id}`}
+                          className="flex items-center gap-2 flex-1 min-w-0 text-[#97a4c2] hover:text-[#eef3fb]"
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ background: p.color ?? '#38bdf8' }}
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </a>
+                        <button
+                          type="button"
+                          className="text-[#5a688c] hover:text-[#fb7185] shrink-0 px-1"
+                          title="הסר שיוך"
+                          disabled={removeFromProject.isPending}
+                          onClick={() => removeFromProject.mutate({ projectId: p.id, personId })}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                </>
+              ) },
+              { id: 'notes', label: 'סיכומי ישיבות', node: (
+                <>
+                {related?.meetingNotes && related.meetingNotes.length > 0 && (
+                  <section className="mb-6">
+                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">
+                      סיכומי ישיבות ({related.meetingNotes.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {related.meetingNotes.map((note) => (
+                        <NotionSummaryCard
+                          key={note.id}
+                          note={note}
+                          titleHref={note.meetingId ? `/meetings/${note.meetingId}` : null}
+                          compact
+                        />
+                      ))}
+                    </div>
+                  </section>
                 )}
-              </div>
-            </section>
-          )}
+                </>
+              ) },
+              { id: 'meetings', label: 'פגישות', node: (
+                <>
+                {related && related.meetings.length > 0 && (
+                  <section className="mb-6">
+                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" />
+                      פגישות ({related.meetings.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {related.meetings.slice(0, 10).map(meeting => (
+                        <div key={meeting.id} className="flex items-center gap-3 py-2 border-b border-[#223052] last:border-0">
+                          <span className="text-[10px] text-[#5a688c] tabular-nums w-[70px] shrink-0">
+                            {format(new Date(meeting.date), 'dd/MM/yy')}
+                          </span>
+                          <span className="text-xs text-[#97a4c2] truncate">{meeting.title}</span>
+                        </div>
+                      ))}
+                      {related.meetings.length > 10 && (
+                        <p className="text-[11px] text-[#5a688c]">+ עוד {related.meetings.length - 10} פגישות</p>
+                      )}
+                    </div>
+                  </section>
+                )}
+                </>
+              ) },
+            ]}
+          />
 
         </div>
 

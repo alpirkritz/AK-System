@@ -840,6 +840,7 @@ export const userSettings = sqliteTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
+  layoutPrefs: text('layout_prefs'), // JSON LayoutPrefs — block order per screen
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
   duplicatesNotifiedPairs: text('duplicates_notified_pairs'), // JSON string[] "idA|idB" already announced by the duplicates cron
   whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'), // null = code default for the evening digest

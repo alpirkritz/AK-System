@@ -14,6 +14,7 @@ import { UnassignedHeading } from '@/components/WorldBadge'
 import { useWorldFilter } from '@/lib/world-filter'
 import { SearchInput } from './components/SearchInput'
 import { QuickFilterButton } from './components/QuickFilterButton'
+import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
 import { TimelineSection } from './components/TimelineSection'
 import { MeetingCard, type MeetingCardData } from './components/MeetingCard'
 import { AdvancedFiltersPanel } from './components/AdvancedFiltersPanel'
@@ -546,7 +547,12 @@ export default function MeetingsPage() {
             </div>
           )}
 
-          <TimelineSection title="היום" count={grouped.today.length} defaultExpanded={true}>
+          <ReorderableBlocks
+  screen="meetings"
+  tightGap
+  blocks={[
+    { id: 'today', label: 'היום', node: (state) => (
+      <TimelineSection title="היום" count={grouped.today.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
             {grouped.today.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -560,8 +566,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="מחר" count={grouped.tomorrow.length} defaultExpanded={true}>
+    ) },
+    { id: 'tomorrow', label: 'מחר', node: (state) => (
+      <TimelineSection title="מחר" count={grouped.tomorrow.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
             {grouped.tomorrow.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -575,8 +582,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="השבוע" count={grouped.thisWeek.length} defaultExpanded={grouped.thisWeek.length <= 5}>
+    ) },
+    { id: 'thisWeek', label: 'השבוע', node: (state) => (
+      <TimelineSection title="השבוע" count={grouped.thisWeek.length} defaultExpanded={grouped.thisWeek.length <= 5} expanded={state.open} onToggle={state.onToggle}>
             {grouped.thisWeek.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -590,8 +598,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="שבוע הבא" count={grouped.nextWeek.length} defaultExpanded={false}>
+    ) },
+    { id: 'nextWeek', label: 'שבוע הבא', node: (state) => (
+      <TimelineSection title="שבוע הבא" count={grouped.nextWeek.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
             {grouped.nextWeek.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -605,8 +614,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="מאוחר יותר" count={grouped.later.length} defaultExpanded={false}>
+    ) },
+    { id: 'later', label: 'מאוחר יותר', node: (state) => (
+      <TimelineSection title="מאוחר יותר" count={grouped.later.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
             {grouped.later.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -620,6 +630,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
+    ) },
+  ]}
+/>
         </>
       )}
 
@@ -632,7 +645,12 @@ export default function MeetingsPage() {
             </div>
           ) : (
             <>
-              <TimelineSection title="אתמול" count={groupedPast.yesterday.length} defaultExpanded={true}>
+              <ReorderableBlocks
+  screen="meetings"
+  tightGap
+  blocks={[
+    { id: 'p-yesterday', label: 'אתמול', node: (state) => (
+      <TimelineSection title="אתמול" count={groupedPast.yesterday.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
                 {groupedPast.yesterday.map((m) => (
                   <MeetingCard
                     key={m.id}
@@ -647,8 +665,9 @@ export default function MeetingsPage() {
                   />
                 ))}
               </TimelineSection>
-
-              <TimelineSection title="השבוע" count={groupedPast.thisWeek.length} defaultExpanded={true}>
+    ) },
+    { id: 'p-thisWeek', label: 'השבוע', node: (state) => (
+      <TimelineSection title="השבוע" count={groupedPast.thisWeek.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
                 {groupedPast.thisWeek.map((m) => (
                   <MeetingCard
                     key={m.id}
@@ -663,8 +682,9 @@ export default function MeetingsPage() {
                   />
                 ))}
               </TimelineSection>
-
-              <TimelineSection title="החודש" count={groupedPast.thisMonth.length} defaultExpanded={groupedPast.thisMonth.length <= 5}>
+    ) },
+    { id: 'p-thisMonth', label: 'החודש', node: (state) => (
+      <TimelineSection title="החודש" count={groupedPast.thisMonth.length} defaultExpanded={groupedPast.thisMonth.length <= 5} expanded={state.open} onToggle={state.onToggle}>
                 {groupedPast.thisMonth.map((m) => (
                   <MeetingCard
                     key={m.id}
@@ -679,8 +699,9 @@ export default function MeetingsPage() {
                   />
                 ))}
               </TimelineSection>
-
-              <TimelineSection title="מוקדם יותר" count={groupedPast.older.length} defaultExpanded={false}>
+    ) },
+    { id: 'p-older', label: 'מוקדם יותר', node: (state) => (
+      <TimelineSection title="מוקדם יותר" count={groupedPast.older.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
                 {groupedPast.older.map((m) => (
                   <MeetingCard
                     key={m.id}
@@ -695,6 +716,9 @@ export default function MeetingsPage() {
                   />
                 ))}
               </TimelineSection>
+    ) },
+  ]}
+/>
             </>
           )}
         </>

@@ -1050,6 +1050,8 @@ export const userSettings = pgTable('user_settings', {
   dashboardPrefs: text('dashboard_prefs'),
   /** JSON ListSortPrefs — multi-level sort defaults for dashboard, /tasks, meetings past */
   listSortPrefs: text('list_sort_prefs'),
+  /** JSON LayoutPrefs — order and hidden blocks per screen (dashboard, person, meetings) */
+  layoutPrefs: text('layout_prefs'),
   /** Auto-create tasks from meeting analysis action items */
   autoCreateActionItemTasks: boolean('auto_create_action_item_tasks').notNull().default(false),
   duplicatesNotifiedPairs: text('duplicates_notified_pairs'),
