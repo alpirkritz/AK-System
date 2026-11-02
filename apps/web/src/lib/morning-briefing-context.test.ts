@@ -117,4 +117,22 @@ describe('formatMorningBriefingContext commitments', () => {
     expect(text).not.toContain('אין אירועים')
     expect(text).toContain('זכור לטפל:')
   })
+
+  it('lists what others owe me today, what first, late items marked', () => {
+    const text = formatMorningBriefingContext('2026-11-02', [], [], [], {
+      waiting: {
+        overdue: [{ personName: 'דני', title: 'לשלוח הצעה', dueDate: '2026-10-30' }],
+        today: [{ personName: 'ולרי', title: 'להעביר חוזה', dueDate: '2026-11-02' }],
+      },
+    })
+    expect(text).toContain('חייבים לי היום:')
+    expect(text).toContain('• לשלוח הצעה — דני (באיחור)')
+    expect(text).toContain('• להעביר חוזה — ולרי')
+    expect(text).not.toContain('אין אירועים')
+  })
+
+  it('omits the waiting section when nobody owes anything today', () => {
+    const text = formatMorningBriefingContext('2026-11-02', [], [], [], { waiting: { overdue: [], today: [] } })
+    expect(text).not.toContain('חייבים לי')
+  })
 })

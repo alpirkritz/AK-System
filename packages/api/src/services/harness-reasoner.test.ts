@@ -314,7 +314,8 @@ describe('retire-on-miss', () => {
       kind: 'spend_spike_vs_meetings', title: 'חדש', body: 'ב', severity: 'attention',
       score: 0.5, personId: null, sources: [], dedupeKey: 'spend_spike_vs_meetings:2026-10', ttlDays: 7,
     }
-    await reasonAndPersist(db)  // no real data so detectors fire nothing; all open insights get retired
+    // Pinned outside any VAT filing month: with the real clock the VAT detector fires in Nov/Jan/….
+    await reasonAndPersist(db, new Date('2026-10-12T12:00:00.000Z'))  // no data, so detectors fire nothing; all open insights get retired
 
     const all = await db.select().from(harnessInsights)
     expect(all.every((r) => r.status === 'retired')).toBe(true)

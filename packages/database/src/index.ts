@@ -151,6 +151,30 @@ const PERSON_CONTEXT_TABLES = [
     created_at TEXT NOT NULL
   )`,
   'CREATE UNIQUE INDEX IF NOT EXISTS uq_duplicate_reviews_pair ON duplicate_reviews(person_id_a, person_id_b)',
+  `CREATE TABLE IF NOT EXISTS person_aliases (
+    id TEXT PRIMARY KEY,
+    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL,
+    alias_norm TEXT NOT NULL,
+    source TEXT NOT NULL,
+    origin TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  'ALTER TABLE person_aliases ADD COLUMN origin TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_person_aliases_person_id ON person_aliases(person_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS uq_person_aliases_alias_norm ON person_aliases(alias_norm)',
+  `CREATE TABLE IF NOT EXISTS identity_queue (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_norm TEXT NOT NULL,
+    source TEXT NOT NULL,
+    context TEXT,
+    candidate_person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_identity_queue_status ON identity_queue(status)',
+  'CREATE INDEX IF NOT EXISTS idx_identity_queue_name_norm ON identity_queue(name_norm)',
 ]
 
 const WHATSAPP_DM_TABLES = [
@@ -1767,6 +1791,8 @@ export const seriesRoster = schema.seriesRoster
 export const meetingRosterExceptions = schema.meetingRosterExceptions
 export const whatsappPersonLinks = schema.whatsappPersonLinks
 export const duplicateReviews = schema.duplicateReviews
+export const personAliases = schema.personAliases
+export const identityQueue = schema.identityQueue
 export const whatsappDmMessages = schema.whatsappDmMessages
 export const whatsappDmSummaries = schema.whatsappDmSummaries
 export const commitments = schema.commitments
@@ -1908,6 +1934,8 @@ export type SeriesRosterRow = typeof schemaPg.seriesRoster.$inferSelect
 export type MeetingRosterException = typeof schemaPg.meetingRosterExceptions.$inferSelect
 export type WhatsappPersonLink = typeof schemaPg.whatsappPersonLinks.$inferSelect
 export type DuplicateReview = typeof schemaPg.duplicateReviews.$inferSelect
+export type PersonAlias = typeof schemaPg.personAliases.$inferSelect
+export type IdentityQueueRow = typeof schemaPg.identityQueue.$inferSelect
 export type WhatsappDmMessage = typeof schemaPg.whatsappDmMessages.$inferSelect
 export type WhatsappDmSummary = typeof schemaPg.whatsappDmSummaries.$inferSelect
 export type Commitment = typeof schemaPg.commitments.$inferSelect

@@ -139,7 +139,7 @@ export default function PeopleDuplicatesPage() {
                         disabled={merge.isPending}
                         onClick={() => merge.mutate({ fromId: dropped.person.id, toId: kept.person.id })}
                       >
-                        {merge.isPending ? 'ממזג…' : 'מזג'}
+                        {merge.isPending ? 'ממזג…' : 'מזג וזכור את השם'}
                       </button>
                     </div>
                   ) : (

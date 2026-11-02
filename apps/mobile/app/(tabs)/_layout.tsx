@@ -31,6 +31,7 @@ const HIDDEN_SCREENS: { name: string; title: string }[] = [
   { name: 'relationships', title: 'קשרים' },
   { name: 'reading-list', title: 'רשימת קריאה' },
   { name: 'commitments', title: 'התחייבויות לאישור' },
+  { name: 'waiting', title: 'חייבים לי' },
   { name: 'record', title: 'הקלטת שיחה' },
   { name: 'import-recording', title: 'ייבוא הקלטה' },
   { name: 'agents', title: 'סוכנים' },

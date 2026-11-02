@@ -108,6 +108,11 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       return undefined
     })
 
+    const waiting = await caller.waiting.list().catch((err) => {
+      console.warn('[cron/morning-briefing] waiting unavailable:', err)
+      return undefined
+    })
+
     // Same contract as finance above: the harness enriches the brief, it never blocks it.
     const harnessInsights = await caller.harness
       .insights({ limit: 3, severity: 'attention' })
@@ -121,7 +126,7 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
-      { includeDueTasks, coolingFlags, commitments, harnessLines: formatInsightLines(harnessInsights) },
+      { includeDueTasks, coolingFlags, commitments, waiting, harnessLines: formatInsightLines(harnessInsights) },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

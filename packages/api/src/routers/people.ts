@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
+  identityQueue,
   people,
   personExternalIds,
   meetings,
@@ -28,6 +29,7 @@ import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from '../services/self-person'
 import { repointPersonExternalIds } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
+import { AliasConflictError, addAlias, listAliases, moveAliasesOnMerge, removeAlias } from '../services/person-resolution'
 import { createNotification } from '../lib/notification-store'
 import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
 import {
@@ -553,6 +555,8 @@ export const peopleRouter = router({
         if (Object.keys(fill).length > 0) await ctx.db.update(people).set(fill).where(eq(people.id, input.toId))
       }
 
+      await moveAliasesOnMerge(ctx.db, input.fromId, input.toId)
+
       // Remove the source person (cascades remove its now-duplicate links)
       await ctx.db.delete(people).where(eq(people.id, input.fromId))
       return { ok: true }
@@ -576,6 +580,92 @@ export const peopleRouter = router({
       await markNotDuplicate(ctx.db, input.personIdA, input.personIdB)
       return { ok: true }
     }),
+
+  aliases: router({
+    list: protectedProcedure
+      .input(z.object({ personId: z.string().min(1) }))
+      .query(({ ctx, input }) => listAliases(ctx.db, input.personId)),
+
+    add: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), alias: z.string().trim().min(1).max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await addAlias(ctx.db, input.personId, input.alias, 'manual')
+        } catch (err) {
+          if (err instanceof AliasConflictError) {
+            throw new TRPCError({ code: 'CONFLICT', message: err.message, cause: { ownerId: err.ownerId } })
+          }
+          throw err
+        }
+        return listAliases(ctx.db, input.personId)
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        await removeAlias(ctx.db, input.id)
+        return { ok: true }
+      }),
+  }),
+
+  /** Names no source could place, answered one at a time. */
+  identityQueue: router({
+    count: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await ctx.db.select({ id: identityQueue.id }).from(identityQueue).where(eq(identityQueue.status, 'pending'))
+      return rows.length
+    }),
+
+    next: protectedProcedure.query(async ({ ctx }) => {
+      const [row] = await ctx.db
+        .select()
+        .from(identityQueue)
+        .where(eq(identityQueue.status, 'pending'))
+        .orderBy(identityQueue.createdAt)
+        .limit(1)
+      if (!row) return null
+      const [candidate] = row.candidatePersonId
+        ? await ctx.db.select({ id: people.id, name: people.name }).from(people).where(eq(people.id, row.candidatePersonId)).limit(1)
+        : []
+      return { id: row.id, name: row.name, source: row.source, context: row.context, candidate: candidate ?? null }
+    }),
+
+    answer: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          action: z.enum(['link', 'new', 'dismiss']),
+          personId: z.string().min(1).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [row] = await ctx.db.select().from(identityQueue).where(eq(identityQueue.id, input.id)).limit(1)
+        if (!row || row.status !== 'pending') return { ok: true }
+        if (input.action === 'link') {
+          const personId = input.personId ?? row.candidatePersonId
+          if (!personId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'חסר אדם לקישור' })
+          try {
+            await addAlias(ctx.db, personId, row.name, 'queue', { origin: row.source })
+          } catch (err) {
+            if (err instanceof AliasConflictError) throw new TRPCError({ code: 'CONFLICT', message: err.message })
+            throw err
+          }
+          await ctx.db.update(identityQueue).set({ status: 'linked' }).where(eq(identityQueue.id, row.id))
+        } else if (input.action === 'new') {
+          await ctx.db.insert(people).values({
+            id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
+            name: row.name,
+            status: 'confirmed',
+            source: 'manual',
+            color: '#2dd4bf',
+            createdAt: new Date().toISOString(),
+          })
+          await ctx.db.update(identityQueue).set({ status: 'new' }).where(eq(identityQueue.id, row.id))
+        } else {
+          await ctx.db.update(identityQueue).set({ status: 'dismissed' }).where(eq(identityQueue.id, row.id))
+        }
+        return { ok: true }
+      }),
+  }),
 
   search: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))

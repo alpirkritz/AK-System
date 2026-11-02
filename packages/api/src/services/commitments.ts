@@ -12,6 +12,7 @@ import {
   type CommitmentSource,
   type getDb,
 } from '@ak-system/database'
+import { personAliases } from '@ak-system/database'
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { getSelfPersonName } from './self-person'
 import { inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
@@ -149,6 +150,14 @@ export async function proposeCommitmentsFromAnalysis(
       .where(and(eq(meetingPeople.meetingId, analysis.meetingId), eq(people.status, 'confirmed')))
   ).filter((p) => !namesMatch(p.name, selfName))
   if (attendees.length === 0) return 0
+  // An owner the analysis wrote as "Jordan" or "ג׳ורדן" still lands on ירדן.
+  const aliasesById = new Map<string, string[]>()
+  for (const row of await db
+    .select({ personId: personAliases.personId, alias: personAliases.alias })
+    .from(personAliases)
+    .where(inArray(personAliases.personId, attendees.map((a) => a.id)))) {
+    aliasesById.set(row.personId, [...(aliasesById.get(row.personId) ?? []), row.alias])
+  }
 
   const base = meeting?.date ? new Date(`${meeting.date}T12:00:00Z`).getTime() : Date.now()
   const byPerson = new Map<string, Parameters<typeof proposeCommitments>[3]>()
@@ -156,7 +165,7 @@ export async function proposeCommitmentsFromAnalysis(
     const content = typeof raw?.content === 'string' ? raw.content.replace(/\s+/g, ' ').trim().slice(0, 140) : ''
     if (!content) continue
     const owner = typeof raw?.owner === 'string' ? raw.owner.trim() : ''
-    const theirs = owner ? attendees.find((p) => namesMatch(owner, p.name)) : undefined
+    const theirs = owner ? attendees.find((p) => namesMatch(owner, p.name) || (aliasesById.get(p.id) ?? []).some((a) => namesMatch(owner, a))) : undefined
     const mine = !owner || namesMatch(owner, selfName) || /^(אני|me|i)$/i.test(owner)
     let personId: string | null = null
     let who: 'me' | 'them' = 'me'

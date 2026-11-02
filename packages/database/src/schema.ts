@@ -1134,6 +1134,44 @@ export const duplicateReviews = sqliteTable('duplicate_reviews', {
   pairUq: uniqueIndex('uq_duplicate_reviews_pair').on(table.personIdA, table.personIdB),
 }))
 
+
+/** Other names for a canonical person; `aliasNorm` is the normalised match key and is unique across people. */
+export const personAliases = sqliteTable('person_aliases', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  alias: text('alias').notNull(),
+  aliasNorm: text('alias_norm').notNull(),
+  /** manual | merge | queue | sync | backfill */
+  source: text('source').notNull(),
+  /** Channel the name was seen in: slack | whatsapp | meeting | email | notion | voice | analysis | calendar. */
+  origin: text('origin'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_aliases_person_id').on(table.personId),
+  aliasNormUq: uniqueIndex('uq_person_aliases_alias_norm').on(table.aliasNorm),
+}))
+
+/** A name no source could place; waits for one answer from the owner. */
+export const identityQueue = sqliteTable('identity_queue', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  nameNorm: text('name_norm').notNull(),
+  /** meeting | whatsapp | notion | email | voice | analysis | slack */
+  source: text('source').notNull(),
+  /** One line of where the name was seen. */
+  context: text('context'),
+  candidatePersonId: text('candidate_person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** pending | linked | new | dismissed */
+  status: text('status').notNull().default('pending'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  statusIdx: index('idx_identity_queue_status').on(table.status),
+  nameNormIdx: index('idx_identity_queue_name_norm').on(table.nameNorm),
+}))
+
+export type PersonAlias = typeof personAliases.$inferSelect
+export type IdentityQueueRow = typeof identityQueue.$inferSelect
+
 export type SeriesRosterRow = typeof seriesRoster.$inferSelect
 export type MeetingRosterException = typeof meetingRosterExceptions.$inferSelect
 export type WhatsappPersonLink = typeof whatsappPersonLinks.$inferSelect

@@ -20,6 +20,7 @@
 import {
   getDb,
   people,
+  personAliases,
   personExternalIds,
   projects,
   companies,
@@ -790,6 +791,13 @@ async function loadPeopleMaps(db: Db): Promise<PeopleMaps> {
   for (const row of identities) {
     const person = byId.get(row.personId)
     if (person) maps.byNotionId.set(row.externalId, person)
+  }
+  // Taught aliases resolve like names, so "Jordan Ferenz" lands on ירדן; primary names win.
+  const aliasRows = await db.select({ personId: personAliases.personId, alias: personAliases.alias }).from(personAliases)
+  for (const row of aliasRows) {
+    const person = byId.get(row.personId)
+    const key = row.alias.toLowerCase()
+    if (person && !maps.byName.has(key)) maps.byName.set(key, person)
   }
   return maps
 }

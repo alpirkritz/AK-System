@@ -23,6 +23,7 @@ import {
   type SortPref,
 } from '@/lib/sort-keys'
 import { ThenBySort } from '@/components/ThenBySort'
+import { WaitingTodayCard } from '@/components/waiting/WaitingTodayCard'
 import { groupTasksByDueState, limitTaskGroups } from '@/lib/sort-tasks'
 import { formatDueLabel, isOverdueOpenTask } from '@/lib/task-due'
 import { isMyTask } from '@/lib/my-tasks'
@@ -426,6 +427,9 @@ export default function DashboardPage() {
 
       {/* ── Alerts: Calendar Conflicts ──────────────────────────── */}
       <ConflictsWidget />
+
+      {/* ── Who owes me something today ─────────────────────────── */}
+      <WaitingTodayCard />
 
       {/* ── Cross-domain insights from the harness ──────────────── */}
       <HarnessWidget />

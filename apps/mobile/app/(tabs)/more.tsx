@@ -19,6 +19,7 @@ const AREAS: MoreEntry[] = [
   { icon: '👥', label: 'אנשים', route: '/people' as Href },
   { icon: '💛', label: 'קשרים', route: '/relationships' as Href },
   { icon: '🤝', label: 'התחייבויות', route: '/commitments' as Href },
+  { icon: '💸', label: 'חייבים לי', route: '/waiting' as Href },
   { icon: '📁', label: 'פרויקטים', route: '/projects' as Href },
   { icon: '📅', label: 'יומן', route: '/calendar' as Href },
   { icon: '💰', label: 'פיננסים', route: '/finance' as Href },

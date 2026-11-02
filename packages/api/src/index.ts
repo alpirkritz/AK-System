@@ -7,6 +7,7 @@ import { circlesRouter } from './routers/circles'
 import { commitmentsRouter } from './routers/commitments'
 import { meetingTypesRouter } from './routers/meeting-types'
 import { tasksRouter } from './routers/tasks'
+import { waitingRouter } from './routers/waiting'
 import { calendarRouter } from './routers/calendar'
 import { financeRouter } from './routers/finance'
 import { feedRouter } from './routers/feed'
@@ -272,6 +273,7 @@ export const appRouter = router({
   commitments: commitmentsRouter,
   meetingTypes: meetingTypesRouter,
   tasks: tasksRouter,
+  waiting: waitingRouter,
   calendar: calendarRouter,
   finance: financeRouter,
   feed: feedRouter,

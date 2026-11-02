@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { and, eq, sql } from 'drizzle-orm'
 import { meetingAnalyses, meetingPeople, meetings, people } from '@ak-system/database'
 import type { Context } from '../trpc'
+import { resolvePerson } from './person-resolution'
 import { ensureSelfPerson, isSelfPersonName, omitSelfParticipants } from './self-person'
 
 type Db = Context['db']
@@ -47,6 +48,17 @@ export async function resolvePersonForMeeting(
   const normalized = input.name?.trim() ?? ''
   if (!normalized) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'חסר שם או איש קשר' })
+  }
+
+  const known = await resolvePerson(db, { name: normalized })
+  if (known.kind === 'match') {
+    const [hit] = await db.select().from(people).where(eq(people.id, known.personId)).limit(1)
+    if (hit) {
+      if (hit.status !== 'confirmed') {
+        await db.update(people).set({ status: 'confirmed' }).where(eq(people.id, hit.id))
+      }
+      return { id: hit.id, name: hit.name, created: false }
+    }
   }
 
   const rows = await db

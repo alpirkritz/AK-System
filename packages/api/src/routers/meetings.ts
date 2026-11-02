@@ -13,6 +13,7 @@ import {
 import { eq, inArray, and, isNotNull, isNull, desc, or } from 'drizzle-orm'
 import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { upsertPersonExternalId } from '../services/person-external-ids'
+import { resolvePerson } from '../services/person-resolution'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
@@ -684,6 +685,22 @@ export const meetingsRouter = router({
             continue
           }
           if (knownOnly) continue
+          const attendeeName = (attendee as { displayName?: string }).displayName
+          const byName = attendeeName ? await resolvePerson(ctx.db, { name: attendeeName }) : null
+          if (byName?.kind === 'match') {
+            if (!linked.has(byName.personId)) {
+              linked.add(byName.personId)
+              await ctx.db.insert(meetingPeople).values({ meetingId, personId: byName.personId })
+              await upsertPersonExternalId(ctx.db, {
+                personId: byName.personId,
+                provider: 'email',
+                accountKey: calendarSource,
+                externalId: key,
+                displayName: attendeeName || email,
+              })
+            }
+            continue
+          }
           const personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
           await ctx.db.insert(people).values({
             id: personId,

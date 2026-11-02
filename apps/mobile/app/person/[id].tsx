@@ -12,6 +12,8 @@ import {
 import { Pressable } from 'react-native'
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
+import { PersonAliasesEditor } from '../../components/PersonAliasesEditor'
+import { WaitingListView, withoutItem } from '../../components/WaitingList'
 import { useAuth } from '../../lib/auth'
 import {
   deletePerson,
@@ -20,6 +22,7 @@ import {
   fetchPersonContext,
   fetchPersonRelated,
   fetchPersonTraitDetail,
+  fetchWaiting,
   restorePersonTrait,
   setCaptureWhatsapp,
   toggleTaskDone,
@@ -30,8 +33,10 @@ import {
   type MobileTask,
   type MobileTraitDetail,
   type MobileTraitSummary,
+  type MobileWaitingBuckets,
   type MobileWarmthPoint,
 } from '../../lib/data'
+import { flattenWaiting } from '../../lib/waiting'
 import { colors } from '../../lib/theme'
 import { formatSentiment, WARMTH_TREND_LABEL } from '../../lib/warmth-format'
 
@@ -309,6 +314,7 @@ export default function PersonDetailScreen() {
   const [personTasks, setPersonTasks] = useState<MobileTask[]>([])
   const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null)
   const [context, setContext] = useState<MobilePersonContext | null>(null)
+  const [waiting, setWaiting] = useState<MobileWaitingBuckets | null>(null)
   const [captureSaving, setCaptureSaving] = useState(false)
 
   const toggleCapture = async (enabled: boolean) => {
@@ -329,12 +335,14 @@ export default function PersonDetailScreen() {
     setLoading(true)
     setError(null)
     try {
-      const [person, related, ctx] = await Promise.all([
+      const [person, related, ctx, owed] = await Promise.all([
         fetchPerson(token, id),
         fetchPersonRelated(token, id).catch(() => null),
         fetchPersonContext(token, id).catch(() => null),
+        fetchWaiting(token, id).catch(() => null),
       ])
       setContext(ctx)
+      setWaiting(owed)
       if (!person) {
         setError('איש הקשר לא נמצא')
         return
@@ -424,7 +432,10 @@ export default function PersonDetailScreen() {
     )
   }
 
-  const openPersonTasks = sortPersonTasks(personTasks.filter((t) => !t.done))
+  const waitingItems = waiting ? flattenWaiting(waiting) : []
+  // Tasks already shown under "חייב/ת לי" are not repeated below.
+  const shownAsOwed = new Set(waitingItems.filter((i) => i.kind === 'task').map((i) => i.id))
+  const openPersonTasks = sortPersonTasks(personTasks.filter((t) => !t.done && !shownAsOwed.has(t.id)))
   const displayPersonTasks = openPersonTasks.slice(0, 10)
   const morePersonTasks = openPersonTasks.length - displayPersonTasks.length
 
@@ -479,7 +490,18 @@ export default function PersonDetailScreen() {
 
       <View style={styles.contextCard}>
         <Text style={styles.contextTitle}>משימות</Text>
-        {displayPersonTasks.length === 0 ? (
+        {waiting && waitingItems.length > 0 ? (
+          <View style={styles.owedBlock}>
+            <Text style={styles.contextMuted}>חייב/ת לי</Text>
+            <WaitingListView
+              buckets={waiting}
+              view="time"
+              showPerson={false}
+              onDone={(item) => setWaiting((w) => (w ? withoutItem(w, item) : w))}
+            />
+          </View>
+        ) : null}
+        {displayPersonTasks.length === 0 && waitingItems.length > 0 ? null : displayPersonTasks.length === 0 ? (
           <Text style={styles.contextMuted}>אין משימות פתוחות עם {name}</Text>
         ) : (
           <>
@@ -682,6 +704,8 @@ export default function PersonDetailScreen() {
         textAlign="right"
       />
 
+      {token && id ? <PersonAliasesEditor token={token} personId={id} /> : null}
+
       <Pressable onPress={onDelete} style={styles.deleteBtn} accessibilityRole="button">
         <Text style={styles.deleteText}>מחק איש קשר</Text>
       </Pressable>
@@ -698,6 +722,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   statText: { color: colors.textMuted, fontSize: 13, writingDirection: 'rtl' },
+  owedBlock: { gap: 4, marginBottom: 8 },
   contextCard: {
     backgroundColor: colors.surfaceCard,
     borderWidth: 1,

@@ -12,6 +12,7 @@ import { PeopleTable } from '@/components/people/PeopleTable'
 import { PeopleCardGrid } from '@/components/people/PeopleCardGrid'
 import { BulkActionsToolbar } from '@/components/people/BulkActionsToolbar'
 import { PeopleReviewQueue } from '@/components/people/PeopleReviewQueue'
+import { IdentityQueueCard } from '@/components/people/IdentityQueueCard'
 import { GooglePhoneFillModal } from '@/components/people/GooglePhoneFillModal'
 import { GoogleProfileFillModal } from '@/components/people/GoogleProfileFillModal'
 import { FilteredWorldChip } from '@/components/WorldSwitcher'
@@ -153,6 +154,8 @@ export default function PeoplePage() {
           {syncMessage}
         </div>
       )}
+
+      <IdentityQueueCard />
 
       {tab === 'review' ? (
         <PeopleReviewQueue />

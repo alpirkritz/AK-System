@@ -8,6 +8,7 @@ import { people, personEmailThreads, personExternalIds, type getDb } from '@ak-s
 import { normalizeParticipantName } from '../lib/calendar-participants'
 import { getAccessTokenForConnection, listGoogleConnections } from './google-connections'
 import { getSelfPersonName } from './self-person'
+import { learnAlias } from './person-resolution'
 
 type Db = ReturnType<typeof getDb>
 
@@ -150,11 +151,18 @@ export async function syncEmailThreads(
   result.messages = fetched.messages.length
 
   const groups = new Map<string, { threadKey: string; personId: string; messages: EmailHeaderMessage[] }>()
+  const learnedNames = new Set<string>()
   for (const raw of fetched.messages) {
     const m = { ...raw, snippet: decodeEntities(raw.snippet) }
     const account = m.accountEmail.toLowerCase()
     const addresses = [...extractAddresses(m.from), ...extractAddresses(m.to), ...extractAddresses(m.cc)].filter((a) => a !== account)
     const threadKey = `${m.accountEmail}::${m.threadId}`
+    const fromName = m.from.match(/^\s*"?([^"<@]+?)"?\s*</)?.[1]?.trim()
+    const sender = extractAddresses(m.from).map((a) => known.get(a)).find((id): id is string => !!id)
+    if (fromName && sender && !learnedNames.has(`${sender}|${fromName}`)) {
+      learnedNames.add(`${sender}|${fromName}`)
+      await learnAlias(db, sender, fromName, 'email')
+    }
     for (const personId of new Set(addresses.map((a) => known.get(a)).filter((id): id is string => !!id))) {
       const key = `${threadKey}|${personId}`
       const g = groups.get(key) ?? { threadKey, personId, messages: [] }

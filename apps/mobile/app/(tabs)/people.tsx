@@ -12,6 +12,7 @@ import {
 import { useFocusEffect, useRouter, type Href } from 'expo-router'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
+import { IdentityQueueCard } from '../../components/IdentityQueueCard'
 import { SectionHeader } from '../../components/SectionHeader'
 import { useAuth } from '../../lib/auth'
 import {
@@ -173,6 +174,7 @@ export default function PeopleScreen() {
           textAlign="right"
         />
       </View>
+      <IdentityQueueCard />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 

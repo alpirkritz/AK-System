@@ -19,6 +19,7 @@ import {
   type getDb,
 } from '@ak-system/database'
 import { ownerIdentityPrompt } from './self-person'
+import { learnAlias, resolveOrQueue } from './person-resolution'
 import { normalizePhone, phoneFromWhatsappJid } from '../lib/phone'
 import { bridgeFetch, getBridgeStatus, isBridgeConfigured } from './whatsapp-bridge-client'
 import { getModel } from './whatsapp-insights'
@@ -854,7 +855,12 @@ async function findPersonByManualLink(db: Db, jid: string): Promise<string | nul
  * the bridge's own JID, otherwise a phone or manual-link match. Null means the sender is not a
  * contact yet; the scan still stores the commitment with personId empty.
  */
-export async function resolveGroupSenderPersonId(db: Db, senderJid: string, selfJid: string | null): Promise<string | null> {
+export async function resolveGroupSenderPersonId(
+  db: Db,
+  senderJid: string,
+  selfJid: string | null,
+  senderName?: string | null,
+): Promise<string | null> {
   const bare = bareJid(senderJid)
   if (selfJid && bare === bareJid(selfJid)) {
     return (await ensureSelfPerson(db)).id
@@ -864,7 +870,13 @@ export async function resolveGroupSenderPersonId(db: Db, senderJid: string, self
     const byPhone = await findPersonByPhone(db, phone)
     if (byPhone) return byPhone
   }
-  return findPersonByManualLink(db, bare)
+  const linked = await findPersonByManualLink(db, bare)
+  if (linked) {
+    if (senderName) await learnAlias(db, linked, senderName, 'whatsapp')
+    return linked
+  }
+  // The push name may be a taught alias; a near miss waits in the identity queue.
+  return senderName ? resolveOrQueue(db, { name: senderName, source: 'whatsapp', context: 'קבוצת וואטסאפ' }) : null
 }
 
 export interface GroupCommitmentScanResult {
@@ -934,11 +946,13 @@ export async function scanGroupCommitments(
     byGroup.set(r.groupJid, list)
   }
 
+  const senderNames = new Map<string, string>()
+  for (const r of rows) if (r.senderName && !senderNames.has(bareJid(r.sender))) senderNames.set(bareJid(r.sender), r.senderName)
   const personCache = new Map<string, string | null>()
   const resolveSender = async (senderJid: string): Promise<string | null> => {
     const bare = bareJid(senderJid)
     if (personCache.has(bare)) return personCache.get(bare) ?? null
-    const personId = await resolveGroupSenderPersonId(db, senderJid, selfJid)
+    const personId = await resolveGroupSenderPersonId(db, senderJid, selfJid, senderNames.get(bare))
     personCache.set(bare, personId)
     return personId
   }

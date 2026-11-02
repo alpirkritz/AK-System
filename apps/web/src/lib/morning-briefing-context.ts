@@ -45,6 +45,17 @@ const SOURCE_LABELS: Record<string, string> = {
   voice: 'מהקלטה',
 }
 
+/** From `waiting.list`: open items others owe me. */
+export interface MorningWaitingItem { personName: string; title: string; dueDate: string | null }
+export interface MorningWaiting { overdue: MorningWaitingItem[]; today: MorningWaitingItem[] }
+
+/** "Who owes me what today": what first, then who. Late items are marked. */
+export function waitingLines(w: MorningWaiting | undefined): string[] {
+  if (!w || w.overdue.length + w.today.length === 0) return []
+  const line = (i: MorningWaitingItem, late: boolean) => `• ${i.title} — ${i.personName}${late ? ' (באיחור)' : ''}`
+  return ['', 'חייבים לי היום:', ...w.overdue.map((i) => line(i, true)), ...w.today.map((i) => line(i, false))]
+}
+
 function commitmentLines(c: MorningCommitments | undefined): string[] {
   if (!c) return []
   const lines: string[] = []
@@ -87,6 +98,8 @@ export function formatMorningBriefingContext(
     commitments?: MorningCommitments
     /** Pre-formatted harness lines — cross-domain links no single section can show. */
     harnessLines?: string[]
+    /** Open items others owe me that are due today or late. */
+    waiting?: MorningWaiting
   },
 ): string {
   const includeDueTasks = options?.includeDueTasks !== false
@@ -94,7 +107,7 @@ export function formatMorningBriefingContext(
   const flagFor = (e: MorningBriefEvent) =>
     flags.find((f) => (e.id && f.calendarEventId === e.id) || (!f.calendarEventId && f.title === e.title))
   const tasks = includeDueTasks ? dueTasks : []
-  const extra = commitmentLines(options?.commitments)
+  const extra = [...commitmentLines(options?.commitments), ...waitingLines(options?.waiting)]
   const harnessLines = options?.harnessLines ?? []
   const lines: string[] = ['📅 סיכום הבוקר – ' + today]
   if (

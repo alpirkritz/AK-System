@@ -265,6 +265,9 @@ function TasksPageContent() {
           >
             כולם
           </button>
+          <Link href="/waiting" className="filter-chip" data-testid="tasks-waiting-chip">
+            ממתין לאחרים
+          </Link>
         </div>
         <div className="w-px h-5 bg-[#2f4368] shrink-0" aria-hidden />
         <div className="flex gap-1.5" role="group" aria-label="סינון לפי מצב">
@@ -346,7 +349,7 @@ function TasksPageContent() {
           </div>
           <div className="text-sm text-[#647399] mb-4">
             {owner === 'me' && status === 'open' && !projectId && !meetingId && !search
-              ? 'משימות של אחרים נמצאות תחת ״כולם״.'
+              ? 'משימות של אחרים נמצאות תחת ״כולם״, ומה שחייבים לך תחת ״ממתין לאחרים״.'
               : status === 'overdue'
                 ? 'אפשר לעבור ל״פתוחות״ כדי לראות את השאר.'
                 : hasActiveFilter

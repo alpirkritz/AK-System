@@ -24,6 +24,7 @@ import {
 } from '@ak-system/database'
 import { defaultClassify, inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
 import { ensureSelfPerson } from './self-person'
+import { learnAlias, resolveOrQueue } from './person-resolution'
 
 type Db = ReturnType<typeof getDb>
 
@@ -492,9 +493,14 @@ export async function scanSlackCommitments(
       if (!sourceMsg) continue
       if (!freshIds.has(item.messageId)) continue
 
-      const personId = sourceMsg.userId === selfPerson?.id
+      let personId = sourceMsg.userId === selfPerson?.id
         ? selfPerson.id
         : await findPersonBySlackUserId(db, conn.teamId, sourceMsg.userId)
+      if (personId && personId !== selfPerson?.id && sourceMsg.userName) {
+        await learnAlias(db, personId, sourceMsg.userName, 'slack')
+      } else if (!personId && sourceMsg.userName) {
+        personId = await resolveOrQueue(db, { name: sourceMsg.userName, source: 'slack', context: channelName ?? undefined })
+      }
 
       const proposed = await proposeCommitments(
         db,

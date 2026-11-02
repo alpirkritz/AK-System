@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native'
 import { Card } from '../../components/Card'
+import { WaitingRow } from '../../components/WaitingList'
 import { EmptyState } from '../../components/EmptyState'
 import { KpiCard } from '../../components/KpiCard'
 import { SectionHeader } from '../../components/SectionHeader'
@@ -21,10 +22,12 @@ import {
   fetchRelationshipBoard,
   fetchSelfPerson,
   fetchTasks,
+  fetchWaiting,
   toggleTaskDone,
   type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
+  type MobileWaitingBuckets,
 } from '../../lib/data'
 import { isMyTask } from '../../lib/my-tasks'
 import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
@@ -32,6 +35,7 @@ import { groupTasksByDueState, limitTaskGroups, sortTasksByPriorityThenDue } fro
 import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
 import { pickAttentionShift, type AttentionShift } from '../../lib/attention-shift'
 import { colors } from '../../lib/theme'
+import { dueNow } from '../../lib/waiting'
 
 function greeting(hour: number): string {
   if (hour < 5) return 'לילה טוב'
@@ -73,6 +77,7 @@ export default function DashboardScreen() {
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [attention, setAttention] = useState<AttentionShift | null>(null)
+  const [waiting, setWaiting] = useState<MobileWaitingBuckets | null>(null)
   const [digestState, setDigestState] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle')
   const hasLoadedOnce = useRef(false)
 
@@ -82,18 +87,21 @@ export default function DashboardScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [p, t, m, relationship, self] = await Promise.all([
+        const [p, t, m, relationship, self, owed] = await Promise.all([
           fetchDashboardPrefs(token),
           fetchTasks(token),
           fetchMeetings(token),
           fetchRelationshipBoard(token).catch(() => ({ people: [], circles: [] })),
           fetchSelfPerson(token),
+          // The digest enriches the home screen; it never blocks it.
+          fetchWaiting(token).catch(() => null),
         ])
         setPrefs(p)
         setTasks(t)
         setSelfId(self.id)
         setMeetings(m)
         setAttention(pickAttentionShift(relationship.people))
+        setWaiting(owed)
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
@@ -293,6 +301,39 @@ export default function DashboardScreen() {
           ))
         )}
       </View>
+
+      {waiting && dueNow(waiting).length > 0 ? (
+        <View style={styles.section}>
+          <SectionHeader
+            title="חייבים לי היום"
+            style={styles.sectionHeader}
+            action={{ label: 'לכל הרשימה', onPress: () => router.push('/waiting' as Href) }}
+          />
+          <Card>
+            {dueNow(waiting).slice(0, 5).map((i) => (
+              <WaitingRow
+                key={`${i.kind}-${i.id}`}
+                item={i}
+                overdue={waiting.overdue.some((o) => o.id === i.id)}
+                onDone={(done) =>
+                  setWaiting((w) =>
+                    w
+                      ? {
+                          ...w,
+                          overdue: w.overdue.filter((x) => x.id !== done.id),
+                          today: w.today.filter((x) => x.id !== done.id),
+                        }
+                      : w,
+                  )
+                }
+              />
+            ))}
+            {dueNow(waiting).length > 5 ? (
+              <Text style={styles.itemMeta}>ועוד {dueNow(waiting).length - 5}</Text>
+            ) : null}
+          </Card>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <SectionHeader title={taskSectionTitle(prefs.taskWindow)} style={styles.sectionHeader} />

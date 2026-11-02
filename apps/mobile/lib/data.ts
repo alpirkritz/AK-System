@@ -1067,3 +1067,85 @@ export async function deleteMeetingType(token: string, id: string): Promise<void
   const client = createTrpcClient(token)
   await client.meetingTypes.delete.mutate({ id })
 }
+
+// ── Waiting on others ("חייבים לי") ───────────────────────────────────────────
+
+export interface MobileWaitingItem {
+  kind: 'task' | 'commitment'
+  id: string
+  title: string
+  personId: string
+  personName: string
+  dueDate: string | null
+  source: string
+  sourceLabel: string | null
+  meetingId: string | null
+}
+
+export interface MobileWaitingBuckets {
+  overdue: MobileWaitingItem[]
+  today: MobileWaitingItem[]
+  thisWeek: MobileWaitingItem[]
+  later: MobileWaitingItem[]
+  noDate: MobileWaitingItem[]
+}
+
+export async function fetchWaiting(token: string, personId?: string): Promise<MobileWaitingBuckets> {
+  const client = createTrpcClient(token)
+  return (await client.waiting.list.query(personId ? { personId } : undefined)) as MobileWaitingBuckets
+}
+
+export async function completeWaiting(token: string, kind: 'task' | 'commitment', id: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.waiting.complete.mutate({ kind, id })
+}
+
+// ── Person aliases and the identity queue ─────────────────────────────────────
+
+export interface MobileAlias {
+  id: string
+  alias: string
+  source: string
+  origin: string | null
+}
+
+export async function fetchAliases(token: string, personId: string): Promise<MobileAlias[]> {
+  const client = createTrpcClient(token)
+  return (await client.people.aliases.list.query({ personId })) as MobileAlias[]
+}
+
+export async function addAliasToPerson(token: string, personId: string, alias: string): Promise<MobileAlias[]> {
+  const client = createTrpcClient(token)
+  return (await client.people.aliases.add.mutate({ personId, alias })) as MobileAlias[]
+}
+
+export async function removeAliasById(token: string, id: string): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.people.aliases.remove.mutate({ id })
+}
+
+export interface MobileIdentityQueueItem {
+  id: string
+  name: string
+  source: string
+  context: string | null
+  candidate: { id: string; name: string } | null
+}
+
+export async function fetchIdentityQueueNext(token: string): Promise<MobileIdentityQueueItem | null> {
+  const client = createTrpcClient(token)
+  return (await client.people.identityQueue.next.query()) as MobileIdentityQueueItem | null
+}
+
+export async function fetchIdentityQueueCount(token: string): Promise<number> {
+  const client = createTrpcClient(token)
+  return (await client.people.identityQueue.count.query()) as number
+}
+
+export async function answerIdentityQueue(
+  token: string,
+  input: { id: string; action: 'link' | 'new' | 'dismiss'; personId?: string },
+): Promise<void> {
+  const client = createTrpcClient(token)
+  await client.people.identityQueue.answer.mutate(input)
+}
