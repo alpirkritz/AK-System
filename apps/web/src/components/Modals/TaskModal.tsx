@@ -8,6 +8,8 @@ import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
 import type { PeopleSyncResult } from '@/lib/notion-people-sync-message'
 import type { Person } from '@ak-system/database'
 import { WorkspacePicker } from '@/components/WorkspacePicker'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { shiftDayKey, todayKey } from '@/lib/task-due'
 
 type MeetingOption = { id: string; title: string }
 type ProjectOption = { id: string; name: string }
@@ -98,6 +100,16 @@ export function TaskModal({
     { enabled: !!editingTaskId && open }
   )
   const { data: selfPerson } = trpc.people.me.useQuery(undefined, { enabled: open })
+  // A new task inherits the context it was opened from: the meeting's project and world,
+  // falling back to the world of that project.
+  const meetingCtx = meeting as { projectId?: string | null; workspaceId?: string | null } | null | undefined
+  const defaultProjectId = projectIdProp || meetingCtx?.projectId || ''
+  const { data: defaultProject } = trpc.projects.getById.useQuery(
+    { id: defaultProjectId },
+    { enabled: open && !editingTaskId && !!defaultProjectId && !workspaceIdProp && !meetingCtx?.workspaceId }
+  )
+  const defaultWorkspaceId =
+    workspaceIdProp || meetingCtx?.workspaceId || (defaultProject as { workspaceId?: string | null } | null | undefined)?.workspaceId || ''
   useEffect(() => {
     if (!open) return
     if (editingTaskId && editingTask) {
@@ -116,17 +128,28 @@ export function TaskModal({
       setForm((f) => ({
         title: initialValues?.title ?? '',
         meetingId: meetingId ?? '',
-        projectId: projectIdProp ?? (meeting as { projectId?: string } | null)?.projectId ?? f.projectId,
-        workspaceId: workspaceIdProp ?? f.workspaceId,
+        projectId: defaultProjectId,
+        workspaceId: defaultWorkspaceId,
         assigneeId: initialValues?.assigneeId ?? '',
-        dueDate: initialValues?.dueDate ?? '',
+        dueDate: initialValues?.dueDate ?? todayKey(),
         priority: initialValues?.priority ?? 'medium',
         status: 'not_started',
         relatedPersonIds: [],
       }))
       setRelatedPeopleFilter('')
     }
-  }, [open, editingTaskId, editingTask, meetingId, projectIdProp, workspaceIdProp, meeting, taskPeopleIds, initialValues])
+    // Context defaults are applied by the effect below, so a late-loading meeting or project does not wipe what was typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingTaskId, editingTask, meetingId, taskPeopleIds, initialValues])
+
+  useEffect(() => {
+    if (!open || editingTaskId) return
+    setForm((f) => ({
+      ...f,
+      projectId: f.projectId || defaultProjectId,
+      workspaceId: f.workspaceId || defaultWorkspaceId,
+    }))
+  }, [open, editingTaskId, defaultProjectId, defaultWorkspaceId])
 
   // New tasks default to the owner. Applied once per open so a deliberate
   // "ללא אחראי" is not undone when the query refetches.
@@ -281,12 +304,32 @@ export function TaskModal({
               </div>
               <div>
                 <label className="label">תאריך יעד</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={form.dueDate}
-                  onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
-                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-ghost shrink-0 px-2"
+                    aria-label="יום קודם"
+                    title="יום קודם"
+                    onClick={() => setForm((f) => ({ ...f, dueDate: shiftDayKey(f.dueDate || todayKey(), -1) }))}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <input
+                    className="input flex-1"
+                    type="date"
+                    value={form.dueDate}
+                    onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost shrink-0 px-2"
+                    aria-label="יום הבא"
+                    title="יום הבא"
+                    onClick={() => setForm((f) => ({ ...f, dueDate: shiftDayKey(f.dueDate || todayKey(), 1) }))}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                </div>
                 {!isEdit && explanations?.dueDate && (
                   <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.dueDate}</p>
                 )}

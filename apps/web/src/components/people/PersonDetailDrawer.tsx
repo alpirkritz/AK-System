@@ -70,14 +70,15 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
   const { data: personContext } = trpc.insights.personContext.useQuery({ personId }, { enabled: !!personId })
   const { data: allProjects = [] } = trpc.projects.list.useQuery()
   const { data: allPeople = [] } = trpc.people.list.useQuery()
-  const { data: allMeetings = [] } = trpc.meetings.list.useQuery()
-  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: !!personId })
   const [editing, setEditing] = useState(false)
   const [merging, setMerging] = useState(false)
   const [mergeSearch, setMergeSearch] = useState('')
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  // Only the task form needs every meeting and world, so they load when it opens, not with the card.
+  const { data: allMeetings = [] } = trpc.meetings.list.useQuery(undefined, { enabled: taskModalOpen })
+  const { data: workspaces = [] } = trpc.workspaces.list.useQuery(undefined, { enabled: taskModalOpen })
   const [form, setForm] = useState<Record<string, string>>({})
 
   const waitingItems = useMemo(() => (waiting ? flattenWaiting(waiting) : []), [waiting])
@@ -363,17 +364,37 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
             screen="person"
             tightGap
             blocks={[
-              { id: 'tasks', label: 'משימות', node: (
+              { id: 'tasks', label: 'משימות', node: ({ open: savedOpen, onToggle, isPartOpen, setPartOpen }) => {
+                // Open by default; closing it is shared by all people.
+                const tasksOpen = savedOpen ?? true
+                return (
                 <>
                 <section className="mb-6" data-testid="person-tasks-first">
-                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="text-[11px] font-semibold text-[#5a688c] hover:text-[#97a4c2] uppercase tracking-wider mb-3 flex items-center gap-1.5"
+                      aria-expanded={tasksOpen}
+                      onClick={() => onToggle(!tasksOpen)}
+                      data-testid="person-tasks-toggle"
+                    >
+                      <span aria-hidden className={cn('inline-block transition-transform', tasksOpen && '-rotate-90')}>◂</span>
                       <CheckSquare className="w-3.5 h-3.5" />
                       משימות ({taskCount + waitingCount})
-                    </h3>
+                    </button>
+                    {tasksOpen && (
+                    <>
                     {waitingCount > 0 && (
                       <div className="mb-3" data-testid="person-owes-me">
                         <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">חייב/ת לי</div>
-                        <WaitingView buckets={waiting!} view="time" showPerson={false} />
+                        <WaitingView
+                          buckets={waiting!}
+                          view="time"
+                          showPerson={false}
+                          onOpenTask={(taskId) => {
+                            setEditingTaskId(taskId)
+                            setTaskModalOpen(true)
+                          }}
+                        />
                       </div>
                     )}
                     {waitingCount === 0 && taskCount === 0 && (
@@ -383,10 +404,27 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                       <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">עוד משימות קשורות</div>
                     )}
                     <div className="space-y-2">
-                      {taskGroups.map((group) => (
+                      {taskGroups.map((group) => {
+                        // Finished tasks start folded and are not rendered until opened; the choice is shared by all people.
+                        const foldable = group.key === 'done' || group.key === 'cancelled'
+                        const open = !foldable || (isPartOpen(group.key) ?? false)
+                        return (
                         <div key={group.key}>
-                          <div className="text-[11px] font-semibold text-[#7a89ab] mt-2">{group.label}</div>
-                          {group.tasks.map((task) => (
+                          {foldable ? (
+                            <button
+                              type="button"
+                              className="text-[11px] font-semibold text-[#7a89ab] hover:text-[#b8c4dc] mt-2 flex items-center gap-1"
+                              aria-expanded={open}
+                              onClick={() => setPartOpen(group.key, !open)}
+                              data-testid={`person-tasks-toggle-${group.key}`}
+                            >
+                              <span aria-hidden className={cn('inline-block transition-transform', open && '-rotate-90')}>◂</span>
+                              {group.label} ({group.tasks.length})
+                            </button>
+                          ) : (
+                            <div className="text-[11px] font-semibold text-[#7a89ab] mt-2">{group.label}</div>
+                          )}
+                          {open && group.tasks.map((task) => (
                         <div key={task.id} className="flex flex-col gap-0.5 py-2 border-b border-[#223052] last:border-0">
                           <div className="flex items-center gap-3">
                             <button
@@ -449,11 +487,15 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                         </div>
                           ))}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
+                    </>
+                    )}
                   </section>
                 </>
-              ) },
+                )
+              } },
               { id: 'details', label: 'פרטים', node: (
                 <>
                 <section className="mb-6">
@@ -710,13 +752,24 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 </section>
                 </>
               ) },
-              { id: 'notes', label: 'סיכומי ישיבות', node: (
+              { id: 'notes', label: 'סיכומי ישיבות', node: ({ open: savedOpen, onToggle }) => {
+                // Summary cards are the heaviest part of the card: folded by default, shared by all people.
+                const open = savedOpen ?? false
+                return (
                 <>
                 {related?.meetingNotes && related.meetingNotes.length > 0 && (
                   <section className="mb-6">
-                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">
+                    <button
+                      type="button"
+                      className="text-[11px] font-semibold text-[#5a688c] hover:text-[#97a4c2] uppercase tracking-wider mb-3 flex items-center gap-1.5"
+                      aria-expanded={open}
+                      onClick={() => onToggle(!open)}
+                      data-testid="person-notes-toggle"
+                    >
+                      <span aria-hidden className={cn('inline-block transition-transform', open && '-rotate-90')}>◂</span>
                       סיכומי ישיבות ({related.meetingNotes.length})
-                    </h3>
+                    </button>
+                    {open && (
                     <div className="space-y-2">
                       {related.meetingNotes.map((note) => (
                         <NotionSummaryCard
@@ -727,35 +780,54 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                         />
                       ))}
                     </div>
+                    )}
                   </section>
                 )}
                 </>
-              ) },
-              { id: 'meetings', label: 'פגישות', node: (
+                )
+              } },
+              { id: 'meetings', label: 'פגישות', node: ({ open: savedOpen, onToggle }) => {
+                // Folded by default; the owner's choice is remembered with the layout.
+                const open = savedOpen ?? false
+                return (
                 <>
                 {related && related.meetings.length > 0 && (
                   <section className="mb-6">
-                    <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="text-[11px] font-semibold text-[#5a688c] hover:text-[#97a4c2] uppercase tracking-wider mb-3 flex items-center gap-1.5"
+                      aria-expanded={open}
+                      onClick={() => onToggle(!open)}
+                      data-testid="person-meetings-toggle"
+                    >
+                      <span aria-hidden className={cn('inline-block transition-transform', open && '-rotate-90')}>◂</span>
                       <Calendar className="w-3.5 h-3.5" />
                       פגישות ({related.meetings.length})
-                    </h3>
+                    </button>
+                    {open && (
                     <div className="space-y-2">
                       {related.meetings.slice(0, 10).map(meeting => (
-                        <div key={meeting.id} className="flex items-center gap-3 py-2 border-b border-[#223052] last:border-0">
+                        <a
+                          key={meeting.id}
+                          href={`/meetings/${meeting.id}`}
+                          className="flex items-center gap-3 py-2 border-b border-[#223052] last:border-0 hover:text-[#eef3fb]"
+                        >
                           <span className="text-[10px] text-[#5a688c] tabular-nums w-[70px] shrink-0">
                             {format(new Date(meeting.date), 'dd/MM/yy')}
                           </span>
                           <span className="text-xs text-[#97a4c2] truncate">{meeting.title}</span>
-                        </div>
+                        </a>
                       ))}
                       {related.meetings.length > 10 && (
                         <p className="text-[11px] text-[#5a688c]">+ עוד {related.meetings.length - 10} פגישות</p>
                       )}
                     </div>
+                    )}
                   </section>
                 )}
                 </>
-              ) },
+                )
+              } },
             ]}
           />
 

@@ -107,6 +107,14 @@ function TasksPageContent() {
     setOwner(parseOwner(ownerQuery))
   }, [ownerQuery])
 
+  // `/tasks?task=<id>` opens that task, so other screens can link straight to it.
+  const taskQuery = searchParams.get('task')
+  useEffect(() => {
+    if (!taskQuery) return
+    setEditingTaskId(taskQuery)
+    setTaskModalOpen(true)
+  }, [taskQuery])
+
   const selectStatus = (next: StatusFilter) => {
     setStatus(next)
     const params = new URLSearchParams(searchParams.toString())
@@ -490,6 +498,12 @@ function TasksPageContent() {
         onClose={() => {
           setTaskModalOpen(false)
           setEditingTaskId(null)
+          if (taskQuery) {
+            const params = new URLSearchParams(searchParams.toString())
+            params.delete('task')
+            const q = params.toString()
+            router.replace(q ? `/tasks?${q}` : '/tasks', { scroll: false })
+          }
         }}
         editingTaskId={editingTaskId}
         people={people}

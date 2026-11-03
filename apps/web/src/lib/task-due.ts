@@ -5,6 +5,12 @@ export function todayKey(now = new Date()): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+/** Moves a YYYY-MM-DD day by `delta` calendar days (local time, DST-safe). */
+export function shiftDayKey(day: string, delta: number): string {
+  const [y, m, d] = day.slice(0, 10).split('-').map(Number)
+  return todayKey(new Date(y, m - 1, d + delta, 12))
+}
+
 export function dueDay(dueDate?: string | null): string | null {
   const day = dueDate?.slice(0, 10)
   return day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null

@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { dueDay, formatDueLabel, isOverdueOpenTask, todayKey } from './task-due'
+import { dueDay, formatDueLabel, isOverdueOpenTask, shiftDayKey, todayKey } from './task-due'
 
 describe('task due', () => {
   const today = '2026-09-22'
 
   it('builds a local calendar key', () => {
     expect(todayKey(new Date(2026, 8, 22, 23, 30))).toBe('2026-09-22')
+  })
+
+  it('shifts a day across month and year edges', () => {
+    expect(shiftDayKey('2026-09-22', 1)).toBe('2026-09-23')
+    expect(shiftDayKey('2026-09-30', 1)).toBe('2026-10-01')
+    expect(shiftDayKey('2026-01-01', -1)).toBe('2025-12-31')
+    expect(shiftDayKey('2026-10-25T00:00:00.000Z', -1)).toBe('2026-10-24')
   })
 
   it('reads a calendar day from a date or datetime', () => {

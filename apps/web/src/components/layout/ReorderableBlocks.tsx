@@ -14,8 +14,16 @@ import { cn } from '@/lib/cn'
 import { pairSpans } from './spans'
 import { useLayout } from './useLayout'
 
-/** What a block can read and report back: whether the owner left it open or closed. */
-export type BlockState = { open: boolean | undefined; onToggle: (open: boolean) => void }
+/**
+ * What a block can read and report back: whether the owner left it, or a part inside it, open or
+ * closed. Saved per screen, so every person card opens the same way.
+ */
+export type BlockState = {
+  open: boolean | undefined
+  onToggle: (open: boolean) => void
+  isPartOpen: (part: string) => boolean | undefined
+  setPartOpen: (part: string, open: boolean) => void
+}
 
 export type LayoutBlock = {
   id: string
@@ -160,7 +168,12 @@ export function ReorderableBlocks({
                 editing={editing}
                 span={spans[i]!}
                 onHide={() => layout.hide(block.id)}
-                state={{ open: layout.isOpen(block.id), onToggle: (open) => layout.setOpen(block.id, open) }}
+                state={{
+                  open: layout.isOpen(block.id),
+                  onToggle: (open) => layout.setOpen(block.id, open),
+                  isPartOpen: (part) => layout.isOpen(`${block.id}/${part}`),
+                  setPartOpen: (part, open) => layout.setOpen(`${block.id}/${part}`, open),
+                }}
               />
             ))}
           </div>

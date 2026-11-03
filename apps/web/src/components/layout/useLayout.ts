@@ -5,6 +5,9 @@ import { applyLayout, type LayoutScreen, type ScreenLayout } from '@ak-system/ty
 import { trpc } from '@/lib/trpc'
 
 const OPEN_SUFFIX = ':open'
+/** A part inside a block (`tasks/done`) is saved under its block, so it follows that block's screen. */
+const SUB_SEPARATOR = '/'
+const blockOf = (id: string) => id.replace(OPEN_SUFFIX, '').split(SUB_SEPARATOR)[0]!
 
 /**
  * Saved arrangement for one screen. `visible` / `hidden` are always complete: blocks shipped
@@ -39,13 +42,13 @@ export function useLayout(screen: LayoutScreen, defaultIds: readonly string[]) {
   )
 
   // Saved entries for blocks that are not part of this render stay exactly as they were.
-  const offScreen = (ids: string[] | undefined) => (ids ?? []).filter((id) => !known.has(id.replace(OPEN_SUFFIX, '')))
+  const offScreen = (ids: string[] | undefined) => (ids ?? []).filter((id) => !known.has(blockOf(id)))
   const withOthers = (order: string[], hide: string[], collapsed: string[]): ScreenLayout => ({
     order: [...order, ...offScreen(saved?.order)],
     hidden: [...hide, ...offScreen(saved?.hidden)],
     collapsed: [...collapsed, ...offScreen(saved?.collapsed)],
   })
-  const onScreenCollapsed = collapsedRaw.filter((id) => known.has(id.replace(OPEN_SUFFIX, '')))
+  const onScreenCollapsed = collapsedRaw.filter((id) => known.has(blockOf(id)))
 
   return {
     /** False until the saved arrangement arrived, so the screen never flashes the default order. */
