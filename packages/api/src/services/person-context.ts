@@ -29,6 +29,8 @@ import { isSelfPersonName } from '../lib/self-identity'
 import { dmJidsForPerson } from './whatsapp-dm'
 import { commitmentSourceUrl, gmailThreadUrl, prepCommitmentLines } from './commitments'
 import { listVoiceRecordings, type VoiceRecordingSummary } from './voice'
+import { extractAddresses } from './email-sync'
+import { listPersonEmails, type PersonEmailAddress } from './person-emails'
 
 type Db = ReturnType<typeof getDb>
 
@@ -58,6 +60,8 @@ export interface EmailThreadSnippet {
   date: string
   snippet: string | null
   messageCount: number
+  /** The latest message in the thread was sent by me */
+  fromMe: boolean
   gmailUrl: string | null
 }
 
@@ -86,12 +90,14 @@ export interface PersonContextExtras {
   latestDmSummary: DmSummarySnippet | null
   proposedCommitments: PersonCommitment[]
   emailThreads: EmailThreadSnippet[]
+  /** Every address this person is matched by, like `whatsappSenders` for mail */
+  emailAddresses: PersonEmailAddress[]
   voiceRecordings: VoiceRecordingSummary[]
 }
 
 const SINCE_LIMIT = 20
 const OLDER_LIMIT = 10
-const EMAIL_LIMIT = 5
+const EMAIL_LIMIT = 20
 const VOICE_LIMIT = 3
 
 /**
@@ -280,6 +286,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
       gmailThreadId: personEmailThreads.gmailThreadId,
       subject: personEmailThreads.subject,
       from: personEmailThreads.from,
+      accountEmail: personEmailThreads.accountEmail,
       date: personEmailThreads.date,
       snippet: personEmailThreads.snippet,
       messageCount: personEmailThreads.messageCount,
@@ -314,7 +321,12 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     captureReachable: (await dmJidsForPerson(db, personId, person.phone)).length > 0,
     latestDmSummary: latestSummary ?? null,
     proposedCommitments: proposedCommitments.map((c) => ({ ...c, sourceUrl: commitmentSourceUrl(c) })),
-    emailThreads: emailRows.map(({ gmailThreadId, ...t }) => ({ ...t, gmailUrl: gmailThreadUrl(gmailThreadId) })),
+    emailThreads: emailRows.map(({ gmailThreadId, accountEmail, ...t }) => ({
+      ...t,
+      fromMe: extractAddresses(t.from).includes(accountEmail.toLowerCase()),
+      gmailUrl: gmailThreadUrl(gmailThreadId),
+    })),
+    emailAddresses: await listPersonEmails(db, personId),
     voiceRecordings,
   }
 }

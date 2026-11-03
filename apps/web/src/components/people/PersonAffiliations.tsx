@@ -10,15 +10,16 @@ import {
   workspaceKindLabel,
   type Affiliation,
 } from './affiliations'
+import { ManagerPicker } from './ManagerPicker'
 
 interface FormState {
   workspaceId: string
   relationshipType: string
-  reportsToPersonId: string
+  reportsTo: { id: string; name: string } | null
   notes: string
 }
 
-const EMPTY_FORM: FormState = { workspaceId: '', relationshipType: '', reportsToPersonId: '', notes: '' }
+const EMPTY_FORM: FormState = { workspaceId: '', relationshipType: '', reportsTo: null, notes: '' }
 
 /**
  * "שיוכים" — the life domains a person belongs to. A person can hold several at once
@@ -38,7 +39,7 @@ export function PersonAffiliations({ personId }: { personId: string }) {
 
   const refresh = async () => {
     await Promise.all([
-      utils.people.affiliations.invalidate({ personId }),
+      utils.people.affiliations.invalidate(),
       utils.people.listPaginated.invalidate(),
       utils.people.listByWorkspace.invalidate(),
     ])
@@ -57,7 +58,9 @@ export function PersonAffiliations({ personId }: { personId: string }) {
   const availableWorkspaces = workspaces.filter((w) => !takenWorkspaceIds.has(w.id) || w.id === editingWorkspaceId)
   const selectedWorkspace = workspaces.find((w) => w.id === form?.workspaceId)
   const suggestions = relationshipSuggestions(selectedWorkspace?.kind)
-  const managerOptions = workspaceMembers.filter((m) => m.person.id !== personId)
+  const managerOptions = workspaceMembers
+    .filter((m) => m.person.id !== personId)
+    .map((m) => ({ id: m.person.id, name: m.person.name, hint: m.relationshipType ? relationshipLabel(m.relationshipType) : null }))
 
   const startAdd = () => {
     setEditingWorkspaceId(null)
@@ -69,7 +72,7 @@ export function PersonAffiliations({ personId }: { personId: string }) {
     setForm({
       workspaceId: a.workspaceId,
       relationshipType: a.relationshipType,
-      reportsToPersonId: a.reportsToPersonId ?? '',
+      reportsTo: a.reportsToPersonId ? { id: a.reportsToPersonId, name: a.reportsToName ?? '' } : null,
       notes: a.notes ?? '',
     })
   }
@@ -86,7 +89,7 @@ export function PersonAffiliations({ personId }: { personId: string }) {
       personId,
       workspaceId: form.workspaceId,
       relationshipType: form.relationshipType.trim(),
-      reportsToPersonId: form.reportsToPersonId || null,
+      reportsToPersonId: form.reportsTo?.id ?? null,
       notes: form.notes.trim() || null,
     })
   }
@@ -172,7 +175,7 @@ export function PersonAffiliations({ personId }: { personId: string }) {
               className="input"
               value={form.workspaceId}
               disabled={!!editingWorkspaceId}
-              onChange={(e) => setForm((f) => (f ? { ...f, workspaceId: e.target.value, reportsToPersonId: '' } : f))}
+              onChange={(e) => setForm((f) => (f ? { ...f, workspaceId: e.target.value, reportsTo: null } : f))}
             >
               {availableWorkspaces.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -209,23 +212,12 @@ export function PersonAffiliations({ personId }: { personId: string }) {
 
           <div>
             <label className="label" htmlFor="affiliation-reports-to">מדווח ל (לא חובה)</label>
-            <select
-              id="affiliation-reports-to"
-              className="input"
-              value={form.reportsToPersonId}
-              onChange={(e) => setForm((f) => (f ? { ...f, reportsToPersonId: e.target.value } : f))}
-            >
-              <option value="">— ללא —</option>
-              {managerOptions.map((m) => (
-                <option key={m.person.id} value={m.person.id}>
-                  {m.person.name}
-                  {m.relationshipType ? ` · ${relationshipLabel(m.relationshipType)}` : ''}
-                </option>
-              ))}
-            </select>
-            {managerOptions.length === 0 && (
-              <p className="text-[11px] text-[#5a688c] mt-1">מופיעים כאן רק אנשים שכבר שויכו לעולם הזה.</p>
-            )}
+            <ManagerPicker
+              personId={personId}
+              members={managerOptions}
+              value={form.reportsTo}
+              onChange={(reportsTo) => setForm((f) => (f ? { ...f, reportsTo } : f))}
+            />
           </div>
 
           <div>

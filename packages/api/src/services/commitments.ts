@@ -82,13 +82,21 @@ export function buildCommitmentNotification(items: ProposedCommitmentLabel[]): {
   }
 }
 
-/** Gmail thread key is `accountEmail::threadId`. */
+/** Outlook ConversationIds are long base64 (`AAQkAD…=`); Gmail thread ids are 16 hex chars. */
+export function isOutlookConversationId(threadId: string): boolean {
+  return threadId.length > 32 || /[=/+]/.test(threadId)
+}
+
+/**
+ * Gmail thread key is `accountEmail::threadId`. Outlook threads share the key shape but carry a
+ * ConversationId (long base64), which Gmail can't open — those get no link.
+ */
 export function gmailThreadUrl(threadKey: string): string | null {
   const sep = threadKey.indexOf('::')
   if (sep <= 0) return null
   const account = threadKey.slice(0, sep)
   const threadId = threadKey.slice(sep + 2)
-  if (!threadId) return null
+  if (!threadId || isOutlookConversationId(threadId)) return null
   return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account)}#all/${encodeURIComponent(threadId)}`
 }
 

@@ -276,23 +276,76 @@ export function isAutomatedSender(address: string | null | undefined, name?: str
   return PATTERNS.some((re) => re.test(hay))
 }
 
+/** "shani.asaraf@…" → "shani asaraf"; null when the local part isn't two or more name words. */
+export function nameFromEmailLocalPart(address: string): string | null {
+  const local = address.toLowerCase().split('@')[0] ?? ''
+  const words = local.split(/[._-]+/).map((w) => w.replace(/\d+/g, '')).filter((w) => w.length > 1)
+  return words.length >= 2 ? words.join(' ') : null
+}
+
+export type EmailMatchPerson = { id: string; name: string }
+
 /**
- * Queue a brand-new email sender (no matching person) for review so the user can add them to
- * People with their address. Unlike resolveOrQueue, this handles the `none` case and carries
- * the email. Deduped by email among non-dismissed rows.
+ * The one existing person an unknown address most likely belongs to, by its display name or
+ * `first.last` local part: exact name/alias first, then every word of the name found in a
+ * fuller one ("David Kotin" ⊂ "Tinko (David Kotin)"). Null when nothing or several match —
+ * the caller only ever suggests; it never links on this.
+ */
+export function matchEmailCandidate(
+  input: { name?: string | null; address: string },
+  rows: EmailMatchPerson[],
+  aliases: { personId: string; aliasNorm: string }[],
+): string | null {
+  const display = input.name && !input.name.includes('@') ? normalizeAlias(input.name) : ''
+  const local = nameFromEmailLocalPart(input.address)
+  const keys = [...new Set([display, local ? normalizeAlias(local) : ''].filter(Boolean))]
+  const keysFor = (r: EmailMatchPerson) => [normalizeAlias(r.name), ...aliases.filter((a) => a.personId === r.id).map((a) => a.aliasNorm)]
+  for (const norm of keys) {
+    const exact = rows.filter((r) => keysFor(r).includes(norm))
+    if (exact.length === 1) return exact[0]!.id
+    if (exact.length > 1) return null
+  }
+  for (const norm of keys) {
+    const tokens = norm.split(' ')
+    if (tokens.length < 2) continue
+    const within = rows.filter((r) => keysFor(r).some((k) => tokens.every((t) => k.split(' ').includes(t))))
+    if (within.length === 1) return within[0]!.id
+    if (within.length > 1) return null
+  }
+  return null
+}
+
+/** Confirmed people and every alias, the pool `matchEmailCandidate` picks from. */
+export async function loadEmailMatchPool(db: Db): Promise<{ rows: EmailMatchPerson[]; aliases: { personId: string; aliasNorm: string }[] }> {
+  const rows = await db.select({ id: people.id, name: people.name }).from(people).where(eq(people.status, 'confirmed'))
+  const aliases = await db.select({ personId: personAliases.personId, aliasNorm: personAliases.aliasNorm }).from(personAliases)
+  return { rows, aliases }
+}
+
+/**
+ * Queue an unknown email address (sender or recipient) for review so the user can add them to
+ * People, or attach the address to `candidatePersonId` when a name match was found. Unlike
+ * resolveOrQueue, this handles the `none` case and carries the email. Deduped by email; a
+ * pending row with no candidate gains one when a later run finds it.
  */
 export async function queueUnknownEmailSender(
   db: Db,
-  input: { name: string; email: string; context?: string },
+  input: { name: string; email: string; context?: string; candidatePersonId?: string | null },
 ): Promise<boolean> {
   const email = input.email.toLowerCase().trim()
   if (!email || isAutomatedSender(email, input.name)) return false
   const existing = await db
-    .select({ id: identityQueue.id, status: identityQueue.status })
+    .select({ id: identityQueue.id, status: identityQueue.status, candidatePersonId: identityQueue.candidatePersonId })
     .from(identityQueue)
     .where(eq(identityQueue.email, email))
   // Skip if already queued (pending) or already decided (linked/new/dismissed).
-  if (existing.length > 0) return false
+  if (existing.length > 0) {
+    const open = existing.find((r) => r.status === 'pending' && !r.candidatePersonId)
+    if (open && input.candidatePersonId) {
+      await db.update(identityQueue).set({ candidatePersonId: input.candidatePersonId }).where(eq(identityQueue.id, open.id))
+    }
+    return false
+  }
   await db.insert(identityQueue).values({
     id: 'iq' + Date.now() + Math.random().toString(36).slice(2, 7),
     name: (input.name || email).trim(),
@@ -300,7 +353,7 @@ export async function queueUnknownEmailSender(
     source: 'email',
     context: input.context ?? null,
     email,
-    candidatePersonId: null,
+    candidatePersonId: input.candidatePersonId ?? null,
     status: 'pending',
     createdAt: new Date().toISOString(),
   })

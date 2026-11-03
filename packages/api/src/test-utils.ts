@@ -43,6 +43,9 @@ import {
   slackChannels,
   slackConnections,
   personWorkspaces,
+  identityQueue,
+  personAliases,
+  personExternalIds,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -102,6 +105,9 @@ export async function resetDb() {
   await db.delete(meetingSeries)
   await db.delete(meetingTypes)
   await db.delete(personWorkspaces)
+  await db.delete(identityQueue)
+  await db.delete(personAliases)
+  await db.delete(personExternalIds)
   await db.delete(people)
   await db.delete(notionStatusOverrides)
   await db.delete(notionFieldBaselines)

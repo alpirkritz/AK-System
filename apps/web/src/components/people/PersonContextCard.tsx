@@ -43,6 +43,56 @@ interface Snippet {
 
 const EXPIRED = '[expired]'
 
+interface MailThread {
+  id: string
+  subject: string
+  date: string
+  snippet: string | null
+  messageCount: number
+  fromMe: boolean
+  gmailUrl: string | null
+}
+
+/** WhatsApp and email on one time line, newest first — both are just ways we talked. */
+type TimelineItem = { kind: 'wa'; ts: number; m: Snippet } | { kind: 'mail'; ts: number; t: MailThread }
+
+function mergeTimeline(whatsapp: Snippet[], mail: MailThread[]): TimelineItem[] {
+  return [
+    ...whatsapp.map((m) => ({ kind: 'wa' as const, ts: m.ts, m })),
+    ...mail.map((t) => ({ kind: 'mail' as const, ts: new Date(t.date).getTime(), t })),
+  ].sort((a, b) => b.ts - a.ts)
+}
+
+function MailItem({ t, muted }: { t: MailThread; muted?: boolean }) {
+  return (
+    <li className={muted ? 'text-[#97a4c2]' : 'text-[#b8c4dc]'} data-testid="person-email-thread">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[#5a688c] tabular-nums shrink-0">{tsLabel(new Date(t.date).getTime())}</span>
+        <span className="pill text-[10px] py-0 inline-flex items-center gap-1 shrink-0" data-testid="snippet-source-email">
+          <Mail className="w-2.5 h-2.5" aria-hidden />
+          מייל
+        </span>
+        <span className="text-[#5a688c] shrink-0">· {t.fromMe ? 'ממני' : 'אליי'}</span>
+        <span className="truncate font-medium">{t.subject}</span>
+        {t.messageCount > 1 && <span className="text-[#5a688c] shrink-0">· {t.messageCount}</span>}
+        {t.gmailUrl && (
+          <a
+            href={t.gmailUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ms-auto shrink-0 rounded p-0.5 text-[#5a688c] hover:text-[#eef3fb] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547]"
+            aria-label={`פתח ב-Gmail: ${t.subject}`}
+            title="פתח ב-Gmail"
+          >
+            <ExternalLink className="w-3 h-3" aria-hidden />
+          </a>
+        )}
+      </div>
+      {t.snippet && <p className="leading-relaxed line-clamp-2 text-[#97a4c2]">{t.snippet}</p>}
+    </li>
+  )
+}
+
 function SnippetItem({ m, muted, onPin, pinning }: { m: Snippet; muted?: boolean; onPin: (m: Snippet) => void; pinning: boolean }) {
   const expired = m.text === EXPIRED
   return (
@@ -89,8 +139,8 @@ function SubHeading({ icon: Icon, children }: { icon: typeof Users; children: Re
 
 /**
  * Person card, ordered: recommendation → open loops → commitments to confirm → 1:1 summary →
- * WhatsApp since the last Notion meeting (1:1 and groups) → Notion meetings → older WhatsApp
- * (collapsed) → email threads → voice recordings → circles → capture and sender settings.
+ * WhatsApp and email since the last Notion meeting → Notion meetings → older WhatsApp and email
+ * (collapsed) → voice recordings → circles → capture, WhatsApp senders and email addresses.
  */
 export function PersonContextCard({ personId }: { personId: string }) {
   const utils = trpc.useUtils()
@@ -99,6 +149,9 @@ export function PersonContextCard({ personId }: { personId: string }) {
   const [linking, setLinking] = useState(false)
   const [playing, setPlaying] = useState<string | null>(null)
   const [senderQuery, setSenderQuery] = useState('')
+  const [addingEmail, setAddingEmail] = useState(false)
+  const [emailDraft, setEmailDraft] = useState('')
+  const [emailAdded, setEmailAdded] = useState(false)
   const senders = trpc.insights.whatsappSenders.useQuery({ query: senderQuery }, { enabled: linking })
   const invalidate = () => {
     utils.insights.personContext.invalidate({ personId })
@@ -113,10 +166,26 @@ export function PersonContextCard({ personId }: { personId: string }) {
       utils.people.invalidate()
     },
   })
+  const addEmail = trpc.people.emails.add.useMutation({
+    onSuccess: () => {
+      invalidate()
+      setEmailDraft('')
+      setAddingEmail(false)
+      setEmailAdded(true)
+    },
+  })
+  const removeEmail = trpc.people.emails.remove.useMutation({ onSuccess: invalidate })
   const onPin = (m: Snippet) => pin.mutate({ messageId: m.id, pinned: !m.pinned })
 
   if (!ctx) return null
-  const since = showAllSince ? ctx.whatsappSinceMeeting : ctx.whatsappSinceMeeting.slice(0, SINCE_SHOWN)
+  const cutoff = ctx.lastNotionMeetingDate ? new Date(`${ctx.lastNotionMeetingDate}T23:59:59`).getTime() : 0
+  const sinceAll = mergeTimeline(ctx.whatsappSinceMeeting, ctx.emailThreads.filter((t) => new Date(t.date).getTime() > cutoff))
+  const olderAll = mergeTimeline(ctx.olderWhatsapp, ctx.emailThreads.filter((t) => new Date(t.date).getTime() <= cutoff))
+  const since = showAllSince ? sinceAll : sinceAll.slice(0, SINCE_SHOWN)
+  const renderItem = (item: TimelineItem, muted?: boolean) =>
+    item.kind === 'wa'
+      ? <SnippetItem key={item.m.id} m={item.m} muted={muted} onPin={onPin} pinning={pin.isPending} />
+      : <MailItem key={item.t.id} t={item.t} muted={muted} />
 
   return (
     <section className="mb-5" data-testid="person-context-card">
@@ -175,19 +244,15 @@ export function PersonContextCard({ personId }: { personId: string }) {
           </div>
         )}
 
-        {ctx.whatsappSinceMeeting.length > 0 && (
-          <div>
+        {sinceAll.length > 0 && (
+          <div data-testid="person-timeline">
             <SubHeading icon={MessageCircle}>
-              {ctx.lastNotionMeetingDate ? `וואטסאפ מאז הפגישה ב-${dateLabel(ctx.lastNotionMeetingDate)}` : 'וואטסאפ אחרון'}
+              {ctx.lastNotionMeetingDate ? `התכתבות מאז הפגישה ב-${dateLabel(ctx.lastNotionMeetingDate)}` : 'התכתבות אחרונה'}
             </SubHeading>
-            <ul className="space-y-1.5">
-              {since.map((m) => (
-                <SnippetItem key={m.id} m={m} onPin={onPin} pinning={pin.isPending} />
-              ))}
-            </ul>
-            {ctx.whatsappSinceMeeting.length > SINCE_SHOWN && (
+            <ul className="space-y-1.5">{since.map((item) => renderItem(item))}</ul>
+            {sinceAll.length > SINCE_SHOWN && (
               <button type="button" className="btn-ghost text-[11px] mt-1" onClick={() => setShowAllSince((v) => !v)}>
-                {showAllSince ? 'הצג פחות' : `הצג עוד ${ctx.whatsappSinceMeeting.length - SINCE_SHOWN}`}
+                {showAllSince ? 'הצג פחות' : `הצג עוד ${sinceAll.length - SINCE_SHOWN}`}
               </button>
             )}
           </div>
@@ -207,47 +272,13 @@ export function PersonContextCard({ personId }: { personId: string }) {
           </div>
         )}
 
-        {ctx.olderWhatsapp.length > 0 && (
-          <details>
+        {olderAll.length > 0 && (
+          <details data-testid="person-timeline-older">
             <summary className="cursor-pointer text-[11px] font-semibold text-[#5a688c]">
-              וואטסאפ ישן יותר ({ctx.olderWhatsapp.length})
+              התכתבות ישנה יותר ({olderAll.length})
             </summary>
-            <ul className="space-y-1.5 mt-1.5">
-              {ctx.olderWhatsapp.map((m) => (
-                <SnippetItem key={m.id} m={m} muted onPin={onPin} pinning={pin.isPending} />
-              ))}
-            </ul>
+            <ul className="space-y-1.5 mt-1.5">{olderAll.map((item) => renderItem(item, true))}</ul>
           </details>
-        )}
-
-        {ctx.emailThreads.length > 0 && (
-          <div data-testid="person-email-threads">
-            <SubHeading icon={Mail}>אימיילים</SubHeading>
-            <ul className="space-y-1.5">
-              {ctx.emailThreads.map((t) => (
-                <li key={t.id} className="text-[#b8c4dc]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#5a688c] tabular-nums shrink-0">{dateLabel(t.date.slice(0, 10))}</span>
-                    <span className="truncate font-medium">{t.subject}</span>
-                    {t.messageCount > 1 && <span className="text-[#5a688c] shrink-0">· {t.messageCount}</span>}
-                    {t.gmailUrl && (
-                      <a
-                        href={t.gmailUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ms-auto shrink-0 rounded p-0.5 text-[#5a688c] hover:text-[#eef3fb] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#e8c547]"
-                        aria-label={`פתח ב-Gmail: ${t.subject}`}
-                        title="פתח ב-Gmail"
-                      >
-                        <ExternalLink className="w-3 h-3" aria-hidden />
-                      </a>
-                    )}
-                  </div>
-                  {t.snippet && <p className="leading-relaxed line-clamp-2 text-[#97a4c2]">{t.snippet}</p>}
-                </li>
-              ))}
-            </ul>
-          </div>
         )}
 
         {ctx.voiceRecordings.length > 0 && (
@@ -358,11 +389,67 @@ export function PersonContextCard({ personId }: { personId: string }) {
               <Link2 className="w-3 h-3" aria-hidden />
               קשר שולח מוואטסאפ
             </button>
+            <button
+              type="button"
+              className="btn-ghost text-[11px] inline-flex items-center gap-1"
+              aria-expanded={addingEmail}
+              onClick={() => { setAddingEmail((v) => !v); addEmail.reset(); setEmailAdded(false) }}
+              data-testid="add-email-toggle"
+            >
+              <Mail className="w-3 h-3" aria-hidden />
+              קשר מייל
+            </button>
             <a href={`/voice?person=${personId}`} className="btn-ghost text-[11px] inline-flex items-center gap-1" data-testid="record-conversation-link">
               <Mic className="w-3 h-3" aria-hidden />
               הקלט שיחה
             </a>
           </div>
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="person-email-addresses">
+            {ctx.emailAddresses.map((e) => (
+              <span key={e.address} className="pill text-[10px] inline-flex items-center gap-1" title={e.source === 'primary' ? 'כתובת ראשית' : 'כתובת מקושרת'}>
+                <Mail className="w-3 h-3" aria-hidden />
+                <span dir="ltr">{e.address}</span>
+                <button
+                  type="button"
+                  aria-label={`הסר כתובת ${e.address}`}
+                  title="זו לא הכתובת שלו/ה"
+                  disabled={removeEmail.isPending}
+                  onClick={() => removeEmail.mutate({ personId, address: e.address })}
+                  className="text-[#5a688c] hover:text-[#eef3fb]"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            {ctx.emailAddresses.length === 0 && !addingEmail && (
+              <span className="text-[#5a688c]">אין כתובת מייל · בלי כתובת המיילים לא נקשרים לכרטיס</span>
+            )}
+            {emailAdded && <span className="text-[#5a688c]">נשמר · Gmail מתעדכן עכשיו, מייל עבודה תוך כרבע שעה</span>}
+          </div>
+          {addingEmail && (
+            <form
+              className="flex flex-wrap items-center gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (emailDraft.trim()) addEmail.mutate({ personId, address: emailDraft.trim() })
+              }}
+            >
+              <input
+                className="input flex-1 min-w-[12rem] text-xs"
+                type="email"
+                dir="ltr"
+                aria-label="כתובת מייל"
+                placeholder="name@company.com"
+                value={emailDraft}
+                onChange={(e) => setEmailDraft(e.target.value)}
+                autoFocus
+              />
+              <button type="submit" className="btn btn-primary text-xs" disabled={addEmail.isPending || !emailDraft.trim()}>
+                הוסף
+              </button>
+              {addEmail.error && <span className="text-red-400 w-full">{addEmail.error.message}</span>}
+            </form>
+          )}
           {linking && (
             <div className="space-y-1.5">
               <input

@@ -84,7 +84,7 @@ export async function listAffiliations(db: Db, personIds: string[]): Promise<Map
   return out
 }
 
-/** Creates or updates the single row for (personId, workspaceId). */
+/** Creates or updates the single row for (personId, workspaceId); a new manager joins the workspace. */
 export async function upsertAffiliation(db: Db, input: LinkToWorkspaceInput): Promise<PersonAffiliation> {
   const relationshipType = input.relationshipType.trim()
   if (!relationshipType) throw new Error('סוג הקשר חסר')
@@ -128,6 +128,27 @@ export async function upsertAffiliation(db: Db, input: LinkToWorkspaceInput): Pr
       ...values,
       createdAt: now,
     })
+  }
+
+  // A manager picked from all of People joins this workspace too, so the org line has both ends.
+  if (input.reportsToPersonId) {
+    const [managerRow] = await db
+      .select({ id: personWorkspaces.id })
+      .from(personWorkspaces)
+      .where(and(eq(personWorkspaces.personId, input.reportsToPersonId), eq(personWorkspaces.workspaceId, input.workspaceId)))
+      .limit(1)
+    if (!managerRow) {
+      await db.insert(personWorkspaces).values({
+        id: newId(),
+        personId: input.reportsToPersonId,
+        workspaceId: input.workspaceId,
+        relationshipType,
+        reportsToPersonId: null,
+        notes: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
   }
 
   const affiliations = (await listAffiliations(db, [input.personId])).get(input.personId) ?? []

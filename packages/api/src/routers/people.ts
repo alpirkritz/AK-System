@@ -32,6 +32,8 @@ import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDu
 import { AliasConflictError, addAlias, listAliases, moveAliasesOnMerge, removeAlias } from '../services/person-resolution'
 import { createNotification } from '../lib/notification-store'
 import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
+import { EmailOwnedElsewhereError, addPersonEmail, listPersonEmails, removePersonEmail } from '../services/person-emails'
+import { syncEmailThreads } from '../services/email-sync'
 import {
   resolveDatabases,
   listNotionAccountLabels,
@@ -796,6 +798,32 @@ export const peopleRouter = router({
       const bridge = await pushDmAllowlist(ctx.db)
       return { captureWhatsapp: !!state.capture, captureWhatsappSince: state.since, bridgeUpdated: bridge.pushed }
     }),
+
+  /** A person's email addresses — the mail counterpart of WhatsApp sender links. */
+  emails: router({
+    list: protectedProcedure
+      .input(z.object({ personId: z.string().min(1) }))
+      .query(({ ctx, input }) => listPersonEmails(ctx.db, input.personId)),
+
+    add: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), address: z.string().min(3) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { added } = await addPersonEmail(ctx.db, input.personId, input.address)
+          // Gmail archives right away; Outlook mail follows on the bridge's next 15-min run.
+          if (added) await syncEmailThreads(ctx.db, { personIds: [input.personId] }).catch(() => null)
+          return { added }
+        } catch (err) {
+          if (err instanceof EmailOwnedElsewhereError) throw new TRPCError({ code: 'CONFLICT', message: err.message })
+          if (err instanceof Error) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+          throw err
+        }
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), address: z.string().min(3) }))
+      .mutation(({ ctx, input }) => removePersonEmail(ctx.db, input.personId, input.address)),
+  }),
 
   // ── Notion "people" sources: env-configured + self-service (Settings ← מקורות) ──
 

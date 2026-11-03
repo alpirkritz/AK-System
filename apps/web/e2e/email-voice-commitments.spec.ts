@@ -103,7 +103,7 @@ test.describe('Email, voice and the shared commitment queue', () => {
     await page.getByPlaceholder('חיפוש אנשים...').fill(name)
     await page.getByText(name, { exact: true }).first().click()
 
-    const emails = page.getByTestId('person-email-threads')
+    const emails = page.getByTestId('person-email-thread').filter({ hasText: `הצעת מחיר ${stamp}` })
     await expect(emails).toBeVisible({ timeout: 20000 })
     await expect(emails).toContainText(`הצעת מחיר ${stamp}`)
     await expect(emails.getByRole('link', { name: `פתח ב-Gmail: הצעת מחיר ${stamp}` })).toHaveAttribute(

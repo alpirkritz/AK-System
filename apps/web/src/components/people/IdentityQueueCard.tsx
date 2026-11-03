@@ -21,6 +21,7 @@ export function IdentityQueueCard() {
     setPicking(false); setQuery(''); setError(null)
     void utils.people.identityQueue.invalidate()
     void utils.people.list.invalidate()
+    void utils.insights.personContext.invalidate()
   }
   const answer = trpc.people.identityQueue.answer.useMutation({ onSuccess: done, onError: (e) => setError(e.message) })
 
@@ -30,7 +31,9 @@ export function IdentityQueueCard() {
   return (
     <section className="card p-3 mb-4 text-sm" data-testid="identity-queue-card">
       <p className="text-[#eef3fb]">
-        {item.candidate ? <>״{item.name}״. זה <strong>{item.candidate.name}</strong>?</> : <>מי זה ״{item.name}״?</>}
+        {item.candidate && item.email
+          ? <>״{item.name}״. לצרף את הכתובת ל<strong>{item.candidate.name}</strong>?</>
+          : item.candidate ? <>״{item.name}״. זה <strong>{item.candidate.name}</strong>?</> : <>מי זה ״{item.name}״?</>}
         {count > 1 && <span className="text-[11px] text-[#5a688c] ms-2">עוד {count - 1} בתור</span>}
       </p>
       {item.email && <p className="text-[11px] text-[#8fa0c4] mt-0.5 ltr-text" dir="ltr">{item.email}</p>}

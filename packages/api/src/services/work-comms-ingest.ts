@@ -15,7 +15,8 @@ import {
   type EmailHeaderMessage,
   type EmailSyncResult,
 } from './email-sync'
-import { queueUnknownEmailSender } from './person-resolution'
+import { loadEmailMatchPool, matchEmailCandidate, queueUnknownEmailSender } from './person-resolution'
+import { isSelfPersonName } from '../lib/self-identity'
 import { ingestTeamsMessage, scanTeamsCommitments, upsertTeamsChat, type TeamsCommitmentScanResult } from './teams'
 
 type Db = ReturnType<typeof getDb>
@@ -24,7 +25,7 @@ type Db = ReturnType<typeof getDb>
 const MAX_SUGGESTED_SENDERS = 50
 
 export interface WorkMailIngestResult extends EmailSyncResult {
-  /** New non-contact senders queued for "add to People" review this run. */
+  /** New non-contact correspondents (senders or recipients) queued for review this run. */
   suggestedSenders: number
 }
 
@@ -33,33 +34,67 @@ function senderName(from: string): string | null {
   return from.match(/^\s*"?([^"<@]+?)"?\s*</)?.[1]?.trim() || null
 }
 
+/** Each `Name <addr>` entry of a To/Cc header, split on commas outside quotes. */
+export function headerEntries(header: string): { name: string | null; address: string }[] {
+  const out: { name: string | null; address: string }[] = []
+  for (const part of header.match(/(?:"[^"]*"|[^,])+/g) ?? []) {
+    const [address] = extractAddresses(part)
+    if (address) out.push({ address, name: senderName(part) })
+  }
+  return out
+}
+
+export interface Correspondent {
+  email: string
+  name: string | null
+  /** Messages they sent me */
+  sent: number
+  /** Messages they appear on at all (From, To or Cc) */
+  total: number
+}
+
+/**
+ * Every address on these messages that isn't me or already known, ranked: people who write to
+ * me above people I only write to, then by volume.
+ */
+export function rankUnknownCorrespondents(messages: EmailHeaderMessage[], known: Set<string>): Correspondent[] {
+  const freq = new Map<string, Correspondent>()
+  const note = (entry: { name: string | null; address: string }, account: string, isSender: boolean) => {
+    if (entry.address === account || known.has(entry.address)) return
+    const cur = freq.get(entry.address) ?? { email: entry.address, name: entry.name, sent: 0, total: 0 }
+    if (isSender) cur.sent++
+    cur.total++
+    if (!cur.name) cur.name = entry.name
+    freq.set(entry.address, cur)
+  }
+  for (const m of messages) {
+    const account = m.accountEmail.toLowerCase()
+    const [from] = headerEntries(m.from)
+    if (from) note(from, account, true)
+    for (const entry of [...headerEntries(m.to), ...headerEntries(m.cc)]) note(entry, account, false)
+  }
+  return [...freq.values()].sort((a, b) => b.sent - a.sent || b.total - a.total)
+}
+
 /**
  * Persist Outlook mail headers pushed from the bridge. Reuses the Gmail archive path (matching,
  * alias learning, reply-need) for threads that touch a known person, then surfaces the remaining
- * real-human senders for "add to People" review — their mail archives once they're added.
+ * real-human correspondents — From, To and Cc — for review: "attach to X" when the name matches
+ * an existing person, otherwise "add to People". Their mail archives once they're linked.
  */
 export async function ingestWorkMail(db: Db, messages: EmailHeaderMessage[]): Promise<WorkMailIngestResult> {
   const result = await syncEmailThreads(db, { fetch: async () => ({ messages, accountErrors: [] }) })
 
-  // Surface senders we don't know yet (review-first; mail itself isn't stored for them).
+  // Surface correspondents we don't know yet (review-first; mail itself isn't stored for them).
   const known = await knownEmailAddresses(db)
-  const freq = new Map<string, { name: string | null; count: number }>()
-  for (const m of messages) {
-    const account = m.accountEmail.toLowerCase()
-    const addrs = extractAddresses(m.from)
-    if (addrs.length === 0) continue
-    const addr = addrs[0]! // the From address
-    if (addr === account || known.has(addr)) continue
-    const cur = freq.get(addr) ?? { name: senderName(m.from), count: 0 }
-    cur.count++
-    if (!cur.name) cur.name = senderName(m.from)
-    freq.set(addr, cur)
-  }
-
-  const ranked = [...freq.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, MAX_SUGGESTED_SENDERS)
+  const ranked = rankUnknownCorrespondents(messages, new Set(known.keys())).slice(0, MAX_SUGGESTED_SENDERS)
+  const pool = await loadEmailMatchPool(db)
+  const rows = pool.rows.filter((r) => !isSelfPersonName(r.name))
   let suggestedSenders = 0
-  for (const [email, { name }] of ranked) {
-    if (await queueUnknownEmailSender(db, { name: name ?? email, email, context: 'מייל עבודה' })) {
+  for (const { email, name, sent } of ranked) {
+    const candidatePersonId = matchEmailCandidate({ name, address: email }, rows, pool.aliases)
+    const context = sent > 0 ? 'מייל עבודה' : 'מייל עבודה · נמען/ת'
+    if (await queueUnknownEmailSender(db, { name: name ?? email, email, context, candidatePersonId })) {
       suggestedSenders++
     }
   }
