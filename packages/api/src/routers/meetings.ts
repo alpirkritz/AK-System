@@ -43,6 +43,7 @@ import {
 } from '../lib/calendar-participants'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
 import { getMeetingPrep } from '../services/meeting-preps'
+import { withPersonNames } from '../services/people-resolve'
 import { mergeRecordingNotes } from '../lib/recording-notes'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
@@ -967,11 +968,18 @@ export const meetingsRouter = router({
         kaizenKeep: analysis.kaizenKeep,
         kaizenImprove: analysis.kaizenImprove,
         openQuestion: analysis.openQuestion,
+        // Linked items (personId) carry the current People name — docs/specs/recording-uses-chosen-people.md.
         participants: analysis.participantsJson
-          ? omitSelfParticipants(JSON.parse(analysis.participantsJson) as { name: string }[])
+          ? await withPersonNames(
+              ctx.db,
+              omitSelfParticipants(JSON.parse(analysis.participantsJson) as { name: string; confirmed?: boolean; personId?: string }[]),
+            )
           : [],
         actionItems: analysis.actionItemsJson
-          ? JSON.parse(analysis.actionItemsJson)
+          ? await withPersonNames(
+              ctx.db,
+              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string }[],
+            )
           : [],
         status: analysis.status,
         error: analysis.error,

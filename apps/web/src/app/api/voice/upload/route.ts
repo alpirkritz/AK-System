@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
-import { processVoiceRecording, saveVoiceUpload, VoiceUploadError, VOICE_MAX_BYTES } from '@ak-system/api'
-import { createNotification } from '@/lib/notification-store'
+import { saveVoiceUpload, VoiceUploadError, VOICE_MAX_BYTES } from '@ak-system/api'
+import { startVoiceProcessing } from '../_lib/start-processing'
 import { resolveRequestSession } from '@/lib/request-session'
 
 export const runtime = 'nodejs'
@@ -40,16 +40,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       contextConfirmed: form.get('contextConfirmed') === 'true',
       source: form.get('source') === 'imported' ? 'imported' : 'live',
     })
-    void processVoiceRecording(db, recordingId)
-      .then(async (rec) => {
-        await createNotification({
-          title: rec.status === 'completed' ? 'ההקלטה נותחה' : 'ניתוח ההקלטה נכשל',
-          body: rec.status === 'completed' ? 'הסיכום וההתחייבויות מחכים לך.' : rec.error ?? 'אפשר לנסות שוב מעמוד ההקלטות.',
-          url: `/voice?recording=${recordingId}`,
-          type: 'system',
-        })
-      })
-      .catch((err) => console.error('[voice/upload] processing failed:', err))
+    startVoiceProcessing(db, recordingId)
     return NextResponse.json({ recordingId })
   } catch (err) {
     if (err instanceof VoiceUploadError) return NextResponse.json({ error: err.message }, { status: 400 })

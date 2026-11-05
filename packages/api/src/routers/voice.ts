@@ -2,7 +2,7 @@ import * as path from 'path'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq } from 'drizzle-orm'
-import { meetingAnalyses, voiceRecordings } from '@ak-system/database'
+import { meetingAnalyses, voiceRecordingPeople, voiceRecordings } from '@ak-system/database'
 import { router, protectedProcedure } from '../trpc'
 import {
   attachCandidates,
@@ -25,6 +25,7 @@ import {
   VoiceEnrollmentError,
 } from '../services/voice-diarization'
 import { omitSelfParticipants } from '../services/self-person'
+import { withPersonNames } from '../services/people-resolve'
 
 const STUCK_PROCESSING_MS = 10 * 60_000
 
@@ -133,8 +134,11 @@ export const voiceRouter = router({
         kaizenKeep: a.kaizenKeep,
         kaizenImprove: a.kaizenImprove,
         openQuestion: a.openQuestion,
-        participants: omitSelfParticipants(parseJson(a.participantsJson) as { name: string }[]),
-        actionItems: parseJson(a.actionItemsJson) as { content: string; owner?: string }[],
+        participants: await withPersonNames(
+          ctx.db,
+          omitSelfParticipants(parseJson(a.participantsJson) as { name: string; confirmed?: boolean; personId?: string }[]),
+        ),
+        actionItems: await withPersonNames(ctx.db, parseJson(a.actionItemsJson) as { content: string; owner?: string; personId?: string }[]),
         status: a.status,
         error: a.error,
       }
@@ -144,7 +148,19 @@ export const voiceRouter = router({
   // played client-side out of the full audio file, so only times travel over the wire.
   speakers: protectedProcedure
     .input(z.object({ recordingId: z.string().min(1) }))
-    .query(async ({ ctx, input }) => listRecordingSpeakers(ctx.db, input.recordingId)),
+    .query(async ({ ctx, input }) => {
+      const speakers = await listRecordingSpeakers(ctx.db, input.recordingId)
+      // `candidate`: the speaker's person is one of the people tagged on the recording.
+      const tagged = new Set(
+        (
+          await ctx.db
+            .select({ personId: voiceRecordingPeople.personId })
+            .from(voiceRecordingPeople)
+            .where(eq(voiceRecordingPeople.recordingId, input.recordingId))
+        ).map((row) => row.personId),
+      )
+      return speakers.map((speaker) => ({ ...speaker, candidate: Boolean(speaker.personId && tagged.has(speaker.personId)) }))
+    }),
 
   identifySpeaker: protectedProcedure
     .input(z.object({

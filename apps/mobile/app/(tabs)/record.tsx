@@ -26,6 +26,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '../../lib/auth'
 import { fetchPeople, fetchProjects, type MobileProject } from '../../lib/data'
 import { storage } from '../../lib/storage'
+import { uploadFileResumable } from '../../lib/resumable-upload'
+import {
+  deleteRecordingFile,
+  LEGACY_PENDING_VOICE_UPLOAD_KEY,
+  loadPendingList,
+  migrateLegacyPending,
+  newPendingId,
+  patchPending,
+  persistRecordingFile,
+  removePending,
+  savePendingList,
+  upsertPending,
+  type PendingUpload,
+} from '../../lib/pending-recordings'
 import { colors } from '../../lib/theme'
 import {
   attachVoiceToMeeting,
@@ -35,7 +49,6 @@ import {
   fetchVoiceAnalysis,
   fetchVoiceRecording,
   retryVoiceRecording,
-  uploadVoiceRecording,
   type MobileAttachCandidate,
   type MobileMeetingChoice,
   type MobileVoiceAnalysis,
@@ -53,22 +66,6 @@ import {
 type Phase = 'consent' | 'recording' | 'paused' | 'review' | 'uploading' | 'result'
 type Named = { id: string; name: string }
 
-/**
- * A recording whose upload failed, kept so the user can resend it without re-recording (see
- * docs/specs/voice-upload-retry-without-rerecording.md). The audio file at `uri` already
- * persists on device storage regardless — this just keeps the reference and enough context to
- * resend, surviving an app restart via `storage` (SecureStore-backed).
- */
-type PendingUpload = {
-  uri: string
-  durationSeconds: number
-  personIds: string[]
-  personNames: string[]
-  projectId?: string
-  projectName?: string
-  meetingId?: string
-}
-const PENDING_VOICE_UPLOAD_KEY = 'helm_pending_voice_upload'
 /** Rows shown before "עוד פגישות להיום" — keeps the first screen scannable. */
 const MEETINGS_COLLAPSED = 5
 
@@ -359,7 +356,12 @@ export default function RecordScreen() {
   const [message, setMessage] = useState<string | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [recordingId, setRecordingId] = useState<string | null>(null)
-  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  // Every recording not yet confirmed by the server, kept on the device
+  // (docs/specs/voice-recording-never-lost.md). The one under review/upload is `currentId`.
+  const [pendingList, setPendingList] = useState<PendingUpload[]>([])
+  const pendingListRef = useRef<PendingUpload[]>([])
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
   // URI and duration of a stopped recording awaiting context confirmation before upload.
   // (docs/specs/recording-context-before-upload.md)
   const [pendingUri, setPendingUri] = useState<string | null>(null)
@@ -381,15 +383,28 @@ export default function RecordScreen() {
   const elapsedSeconds = Math.floor(state.durationMillis / 1000)
   const seededPerson = useRef(false)
 
+  const updatePending = useCallback((fn: (list: PendingUpload[]) => PendingUpload[]) => {
+    const next = fn(pendingListRef.current)
+    pendingListRef.current = next
+    setPendingList(next)
+    return savePendingList(next).catch(() => undefined)
+  }, [])
+
   useEffect(() => {
-    void storage.getItem(PENDING_VOICE_UPLOAD_KEY).then((raw) => {
-      if (!raw) return
-      try {
-        setPendingUpload(JSON.parse(raw) as PendingUpload)
-      } catch {
-        void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
+    void (async () => {
+      let list = await loadPendingList()
+      // One-time carry-over of the old single-recording SecureStore value.
+      const legacy = migrateLegacyPending(await storage.getItem(LEGACY_PENDING_VOICE_UPLOAD_KEY).catch(() => null))
+      if (legacy) list = upsertPending(list, legacy)
+      // Anything left mid-review or mid-upload means the app was closed or killed then: offer it to send.
+      list = list.map((p) => (p.state === 'pending' ? p : { ...p, state: 'pending' as const }))
+      pendingListRef.current = list
+      setPendingList(list)
+      if (legacy) {
+        await savePendingList(list).catch(() => undefined)
+        await storage.deleteItem(LEGACY_PENDING_VOICE_UPLOAD_KEY).catch(() => undefined)
       }
-    })
+    })()
   }, [])
 
   useEffect(() => {
@@ -466,11 +481,9 @@ export default function RecordScreen() {
       if (p !== 'recording' && p !== 'paused' && p !== 'review' && p !== 'uploading') return
       e.preventDefault()
       Alert.alert(
-        p === 'uploading' ? 'ההעלאה עדיין רצה' : p === 'review' ? 'לבטל את ההקלטה?' : 'ההקלטה תימחק',
-        p === 'uploading'
-          ? 'יציאה עכשיו עלולה לבטל את ההעלאה.'
-          : p === 'review'
-          ? 'לצאת בלי לשלוח את ההקלטה? הקובץ יימחק.'
+        p === 'uploading' ? 'ההעלאה עדיין רצה' : p === 'review' ? 'לצאת בלי לשלוח?' : 'ההקלטה תימחק',
+        p === 'uploading' || p === 'review'
+          ? 'ההקלטה נשמרת במכשיר, ותוכל לשלוח אותה אחר כך ממסך ההקלטה.'
           : 'לצאת בלי לשלוח את ההקלטה?',
         [
           { text: 'להישאר', style: 'cancel' },
@@ -478,12 +491,8 @@ export default function RecordScreen() {
             text: 'לצאת',
             style: 'destructive',
             onPress: () => {
-              if (p !== 'uploading') void recorder.stop().catch(() => undefined)
-              if (p === 'review' && pendingUri) {
-                void import('expo-file-system/legacy')
-                  .then(({ deleteAsync }) => deleteAsync(pendingUri, { idempotent: true }))
-                  .catch(() => undefined)
-              }
+              if (p === 'recording' || p === 'paused') void recorder.stop().catch(() => undefined)
+              if (p === 'review' && currentId) void updatePending((list) => patchPending(list, currentId, { state: 'pending' }))
               phaseRef.current = 'consent'
               navigation.dispatch(e.data.action)
             },
@@ -491,26 +500,9 @@ export default function RecordScreen() {
         ],
       )
     })
-  }, [navigation, recorder, pendingUri])
+  }, [navigation, recorder, currentId, updatePending])
 
   const start = async (forMeeting: MobileMeetingChoice | null = null) => {
-    if (pendingUpload) {
-      const proceed = await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'יש הקלטה שממתינה לשליחה',
-          'להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?',
-          [
-            { text: 'ביטול', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'התחל חדשה ומחק', style: 'destructive', onPress: () => resolve(true) },
-          ],
-        )
-      })
-      if (!proceed) return
-      const uri = pendingUpload.uri
-      setPendingUpload(null)
-      void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
-      void import('expo-file-system/legacy').then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true })).catch(() => undefined)
-    }
     setMessage(null)
     setPermissionDenied(false)
     const permission = await requestRecordingPermissionsAsync()
@@ -572,48 +564,104 @@ export default function RecordScreen() {
       const meetingProject = directory?.projects.find((pr) => pr.id === meeting.projectId) ?? null
       setProject(meetingProject ? { id: meetingProject.id, name: meetingProject.name } : null)
     }
-    setPendingUri(uri)
+    // Durable copy + list entry *before* review, so a killed app never loses it.
+    const id = newPendingId()
+    const durableUri = await persistRecordingFile(uri, id)
+    const reviewPeople = meeting ? meeting.people.map((p) => ({ id: p.id, name: p.name })) : people
+    const reviewProject = meeting
+      ? directory?.projects.find((pr) => pr.id === meeting.projectId) ?? null
+      : project
+    await updatePending((list) =>
+      upsertPending(list, {
+        id,
+        createdAt: new Date().toISOString(),
+        uri: durableUri,
+        durationSeconds,
+        personIds: reviewPeople.map((p) => p.id),
+        personNames: reviewPeople.map((p) => p.name),
+        projectId: reviewProject?.id,
+        projectName: reviewProject?.name,
+        meetingId: meeting?.id,
+        meetingTitle: meeting?.title,
+        state: 'review',
+      }),
+    )
+    setCurrentId(id)
+    setPendingUri(durableUri)
     setPendingDuration(durationSeconds)
     setPhase('review')
   }
 
-  /** Upload the reviewed recording. Called from the review-phase "העלה שיחה" button. */
-  const confirmUpload = async () => {
-    if (!token || !pendingUri) return
-    setProgress(0)
-    setPhase('uploading')
-    try {
-      const { recordingId: id } = await uploadVoiceRecording(
-        token,
-        {
-          uri: pendingUri,
-          durationSeconds: pendingDuration,
-          personIds: people.map((p) => p.id),
-          meetingId: meeting?.id,
-          projectId: project?.id ?? null,
-        },
-        setProgress,
-      )
-      setConsent(false)
-      setPendingUri(null)
-      setRecordingId(id)
-      setPhase('result')
-    } catch (err) {
-      const pending: PendingUpload = {
-        uri: pendingUri,
-        durationSeconds: pendingDuration,
+  // Review edits follow into the stored entry, so a recording recovered later keeps them.
+  useEffect(() => {
+    if (phase !== 'review' || !currentId) return
+    void updatePending((list) =>
+      patchPending(list, currentId, {
         personIds: people.map((p) => p.id),
         personNames: people.map((p) => p.name),
         projectId: project?.id,
         projectName: project?.name,
         meetingId: meeting?.id,
-      }
-      setPendingUri(null)
-      setPendingUpload(pending)
-      await storage.setItem(PENDING_VOICE_UPLOAD_KEY, JSON.stringify(pending))
+        meetingTitle: meeting?.title,
+      }),
+    )
+  }, [phase, currentId, people, project, meeting, updatePending])
+
+  /** Sends one stored recording; on success drops it (file and entry), on failure keeps it. */
+  const sendStored = async (item: PendingUpload): Promise<string | null> => {
+    if (!token) return null
+    setMessage(null)
+    setProgress(0)
+    setReconnecting(false)
+    setPhase('uploading')
+    await updatePending((list) => patchPending(list, item.id, { state: 'uploading' }))
+    try {
+      const { recordingId: id } = await uploadFileResumable(
+        token,
+        {
+          clientSessionId: item.id,
+          uri: item.uri,
+          durationSeconds: item.durationSeconds,
+          personIds: item.personIds,
+          meetingId: item.meetingId,
+          projectId: item.projectId ?? null,
+        },
+        { onProgress: setProgress, onRetrying: (info) => setReconnecting(Boolean(info)) },
+      )
+      // The server has it — only now does the device copy go.
+      await updatePending((list) => removePending(list, item.id))
+      void deleteRecordingFile(item.uri)
+      setReconnecting(false)
+      setConsent(false)
+      setRecordingId(id)
+      setPhase('result')
+      return id
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'ההעלאה נכשלה'
+      await updatePending((list) => patchPending(list, item.id, { state: 'pending', lastError: error }))
+      setReconnecting(false)
       setPhase('consent')
-      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
+      setMessage(`${error} — ההקלטה שמורה במכשיר ואפשר לשלוח שוב.`)
+      return null
     }
+  }
+
+  /** Upload the reviewed recording. Called from the review-phase "העלה שיחה" button. */
+  const confirmUpload = async () => {
+    if (!token || !pendingUri || !currentId) return
+    const item = pendingListRef.current.find((p) => p.id === currentId)
+    if (!item) return
+    setPendingUri(null)
+    setCurrentId(null)
+    await sendStored({
+      ...item,
+      personIds: people.map((p) => p.id),
+      personNames: people.map((p) => p.name),
+      projectId: project?.id,
+      projectName: project?.name,
+      meetingId: meeting?.id,
+      meetingTitle: meeting?.title,
+    })
   }
 
   /** Discard the stopped recording without uploading. */
@@ -625,64 +673,35 @@ export default function RecordScreen() {
         style: 'destructive',
         onPress: () => {
           const uri = pendingUri
+          const id = currentId
           setPendingUri(null)
+          setCurrentId(null)
           setPhase('consent')
-          if (uri) {
-            void import('expo-file-system/legacy')
-              .then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true }))
-              .catch(() => undefined)
-          }
+          if (id) void updatePending((list) => removePending(list, id))
+          if (uri) void deleteRecordingFile(uri)
         },
       },
     ])
   }
 
-  const retryPendingUpload = async () => {
-    if (!pendingUpload || !token) return
-    setMessage(null)
-    setProgress(0)
+  const retryPendingUpload = async (item: PendingUpload) => {
     setResending(true)
-    setPhase('uploading')
     try {
-      const { recordingId: id } = await uploadVoiceRecording(
-        token,
-        {
-          uri: pendingUpload.uri,
-          durationSeconds: pendingUpload.durationSeconds,
-          personIds: pendingUpload.personIds,
-          meetingId: pendingUpload.meetingId,
-          projectId: pendingUpload.projectId,
-        },
-        setProgress,
-      )
-      await storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
-      setPendingUpload(null)
-      setConsent(false)
-      setRecordingId(id)
-      setPhase('result')
-    } catch (err) {
-      setPhase('consent')
-      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
+      await sendStored(item)
     } finally {
       setResending(false)
     }
   }
 
-  const discardPendingUpload = () => {
-    Alert.alert('למחוק את ההקלטה?', 'ההקלטה שממתינה לשליחה תימחק לצמיתות.', [
+  const discardPendingUpload = (item: PendingUpload) => {
+    Alert.alert('למחוק את ההקלטה?', 'ההקלטה לא נשלחה לשרת ותימחק מהמכשיר לצמיתות.', [
       { text: 'ביטול', style: 'cancel' },
       {
         text: 'מחק',
         style: 'destructive',
         onPress: () => {
-          const uri = pendingUpload?.uri
-          setPendingUpload(null)
-          void storage.deleteItem(PENDING_VOICE_UPLOAD_KEY)
-          if (uri) {
-            void import('expo-file-system/legacy')
-              .then(({ deleteAsync }) => deleteAsync(uri, { idempotent: true }))
-              .catch(() => undefined)
-          }
+          void updatePending((list) => removePending(list, item.id))
+          void deleteRecordingFile(item.uri)
         },
       },
     ])
@@ -711,20 +730,27 @@ export default function RecordScreen() {
         </Text>
       ) : null}
 
-      {phase === 'consent' && pendingUpload ? (
+      {phase === 'consent' && pendingList.length > 0 ? (
         <View style={styles.autoMatchBanner}>
           <Text style={styles.body}>
-            יש הקלטה ({voiceClock(pendingUpload.durationSeconds)}) שלא נשלחה
-            {pendingUpload.personNames.length > 0 ? ` — ${pendingUpload.personNames.join(', ')}` : ''}
+            {pendingList.length === 1 ? 'יש הקלטה שלא נשלחה' : `יש ${pendingList.length} הקלטות שלא נשלחו`}
           </Text>
-          <View style={{ flexDirection: 'row-reverse', gap: 16 }}>
-            <Pressable onPress={() => void retryPendingUpload()} disabled={resending} accessibilityRole="button">
-              <Text style={styles.link}>{resending ? 'שולח…' : 'שלח שוב'}</Text>
-            </Pressable>
-            <Pressable onPress={discardPendingUpload} disabled={resending} accessibilityRole="button">
-              <Text style={[styles.link, { color: colors.error }]}>מחק</Text>
-            </Pressable>
-          </View>
+          {pendingList.map((item) => (
+            <View key={item.id} style={{ gap: 4 }}>
+              <Text style={styles.muted}>
+                {voiceClock(item.durationSeconds)}
+                {item.meetingTitle ? ` · ${item.meetingTitle}` : item.personNames.length > 0 ? ` · ${item.personNames.join(', ')}` : ''}
+              </Text>
+              <View style={{ flexDirection: 'row-reverse', gap: 16 }}>
+                <Pressable onPress={() => void retryPendingUpload(item)} disabled={resending} accessibilityRole="button">
+                  <Text style={styles.link}>{resending ? 'שולח…' : 'שלח'}</Text>
+                </Pressable>
+                <Pressable onPress={() => discardPendingUpload(item)} disabled={resending} accessibilityRole="button">
+                  <Text style={[styles.link, { color: colors.error }]}>מחק</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
         </View>
       ) : null}
 
@@ -880,7 +906,7 @@ export default function RecordScreen() {
         <View style={styles.card} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}>
           {progress < 1 ? (
             <>
-              <Text style={styles.body}>מעלה… {Math.round(progress * 100)}%</Text>
+              <Text style={styles.body}>{reconnecting ? 'החיבור נקטע — ממשיך…' : 'מעלה…'} {Math.round(progress * 100)}%</Text>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
               </View>

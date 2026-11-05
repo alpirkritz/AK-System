@@ -54,8 +54,23 @@ function writeStoredString(key: string, value: string | null) {
 type WakeLockSentinel = { release: () => Promise<void>; addEventListener: (type: 'release', cb: () => void) => void }
 type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinel> } }
 
+/**
+ * Speech-quality Opus. ~14 MB per hour instead of the browser default's ~60 MB, which makes long
+ * meetings far quicker (and less fragile) to upload — docs/specs/voice-recording-never-lost.md.
+ */
+export const RECORDING_BITS_PER_SECOND = 32_000
+
+export interface RecorderHooks {
+  /** A new recording started with this container type (before any chunk). */
+  onStart?: (mimeType: string) => void
+  /** Each chunk as MediaRecorder emits it (every ~1s), numbered from 0, with elapsed seconds. */
+  onChunk?: (chunk: Blob, seq: number, elapsedSeconds: number) => void
+}
+
 /** Browser microphone recorder with pause/resume, an elapsed timer that skips pauses, and levels. */
-export function useRecorder() {
+export function useRecorder(hooks: RecorderHooks = {}) {
+  const hooksRef = useRef(hooks)
+  hooksRef.current = hooks
   const [state, setState] = useState<RecorderState>('idle')
   const [elapsed, setElapsed] = useState(0)
   const [levels, setLevels] = useState<number[]>(() => Array(BAR_COUNT).fill(0))
@@ -219,10 +234,16 @@ export function useRecorder() {
       }
 
       const mimeType = pickMimeType()
-      const rec = new MediaRecorder(recordStream, mimeType ? { mimeType } : undefined)
+      const rec = new MediaRecorder(recordStream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: RECORDING_BITS_PER_SECOND,
+      })
       chunks.current = []
+      hooksRef.current.onStart?.(rec.mimeType || mimeType || 'audio/webm')
       rec.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.current.push(e.data)
+        if (e.data.size === 0) return
+        chunks.current.push(e.data)
+        hooksRef.current.onChunk?.(e.data, chunks.current.length - 1, Math.round(currentMs() / 1000))
       }
       rec.start(1000)
       recorder.current = rec
@@ -275,7 +296,7 @@ export function useRecorder() {
       cleanup()
       setError(err instanceof DOMException && err.name === 'NotAllowedError' ? 'אין הרשאה למיקרופון' : 'לא ניתן להתחיל הקלטה')
     }
-  }, [cleanup, captureMode, refreshDevices, requestWakeLock, selectedDeviceId])
+  }, [cleanup, captureMode, currentMs, refreshDevices, requestWakeLock, selectedDeviceId])
 
   const pause = useCallback(() => {
     if (recorder.current?.state !== 'recording') return

@@ -13,7 +13,7 @@ import {
   type getDb,
 } from '@ak-system/database'
 import { personAliases } from '@ak-system/database'
-import { normalizeParticipantName } from '../lib/calendar-participants'
+import { namesMatch, resolveCandidate } from './people-resolve'
 import { getSelfPersonName } from './self-person'
 import { inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
 
@@ -121,15 +121,6 @@ export function commitmentSourceUrl(c: { source: string; sourceId: string | null
   return null
 }
 
-function namesMatch(a: string, b: string): boolean {
-  const x = normalizeParticipantName(a)
-  const y = normalizeParticipantName(b)
-  if (!x || !y) return false
-  if (x === y) return true
-  const first = y.split(' ')[0]
-  return first.length >= 2 && x.split(' ').includes(first)
-}
-
 /**
  * Proposes commitments from a completed analysis's action items. An item owned by a confirmed
  * attendee goes to that person; an item owned by me (or by nobody) goes to the only other
@@ -145,7 +136,7 @@ export async function proposeCommitmentsFromAnalysis(
     .from(meetingAnalyses)
     .where(eq(meetingAnalyses.id, analysisId))
   if (!analysis || analysis.status !== 'completed' || !analysis.actionItemsJson) return 0
-  let items: { content?: unknown; owner?: unknown }[]
+  let items: { content?: unknown; owner?: unknown; personId?: unknown }[]
   try {
     items = JSON.parse(analysis.actionItemsJson) as typeof items
   } catch {
@@ -172,13 +163,17 @@ export async function proposeCommitmentsFromAnalysis(
     aliasesById.set(row.personId, [...(aliasesById.get(row.personId) ?? []), row.alias])
   }
 
+  const candidates = attendees.map((p) => ({ ...p, aliases: aliasesById.get(p.id) ?? [] }))
+
   const base = meeting?.date ? new Date(`${meeting.date}T12:00:00Z`).getTime() : Date.now()
   const byPerson = new Map<string, Parameters<typeof proposeCommitments>[3]>()
   for (const raw of items) {
     const content = typeof raw?.content === 'string' ? raw.content.replace(/\s+/g, ' ').trim().slice(0, 140) : ''
     if (!content) continue
     const owner = typeof raw?.owner === 'string' ? raw.owner.trim() : ''
-    const theirs = owner ? attendees.find((p) => namesMatch(owner, p.name) || (aliasesById.get(p.id) ?? []).some((a) => namesMatch(owner, a))) : undefined
+    // The analysis already linked the owner to a People record — that beats any name match.
+    const linked = typeof raw?.personId === 'string' ? attendees.find((p) => p.id === raw.personId) : undefined
+    const theirs = linked ?? (owner ? resolveCandidate(owner, candidates) ?? undefined : undefined)
     const mine = !owner || namesMatch(owner, selfName) || /^(אני|me|i)$/i.test(owner)
     let personId: string | null = null
     let who: 'me' | 'them' = 'me'

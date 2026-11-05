@@ -383,7 +383,8 @@ describe('safe two-person attribution', () => {
     const [stored] = await db.select().from(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId!))
     expect(stored.transcriptText).toContain('דנה לוי: בוקר')
     expect(stored.topic).toBe('שיחה מיוחסת')
-    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי' }])
+    // The owner is a person on the recording, so the item is linked to her People record.
+    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי', personId: 'p_dana' }])
   })
 
   it('does not refresh while any speaker is still unknown', async () => {

@@ -23,9 +23,11 @@ import {
   type VoiceSpeakerState,
   type getDb,
 } from '@ak-system/database'
+import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from '@google/generative-ai'
 import { cosineSimilarity, decodeToPcm16, extractOverallEmbedding, extractSpeechSegments, AudioFeatureError } from './audio-features'
 import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
 import { createNotification } from '../lib/notification-store'
+import { loadPersonCandidates, type PersonCandidate } from './people-resolve'
 
 type Db = ReturnType<typeof getDb>
 
@@ -483,8 +485,11 @@ export async function notifyUnknownSpeakers(db: Db, recordingId: string): Promis
     .from(voiceRecordings)
     .where(eq(voiceRecordings.id, recordingId))
   if (!rec || rec.speakerPromptSentAt) return false
-  const unknown = (await listRecordingSpeakers(db, recordingId)).filter((s) => s.state === 'unknown')
+  const speakers = await listRecordingSpeakers(db, recordingId)
+  const unknown = speakers.filter((s) => s.state === 'unknown')
   if (unknown.length === 0) return false
+  // Some speakers were already named (by voice or by the people chosen before upload) — say what's left.
+  const someResolved = unknown.length < speakers.length
 
   await db
     .update(voiceRecordings)
@@ -494,10 +499,198 @@ export async function notifyUnknownSpeakers(db: Db, recordingId: string): Promis
     title: 'מי מדבר בהקלטה?',
     body:
       unknown.length === 1
-        ? `יש דובר אחד שלא זוהה (${unknown[0].speakerLabel}). שמע דגימה וספר לי מי זה.`
-        : `יש ${unknown.length} דוברים שלא זוהו. שמע דגימה וספר לי מי הם.`,
+        ? `${someResolved ? 'נשאר' : 'יש'} דובר אחד שלא זוהה (${unknown[0].speakerLabel}). שמע דגימה וספר לי מי זה.`
+        : `${someResolved ? 'נשארו' : 'יש'} ${unknown.length} דוברים שלא זוהו. שמע דגימה וספר לי מי הם.`,
     url: `/voice?recording=${recordingId}`,
     type: 'system',
   })
   return true
+}
+
+/**
+ * The people a recording is about: the owner plus everyone tagged on it (chosen before upload,
+ * matched by voice, or named as a speaker). `chosen` counts the tagged people other than the owner —
+ * zero means nobody was chosen and the candidate-based steps don't run.
+ */
+export async function recordingCandidates(
+  db: Db,
+  recordingId: string,
+): Promise<{ ownerId: string; candidates: PersonCandidate[]; chosen: number }> {
+  const ownerId = await selfPersonId(db)
+  const links: { personId: string }[] = await db
+    .select({ personId: voiceRecordingPeople.personId })
+    .from(voiceRecordingPeople)
+    .where(eq(voiceRecordingPeople.recordingId, recordingId))
+  const others = [...new Set(links.map((l) => l.personId))].filter((id) => id !== ownerId)
+  if (others.length === 0) return { ownerId, candidates: [], chosen: 0 }
+  const candidates = await loadPersonCandidates(db, [ownerId, ...others])
+  return { ownerId, candidates, chosen: candidates.filter((c) => c.id !== ownerId).length }
+}
+
+export interface SpeakerAttributionCandidate {
+  id: string
+  name: string
+  aliases: string[]
+  role: string | null
+  company: string | null
+  isOwner: boolean
+}
+
+export interface SpeakerAttributionInput {
+  /** Transcript turns in order, by speaker label. */
+  turns: { speakerLabel: string; text: string }[]
+  /** Labels still unknown — the only ones the attributor may answer for. */
+  labels: string[]
+  /** Labels already resolved, as context ("דובר 1 is Alpir"). */
+  resolved: { speakerLabel: string; personName: string }[]
+  /** People not yet assigned to any label. */
+  candidates: SpeakerAttributionCandidate[]
+}
+
+/** label → candidate id, or null for "not sure". Anything else in the answer is ignored. */
+export type SpeakerAttributor = (input: SpeakerAttributionInput) => Promise<Record<string, string | null>>
+
+const ATTRIBUTION_MAX_TURNS = 400
+const ATTRIBUTION_MAX_TURN_CHARS = 400
+
+function attributionPrompt(input: SpeakerAttributionInput): string {
+  const people = input.candidates
+    .map((c) => {
+      const parts = [`id=${c.id}`, `name="${c.name}"`]
+      if (c.isOwner) parts.push('the owner, who recorded the conversation')
+      if (c.aliases.length) parts.push(`also known as: ${c.aliases.map((a) => `"${a}"`).join(', ')}`)
+      if (c.role) parts.push(`role: ${c.role}`)
+      if (c.company) parts.push(`company: ${c.company}`)
+      return `- ${parts.join('; ')}`
+    })
+    .join('\n')
+  const resolved = input.resolved.length
+    ? `\nAlready identified:\n${input.resolved.map((r) => `- ${r.speakerLabel} = ${r.personName}`).join('\n')}\n`
+    : ''
+  const transcript = input.turns
+    .slice(0, ATTRIBUTION_MAX_TURNS)
+    .map((t) => `${t.speakerLabel}: ${t.text.slice(0, ATTRIBUTION_MAX_TURN_CHARS)}`)
+    .join('\n')
+  return [
+    'You identify who is speaking in a transcribed conversation (usually Hebrew). Speakers are labelled "דובר N".',
+    'The people who took part were chosen before the recording. Match each unknown label to at most one of them.',
+    '',
+    `Unknown labels: ${input.labels.join(', ')}`,
+    resolved,
+    'Candidates:',
+    people,
+    '',
+    'Clues: someone addressed by name ("עומרי, מה אתה אומר?") and the reply right after it, a self-introduction,',
+    'role or topic, and elimination (one speaker left and one candidate left). Names may appear in either script,',
+    'as a first name or a nickname.',
+    'Never give the same candidate to two labels. When you are not sure, return null for that label.',
+    '',
+    'TRANSCRIPT:',
+    transcript,
+  ].join('\n')
+}
+
+/** Text-only Gemini pass. No API key → no call, nothing attributed. */
+export const attributeSpeakersWithGemini: SpeakerAttributor = async (input) => {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey || input.labels.length === 0 || input.candidates.length === 0) return {}
+  const schema: ResponseSchema = {
+    type: SchemaType.OBJECT,
+    properties: {
+      assignments: {
+        type: SchemaType.ARRAY,
+        items: {
+          type: SchemaType.OBJECT,
+          properties: {
+            speakerLabel: { type: SchemaType.STRING, format: 'enum', enum: input.labels },
+            personId: { type: SchemaType.STRING, format: 'enum', enum: input.candidates.map((c) => c.id), nullable: true },
+          },
+          required: ['speakerLabel'],
+        },
+      },
+    },
+    required: ['assignments'],
+  }
+  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    generationConfig: { responseMimeType: 'application/json', responseSchema: schema },
+  })
+  const result = await model.generateContent(attributionPrompt(input))
+  const parsed = JSON.parse(result.response.text() || '{}') as { assignments?: { speakerLabel?: unknown; personId?: unknown }[] }
+  const out: Record<string, string | null> = {}
+  for (const a of parsed.assignments ?? []) {
+    if (typeof a.speakerLabel !== 'string') continue
+    out[a.speakerLabel] = typeof a.personId === 'string' ? a.personId : null
+  }
+  return out
+}
+
+/**
+ * Names the speakers still unknown after the self-voice and two-person steps, from the people
+ * chosen before upload (docs/specs/recording-uses-chosen-people.md). Answers are restricted to
+ * unassigned candidates and to unknown labels; a candidate given to two labels leaves both unknown.
+ * Hand-made answers and the self-voice match are never touched. Returns how many labels it named.
+ */
+export async function attributeSpeakersFromCandidates(
+  db: Db,
+  recordingId: string,
+  attribute: SpeakerAttributor = attributeSpeakersWithGemini,
+): Promise<number> {
+  const { ownerId, candidates, chosen } = await recordingCandidates(db, recordingId)
+  if (chosen === 0) return 0
+  const segments: { speakerLabel: string; startMs: number; text: string }[] = await db
+    .select({ speakerLabel: voiceTranscriptSegments.speakerLabel, startMs: voiceTranscriptSegments.startMs, text: voiceTranscriptSegments.text })
+    .from(voiceTranscriptSegments)
+    .where(eq(voiceTranscriptSegments.recordingId, recordingId))
+  if (segments.length === 0) return 0
+  segments.sort((a, b) => a.startMs - b.startMs)
+  const identities: { speakerLabel: string; personId: string | null }[] = await db
+    .select({ speakerLabel: voiceSpeakerIdentities.speakerLabel, personId: voiceSpeakerIdentities.personId })
+    .from(voiceSpeakerIdentities)
+    .where(eq(voiceSpeakerIdentities.recordingId, recordingId))
+  const answered = new Set(identities.map((i) => i.speakerLabel))
+  const labels: string[] = [...new Set(segments.map((s) => s.speakerLabel))]
+  const unknownLabels = labels.filter((label) => !answered.has(label))
+  if (unknownLabels.length === 0) return 0
+  const assigned = new Set(identities.map((i) => i.personId).filter((id): id is string => Boolean(id)))
+  const available = candidates.filter((c) => !assigned.has(c.id))
+  if (available.length === 0) return 0
+
+  const nameById = new Map(candidates.map((c) => [c.id, c.name]))
+  const resolved = identities
+    .filter((i) => i.personId && nameById.has(i.personId))
+    .map((i) => ({ speakerLabel: i.speakerLabel, personName: nameById.get(i.personId!)! }))
+  let answer: Record<string, string | null>
+  try {
+    answer = await attribute({
+      turns: segments.map((s) => ({ speakerLabel: s.speakerLabel, text: s.text })),
+      labels: unknownLabels,
+      resolved,
+      candidates: available.map((c) => ({
+        id: c.id,
+        name: c.name,
+        aliases: c.aliases,
+        role: c.role ?? null,
+        company: c.company ?? null,
+        isOwner: c.id === ownerId,
+      })),
+    })
+  } catch (err) {
+    console.warn('[voice] speaker attribution from chosen people failed:', err)
+    return 0
+  }
+
+  const allowed = new Set(available.map((c) => c.id))
+  const picks = unknownLabels
+    .map((label) => ({ label, personId: answer?.[label] }))
+    .filter((p): p is { label: string; personId: string } => typeof p.personId === 'string' && allowed.has(p.personId))
+  const uses = new Map<string, number>()
+  for (const p of picks) uses.set(p.personId, (uses.get(p.personId) ?? 0) + 1)
+  let named = 0
+  for (const p of picks) {
+    if (uses.get(p.personId) !== 1) continue
+    await upsertSpeakerIdentity(db, recordingId, p.label, p.personId, 'auto')
+    named++
+  }
+  return named
 }

@@ -152,6 +152,14 @@ export {
   VoiceUploadError,
   VOICE_MAX_BYTES,
 } from './services/voice'
+export {
+  createVoiceUpload,
+  getVoiceUploadStatus,
+  writeVoiceUploadPart,
+  completeVoiceUpload,
+  VOICE_PART_MAX_BYTES,
+  type CreateVoiceUploadInput,
+} from './services/voice-resumable-upload'
 export { runClusterSummary, type ClusterRunResult } from './services/whatsapp-cluster-run'
 export {
   runFollowedDailyDigest,

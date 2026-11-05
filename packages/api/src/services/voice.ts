@@ -29,11 +29,15 @@ import { analyzeTranscript, type AnalysisResult, type AnalyzeTranscriptOptions }
 import { omitSelfParticipants, ownerIdentityPrompt } from './self-person'
 import { proposeCommitmentsFromAnalysis } from './commitments'
 import {
+  attributeSpeakersFromCandidates,
   attributedTranscript,
   autoIdentifyTwoPersonConversation,
   notifyUnknownSpeakers,
+  recordingCandidates,
   runSelfVoiceDetection,
+  type SpeakerAttributor,
 } from './voice-diarization'
+import { linkAnalysisPeople } from './people-resolve'
 import { getAgentCalendarIds } from './agent-calendar-scope'
 
 type Db = ReturnType<typeof getDb>
@@ -218,22 +222,59 @@ export interface VoiceUploadInput {
   source?: 'live' | 'imported'
 }
 
+/** Normalized mime type and its storage extension, or a `VoiceUploadError` for unsupported types. */
+export function voiceMimeAndExt(rawMimeType: string): { mimeType: string; ext: string } {
+  const mimeType = rawMimeType.split(';')[0].trim().toLowerCase() || 'audio/webm'
+  const ext = EXT_BY_MIME[mimeType]
+  if (!ext) throw new VoiceUploadError(`סוג קובץ לא נתמך: ${mimeType}`)
+  return { mimeType, ext }
+}
+
+/** Where a recording with this id and extension is stored. */
+export function voiceAudioPath(id: string, ext: string): string {
+  return path.join(voiceStorageDir(), `${id}.${ext}`)
+}
+
+export function newVoiceRecordingId(): string {
+  return newId('vr')
+}
+
 export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<{ recordingId: string }> {
   if (!input.consentConfirmed) throw new VoiceUploadError('נדרש אישור שכל המשתתפים הסכימו להקלטה')
   if (input.audio.length === 0) throw new VoiceUploadError('קובץ ההקלטה ריק')
   if (input.audio.length > VOICE_MAX_BYTES) throw new VoiceUploadError('ההקלטה גדולה מדי')
-  const mimeType = input.mimeType.split(';')[0].trim().toLowerCase() || 'audio/webm'
-  const ext = EXT_BY_MIME[mimeType]
-  if (!ext) throw new VoiceUploadError(`סוג קובץ לא נתמך: ${mimeType}`)
+  const { mimeType, ext } = voiceMimeAndExt(input.mimeType)
 
-  const id = newId('vr')
-  const dir = voiceStorageDir()
-  fs.mkdirSync(dir, { recursive: true })
-  const audioPath = path.join(dir, `${id}.${ext}`)
+  const id = newVoiceRecordingId()
+  fs.mkdirSync(voiceStorageDir(), { recursive: true })
+  const audioPath = voiceAudioPath(id, ext)
   // Use async write so large audio files don't block the Node.js event loop (and delay the HTTP
-  // response) while writing to disk. For imported files, probe the real duration with ffprobe
-  // so chunking decisions are correct; live recordings already carry an accurate client duration.
+  // response) while writing to disk.
   await fs.promises.writeFile(audioPath, input.audio)
+  return registerStoredVoiceFile(db, { ...input, id, audioPath, mimeType, sizeBytes: input.audio.length })
+}
+
+export interface StoredVoiceFileInput extends Omit<VoiceUploadInput, 'audio'> {
+  id: string
+  /** Already written to disk at its final location; removed again if registration is rejected. */
+  audioPath: string
+  /** Normalized (see `voiceMimeAndExt`). */
+  mimeType: string
+  sizeBytes: number
+}
+
+/**
+ * Inserts the recording row for an audio file already on disk — shared by the single-request
+ * upload and the resumable upload (docs/specs/voice-recording-never-lost.md).
+ */
+export async function registerStoredVoiceFile(db: Db, input: StoredVoiceFileInput): Promise<{ recordingId: string }> {
+  const { id, audioPath, mimeType } = input
+  if (!input.consentConfirmed) {
+    fs.rmSync(audioPath, { force: true })
+    throw new VoiceUploadError('נדרש אישור שכל המשתתפים הסכימו להקלטה')
+  }
+  // For imported files, probe the real duration with ffprobe so chunking decisions are correct;
+  // live recordings already carry an accurate client duration.
   const durationSeconds =
     input.source === 'imported'
       ? ((await probeAudioDurationSeconds(audioPath)) ?? input.durationSeconds)
@@ -267,7 +308,7 @@ export async function saveVoiceUpload(db: Db, input: VoiceUploadInput): Promise<
     id,
     audioPath,
     mimeType,
-    sizeBytes: input.audio.length,
+    sizeBytes: input.sizeBytes,
     transcriptText: null,
     analysisId: null,
     meetingId,
@@ -696,6 +737,41 @@ export async function transcribeLongRecordingWithGemini(
   }
 }
 
+/**
+ * Runs the analysis with the recording's people as candidates and links its participants and
+ * action-item owners to them (docs/specs/recording-uses-chosen-people.md). Shared by the first
+ * analysis and the text-only refresh after speakers are named.
+ */
+async function analyzeRecordingTranscript(
+  db: Db,
+  recordingId: string,
+  analyze: VoiceAnalyzer,
+  options: Omit<AnalyzeTranscriptOptions, 'candidates'>,
+): Promise<{ result: AnalysisResult; participantsJson: string; actionItemsJson: string }> {
+  const { candidates, chosen } = await recordingCandidates(db, recordingId)
+  const useCandidates = chosen > 0 ? candidates : []
+  const result = await analyze({
+    ...options,
+    ...(useCandidates.length
+      ? {
+          candidates: useCandidates.map((c) => ({
+            id: c.id,
+            name: c.name,
+            aliases: c.aliases,
+            role: c.role ?? null,
+            company: c.company ?? null,
+          })),
+        }
+      : {}),
+  })
+  const linked = await linkAnalysisPeople(db, result, useCandidates)
+  return {
+    result,
+    participantsJson: JSON.stringify(omitSelfParticipants(linked.participants)),
+    actionItemsJson: JSON.stringify(linked.actionItems),
+  }
+}
+
 async function recordingPeople(db: Db, recordingId: string) {
   return db
     .select({ id: people.id, name: people.name })
@@ -731,7 +807,14 @@ export async function saveTranscriptSegments(
 export async function processVoiceRecording(
   db: Db,
   recordingId: string,
-  options: { transcribe?: VoiceTranscriber; analyze?: VoiceAnalyzer; now?: number; retranscribe?: boolean } = {},
+  options: {
+    transcribe?: VoiceTranscriber
+    analyze?: VoiceAnalyzer
+    /** Injected in tests; defaults to the text-only Gemini pass. */
+    attributeSpeakers?: SpeakerAttributor
+    now?: number
+    retranscribe?: boolean
+  } = {},
 ): Promise<VoiceRecording> {
   const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
   if (!rec) throw new Error('Recording not found')
@@ -776,6 +859,10 @@ export async function processVoiceRecording(
     })
     await autoIdentifyTwoPersonConversation(db, rec.id).catch((err) => {
       console.warn('[voice] two-person speaker attribution failed:', err)
+    })
+    // Labels still unknown are matched against the people chosen before upload (text only).
+    await attributeSpeakersFromCandidates(db, rec.id, options.attributeSpeakers).catch((err) => {
+      console.warn('[voice] chosen-people speaker attribution failed:', err)
     })
     await notifyUnknownSpeakers(db, rec.id).catch((err) => {
       console.warn('[voice] unknown-speaker prompt failed:', err)
@@ -858,14 +945,19 @@ export async function processVoiceRecording(
       createdAt: stamp(),
       updatedAt: stamp(),
     })
-    const result = await (options.analyze ?? analyzeTranscript)({
-      transcriptText: analysisTranscript,
-      meetingTitle: meeting?.title ?? VOICE_PLACEHOLDER_TITLE,
-      meetingDate: meeting?.date ?? rec.createdAt.slice(0, 10),
-      participantNames,
-      projectName,
-      knownPeople,
-    })
+    const { result, participantsJson, actionItemsJson } = await analyzeRecordingTranscript(
+      db,
+      rec.id,
+      options.analyze ?? analyzeTranscript,
+      {
+        transcriptText: analysisTranscript,
+        meetingTitle: meeting?.title ?? VOICE_PLACEHOLDER_TITLE,
+        meetingDate: meeting?.date ?? rec.createdAt.slice(0, 10),
+        participantNames,
+        projectName,
+        knownPeople,
+      },
+    )
     await db
       .update(meetingAnalyses)
       .set({
@@ -879,8 +971,8 @@ export async function processVoiceRecording(
         kaizenKeep: result.kaizenKeep,
         kaizenImprove: result.kaizenImprove,
         openQuestion: result.openQuestion,
-        participantsJson: JSON.stringify(omitSelfParticipants(result.participants ?? [])),
-        actionItemsJson: JSON.stringify(result.actionItems),
+        participantsJson,
+        actionItemsJson,
         model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
         status: 'completed',
         updatedAt: stamp(),
@@ -971,18 +1063,23 @@ export async function refreshVoiceAnalysisAfterSpeakerResolution(
     projectName = project?.name
   }
 
-  const result = await (options.analyze ?? analyzeTranscript)({
-    transcriptText: attributed.text,
-    meetingTitle: meeting.title,
-    meetingDate: meeting.date,
-    participantNames: participantRows.map((participant) => participant.name),
-    projectName,
-    knownPeople: participantRows.map((participant) => ({
-      name: participant.name,
-      ...(participant.role ? { role: participant.role } : {}),
-      ...(participant.company ? { company: participant.company } : {}),
-    })),
-  })
+  const { result, participantsJson, actionItemsJson } = await analyzeRecordingTranscript(
+    db,
+    recordingId,
+    options.analyze ?? analyzeTranscript,
+    {
+      transcriptText: attributed.text,
+      meetingTitle: meeting.title,
+      meetingDate: meeting.date,
+      participantNames: participantRows.map((participant) => participant.name),
+      projectName,
+      knownPeople: participantRows.map((participant) => ({
+        name: participant.name,
+        ...(participant.role ? { role: participant.role } : {}),
+        ...(participant.company ? { company: participant.company } : {}),
+      })),
+    },
+  )
   const stamp = new Date(options.now ?? Date.now()).toISOString()
   await db
     .update(meetingAnalyses)
@@ -998,8 +1095,8 @@ export async function refreshVoiceAnalysisAfterSpeakerResolution(
       kaizenKeep: result.kaizenKeep,
       kaizenImprove: result.kaizenImprove,
       openQuestion: result.openQuestion,
-      participantsJson: JSON.stringify(omitSelfParticipants(result.participants ?? [])),
-      actionItemsJson: JSON.stringify(result.actionItems),
+      participantsJson,
+      actionItemsJson,
       model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       status: 'completed',
       error: null,

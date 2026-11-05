@@ -7,7 +7,18 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { Mic, Pause, Play, Square, X, RotateCcw } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
-import { uploadRecording, useRecorder } from './lib/use-recorder'
+import { useRecorder } from './lib/use-recorder'
+import {
+  appendLocalChunk,
+  createLocalRecording,
+  deleteLocalRecording,
+  listLocalRecordings,
+  loadLocalRecordingBlob,
+  newLocalRecordingId,
+  updateLocalRecording,
+  type LocalRecording,
+} from './lib/local-recordings'
+import { uploadBlobResumable } from './lib/resumable-upload'
 
 const MIN_SECONDS = 10
 const NOTES_SAVE_MS = 800
@@ -58,19 +69,27 @@ function PeoplePicker({
   selected,
   onChange,
   inputId,
+  suggested = [],
 }: {
   selected: PersonOption[]
   onChange: (next: PersonOption[]) => void
   inputId: string
+  /** Offered first — e.g. the people chosen before upload who aren't assigned to a speaker yet. */
+  suggested?: PersonOption[]
 }) {
   const { data: everyone = [] } = trpc.people.list.useQuery()
   const [query, setQuery] = useState('')
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return []
     const chosen = new Set(selected.map((p) => p.id))
-    return everyone.filter((p) => !chosen.has(p.id) && p.name.toLowerCase().includes(q)).slice(0, 6)
-  }, [everyone, query, selected])
+    const first = suggested.filter((p) => !chosen.has(p.id))
+    if (!q) return first.slice(0, 6)
+    const firstIds = new Set(first.map((p) => p.id))
+    return [
+      ...first.filter((p) => p.name.toLowerCase().includes(q)),
+      ...everyone.filter((p) => !chosen.has(p.id) && !firstIds.has(p.id) && p.name.toLowerCase().includes(q)),
+    ].slice(0, 6)
+  }, [everyone, query, selected, suggested])
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap gap-1.5">
@@ -164,6 +183,7 @@ function MeetingRow({
 function SpeakerPrompt({ recordingId }: { recordingId: string }) {
   const utils = trpc.useUtils()
   const { data: speakers = [] } = trpc.voice.speakers.useQuery({ recordingId })
+  const { data: rec } = trpc.voice.get.useQuery({ recordingId })
   const audioRef = useRef<HTMLAudioElement>(null)
   const stopAtRef = useRef<number | null>(null)
   const [playing, setPlaying] = useState<string | null>(null)
@@ -181,6 +201,9 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
 
   const visibleSpeakers = speakers.filter((speaker) => speaker.state === 'unknown' || speaker.state === 'auto')
   const hasUnknown = visibleSpeakers.some((speaker) => speaker.state === 'unknown')
+  // People chosen for this recording who no speaker has yet — the likeliest answers, offered first.
+  const assignedIds = new Set(speakers.map((speaker) => speaker.personId).filter(Boolean))
+  const unassignedChosen = (rec?.people ?? []).filter((person) => !assignedIds.has(person.id))
   if (visibleSpeakers.length === 0) return null
 
   const stopSample = () => {
@@ -279,6 +302,7 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
               <>
                 <PeoplePicker
                   inputId={`speaker-${speaker.speakerLabel.replace(/\s+/g, '-')}`}
+                  suggested={unassignedChosen}
                   selected={selected}
                   onChange={(next) => setPicks((prev) => ({ ...prev, [speaker.speakerLabel]: next.slice(-1) }))}
                 />
@@ -416,7 +440,19 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
               <h3 className="text-[11px] font-semibold text-[#5a688c] mb-1">משימות שעלו</h3>
               <ul className="space-y-0.5 text-[#b8c4dc]">
                 {analysis.actionItems.map((a, i) => (
-                  <li key={i}>• {a.content}{a.owner && <span className="text-[#5a688c]"> · {a.owner}</span>}</li>
+                  <li key={i} data-testid="voice-action-item">
+                    • {a.content}
+                    {a.personId && a.personName ? (
+                      <>
+                        {' · '}
+                        <Link href={`/people?person=${a.personId}`} className="text-[#2dd4bf] hover:underline" data-testid="voice-action-owner">
+                          {a.personName}
+                        </Link>
+                      </>
+                    ) : (
+                      a.owner && <span className="text-[#5a688c]"> · {a.owner}</span>
+                    )}
+                  </li>
                 ))}
               </ul>
               <Link href="/commitments" className="btn-ghost text-[11px] mt-1 inline-block">לאישור ההתחייבויות</Link>
@@ -576,7 +612,53 @@ function VoicePageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const utils = trpc.useUtils()
-  const recorder = useRecorder()
+  // Durable on-device copy of the recording in progress (docs/specs/voice-recording-never-lost.md).
+  const localId = useRef<string | null>(null)
+  const localChain = useRef<Promise<void>>(Promise.resolve())
+  const startContext = useRef<{ meetingId: string | null; meetingTitle: string | null; people: PersonOption[]; projectId: string }>({
+    meetingId: null, meetingTitle: null, people: [], projectId: '',
+  })
+  const [localBackupFailed, setLocalBackupFailed] = useState(false)
+  const [savedRecordings, setSavedRecordings] = useState<LocalRecording[]>([])
+  const [reconnecting, setReconnecting] = useState(false)
+  const queueLocal = useCallback((fn: () => Promise<void>) => {
+    const next = localChain.current.then(fn).catch(() => setLocalBackupFailed(true))
+    localChain.current = next
+    return next
+  }, [])
+  const recorder = useRecorder({
+    onStart: (mimeType) => {
+      const id = newLocalRecordingId()
+      localId.current = id
+      setLocalBackupFailed(false)
+      const ctx = startContext.current
+      void queueLocal(() =>
+        createLocalRecording({
+          id,
+          startedAt: new Date().toISOString(),
+          mimeType,
+          durationSeconds: 0,
+          state: 'recording',
+          meetingId: ctx.meetingId,
+          meetingTitle: ctx.meetingTitle,
+          personIds: ctx.people.map((p) => p.id),
+          personNames: ctx.people.map((p) => p.name),
+          projectId: ctx.projectId,
+          chunkCount: 0,
+        }),
+      )
+    },
+    onChunk: (chunk, seq, elapsedSeconds) => {
+      const id = localId.current
+      if (id) void queueLocal(() => appendLocalChunk(id, seq, chunk, elapsedSeconds))
+    },
+  })
+  const refreshSaved = useCallback(() => {
+    void listLocalRecordings()
+      .then((all) => setSavedRecordings(all.filter((r) => r.id !== localId.current)))
+      .catch(() => setSavedRecordings([]))
+  }, [])
+  useEffect(() => refreshSaved(), [refreshSaved])
   const { data: everyone = [] } = trpc.people.list.useQuery()
   const { data: recent } = trpc.voice.list.useQuery({ limit: 10 })
   const [consent, setConsent] = useState(true)
@@ -592,7 +674,14 @@ function VoicePageInner() {
   const [showAllMeetings, setShowAllMeetings] = useState(false)
   // Kept when an upload fails, so the user can resend the exact same audio without re-recording
   // (see docs/specs/voice-upload-retry-without-rerecording.md). Cleared on success or discard.
-  const [failedUpload, setFailedUpload] = useState<{ blob: Blob; durationSeconds: number; meetingId: string | null } | null>(null)
+  const [failedUpload, setFailedUpload] = useState<{
+    blob: Blob
+    durationSeconds: number
+    meetingId: string | null
+    people: PersonOption[]
+    projectId: string
+    localId: string | null
+  } | null>(null)
   // Blob captured after stopping, waiting for the user to confirm context before uploading.
   // (docs/specs/recording-context-before-upload.md)
   const [pendingReview, setPendingReview] = useState<PendingReview | null>(null)
@@ -639,6 +728,35 @@ function VoicePageInner() {
   }, [presetPerson, everyone, people.length])
 
   const active = recorder.state !== 'idle'
+
+  // Keep the on-device copy's context in step with the review choices, so a recording recovered
+  // after a reload is sent with the people/project/meeting the user picked.
+  useEffect(() => {
+    const id = localId.current
+    if (!pendingReview || !id) return
+    void queueLocal(() =>
+      updateLocalRecording(id, {
+        meetingId: reviewMeetingId,
+        meetingTitle: reviewMeetingTitle,
+        personIds: reviewPeople.map((p) => p.id),
+        personNames: reviewPeople.map((p) => p.name),
+        projectId: reviewProjectId,
+      }),
+    )
+  }, [pendingReview, reviewMeetingId, reviewMeetingTitle, reviewPeople, reviewProjectId, queueLocal])
+
+  // Leaving mid-recording / review / upload asks first. The audio is kept on the device either
+  // way, but the browser's own prompt is the clearest "you're about to walk away" signal.
+  const unsaved = active || Boolean(pendingReview) || Boolean(upload)
+  useEffect(() => {
+    if (!unsaved) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [unsaved])
   const linkedMeetingId = pendingReview ? reviewMeetingId : meeting?.id ?? null
 
   const queueCaptureSave = useCallback((meetingId: string, notes: string) => {
@@ -667,24 +785,37 @@ function VoicePageInner() {
     return () => window.clearTimeout(handle)
   }, [captureNotes, notesDirty, linkedMeetingId, queueCaptureSave])
 
-  const doUpload = async (blob: Blob, durationSeconds: number, meetingId: string | null, uploadPeople: PersonOption[], uploadProjectId: string) => {
-    const form = new FormData()
-    const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm'
-    form.append('audio', blob, `recording.${ext}`)
-    form.append('durationSeconds', String(durationSeconds))
-    form.append('consentConfirmed', 'true')
-    // Always send the confirmed personIds list (may be empty); server skips merging meeting
-    // attendees automatically when this flag is present. meetingId still wires the recording
-    // to the correct calendar event for the meeting title / project inheritance.
-    form.append('personIds', uploadPeople.map((p) => p.id).join(','))
-    form.append('contextConfirmed', 'true')
-    if (meetingId) form.append('meetingId', meetingId)
-    if (uploadProjectId) form.append('projectId', uploadProjectId)
+  const doUpload = async (
+    blob: Blob,
+    durationSeconds: number,
+    meetingId: string | null,
+    uploadPeople: PersonOption[],
+    uploadProjectId: string,
+    uploadLocalId: string | null,
+  ) => {
     setMessage(null)
+    setReconnecting(false)
     setUpload({ progress: 0 })
     try {
-      const { recordingId: id } = await uploadRecording(form, (progress) => setUpload({ progress }))
+      // Always confirm people/project — the server then skips merging calendar attendees.
+      // meetingId still wires the recording to its calendar event for title / project.
+      const { recordingId: id } = await uploadBlobResumable(
+        blob,
+        {
+          clientSessionId: uploadLocalId ?? newLocalRecordingId(),
+          mimeType: blob.type || 'audio/webm',
+          durationSeconds,
+          meetingId,
+          projectId: uploadProjectId || null,
+          personIds: uploadPeople.map((p) => p.id),
+        },
+        { onProgress: (progress) => setUpload({ progress }), onRetrying: (info) => setReconnecting(Boolean(info)) },
+      )
+      // The server has it — only now is the local copy dropped.
+      if (uploadLocalId) await deleteLocalRecording(uploadLocalId).catch(() => undefined)
+      if (localId.current === uploadLocalId) localId.current = null
       setUpload(null)
+      setReconnecting(false)
       setFailedUpload(null)
       setPendingReview(null)
       setReviewMeetingId(null)
@@ -695,13 +826,34 @@ function VoicePageInner() {
       setCaptureNotes('')
       setNotesDirty(false)
       utils.voice.list.invalidate()
+      refreshSaved()
       router.replace(`/voice?recording=${id}`)
     } catch (err) {
+      const error = err instanceof Error ? err.message : 'ההעלאה נכשלה'
+      if (uploadLocalId) void updateLocalRecording(uploadLocalId, { state: 'pending', lastError: error }).catch(() => undefined)
       setUpload(null)
-      setFailedUpload({ blob, durationSeconds, meetingId })
+      setReconnecting(false)
+      setFailedUpload({ blob, durationSeconds, meetingId, people: uploadPeople, projectId: uploadProjectId, localId: uploadLocalId })
       setPendingReview(null)
-      setMessage(err instanceof Error ? err.message : 'ההעלאה נכשלה')
+      setMessage(`${error} — ההקלטה שמורה במכשיר ואפשר לשלוח שוב.`)
     }
+  }
+
+  /** Send a recording kept on this device from an earlier visit (reload, closed tab, failed upload). */
+  const sendSaved = async (rec: LocalRecording) => {
+    const blob = await loadLocalRecordingBlob(rec.id).catch(() => null)
+    if (!blob) {
+      setMessage('לא נמצא אודיו שמור להקלטה הזו')
+      return
+    }
+    const savedPeople = rec.personIds.map((id, i) => ({ id, name: rec.personNames[i] ?? '' }))
+    await doUpload(blob, rec.durationSeconds, rec.meetingId, savedPeople, rec.projectId, rec.id)
+  }
+
+  const discardSaved = async (rec: LocalRecording) => {
+    if (!window.confirm('למחוק את ההקלטה מהמכשיר? היא לא נשלחה לשרת ולא יהיה אפשר לשחזר אותה.')) return
+    await deleteLocalRecording(rec.id).catch(() => undefined)
+    refreshSaved()
   }
 
   /** Stop the recorder and open the review panel instead of uploading immediately. */
@@ -709,11 +861,15 @@ function VoicePageInner() {
     if (meeting?.id && notesDirty) await queueCaptureSave(meeting.id, captureNotes)
     const result = await recorder.stop()
     if (!result) return
+    const id = localId.current
     if (result.durationSeconds < MIN_SECONDS) {
       setMessage(`ההקלטה קצרה מ-${MIN_SECONDS} שניות ולא נשמרה`)
       dropAutoMeeting()
+      if (id) void queueLocal(() => deleteLocalRecording(id))
+      localId.current = null
       return
     }
+    if (id) void queueLocal(() => updateLocalRecording(id, { state: 'review', durationSeconds: result.durationSeconds }))
     // Pre-seed review state from the current context.
     if (meeting) {
       setReviewPeople(meeting.people.map((p) => ({ id: p.id, name: p.name })))
@@ -735,12 +891,17 @@ function VoicePageInner() {
       await queueCaptureSave(reviewMeetingId, captureNotes)
     }
     dropAutoMeeting(reviewMeetingId)
-    await doUpload(pendingReview.blob, pendingReview.durationSeconds, reviewMeetingId, reviewPeople, reviewProjectId)
+    await localChain.current
+    await doUpload(pendingReview.blob, pendingReview.durationSeconds, reviewMeetingId, reviewPeople, reviewProjectId, localId.current)
     autoMeetingId.current = null
   }
 
   /** Discard captured audio and return to idle. */
   const cancelReview = () => {
+    if (!window.confirm('למחוק את ההקלטה? היא לא תישלח ולא תישמר.')) return
+    const id = localId.current
+    localId.current = null
+    if (id) void queueLocal(() => deleteLocalRecording(id))
     dropAutoMeeting()
     setPendingReview(null)
     setMessage(null)
@@ -753,13 +914,21 @@ function VoicePageInner() {
 
   const retryUpload = async () => {
     if (!failedUpload) return
-    // Retry with whatever people/project are currently set in the main state.
-    await doUpload(failedUpload.blob, failedUpload.durationSeconds, failedUpload.meetingId, people, projectId)
+    await doUpload(
+      failedUpload.blob,
+      failedUpload.durationSeconds,
+      failedUpload.meetingId,
+      failedUpload.people,
+      failedUpload.projectId,
+      failedUpload.localId,
+    )
   }
 
   const startFresh = async (forMeeting: MeetingChoice | null = null) => {
-    if (failedUpload && !window.confirm('יש הקלטה שממתינה לשליחה — להתחיל הקלטה חדשה בכל זאת ולמחוק אותה?')) return
+    // A failed upload stays on the device and moves to the "not sent" list — nothing is deleted.
     setFailedUpload(null)
+    localId.current = null
+    refreshSaved()
     setPendingReview(null)
     setMessage(null)
     setCaptureNotes('')
@@ -784,6 +953,9 @@ function VoicePageInner() {
       }
     }
     setMeeting(target)
+    startContext.current = target
+      ? { meetingId: target.id, meetingTitle: target.title, people: target.people, projectId: target.projectId ?? '' }
+      : { meetingId: null, meetingTitle: null, people, projectId }
     void recorder.start()
   }
 
@@ -793,7 +965,53 @@ function VoicePageInner() {
         <h1 className="text-lg font-semibold text-[#eef3fb]">הקלטת שיחה</h1>
       </div>
 
+      {savedRecordings.length > 0 && !active && (
+        <section className="card p-4 space-y-2 text-sm border-[#e8c547]" data-testid="voice-saved-recordings" aria-live="polite">
+          <p className="font-semibold text-[#eef3fb]">
+            {savedRecordings.length === 1 ? 'יש הקלטה שלא נשלחה' : `יש ${savedRecordings.length} הקלטות שלא נשלחו`}
+          </p>
+          <p className="text-xs text-[#97a4c2]">ההקלטות שמורות בדפדפן הזה בלבד, עד שיגיעו לשרת.</p>
+          <ul className="space-y-1.5">
+            {savedRecordings.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2" data-testid="voice-saved-recording">
+                <span className="tabular-nums text-[#5a688c]">{format(new Date(r.startedAt), 'dd/MM HH:mm')}</span>
+                <span className="tabular-nums text-[#5a688c]">· {clock(r.durationSeconds)}</span>
+                <span className="text-[#eef3fb] truncate min-w-0">
+                  {r.meetingTitle ?? (r.personNames.filter(Boolean).join(', ') || 'הקלטה')}
+                </span>
+                {r.state === 'recording' && <span className="pill text-[10px]">נקטעה באמצע</span>}
+                <span className="ms-auto flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-primary text-xs py-1 px-3"
+                    disabled={Boolean(upload)}
+                    onClick={() => void sendSaved(r)}
+                    data-testid="voice-saved-send"
+                  >
+                    שלח
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs py-1 px-3"
+                    disabled={Boolean(upload)}
+                    onClick={() => void discardSaved(r)}
+                    data-testid="voice-saved-delete"
+                  >
+                    מחק
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="card p-4 space-y-4 text-sm" data-testid="voice-recorder">
+        {active && localBackupFailed && (
+          <p className="text-xs text-amber-300" role="alert" data-testid="voice-backup-warning">
+            הגיבוי המקומי לא פעיל — אל תסגור את הדף עד שההקלטה תישלח.
+          </p>
+        )}
         {!active && !upload && (
           <>
             <label className="flex items-start gap-2 text-[#eef3fb]">
@@ -998,7 +1216,9 @@ function VoicePageInner() {
 
         {upload && (
           <div className="space-y-1.5" role="status">
-            <p className="text-[#b8c4dc]">מעלה… {Math.round(upload.progress * 100)}%</p>
+            <p className="text-[#b8c4dc]" data-testid="voice-upload-progress">
+              {reconnecting ? 'החיבור נקטע — ממשיך…' : 'מעלה…'} {Math.round(upload.progress * 100)}%
+            </p>
             <div className="h-1.5 rounded bg-[#223052] overflow-hidden">
               <div className="h-full bg-[#e8c547] transition-all" style={{ width: `${Math.round(upload.progress * 100)}%` }} />
             </div>

@@ -6,6 +6,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { TaskModal } from '@/components/Modals/TaskModal'
 import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
@@ -373,7 +374,18 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                       <div key={`${p.name}-${i}`} className="rounded-lg bg-gray-50 dark:bg-gray-900/60 p-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-[8rem]">
-                            {onMeeting ? '✓' : '?'} {p.name}
+                            {onMeeting ? '✓' : '?'}{' '}
+                            {p.personId && p.personName ? (
+                              <Link
+                                href={`/people?person=${p.personId}`}
+                                className="text-teal-700 dark:text-teal-300 hover:underline"
+                                data-testid="analysis-participant-link"
+                              >
+                                {p.personName}
+                              </Link>
+                            ) : (
+                              p.name
+                            )}
                             {onMeeting ? (
                               <span className="text-xs text-teal-600 dark:text-teal-400 mr-2">בפגישה</span>
                             ) : null}
@@ -540,10 +552,22 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                     <div className="text-sm text-gray-900 dark:text-gray-100">
                       {item.content}
                     </div>
-                    {item.owner && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {item.owner}
+                    {item.personId && item.personName ? (
+                      <div className="text-xs mt-1">
+                        <Link
+                          href={`/people?person=${item.personId}`}
+                          className="text-teal-700 dark:text-teal-300 hover:underline"
+                          data-testid="analysis-action-owner-link"
+                        >
+                          {item.personName}
+                        </Link>
                       </div>
+                    ) : (
+                      item.owner && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {item.owner}
+                        </div>
+                      )
                     )}
                   </div>
                   {!item.taskId ? (
@@ -598,7 +622,10 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
             title: analysis.actionItems[selectedActionIndex]?.content,
             priority: derivePriorityFromContext(analysis.actionItems[selectedActionIndex]?.content ?? ''),
             dueDate: meeting?.date,
-            assigneeId: matchPersonByName(analysis.actionItems[selectedActionIndex]?.owner),
+            // A linked owner is already a People record; otherwise fall back to the name match.
+            assigneeId:
+              (analysis.actionItems[selectedActionIndex]?.personName && analysis.actionItems[selectedActionIndex]?.personId) ||
+              matchPersonByName(analysis.actionItems[selectedActionIndex]?.owner),
           }}
           people={people}
           meetings={meetings}
