@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { trpc } from '@/lib/trpc'
 import type { CalEvent, RsvpStatus } from '../lib/types'
 import { RSVP_DOT_COLOR, RSVP_LABEL } from '../lib/constants'
 import { fmtTime, fmtFullDate } from '../lib/date-utils'
@@ -56,6 +57,10 @@ interface EventDetailPanelProps {
 }
 
 export default function EventDetailPanel({ event, onClose, meetingId }: EventDetailPanelProps) {
+  const { data: circle } = trpc.circles.forMeeting.useQuery(
+    { meetingId: meetingId ?? '' },
+    { enabled: !!meetingId },
+  )
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -218,6 +223,40 @@ export default function EventDetailPanel({ event, onClose, meetingId }: EventDet
                   </a>
                 )}
               </div>
+            </DetailRow>
+          )}
+
+          {/* Circle (recurring series) */}
+          {meetingId && circle && (
+            <DetailRow
+              icon={
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              }
+            >
+              <a
+                href={`/meetings/${meetingId}`}
+                className="block text-sm leading-snug hover:text-[#eef3fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4bf]/60 rounded"
+                data-testid="event-circle"
+              >
+                {circle.saved ? (
+                  <>
+                    <span className="text-[#b8c4dc] font-medium">חוג · {circle.count} אנשים</span>
+                    {circle.names.length > 0 && (
+                      <span className="block text-xs text-[#6f7ea0] truncate">
+                        {circle.names.join(', ')}
+                        {circle.count > circle.names.length ? ` +${circle.count - circle.names.length}` : ''}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[#97a4c2]">אין חוג עדיין · שמור מהפגישה</span>
+                )}
+              </a>
             </DetailRow>
           )}
 

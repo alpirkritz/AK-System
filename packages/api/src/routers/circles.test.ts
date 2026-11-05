@@ -41,7 +41,7 @@ describe('circles router', () => {
     expect(circle.calendarParticipants).toHaveLength(2)
   })
 
-  it('saves the roster once and links known people by email without creating CRM people', async () => {
+  it('saves the roster from the calendar, linking known people and creating unknown ones as unconfirmed', async () => {
     const db = getTestDb()
     await db.insert(people).values({ id: 'p_dana', name: 'Dana Levi', email: 'dana@dt.com', status: 'confirmed', source: 'manual', createdAt: NOW })
     await seedSeries([[{ name: 'Dana', email: 'dana@dt.com' }, { name: 'Ron', email: null }]])
@@ -50,9 +50,26 @@ describe('circles router', () => {
     expect(await caller.circles.saveFromCalendar({ seriesId: 'ms1' })).toEqual({ added: 2 })
     const circle = await caller.circles.get({ seriesId: 'ms1' })
     expect(circle.rosterCount).toBe(2)
-    expect(circle.roster.find((r) => r.email === 'dana@dt.com')?.personId).toBe('p_dana')
+    expect(circle.roster.every((r) => r.personId)).toBe(true)
+    const dana = circle.roster.find((r) => r.email === 'dana@dt.com')!
+    expect(dana.personId).toBe('p_dana')
+    expect(dana.displayName).toBe('Dana Levi')
     expect(circle.diff).toBeNull()
     expect(circle.recommendation).toBeTruthy()
+    const ron = (await db.select().from(people)).find((p) => p.name === 'Ron')
+    expect(ron).toMatchObject({ status: 'unconfirmed', source: 'calendar' })
+  })
+
+  it('matches calendar attendees by alias and reuses the person on a second save', async () => {
+    const db = getTestDb()
+    await db.insert(people).values({ id: 'p_omri', name: 'Omri Ben Simon', email: null, status: 'confirmed', source: 'manual', createdAt: NOW })
+    const caller = await createTestCaller()
+    await caller.people.aliases.add({ personId: 'p_omri', alias: 'עומרי' })
+    await seedSeries([[{ name: 'עומרי', email: null }]])
+    await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
+    await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
+    const circle = await caller.circles.get({ seriesId: 'ms1' })
+    expect(circle.roster.map((r) => [r.personId, r.displayName])).toEqual([['p_omri', 'Omri Ben Simon']])
     expect(await db.select().from(people)).toHaveLength(1)
   })
 
@@ -105,54 +122,103 @@ describe('circles router', () => {
     expect((await caller.circles.attendance({ meetingId: 'm1' }))?.expectedCount).toBe(3)
   })
 
-  it('follow promotes a roster row to one confirmed person and reuses it', async () => {
+  it('confirmMember confirms the calendar-created person and the person sees the circle', async () => {
     await seedSeries([[{ name: 'Ron', email: 'ron@dt.com' }]])
     const caller = await createTestCaller()
     await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
     const [row] = (await caller.circles.get({ seriesId: 'ms1' })).roster
+    expect(row.person?.status).toBe('unconfirmed')
 
-    const first = await caller.circles.follow({ rosterId: row.id })
-    expect(first.created).toBe(true)
-    const second = await caller.circles.follow({ rosterId: row.id })
-    expect(second).toEqual({ personId: first.personId, created: false })
-
-    const db = getTestDb()
-    const [person] = await db.select().from(people).where(eq(people.id, first.personId))
-    expect(person.status).toBe('confirmed')
-    const ctx = await caller.insights.personContext({ personId: first.personId })
+    const { personId } = await caller.circles.confirmMember({ rosterId: row.id })
+    expect(personId).toBe(row.personId)
+    const [after] = (await caller.circles.get({ seriesId: 'ms1' })).roster
+    expect(after.person?.status).toBe('confirmed')
+    const ctx = await caller.insights.personContext({ personId })
     expect(ctx?.circles.map((c) => c.seriesTitle)).toEqual(['Algo 4.0'])
   })
 
-  it('saves typed names as the circle, flipping Last, First and retiring whoever was left out', async () => {
-    await seedSeries([[{ name: 'כהן', email: null }, { name: 'יוסי', email: null }]])
+  it('saveFromPeople makes the picked people the circle, keeping linked rows and retiring the rest', async () => {
+    const db = getTestDb()
+    await db.insert(people).values([
+      { id: 'p_dana', name: 'Dana Levi', email: 'dana@dt.com', status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'p_yossi', name: 'יוסי כהן', email: null, status: 'confirmed', source: 'manual', createdAt: NOW },
+    ])
+    await seedSeries([[{ name: 'Dana', email: 'dana@dt.com' }, { name: 'Ron', email: null }]])
     const caller = await createTestCaller()
     await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
+    const danaRow = (await caller.circles.get({ seriesId: 'ms1' })).roster.find((r) => r.personId === 'p_dana')!
 
-    expect(await caller.circles.saveFromNames({ seriesId: 'ms1', names: ['כהן, יוסי', 'דנה לוי'] })).toEqual({ saved: 2 })
+    expect(await caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['p_dana', 'p_yossi'] }))
+      .toEqual({ saved: 2, added: 1, retired: 1 })
     const circle = await caller.circles.get({ seriesId: 'ms1' })
-    expect(circle.roster.map((r) => r.displayName).sort()).toEqual(['דנה לוי', 'יוסי כהן'])
-    expect(circle.roster.every((r) => r.source === 'manual')).toBe(true)
-    expect(circle.series.rosterSavedAt).toBeTruthy()
+    expect(circle.roster.map((r) => r.personId).sort()).toEqual(['p_dana', 'p_yossi'])
+    expect(circle.roster.find((r) => r.personId === 'p_dana')!.id).toBe(danaRow.id)
+    expect(circle.roster.find((r) => r.personId === 'p_yossi')!.source).toBe('manual')
+    // A manual member missing from the calendar is not proposed for removal.
+    expect(circle.diff?.missingFromCalendar ?? []).toEqual([])
 
-    const db = getTestDb()
-    const retired = (await db.select().from(seriesRoster)).filter((r) => r.inactive).map((r) => r.displayName).sort()
-    expect(retired).toEqual(['יוסי', 'כהן'])
+    // Picking a retired person again reactivates the same row.
+    await caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['p_yossi'] })
+    await caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['p_yossi', 'p_dana'] })
+    const again = await caller.circles.get({ seriesId: 'ms1' })
+    expect(again.roster.find((r) => r.personId === 'p_dana')!.id).toBe(danaRow.id)
   })
 
-  it('keeps a followed person when the saved name still matches, and does not drop manual names missing from the calendar', async () => {
-    await seedSeries([[{ name: 'Ron', email: 'ron@dt.com' }, { name: 'Dana', email: 'dana@dt.com' }]])
+  it('saveFromPeople rejects unknown or ignored people and unknown series', async () => {
+    const db = getTestDb()
+    await db.insert(people).values({ id: 'p_x', name: 'X', email: null, status: 'ignored', source: 'manual', createdAt: NOW })
+    await seedSeries([[]])
     const caller = await createTestCaller()
-    await caller.circles.saveFromCalendar({ seriesId: 'ms1' })
-    const before = await caller.circles.get({ seriesId: 'ms1' })
-    const ron = before.roster.find((r) => r.displayName === 'Ron')!
-    const followed = await caller.circles.follow({ rosterId: ron.id })
+    await expect(caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['p_x'] })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['nope'] })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(caller.circles.saveFromPeople({ seriesId: 'missing', personIds: ['p_x'] })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
 
-    await caller.circles.saveFromNames({ seriesId: 'ms1', names: ['Ron'] })
-    const circle = await caller.circles.get({ seriesId: 'ms1' })
-    expect(circle.roster.map((r) => r.displayName)).toEqual(['Ron'])
-    expect(circle.roster[0]?.personId).toBe(followed.personId)
-    expect(circle.diff?.missingFromCalendar ?? []).toEqual([])
-    expect(circle.diff?.newInCalendar.map((p) => p.name)).toEqual(['Dana'])
+  it('createPersonForCircle creates a confirmed person, flips Last, First, and reuses an email match', async () => {
+    const db = getTestDb()
+    await db.insert(people).values({ id: 'p_dana', name: 'Dana Levi', email: 'dana@dt.com', status: 'confirmed', source: 'manual', createdAt: NOW })
+    const caller = await createTestCaller()
+    const created = await caller.circles.createPersonForCircle({ name: 'כהן, יוסי' })
+    expect(created).toMatchObject({ name: 'יוסי כהן', created: true })
+    const [row] = await db.select().from(people).where(eq(people.id, created.id))
+    expect(row).toMatchObject({ status: 'confirmed', source: 'manual' })
+    expect(await caller.circles.createPersonForCircle({ name: 'Dana', email: 'DANA@dt.com' })).toEqual({ id: 'p_dana', name: 'Dana Levi', created: false })
+  })
+
+  it('backfills legacy unlinked rows by name, and linkMember links or dedupes the rest', async () => {
+    const db = getTestDb()
+    await seedSeries([[]])
+    await db.insert(people).values([
+      { id: 'p_dana', name: 'Dana Levi', email: null, status: 'confirmed', source: 'manual', createdAt: NOW },
+      { id: 'p_ron', name: 'Ron Gal', email: null, status: 'confirmed', source: 'manual', createdAt: NOW },
+    ])
+    await db.update(meetingSeries).set({ rosterSavedAt: NOW }).where(eq(meetingSeries.id, 'ms1'))
+    await db.insert(seriesRoster).values([
+      { id: 'sr_a', seriesId: 'ms1', displayName: 'Dana Levi', email: null, source: 'manual', personId: null, inactive: false, createdAt: NOW, updatedAt: NOW },
+      { id: 'sr_b', seriesId: 'ms1', displayName: 'רון', email: null, source: 'manual', personId: null, inactive: false, createdAt: NOW, updatedAt: NOW },
+      { id: 'sr_c', seriesId: 'ms1', displayName: 'דנה', email: null, source: 'manual', personId: null, inactive: false, createdAt: NOW, updatedAt: NOW },
+    ])
+    const caller = await createTestCaller()
+    const before = await caller.circles.get({ seriesId: 'ms1' })
+    expect(before.roster.find((r) => r.id === 'sr_a')?.personId).toBe('p_dana')
+    expect(before.roster.find((r) => r.id === 'sr_b')?.person).toBeNull()
+
+    await caller.circles.linkMember({ rosterId: 'sr_b', personId: 'p_ron' })
+    await caller.circles.linkMember({ rosterId: 'sr_c', personId: 'p_dana' })
+    const after = await caller.circles.get({ seriesId: 'ms1' })
+    expect(after.roster.map((r) => [r.id, r.displayName])).toEqual([['sr_a', 'Dana Levi'], ['sr_b', 'Ron Gal']])
+  })
+
+  it('forMeeting summarises the circle for the calendar panel', async () => {
+    const db = getTestDb()
+    await db.insert(people).values({ id: 'p_dana', name: 'Dana Levi', email: null, status: 'confirmed', source: 'manual', createdAt: NOW })
+    await seedSeries([[]])
+    await db.insert(meetings).values({ id: 'm_one', title: 'One-off', date: '2020-02-01', time: '10:00', createdAt: NOW, updatedAt: NOW })
+    const caller = await createTestCaller()
+    expect(await caller.circles.forMeeting({ meetingId: 'm_one' })).toBeNull()
+    expect(await caller.circles.forMeeting({ meetingId: 'm1' })).toMatchObject({ seriesId: 'ms1', saved: false, count: 0 })
+    await caller.circles.saveFromPeople({ seriesId: 'ms1', personIds: ['p_dana'] })
+    expect(await caller.circles.forMeeting({ meetingId: 'm1' })).toMatchObject({ saved: true, count: 1, names: ['Dana Levi'] })
   })
 
   it('removeMember retires the row from the roster count', async () => {

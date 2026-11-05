@@ -57,16 +57,19 @@ describe('meetings.syncFromCalendar circles', () => {
     ])
   })
 
-  it('does not create review-queue people for a series with a saved roster', async () => {
+  it('does not create review-queue people from sync for a series with a saved roster', async () => {
     events.push(dtEvent('e1', '2026-03-02'), dtEvent('e2', '2026-03-04'))
     const caller = await createTestCaller()
     await caller.meetings.syncFromCalendar({ startDate: '2026-03-01', endDate: '2026-03-07' })
     const [series] = await getTestDb().select().from(meetingSeries)
     await caller.circles.saveFromCalendar({ seriesId: series.id })
+    // Saving the circle links its members to People (unknown ones as unconfirmed); the sync adds nobody.
+    const afterSave = (await getTestDb().select().from(people)).map((p) => p.name).sort()
+    expect(afterSave).toEqual(['Dana Levi', 'Ron Cohen'])
 
     events.push(dtEvent('e3', '2026-03-06', [{ email: 'stranger@dt.com', displayName: 'Stranger' }]))
     await caller.meetings.syncFromCalendar({ startDate: '2026-03-01', endDate: '2026-03-07' })
 
-    expect(await getTestDb().select().from(people)).toHaveLength(0)
+    expect((await getTestDb().select().from(people)).map((p) => p.name).sort()).toEqual(afterSave)
   })
 })

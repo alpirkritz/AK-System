@@ -3,17 +3,20 @@ import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
   addGuest,
-  addRosterMember,
   applyCalendarDiff,
+  circleForMeeting,
+  CirclePersonError,
+  confirmRosterMember,
+  createPersonForCircle,
   dismissCalendarDiff,
-  followRosterMember,
   getCircle,
+  linkRosterMember,
   markAbsent,
   occurrenceAttendance,
   removeException,
   retireRosterMember,
   saveRosterFromCalendar,
-  saveRosterFromNames,
+  saveRosterFromPeople,
 } from '../services/series-roster'
 
 const seriesInput = z.object({ seriesId: z.string().min(1) })
@@ -40,19 +43,25 @@ export const circlesRouter = router({
     }
   }),
 
-  saveFromNames: protectedProcedure
+  saveFromPeople: protectedProcedure
     .input(seriesInput.extend({
-      names: z.array(z.string().trim().min(1)).min(1).max(200),
+      personIds: z.array(z.string().min(1)).min(1).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
       try {
-        return await saveRosterFromNames(ctx.db, input.seriesId, input.names)
+        return await saveRosterFromPeople(ctx.db, input.seriesId, input.personIds)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Not found'
-        if (message === 'Series not found') notFound(err)
-        throw new TRPCError({ code: 'BAD_REQUEST', message })
+        if (err instanceof CirclePersonError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+        notFound(err)
       }
     }),
+
+  createPersonForCircle: protectedProcedure
+    .input(z.object({
+      name: z.string().trim().min(1).max(200),
+      email: z.string().trim().email().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => createPersonForCircle(ctx.db, input)),
 
   applyCalendarDiff: protectedProcedure.input(seriesInput).mutation(async ({ ctx, input }) => {
     try {
@@ -67,16 +76,6 @@ export const circlesRouter = router({
     return { ok: true }
   }),
 
-  addMember: protectedProcedure
-    .input(seriesInput.merge(memberInput))
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await addRosterMember(ctx.db, input.seriesId, input)
-      } catch (err) {
-        notFound(err)
-      }
-    }),
-
   removeMember: protectedProcedure
     .input(z.object({ rosterId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
@@ -84,15 +83,31 @@ export const circlesRouter = router({
       return { ok: true }
     }),
 
-  follow: protectedProcedure
+  linkMember: protectedProcedure
+    .input(z.object({ rosterId: z.string().min(1), personId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await linkRosterMember(ctx.db, input.rosterId, input.personId)
+        return { ok: true }
+      } catch (err) {
+        if (err instanceof CirclePersonError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+        notFound(err)
+      }
+    }),
+
+  confirmMember: protectedProcedure
     .input(z.object({ rosterId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        return await followRosterMember(ctx.db, input.rosterId)
+        return await confirmRosterMember(ctx.db, input.rosterId)
       } catch (err) {
         notFound(err)
       }
     }),
+
+  forMeeting: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => circleForMeeting(ctx.db, input.meetingId)),
 
   attendance: protectedProcedure
     .input(z.object({ meetingId: z.string().min(1) }))

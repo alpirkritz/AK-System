@@ -16,10 +16,19 @@ export function MeetingPeoplePicker({
   people,
   selectedIds,
   onChange,
+  label = 'משתתפים',
+  emptyText = 'עדיין אין משתתפים',
+  onCreate,
+  creating = false,
 }: {
   people: MeetingPersonOption[]
   selectedIds: string[]
   onChange: (ids: string[]) => void
+  label?: string
+  emptyText?: string
+  /** Offer "צור ״…״ באנשים" when the search matches nobody; resolves to the new person's id. */
+  onCreate?: (name: string) => Promise<string | null | undefined>
+  creating?: boolean
 }) {
   const inputId = useId()
   const listboxId = `${inputId}-listbox`
@@ -56,6 +65,18 @@ export function MeetingPeoplePicker({
   )
   const exactSelected = trimmed ? selectedExactName(people, selectedIds, trimmed) : null
   const options = trimmed ? matches : recent
+  const canCreate = !!onCreate && !!trimmed && matches.length === 0 && !exactSelected
+
+  async function create() {
+    if (!onCreate || !trimmed || creating) return
+    const id = await onCreate(trimmed)
+    if (id) {
+      if (!selectedIds.includes(id)) onChange([...selectedIds, id])
+      setQuery('')
+      setHighlight(0)
+      inputRef.current?.focus()
+    }
+  }
 
   useEffect(() => {
     setHighlight(0)
@@ -69,8 +90,10 @@ export function MeetingPeoplePicker({
     const onPointer = (event: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setListOpen(false)
     }
-    document.addEventListener('mousedown', onPointer)
-    return () => document.removeEventListener('mousedown', onPointer)
+    // `click`, not `mousedown`: closing the list shifts whatever sits below it (e.g. a save button),
+    // and closing on press would move that button away before the click lands.
+    document.addEventListener('click', onPointer)
+    return () => document.removeEventListener('click', onPointer)
   }, [])
 
   function choose(id: string) {
@@ -105,6 +128,7 @@ export function MeetingPeoplePicker({
       event.preventDefault()
       const person = options[highlight]
       if (person) choose(person.id)
+      else if (canCreate) void create()
       return
     }
     if (event.key === 'Backspace' && query === '' && selectedIds.length > 0) {
@@ -116,9 +140,9 @@ export function MeetingPeoplePicker({
 
   return (
     <div ref={wrapRef} data-testid="meeting-people-picker">
-      <label className="label" htmlFor={inputId}>משתתפים</label>
+      <label className="label" htmlFor={inputId}>{label}</label>
       {selected.length === 0 ? (
-        <p className="text-sm text-[#97a4c2] mb-2">עדיין אין משתתפים</p>
+        <p className="text-sm text-[#97a4c2] mb-2">{emptyText}</p>
       ) : (
         <div className="flex flex-wrap gap-2 mb-2">
           {selected.map((person) => {
@@ -166,7 +190,7 @@ export function MeetingPeoplePicker({
         <div
           id={listboxId}
           role="listbox"
-          aria-label="משתתפים"
+          aria-label={label}
           className="mt-1 max-h-[240px] overflow-y-auto rounded-lg border border-[#2f4368] bg-[#1d2b46] py-1"
         >
           {!trimmed && recent.length > 0 && (
@@ -183,8 +207,22 @@ export function MeetingPeoplePicker({
           {exactSelected && (
             <p className="px-3 py-2 text-sm text-[#97a4c2]">{exactSelected} כבר בפגישה</p>
           )}
-          {trimmed && matches.length === 0 && !exactSelected && (
+          {trimmed && matches.length === 0 && !exactSelected && !onCreate && (
             <p className="px-3 py-2 text-sm text-[#97a4c2]">אין אנשי קשר תואמים</p>
+          )}
+          {canCreate && (
+            <button
+              type="button"
+              role="option"
+              aria-selected
+              data-testid="meeting-people-create"
+              className="flex w-full min-h-[44px] items-center px-3 text-right text-sm bg-[#29395d] text-[#eef3fb] disabled:opacity-60"
+              disabled={creating}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void create()}
+            >
+              {creating ? 'יוצר…' : `צור ״${trimmed}״ באנשים`}
+            </button>
           )}
           {options.map((person, index) => (
             <button

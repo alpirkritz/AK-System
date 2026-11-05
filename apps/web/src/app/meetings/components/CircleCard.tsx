@@ -1,16 +1,19 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { Users, UserPlus, UserMinus, RotateCcw, X, CheckSquare, FileText } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { Users, UserCheck, UserMinus, RotateCcw, X, CheckSquare, FileText, Link2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { MeetingPeoplePicker, type MeetingPersonOption } from '@/components/ui/MeetingPeoplePicker'
 import { WarmthBadge } from '@/components/relationship/WarmthBadge'
 import { InsightStrands } from '@/components/relationship/InsightStrands'
 
 const ROSTER_PREVIEW = 8
 
 /**
- * Standing roster of a recurring meeting, saved once from the calendar. Per-occurrence
- * exceptions (absent / guest) never touch the roster itself.
+ * Standing roster of a recurring meeting. Every member is a People record: picked here, created in
+ * People from the picker, or matched when saved from the calendar. Per-occurrence exceptions
+ * (absent / guest) never touch the roster itself.
  */
 export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingId: string }) {
   const utils = trpc.useUtils()
@@ -18,40 +21,54 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
   const { data: attendance } = trpc.circles.attendance.useQuery({ meetingId })
   const [expanded, setExpanded] = useState(false)
   const [newName, setNewName] = useState('')
-  const [namesText, setNamesText] = useState('')
+  const [pickedIds, setPickedIds] = useState<string[]>([])
+  const [linking, setLinking] = useState<string | null>(null)
   const seededFor = useRef<string | null>(null)
+  const { data: everyone = [] } = trpc.people.list.useQuery(undefined, { staleTime: 30_000 })
 
   const refresh = () => {
     utils.circles.get.invalidate({ seriesId })
     utils.circles.attendance.invalidate({ meetingId })
   }
-  const fillNames = async () => {
+  const reseed = async () => {
     const next = await utils.circles.get.fetch({ seriesId })
-    setNamesText(next.roster.map((r) => r.displayName).join('\n'))
+    setPickedIds(next.roster.map((r) => r.personId).filter((id): id is string => !!id))
     refresh()
+    utils.people.list.invalidate()
   }
-  const save = trpc.circles.saveFromCalendar.useMutation({ onSuccess: () => { void fillNames() } })
-  const saveNames = trpc.circles.saveFromNames.useMutation({ onSuccess: () => { void fillNames() } })
-  const apply = trpc.circles.applyCalendarDiff.useMutation({ onSuccess: refresh })
+  const save = trpc.circles.saveFromCalendar.useMutation({ onSuccess: () => { void reseed() } })
+  const savePeople = trpc.circles.saveFromPeople.useMutation({ onSuccess: () => { void reseed() } })
+  const createPerson = trpc.circles.createPersonForCircle.useMutation({ onSuccess: () => { utils.people.list.invalidate() } })
+  const linkMember = trpc.circles.linkMember.useMutation({ onSuccess: () => { setLinking(null); void reseed() } })
+  const apply = trpc.circles.applyCalendarDiff.useMutation({ onSuccess: () => { void reseed() } })
   const dismiss = trpc.circles.dismissCalendarDiff.useMutation({ onSuccess: refresh })
-  const follow = trpc.circles.follow.useMutation({ onSuccess: refresh })
+  const confirm = trpc.circles.confirmMember.useMutation({ onSuccess: () => { refresh(); utils.people.list.invalidate() } })
   const removeMember = trpc.circles.removeMember.useMutation({ onSuccess: refresh })
   const markAbsent = trpc.circles.markAbsent.useMutation({ onSuccess: refresh })
   const addGuest = trpc.circles.addGuest.useMutation({ onSuccess: () => { setNewName(''); refresh() } })
-  const addMember = trpc.circles.addMember.useMutation({ onSuccess: () => { setNewName(''); refresh() } })
   const removeException = trpc.circles.removeException.useMutation({ onSuccess: refresh })
 
   useEffect(() => {
     if (!circle || seededFor.current === seriesId) return
     seededFor.current = seriesId
-    if (circle.series.rosterSavedAt) {
-      setNamesText(circle.roster.map((r) => r.displayName).join('\n'))
-    }
+    setPickedIds(circle.roster.map((r) => r.personId).filter((id): id is string => !!id))
   }, [circle, seriesId])
+
+  // Calendar-created members are `unconfirmed`, so they are not in people.list; keep them pickable.
+  const options = useMemo<MeetingPersonOption[]>(() => {
+    const byId = new Map<string, MeetingPersonOption>(everyone.map((p) => [p.id, { id: p.id, name: p.name, company: p.company, role: p.role, color: p.color }]))
+    for (const r of circle?.roster ?? []) {
+      if (r.person && !byId.has(r.person.id)) byId.set(r.person.id, { id: r.person.id, name: r.person.name })
+    }
+    return [...byId.values()]
+  }, [everyone, circle])
+
+  const createForPicker = async (name: string) => (await createPerson.mutateAsync({ name })).id
 
   if (!circle) return null
   const saved = !!circle.series.rosterSavedAt
-  const nameLines = namesText.split('\n').map((line) => line.trim()).filter(Boolean)
+  const activeIds = circle.roster.map((r) => r.personId).filter((id): id is string => !!id)
+  const pickerDirty = pickedIds.length !== activeIds.length || pickedIds.some((id) => !activeIds.includes(id))
   const absentByRoster = new Map((attendance?.absent ?? []).map((e) => [e.rosterId, e.id]))
   const roster = expanded ? circle.roster : circle.roster.slice(0, ROSTER_PREVIEW)
   const busy = save.isPending || apply.isPending || dismiss.isPending
@@ -84,31 +101,30 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
       )}
       <form
         className="space-y-2 mb-4"
-        data-testid="circle-names-form"
+        data-testid="circle-people-form"
         onSubmit={(e) => {
           e.preventDefault()
-          if (nameLines.length > 0) saveNames.mutate({ seriesId, names: nameLines })
+          if (pickedIds.length > 0) savePeople.mutate({ seriesId, personIds: pickedIds })
         }}
       >
-        <label className="label" htmlFor="circle-names">שמות בחוג</label>
-        <textarea
-          id="circle-names"
-          className="input w-full text-sm resize-y"
-          rows={4}
-          value={namesText}
-          onChange={(e) => setNamesText(e.target.value)}
-          placeholder={'שורה לכל אדם, שם מלא\nיוסי כהן'}
-          data-testid="circle-names"
+        <MeetingPeoplePicker
+          people={options}
+          selectedIds={pickedIds}
+          onChange={setPickedIds}
+          label="אנשים בחוג"
+          emptyText="עדיין אין אנשים בחוג"
+          onCreate={createForPicker}
+          creating={createPerson.isPending}
         />
-        <p className="text-[11px] text-[#5a688c]">שורה אחת לאדם. כהן, יוסי נשמר כיוסי כהן.</p>
         <button
           type="submit"
           className="btn btn-primary text-xs py-1.5 px-3"
-          disabled={nameLines.length === 0 || saveNames.isPending}
-          data-testid="circle-save-names"
+          disabled={pickedIds.length === 0 || !pickerDirty || savePeople.isPending}
+          data-testid="circle-save-people"
         >
-          {saveNames.isPending ? 'שומר…' : 'שמור כחוג'}
+          {savePeople.isPending ? 'שומר…' : 'שמור חוג'}
         </button>
+        {savePeople.error && <p className="text-[11px] text-[#f87171]">{savePeople.error.message}</p>}
       </form>
       {!saved ? (
         <div className="space-y-2">
@@ -190,17 +206,34 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
                 return (
                   <li key={r.id} className="group flex items-center gap-2 py-1 px-1.5 rounded hover:bg-[#141f36] text-xs">
                     <span className={absentId ? 'flex-1 min-w-0 truncate text-[#5a688c] line-through' : 'flex-1 min-w-0 truncate text-[#b8c4dc]'}>
-                      {r.displayName}
+                      {r.person ? (
+                        <Link href={`/people?person=${r.person.id}`} className="hover:text-[#eef3fb]" data-testid="circle-member-link">
+                          {r.displayName}
+                        </Link>
+                      ) : (
+                        r.displayName
+                      )}
                       {r.email && <span className="text-[#5a688c] no-underline"> · {r.email}</span>}
                     </span>
-                    {r.personId ? (
-                      <span className="pill text-[10px]">במעקב</span>
-                    ) : (
-                      <button type="button" className="btn-ghost text-[11px] inline-flex items-center gap-1" disabled={follow.isPending} onClick={() => follow.mutate({ rosterId: r.id })}>
-                        <UserPlus className="w-3 h-3" aria-hidden />
-                        עקוב
+                    {!r.person ? (
+                      <>
+                        <span className="pill text-[10px]">לא מקושר</span>
+                        <button
+                          type="button"
+                          className="btn-ghost text-[11px] inline-flex items-center gap-1"
+                          onClick={() => setLinking((v) => (v === r.id ? null : r.id))}
+                          data-testid="circle-link-member"
+                        >
+                          <Link2 className="w-3 h-3" aria-hidden />
+                          קשר לאדם
+                        </button>
+                      </>
+                    ) : r.person.status !== 'confirmed' ? (
+                      <button type="button" className="btn-ghost text-[11px] inline-flex items-center gap-1" disabled={confirm.isPending} onClick={() => confirm.mutate({ rosterId: r.id })}>
+                        <UserCheck className="w-3 h-3" aria-hidden />
+                        אשר באנשים
                       </button>
-                    )}
+                    ) : null}
                     {absentId ? (
                       <button type="button" className="btn-ghost text-[11px] inline-flex items-center gap-1" onClick={() => removeException.mutate({ exceptionId: absentId })}>
                         <RotateCcw className="w-3 h-3" aria-hidden />
@@ -224,6 +257,22 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
                   </li>
                 )
               })}
+              {linking && (
+                <li className="py-2 px-1.5" data-testid="circle-link-picker">
+                  <MeetingPeoplePicker
+                    people={options}
+                    selectedIds={[]}
+                    onChange={(ids) => {
+                      const personId = ids[ids.length - 1]
+                      if (personId) linkMember.mutate({ rosterId: linking, personId })
+                    }}
+                    label={`קשר את ${circle.roster.find((r) => r.id === linking)?.displayName ?? ''} לאדם`}
+                    emptyText="בחר אדם קיים או צור חדש"
+                    onCreate={createForPicker}
+                    creating={createPerson.isPending || linkMember.isPending}
+                  />
+                </li>
+              )}
               {(attendance?.guests ?? []).map((g) => (
                 <li key={g.id} className="flex items-center gap-2 py-1 px-1.5 text-xs">
                   <span className="flex-1 min-w-0 truncate text-[#b8c4dc]">{g.displayName}</span>
@@ -246,17 +295,9 @@ export function CircleCard({ seriesId, meetingId }: { seriesId: string; meetingI
                 if (newName.trim()) addGuest.mutate({ meetingId, name: newName.trim() })
               }}
             >
-              <input className="input flex-1 text-xs" placeholder="שם" value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="שם משתתף" />
+              <input className="input flex-1 text-xs" placeholder="אורח חד־פעמי" value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="שם אורח" />
               <button type="submit" className="btn btn-secondary text-xs py-1 px-2.5" disabled={!newName.trim() || addGuest.isPending}>
                 אורח היום
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost text-xs py-1 px-2.5"
-                disabled={!newName.trim() || addMember.isPending}
-                onClick={() => addMember.mutate({ seriesId, name: newName.trim() })}
-              >
-                הוסף לחוג
               </button>
             </form>
           </div>

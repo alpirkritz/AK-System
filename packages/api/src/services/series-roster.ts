@@ -1,6 +1,7 @@
 /**
  * Circles: a recurring series keeps a standing roster read once from the calendar, so the owner
- * never re-adds the same participants per occurrence. Roster rows are not CRM people until followed.
+ * never re-adds the same participants per occurrence. Every roster row is a People record: picked from
+ * People, created there from the circle, or matched/created (unconfirmed) when imported from the calendar.
  */
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import {
@@ -20,11 +21,11 @@ import {
   normalizeDisplayName,
   normalizeParticipantName,
   parseStoredParticipants,
-  parseTypedCircleLine,
   participantKey,
   type CalendarParticipant,
 } from '../lib/calendar-participants'
 import { seriesInsight, seriesWarmth, type WarmthResult } from './warmth'
+import { resolvePerson } from './person-resolution'
 
 type Db = ReturnType<typeof getDb>
 
@@ -55,7 +56,7 @@ export interface CircleNote {
 
 export interface CircleView {
   series: Awaited<ReturnType<typeof seriesOrThrow>>
-  roster: SeriesRosterRow[]
+  roster: CircleRosterRow[]
   rosterCount: number
   calendarParticipants: CalendarParticipant[]
   diff: CalendarDiff | null
@@ -145,27 +146,63 @@ async function peopleByEmail(db: Db, emails: string[]): Promise<Map<string, stri
   return out
 }
 
+export interface RosterPerson {
+  id: string
+  name: string
+  status: string
+}
+
+export type CircleRosterRow = SeriesRosterRow & { person: RosterPerson | null }
+
+/** Existing (non-ignored) person by email, then exact alias or name. Never fuzzy. */
+async function matchPerson(db: Db, p: { name: string; email: string | null }): Promise<string | null> {
+  const hit = await resolvePerson(db, { name: p.name, email: p.email })
+  return hit.kind === 'match' ? hit.personId : null
+}
+
+/**
+ * The People record for a calendar attendee: an existing match, else a new `unconfirmed` person
+ * (source calendar) so they wait in the People review queue instead of the main list.
+ */
+async function personForAttendee(db: Db, p: { name: string; email: string | null }, now: string): Promise<string> {
+  const known = await matchPerson(db, p)
+  if (known) return known
+  const id = newId('p_circle')
+  await db.insert(people).values({
+    id,
+    name: normalizeDisplayName(p.name) || p.name,
+    email: p.email,
+    role: null,
+    color: '#e8c547',
+    status: 'unconfirmed',
+    source: 'calendar',
+    createdAt: now,
+  })
+  return id
+}
+
 async function insertRosterRows(
   db: Db,
   seriesId: string,
-  participants: { name: string; email: string | null; source: 'attendees' | 'description' | 'manual' }[],
+  participants: { name: string; email: string | null; source: 'attendees' | 'description' | 'manual'; personId?: string }[],
   now: string,
 ) {
   if (participants.length === 0) return
-  const known = await peopleByEmail(db, participants.map((p) => p.email ?? ''))
-  await db.insert(seriesRoster).values(
-    participants.map((p) => ({
+  const rows = []
+  for (const p of participants) {
+    rows.push({
       id: newId('sr'),
       seriesId,
       displayName: p.name,
       email: p.email,
       source: p.source,
-      personId: p.email ? (known.get(p.email.toLowerCase()) ?? null) : null,
+      personId: p.personId ?? (await personForAttendee(db, p, now)),
       inactive: false,
       createdAt: now,
       updatedAt: now,
-    })),
-  )
+    })
+  }
+  await db.insert(seriesRoster).values(rows)
 }
 
 /** First save: copy the latest calendar occurrence's participants into the roster. */
@@ -185,81 +222,92 @@ export async function saveRosterFromCalendar(db: Db, seriesId: string): Promise<
   return { added: toAdd.length }
 }
 
-function circleNameKeys(name: string): string[] {
-  const keys = [normalizeParticipantName(name), normalizeParticipantName(normalizeDisplayName(name))]
-  return [...new Set(keys.filter(Boolean))]
+async function usablePeople(db: Db, ids: string[]): Promise<Map<string, { id: string; name: string; email: string | null; status: string }>> {
+  if (ids.length === 0) return new Map()
+  const rows = await db
+    .select({ id: people.id, name: people.name, email: people.email, status: people.status })
+    .from(people)
+    .where(inArray(people.id, ids))
+  return new Map(rows.filter((r) => r.status !== 'ignored').map((r) => [r.id, r]))
 }
 
+export class CirclePersonError extends Error {}
+
 /**
- * Replace the active roster with names typed on a meeting. One line is one person.
- * A matching row keeps its person link; everyone else who was active is retired.
+ * Replace the active roster with people picked from People. A row already linked to a picked
+ * person is kept (or reactivated), so its history and exceptions stay; everyone else is retired.
  */
-export async function saveRosterFromNames(
+export async function saveRosterFromPeople(
   db: Db,
   seriesId: string,
-  names: string[],
-): Promise<{ saved: number }> {
+  personIds: string[],
+): Promise<{ saved: number; added: number; retired: number }> {
   await seriesOrThrow(db, seriesId)
-  const wanted: { name: string; email: string | null }[] = []
-  const seen = new Set<string>()
-  for (const line of names) {
-    const parsed = parseTypedCircleLine(line)
-    if (!parsed?.name) continue
-    const key = circleNameKeys(parsed.name)[0]
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    wanted.push(parsed)
-  }
-  if (wanted.length === 0) throw new Error('No names')
+  const wanted = [...new Set(personIds)]
+  if (wanted.length === 0) throw new CirclePersonError('No people')
+  const found = await usablePeople(db, wanted)
+  const missing = wanted.filter((id) => !found.has(id))
+  if (missing.length > 0) throw new CirclePersonError(`Unknown people: ${missing.join(', ')}`)
 
   const roster = await listRoster(db, seriesId, true)
   const now = new Date().toISOString()
-  const claimed = new Set<string>()
-
-  const rank = (row: SeriesRosterRow) => (row.inactive ? 0 : 2) + (row.personId ? 1 : 0)
-  for (const person of wanted) {
-    const keys = new Set(circleNameKeys(person.name))
+  const keep = new Set<string>()
+  let added = 0
+  for (const personId of wanted) {
+    const person = found.get(personId)!
     const match = roster
-      .filter((row) => !claimed.has(row.id))
-      .filter((row) => {
-        if (person.email && row.email && row.email.toLowerCase() === person.email) return true
-        return circleNameKeys(row.displayName).some((key) => keys.has(key))
-      })
-      .sort((a, b) => rank(b) - rank(a))[0]
+      .filter((r) => r.personId === personId && !keep.has(r.id))
+      .sort((a, b) => Number(a.inactive) - Number(b.inactive))[0]
     if (match) {
-      claimed.add(match.id)
-      await db
-        .update(seriesRoster)
-        .set({
-          displayName: person.name,
-          email: person.email ?? match.email,
-          source: 'manual',
-          inactive: false,
-          updatedAt: now,
-        })
-        .where(eq(seriesRoster.id, match.id))
+      keep.add(match.id)
+      if (match.inactive || match.displayName !== person.name) {
+        await db
+          .update(seriesRoster)
+          .set({ inactive: false, displayName: person.name, updatedAt: now })
+          .where(eq(seriesRoster.id, match.id))
+      }
     } else {
-      await insertRosterRows(
-        db,
-        seriesId,
-        [{ name: person.name, email: person.email, source: 'manual' }],
-        now,
-      )
+      await insertRosterRows(db, seriesId, [{ name: person.name, email: person.email, source: 'manual', personId }], now)
+      added++
     }
   }
-
-  const toRetire = roster.filter((row) => !row.inactive && !claimed.has(row.id)).map((row) => row.id)
+  const toRetire = roster.filter((r) => !r.inactive && !keep.has(r.id)).map((r) => r.id)
   if (toRetire.length > 0) {
-    await db
-      .update(seriesRoster)
-      .set({ inactive: true, updatedAt: now })
-      .where(inArray(seriesRoster.id, toRetire))
+    await db.update(seriesRoster).set({ inactive: true, updatedAt: now }).where(inArray(seriesRoster.id, toRetire))
   }
   await db
     .update(meetingSeries)
     .set({ rosterSavedAt: now, rosterDismissedSig: null, updatedAt: now })
     .where(eq(meetingSeries.id, seriesId))
-  return { saved: wanted.length }
+  return { saved: wanted.length, added, retired: toRetire.length }
+}
+
+/** "צור באנשים" from the circle picker: a confirmed person, or the existing one with that email. */
+export async function createPersonForCircle(
+  db: Db,
+  input: { name: string; email?: string | null },
+): Promise<{ id: string; name: string; created: boolean }> {
+  const email = input.email?.trim().toLowerCase() || null
+  if (email) {
+    const hit = await resolvePerson(db, { email })
+    if (hit.kind === 'match' && hit.via === 'email') {
+      const [row] = await db.select({ id: people.id, name: people.name }).from(people).where(eq(people.id, hit.personId))
+      if (row) return { ...row, created: false }
+    }
+  }
+  const name = normalizeDisplayName(input.name.trim()) || input.name.trim()
+  const id = newId('p_circle')
+  await db.insert(people).values({
+    id,
+    name,
+    email,
+    role: null,
+    color: '#e8c547',
+    status: 'confirmed',
+    source: 'manual',
+    createdAt: new Date().toISOString(),
+  })
+  return { id, name, created: true }
 }
 
 /** Accept the calendar diff: add newcomers, retire people no longer invited. */
@@ -277,7 +325,8 @@ export async function applyCalendarDiff(db: Db, seriesId: string): Promise<{ add
   for (const p of diff.newInCalendar) {
     const retired = participantKeys(p).map((k) => retiredByKey.get(k)).find(Boolean)
     if (retired) {
-      await db.update(seriesRoster).set({ inactive: false, updatedAt: now }).where(eq(seriesRoster.id, retired.id))
+      const personId = retired.personId ?? (await personForAttendee(db, p, now))
+      await db.update(seriesRoster).set({ inactive: false, personId, updatedAt: now }).where(eq(seriesRoster.id, retired.id))
     } else {
       fresh.push(p)
     }
@@ -306,62 +355,100 @@ export async function dismissCalendarDiff(db: Db, seriesId: string): Promise<voi
     .where(eq(meetingSeries.id, seriesId))
 }
 
-export async function addRosterMember(
-  db: Db,
-  seriesId: string,
-  input: { name: string; email?: string | null },
-): Promise<SeriesRosterRow> {
-  await seriesOrThrow(db, seriesId)
-  const now = new Date().toISOString()
-  const email = input.email?.trim().toLowerCase() || null
-  const known = await peopleByEmail(db, email ? [email] : [])
-  const row = {
-    id: newId('sr'),
-    seriesId,
-    displayName: input.name.trim(),
-    email,
-    source: 'manual',
-    personId: email ? (known.get(email) ?? null) : null,
-    inactive: false,
-    createdAt: now,
-    updatedAt: now,
-  }
-  await db.insert(seriesRoster).values(row)
-  return row
-}
-
 export async function retireRosterMember(db: Db, rosterId: string): Promise<void> {
   await db.update(seriesRoster).set({ inactive: true, updatedAt: new Date().toISOString() }).where(eq(seriesRoster.id, rosterId))
 }
 
-/** "עקוב": promote a roster row to a confirmed CRM person (reusing one with the same email). */
-export async function followRosterMember(db: Db, rosterId: string): Promise<{ personId: string; created: boolean }> {
+/** Link a legacy (unlinked) row to a person; a duplicate of an active member is retired instead. */
+export async function linkRosterMember(db: Db, rosterId: string, personId: string): Promise<void> {
   const [row] = await db.select().from(seriesRoster).where(eq(seriesRoster.id, rosterId)).limit(1)
   if (!row) throw new Error('Roster member not found')
+  const person = (await usablePeople(db, [personId])).get(personId)
+  if (!person) throw new CirclePersonError('Unknown person')
   const now = new Date().toISOString()
-  if (row.personId) {
-    await db.update(people).set({ status: 'confirmed' }).where(eq(people.id, row.personId))
-    return { personId: row.personId, created: false }
+  const [dup] = await db
+    .select({ id: seriesRoster.id })
+    .from(seriesRoster)
+    .where(and(eq(seriesRoster.seriesId, row.seriesId), eq(seriesRoster.personId, personId), eq(seriesRoster.inactive, false)))
+    .limit(1)
+  if (dup && dup.id !== row.id) {
+    await db.update(seriesRoster).set({ inactive: true, updatedAt: now }).where(eq(seriesRoster.id, row.id))
+    return
   }
-  const known = row.email ? (await peopleByEmail(db, [row.email])).get(row.email.toLowerCase()) : undefined
-  let personId = known
-  if (personId) {
-    await db.update(people).set({ status: 'confirmed' }).where(eq(people.id, personId))
-  } else {
-    personId = newId('p_circle')
-    await db.insert(people).values({
-      id: personId,
-      name: row.displayName,
-      email: row.email,
-      role: null,
-      color: '#e8c547',
-      status: 'confirmed',
-      source: 'calendar',
-      createdAt: now,
+  await db
+    .update(seriesRoster)
+    .set({ personId, displayName: person.name, email: row.email ?? person.email, updatedAt: now })
+    .where(eq(seriesRoster.id, rosterId))
+}
+
+/** "אשר באנשים": confirm the (unconfirmed, calendar-created) person behind a roster row. */
+export async function confirmRosterMember(db: Db, rosterId: string): Promise<{ personId: string }> {
+  const [row] = await db.select().from(seriesRoster).where(eq(seriesRoster.id, rosterId)).limit(1)
+  if (!row?.personId) throw new Error('Roster member not found')
+  await db.update(people).set({ status: 'confirmed' }).where(eq(people.id, row.personId))
+  return { personId: row.personId }
+}
+
+/** Match legacy unlinked active rows to existing People (no creation). */
+async function backfillRosterLinks(db: Db, roster: SeriesRosterRow[]): Promise<SeriesRosterRow[]> {
+  const now = new Date().toISOString()
+  const linked = new Set(roster.filter((r) => !r.inactive && r.personId).map((r) => r.personId))
+  const out: SeriesRosterRow[] = []
+  for (const r of roster) {
+    if (r.inactive || r.personId) {
+      out.push(r)
+      continue
+    }
+    const personId = await matchPerson(db, { name: r.displayName, email: r.email })
+    if (personId && !linked.has(personId)) {
+      linked.add(personId)
+      await db.update(seriesRoster).set({ personId, updatedAt: now }).where(eq(seriesRoster.id, r.id))
+      out.push({ ...r, personId })
+    } else {
+      out.push(r)
+    }
+  }
+  return out
+}
+
+/** Roster rows with their People record; the name shown is always the person's current name. */
+async function withPeople(db: Db, rows: SeriesRosterRow[]): Promise<CircleRosterRow[]> {
+  const ids = [...new Set(rows.map((r) => r.personId).filter((id): id is string => !!id))]
+  const found = ids.length
+    ? await db.select({ id: people.id, name: people.name, status: people.status }).from(people).where(inArray(people.id, ids))
+    : []
+  const byId = new Map(found.map((p) => [p.id, p]))
+  return rows
+    .map((r) => {
+      const person = r.personId ? byId.get(r.personId) ?? null : null
+      return { ...r, displayName: person?.name ?? r.displayName, person }
     })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, 'he'))
+}
+
+/** Circle summary for a meeting (calendar event panel). Null when the meeting is not in a series. */
+export async function circleForMeeting(db: Db, meetingId: string) {
+  const [meeting] = await db
+    .select({ id: meetings.id, seriesId: meetings.seriesId })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+    .limit(1)
+  if (!meeting?.seriesId) return null
+  const [series] = await db
+    .select({ rosterSavedAt: meetingSeries.rosterSavedAt, title: meetingSeries.title })
+    .from(meetingSeries)
+    .where(eq(meetingSeries.id, meeting.seriesId))
+    .limit(1)
+  if (!series) return null
+  const roster = series.rosterSavedAt ? await withPeople(db, await listRoster(db, meeting.seriesId)) : []
+  return {
+    seriesId: meeting.seriesId,
+    meetingId,
+    title: series.title,
+    saved: !!series.rosterSavedAt,
+    count: roster.length,
+    names: roster.slice(0, 5).map((r) => r.displayName),
   }
-  await db.update(seriesRoster).set({ personId, updatedAt: now }).where(eq(seriesRoster.id, rosterId))
-  return { personId, created: !known }
 }
 
 export async function listExceptions(db: Db, meetingId: string): Promise<MeetingRosterException[]> {
@@ -507,8 +594,8 @@ export function circleRecommendation(input: {
 
 export async function getCircle(db: Db, seriesId: string): Promise<CircleView> {
   const series = await seriesOrThrow(db, seriesId)
-  const roster = await listRoster(db, seriesId, true)
-  const active = roster.filter((r) => !r.inactive)
+  const roster = await backfillRosterLinks(db, await listRoster(db, seriesId, true))
+  const active = await withPeople(db, roster.filter((r) => !r.inactive))
   const occurrence = await latestCalendarOccurrence(db, seriesId)
   const calendarParticipants = occurrence?.participants ?? []
 
@@ -572,7 +659,7 @@ export async function getCircle(db: Db, seriesId: string): Promise<CircleView> {
   }
 }
 
-/** Series a person belongs to via a followed roster row. */
+/** Series a person belongs to via an active roster row. */
 export async function circlesForPerson(db: Db, personId: string) {
   const rows = await db
     .select({ seriesId: meetingSeries.id, seriesTitle: meetingSeries.title, cadence: meetingSeries.cadence })
