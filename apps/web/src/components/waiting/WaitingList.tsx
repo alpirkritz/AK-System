@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { Check } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { commitmentSourceLabel } from '@/components/commitments/CommitmentSourceBadge'
+import { CommitmentContext } from '@/components/commitments/CommitmentContext'
 
 export type WaitingItem = {
   kind: 'task' | 'commitment'
@@ -62,10 +63,15 @@ export function groupByPerson(items: WaitingItem[]): { personId: string; personN
 
 /** Opens a task row in place; without it, task rows link to `/tasks?task=<id>`. */
 type OpenTask = (taskId: string) => void
+/** Opens a commitment row in TaskModal so it can become an editable task; without it, the title is static. */
+type OpenCommitment = (commitmentId: string) => void
+
+/** Only WhatsApp commitments have a stored message window to show (see `commitments.sourceContext`). */
+const HAS_CONTEXT = new Set(['whatsapp_dm', 'whatsapp_group'])
 
 export function WaitingRow({
-  item, showPerson = true, overdue = false, onOpenTask,
-}: { item: WaitingItem; showPerson?: boolean; overdue?: boolean; onOpenTask?: OpenTask }) {
+  item, showPerson = true, overdue = false, onOpenTask, onOpenCommitment,
+}: { item: WaitingItem; showPerson?: boolean; overdue?: boolean; onOpenTask?: OpenTask; onOpenCommitment?: OpenCommitment }) {
   const utils = trpc.useUtils()
   const complete = trpc.waiting.complete.useMutation({
     onSuccess: () => {
@@ -79,6 +85,8 @@ export function WaitingRow({
     ? onOpenTask
       ? <button type="button" className="text-right hover:text-white" title="פתח משימה" onClick={() => onOpenTask(item.id)}>{item.title}</button>
       : <Link href={`/tasks?task=${item.id}`} className="hover:text-white" title="פתח משימה">{item.title}</Link>
+    : onOpenCommitment
+    ? <button type="button" className="text-right hover:text-white" title="פתח לעריכה" onClick={() => onOpenCommitment(item.id)} data-testid="waiting-commitment-open">{item.title}</button>
     : item.meetingId
     ? <Link href={`/meetings/${item.meetingId}`} className="hover:text-white">{item.title}</Link>
     : <span>{item.title}</span>
@@ -100,12 +108,13 @@ export function WaitingRow({
           {due && <span className="tabular-nums" style={overdue ? { color: '#e57373' } : undefined}>עד {due}</span>}
           <span>{sourceName(item.source)}{item.sourceLabel ? ` · ${item.sourceLabel}` : ''}</span>
         </div>
+        {item.kind === 'commitment' && HAS_CONTEXT.has(item.source) && <CommitmentContext commitmentId={item.id} compact />}
       </div>
     </li>
   )
 }
 
-function PersonBlocks({ items, overdueIds, onOpenTask }: { items: WaitingItem[]; overdueIds: Set<string>; onOpenTask?: OpenTask }) {
+function PersonBlocks({ items, overdueIds, onOpenTask, onOpenCommitment }: { items: WaitingItem[]; overdueIds: Set<string>; onOpenTask?: OpenTask; onOpenCommitment?: OpenCommitment }) {
   return (
     <div className="space-y-3">
       {groupByPerson(items).map((g) => (
@@ -115,7 +124,7 @@ function PersonBlocks({ items, overdueIds, onOpenTask }: { items: WaitingItem[];
           </Link>
           <ul>
             {g.items.map((i) => (
-              <WaitingRow key={`${i.kind}-${i.id}`} item={i} showPerson={false} overdue={overdueIds.has(i.id)} onOpenTask={onOpenTask} />
+              <WaitingRow key={`${i.kind}-${i.id}`} item={i} showPerson={false} overdue={overdueIds.has(i.id)} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
             ))}
           </ul>
         </div>
@@ -125,7 +134,7 @@ function PersonBlocks({ items, overdueIds, onOpenTask }: { items: WaitingItem[];
 }
 
 /** What is due today comes first; the late ones sit below, folded, so a long backlog cannot bury today. */
-function TodayView({ buckets, overdueIds, onOpenTask }: { buckets: WaitingBuckets; overdueIds: Set<string>; onOpenTask?: OpenTask }) {
+function TodayView({ buckets, overdueIds, onOpenTask, onOpenCommitment }: { buckets: WaitingBuckets; overdueIds: Set<string>; onOpenTask?: OpenTask; onOpenCommitment?: OpenCommitment }) {
   const [showLate, setShowLate] = useState(false)
   return (
     <div className="space-y-4">
@@ -136,7 +145,7 @@ function TodayView({ buckets, overdueIds, onOpenTask }: { buckets: WaitingBucket
         {buckets.today.length === 0 ? (
           <p className="text-sm text-[#97a4c2]" data-testid="waiting-today-none">אף אחד לא חייב לך משהו להיום</p>
         ) : (
-          <PersonBlocks items={buckets.today} overdueIds={overdueIds} onOpenTask={onOpenTask} />
+          <PersonBlocks items={buckets.today} overdueIds={overdueIds} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
         )}
       </section>
       {buckets.overdue.length > 0 && (
@@ -154,7 +163,7 @@ function TodayView({ buckets, overdueIds, onOpenTask }: { buckets: WaitingBucket
           </button>
           {showLate && (
             <div className="mt-2">
-              <PersonBlocks items={buckets.overdue} overdueIds={overdueIds} onOpenTask={onOpenTask} />
+              <PersonBlocks items={buckets.overdue} overdueIds={overdueIds} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
             </div>
           )}
         </section>
@@ -165,15 +174,15 @@ function TodayView({ buckets, overdueIds, onOpenTask }: { buckets: WaitingBucket
 
 /** One list, three shapes: today (late + due, by person), by person, or by time. */
 export function WaitingView({
-  buckets, view, showPerson = true, onOpenTask,
-}: { buckets: WaitingBuckets; view: WaitingView; showPerson?: boolean; onOpenTask?: OpenTask }) {
+  buckets, view, showPerson = true, onOpenTask, onOpenCommitment,
+}: { buckets: WaitingBuckets; view: WaitingView; showPerson?: boolean; onOpenTask?: OpenTask; onOpenCommitment?: OpenCommitment }) {
   const overdueIds = new Set(buckets.overdue.map((i) => i.id))
-  if (view === 'today') return <TodayView buckets={buckets} overdueIds={overdueIds} onOpenTask={onOpenTask} />
+  if (view === 'today') return <TodayView buckets={buckets} overdueIds={overdueIds} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
   if (view === 'person') {
     const all = flattenWaiting(buckets)
     const urgent = new Set(dueNow(buckets).map((i) => i.personId))
     const ordered = [...all].sort((a, b) => Number(urgent.has(b.personId)) - Number(urgent.has(a.personId)))
-    return <PersonBlocks items={ordered} overdueIds={overdueIds} onOpenTask={onOpenTask} />
+    return <PersonBlocks items={ordered} overdueIds={overdueIds} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
   }
   return (
     <div className="space-y-4">
@@ -184,7 +193,7 @@ export function WaitingView({
           </h3>
           <ul>
             {buckets[s.key].map((i) => (
-              <WaitingRow key={`${i.kind}-${i.id}`} item={i} showPerson={showPerson} overdue={s.key === 'overdue'} onOpenTask={onOpenTask} />
+              <WaitingRow key={`${i.kind}-${i.id}`} item={i} showPerson={showPerson} overdue={s.key === 'overdue'} onOpenTask={onOpenTask} onOpenCommitment={onOpenCommitment} />
             ))}
           </ul>
         </section>

@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import {
   commitments,
   meetings,
   people,
   projectPeople,
+  tasks,
   whatsappDmMessages,
   whatsappMessages,
   COMMITMENT_STATUSES,
@@ -298,6 +299,31 @@ export const commitmentsRouter = router({
         .set({ status: 'accepted', taskId, updatedAt: new Date().toISOString() })
         .where(eq(commitments.id, c.id))
       return { taskId, notionSynced: created.notionSync?.ok ?? false }
+    }),
+
+  /**
+   * Links a task (created by the caller through TaskModal) to an accepted `owner=them` commitment
+   * that has none yet, so the waiting list shows the editable task instead of the bare commitment.
+   * `accept` stays limited to proposed commitments on purpose.
+   */
+  linkTask: protectedProcedure
+    .input(z.object({ commitmentId: z.string().min(1), taskId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [c] = await ctx.db
+        .select({ status: commitments.status, owner: commitments.owner, taskId: commitments.taskId })
+        .from(commitments)
+        .where(eq(commitments.id, input.commitmentId))
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND', message: 'ההתחייבות לא נמצאה' })
+      if (c.status !== 'accepted') throw new TRPCError({ code: 'BAD_REQUEST', message: 'אפשר לקשר משימה רק להתחייבות מאושרת' })
+      if (c.owner !== 'them') throw new TRPCError({ code: 'BAD_REQUEST', message: 'אפשר לקשר משימה רק להתחייבות של מישהו אחר' })
+      if (c.taskId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'להתחייבות כבר יש משימה' })
+      const [task] = await ctx.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, input.taskId))
+      if (!task) throw new TRPCError({ code: 'NOT_FOUND', message: 'המשימה לא נמצאה' })
+      await ctx.db
+        .update(commitments)
+        .set({ taskId: input.taskId, updatedAt: new Date().toISOString() })
+        .where(and(eq(commitments.id, input.commitmentId), isNull(commitments.taskId)))
+      return { ok: true as const, taskId: input.taskId }
     }),
 
   dismiss: protectedProcedure

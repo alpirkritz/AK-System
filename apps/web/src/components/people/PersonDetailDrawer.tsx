@@ -18,6 +18,7 @@ import { PersonAffiliations } from './PersonAffiliations'
 import { PersonAliases } from './PersonAliases'
 import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
 import { WaitingView, flattenWaiting } from '@/components/waiting/WaitingList'
+import { useCommitmentEditor } from '@/components/waiting/useCommitmentEditor'
 import { StatusButton } from '@/components/StatusButton'
 
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -92,6 +93,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
   const taskCount = taskGroups.reduce((sum, group) => sum + group.tasks.length, 0)
 
   const utils = trpc.useUtils()
+  const commitmentEditor = useCommitmentEditor()
   const update = trpc.people.update.useMutation({
     onSuccess: () => {
       utils.people.getById.invalidate({ id: personId })
@@ -386,6 +388,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                     {waitingCount > 0 && (
                       <div className="mb-3" data-testid="person-owes-me">
                         <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">חייב/ת לי</div>
+                        {commitmentEditor.modal}
                         <WaitingView
                           buckets={waiting!}
                           view="time"
@@ -394,6 +397,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                             setEditingTaskId(taskId)
                             setTaskModalOpen(true)
                           }}
+                          onOpenCommitment={commitmentEditor.open}
                         />
                       </div>
                     )}

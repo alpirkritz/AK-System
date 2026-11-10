@@ -3,12 +3,14 @@
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { WaitingRow, dueNow } from './WaitingList'
+import { useCommitmentEditor } from './useCommitmentEditor'
 
 const SHOWN = 5
 
 /** Dashboard digest: who owes me something today or is already late. Hidden when nobody does. */
 export function WaitingTodayCard() {
   const { data: buckets } = trpc.waiting.list.useQuery()
+  const editor = useCommitmentEditor()
   if (!buckets) return null
   const items = dueNow(buckets)
   if (items.length === 0) return null
@@ -21,9 +23,10 @@ export function WaitingTodayCard() {
         <span className="pill" title="להיום · באיחור">{buckets.today.length}{buckets.overdue.length > 0 ? ` · ${buckets.overdue.length} באיחור` : ''}</span>
         <Link href="/waiting" className="section-link ms-auto shrink-0">לכל הרשימה</Link>
       </div>
+      {editor.modal}
       <ul>
         {items.slice(0, SHOWN).map((i) => (
-          <WaitingRow key={`${i.kind}-${i.id}`} item={i} overdue={overdueIds.has(i.id)} />
+          <WaitingRow key={`${i.kind}-${i.id}`} item={i} overdue={overdueIds.has(i.id)} onOpenCommitment={editor.open} />
         ))}
       </ul>
       {items.length > SHOWN && (

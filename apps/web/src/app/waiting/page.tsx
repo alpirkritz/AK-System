@@ -6,6 +6,7 @@ import {
   WaitingView as WaitingViewList, flattenWaiting, groupByPerson,
   type WaitingView,
 } from '@/components/waiting/WaitingList'
+import { useCommitmentEditor } from '@/components/waiting/useCommitmentEditor'
 
 const VIEWS: { id: WaitingView; label: string }[] = [
   { id: 'today', label: 'היום' },
@@ -17,6 +18,7 @@ export default function WaitingPage() {
   const { data: buckets, isLoading } = trpc.waiting.list.useQuery()
   const [view, setView] = useState<WaitingView>('today')
   const [personId, setPersonId] = useState<string | null>(null)
+  const editor = useCommitmentEditor()
 
   const all = buckets ? flattenWaiting(buckets) : []
   const people = groupByPerson(all)
@@ -72,7 +74,8 @@ export default function WaitingPage() {
         </div>
       ) : (
         <div className="card p-4" data-testid="waiting-list">
-          <WaitingViewList buckets={filtered} view={view} />
+          {editor.modal}
+          <WaitingViewList buckets={filtered} view={view} onOpenCommitment={editor.open} />
         </div>
       )}
     </div>

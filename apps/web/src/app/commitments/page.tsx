@@ -6,7 +6,8 @@ import { format } from 'date-fns'
 import { Check, ExternalLink, X } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { CommitmentSourceBadge } from '@/components/commitments/CommitmentSourceBadge'
-import { TaskModal } from '@/components/Modals/TaskModal'
+import { CommitmentContext } from '@/components/commitments/CommitmentContext'
+import { CommitmentTaskModal } from '@/components/commitments/CommitmentTaskModal'
 
 type OwnerFilter = 'all' | 'me' | 'them'
 
@@ -56,60 +57,15 @@ function phoneFromJid(jid: string | null): string | null {
   return digits
 }
 
-/** Collapsed by default; the surrounding messages are only fetched once the user asks for them. */
-function CommitmentContext({ commitmentId }: { commitmentId: string }) {
-  const [open, setOpen] = useState(false)
-  const { data, isPending } = trpc.commitments.sourceContext.useQuery({ commitmentId }, { enabled: open })
-
-  return (
-    <div className="mt-1">
-      <button
-        type="button"
-        className="btn-ghost text-[11px]"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        data-testid="commitment-context-toggle"
-      >
-        {open ? 'הסתר הקשר' : 'הצג הקשר'}
-      </button>
-      {open && (
-        <div className="mt-1.5 space-y-1 rounded-md border border-[#223052] bg-[#131c33] p-2" data-testid="commitment-context">
-          {isPending ? (
-            <p className="text-xs text-[#5a688c]">טוען הקשר…</p>
-          ) : !data || data.messages.length === 0 ? (
-            <p className="text-xs text-[#5a688c]">ההודעות המקוריות כבר לא נשמרות.</p>
-          ) : (
-            data.messages.map((m) => (
-              <p key={m.id} className={`text-xs ${m.isSource ? 'text-[#eef3fb]' : 'text-[#97a4c2]'}`}>
-                <span className="text-[#5a688c] tabular-nums">{format(new Date(m.ts), 'HH:mm')} </span>
-                <span className="font-medium">{m.speaker}: </span>
-                {m.text}
-              </p>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 export default function CommitmentsPage() {
   const utils = trpc.useUtils()
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const { data: items = [], isLoading } = trpc.commitments.listProposed.useQuery({ owner })
-  const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
-  const { data: peopleList = [] } = trpc.people.list.useQuery()
-  const { data: meetingsList = [] } = trpc.meetings.list.useQuery()
-  const { data: projectsList = [] } = trpc.projects.list.useQuery()
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const [personQuery, setPersonQuery] = useState('')
   const { data: contacts = [] } = trpc.people.list.useQuery(undefined, { enabled: linkingId != null })
   // TaskModal state
   const [taskModalCommitmentId, setTaskModalCommitmentId] = useState<string | null>(null)
-  const { data: prefillData } = trpc.commitments.taskPrefill.useQuery(
-    { commitmentId: taskModalCommitmentId! },
-    { enabled: taskModalCommitmentId != null },
-  )
   const [lastAccepted, setLastAccepted] = useState<string | null>(null)
   const [now, setNow] = useState<number | null>(null)
   useEffect(() => setNow(Date.now()), [items])
@@ -305,31 +261,10 @@ export default function CommitmentsPage() {
         </ul>
       )}
       {/* TaskModal for accepting a commitment as a full task */}
-      <TaskModal
-        open={taskModalCommitmentId != null}
+      <CommitmentTaskModal
+        commitmentId={taskModalCommitmentId}
         onClose={() => setTaskModalCommitmentId(null)}
-        meetingId={prefillData?.meetingId ?? null}
-        projectId={prefillData?.projectId ?? null}
-        people={peopleList}
-        meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
-        projects={projectsList.map((p) => ({ id: p.id, name: p.name }))}
-        workspaces={workspaces.map((w) => ({
-          id: w.id,
-          name: w.name,
-          hasNotionLink: ((w as { notionDatabases?: unknown[] }).notionDatabases?.length ?? 0) > 0,
-        }))}
-        initialValues={{
-          title: prefillData?.title ?? '',
-          dueDate: prefillData?.dueDate ?? undefined,
-          assigneeId: prefillData?.assigneeId ?? undefined,
-        }}
-        explanations={prefillData?.explanations}
-        onCreated={(_notionSync, task) => {
-          if (taskModalCommitmentId && task?.id) {
-            // Link the created task back to the commitment, then close
-            accept.mutate({ commitmentId: taskModalCommitmentId, taskId: task.id })
-          }
-        }}
+        onCreated={(commitmentId, taskId) => accept.mutate({ commitmentId, taskId })}
       />
     </div>
   )
