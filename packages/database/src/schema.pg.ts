@@ -405,6 +405,8 @@ export const meetingNotes = pgTable('meeting_notes', {
   sourceKind: text('source_kind'),
   /** Notion block id of the in-page AI Meeting Notes widget when known. */
   sourceBlockId: text('source_block_id'),
+  /** Raw Notion AI transcript (dialogue), capped at 50,000 chars. Body stays the summary. */
+  transcriptText: text('transcript_text'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

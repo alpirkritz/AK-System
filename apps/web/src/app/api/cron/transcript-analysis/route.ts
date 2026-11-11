@@ -51,7 +51,8 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
         meetingTime: meetings.time,
         meetingEndTime: meetings.endTime,
         noteId: meetingNotes.id,
-        transcriptText: meetingNotes.bodyText,
+        bodyText: meetingNotes.bodyText,
+        rawTranscript: meetingNotes.transcriptText,
         analysisId: meetingAnalyses.id,
         analysisStatus: meetingAnalyses.status,
         analysisCreatedAt: meetingAnalyses.createdAt,
@@ -67,6 +68,13 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
       )
       .orderBy(desc(meetings.date), desc(meetings.time))
       .limit(10)
+      .then((rows) =>
+        rows.map(({ bodyText, rawTranscript, ...rest }) => ({
+          ...rest,
+          // Analyse the conversation itself when Notion gave us one; else the AI summary.
+          transcriptText: (rawTranscript?.trim().length ?? 0) >= 100 ? rawTranscript!.trim() : bodyText,
+        })),
+      )
 
     // Filter in JS for complex time logic
     const toAnalyze = eligibleMeetings.filter((m) => {

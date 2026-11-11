@@ -59,6 +59,21 @@ describe('analysis backlog', () => {
     expect(await listAnalysisBacklog(db, { limit: 1 })).toHaveLength(1)
   })
 
+  it('analyses the raw transcript when the note has one, and lists title-only notes once a transcript exists', async () => {
+    const db = getTestDb()
+    const transcript = '-שלום.\nהיי, מה נשמע?\n'.repeat(10)
+    await seedMeeting('withTranscript', 1, 'Daz - Weekly 2026-11-11T17:30')
+    await db.update(meetingNotes).set({ transcriptText: transcript }).where(eq(meetingNotes.id, 'n_withTranscript'))
+
+    const backlog = await listAnalysisBacklog(db)
+    expect(backlog.map((m) => m.meetingId)).toEqual(['withTranscript'])
+    expect(backlog[0]?.bodyText).toBe(transcript.trim())
+
+    const seen: string[] = []
+    await runAnalysisBacklog(db, { limit: 1, analyze: async (o) => { seen.push(o.transcriptText); return RESULT } })
+    expect(seen).toEqual([transcript.trim()])
+  })
+
   it('stores completed and failed rows and reports the counts', async () => {
     const db = getTestDb()
     await seedMeeting('ok1', 5, BODY, { person: true })

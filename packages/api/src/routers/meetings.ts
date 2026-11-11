@@ -843,14 +843,30 @@ export const meetingsRouter = router({
         throw new Error('Meeting not found')
       }
 
-      const [note] = await ctx.db
-        .select()
-        .from(meetingNotes)
-        .where(eq(meetingNotes.meetingId, input.meetingId))
-        .limit(1)
+      const { analysableNoteText, MIN_ANALYSABLE_NOTE_CHARS, ensureMeetingPageNote } = await import(
+        '../services/notion-meeting-note-body'
+      )
+      const loadNote = async () =>
+        (
+          await ctx.db
+            .select()
+            .from(meetingNotes)
+            .where(eq(meetingNotes.meetingId, input.meetingId))
+            .orderBy(desc(meetingNotes.updatedAt))
+            .limit(1)
+        )[0]
 
-      const transcriptText = note?.bodyText || ''
-      if (!transcriptText || transcriptText.trim().length < 100) {
+      let note = await loadNote()
+      let transcriptText = analysableNoteText(note)
+      // The stored copy may predate Notion finishing its AI notes — pull fresh once.
+      const notionPageId = note?.notionPageId ?? meeting.notionPageId
+      if (transcriptText.length < MIN_ANALYSABLE_NOTE_CHARS && notionPageId) {
+        const { error } = await ensureMeetingPageNote(ctx.db, notionPageId)
+        if (error) console.warn('[meetings.analyzeTranscript] Notion refetch:', error)
+        note = await loadNote()
+        transcriptText = analysableNoteText(note)
+      }
+      if (transcriptText.length < MIN_ANALYSABLE_NOTE_CHARS) {
         throw new Error('No transcript available or transcript too short')
       }
 

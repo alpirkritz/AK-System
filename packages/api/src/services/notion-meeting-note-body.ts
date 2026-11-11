@@ -23,7 +23,16 @@ export const MEETING_NOTE_BODY_CAP = 8000
 export const MEETING_NOTE_SUMMARY_CAP = 8000
 export const MEETING_TRANSCRIPT_CAP = 50000
 export const MEETING_NOTE_MAX_DEPTH = 3
-export const MEETING_NOTE_MAX_BLOCKS = 200
+/** Shared by summary + transcript; a long meeting's transcript alone runs ~1,000 paragraphs. */
+export const MEETING_NOTE_MAX_BLOCKS = 2000
+/** Below this many chars a note can't be analysed (matches the analysis guard). */
+export const MIN_ANALYSABLE_NOTE_CHARS = 100
+/**
+ * A recent meeting whose note is still too short is re-fetched on every sync:
+ * Notion AI writes the summary after the meeting, often without bumping the
+ * page's minute-granular last_edited_time past our first (mid-meeting) sync.
+ */
+export const RECENT_SHORT_NOTE_REFETCH_DAYS = 3
 export const MEETING_PAGE_SUMMARY_KIND = 'meeting_page_summary'
 
 type Db = ReturnType<typeof getDb>
@@ -62,15 +71,45 @@ export function shouldFetchNoteBody(args: {
   notionLastEditedAt: string | null | undefined
   pageLastEdited: string | null | undefined
   sourceKind?: string | null
+  /** Local meeting date (YYYY-MM-DD); enables the recent-short-note refetch. */
+  meetingDate?: string | null
+  now?: Date
 }): boolean {
   if (args.sourceKind === 'meeting_page') return true
   if (!args.bodySyncedAt) return true
+  if (isRecentShortNote(args.bodyText, args.meetingDate, args.now ?? new Date())) return true
   if (!args.pageLastEdited) return !args.bodyText?.trim()
   const pageEdited = Date.parse(args.pageLastEdited)
   const synced = Date.parse(args.bodySyncedAt)
   if (Number.isNaN(pageEdited)) return !args.bodyText?.trim()
   if (Number.isNaN(synced)) return true
   return pageEdited > synced
+}
+
+/**
+ * Text to analyse for a note: the raw transcript when there is one worth reading,
+ * else the AI summary body. Trimmed; empty when neither exists.
+ */
+export function analysableNoteText(
+  note: { transcriptText?: string | null; bodyText?: string | null } | null | undefined,
+): string {
+  const transcript = note?.transcriptText?.trim() ?? ''
+  if (transcript.length >= MIN_ANALYSABLE_NOTE_CHARS) return transcript
+  return note?.bodyText?.trim() ?? ''
+}
+
+function isRecentShortNote(
+  bodyText: string | null | undefined,
+  meetingDate: string | null | undefined,
+  now: Date,
+): boolean {
+  if ((bodyText?.trim().length ?? 0) >= MIN_ANALYSABLE_NOTE_CHARS) return false
+  if (!meetingDate || !/^\d{4}-\d{2}-\d{2}/.test(meetingDate)) return false
+  const meetingDay = Date.parse(`${meetingDate.slice(0, 10)}T00:00:00Z`)
+  if (Number.isNaN(meetingDay)) return false
+  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`)
+  const ageDays = (today - meetingDay) / 86_400_000
+  return ageDays >= 0 && ageDays <= RECENT_SHORT_NOTE_REFETCH_DAYS
 }
 
 function richTextFromPayload(payload: unknown): string {
@@ -453,6 +492,7 @@ export async function upsertInPageMeetingNote(
   bodySyncedAt: string | null
 }> {
   let bodyText: string | null = prev?.bodyText ?? null
+  let transcriptText: string | null | undefined = undefined
   let bodySyncedAt: string | null = prev?.bodySyncedAt ?? null
   let notionLastEditedAt: string | null = args.lastEdited ?? prev?.notionLastEditedAt ?? null
   let sourceBlockId: string | null = null
@@ -464,12 +504,15 @@ export async function upsertInPageMeetingNote(
     notionLastEditedAt: prev?.notionLastEditedAt,
     pageLastEdited: args.lastEdited,
     sourceKind: prev?.sourceKind,
+    meetingDate: args.date,
+    now: new Date(args.now),
   })
 
   if (!args.dryRun && needsFetch) {
     try {
       const fetched = await fetchMeetingNoteBody(args.token, args.pageId)
       bodyText = fetched.bodyText.trim() ? fetched.bodyText : null
+      transcriptText = fetched.transcriptText.trim() ? fetched.transcriptText : null
       bodySyncedAt = args.now
       notionLastEditedAt = args.lastEdited ?? args.now
       sourceBlockId = fetched.sourceBlockId
@@ -496,6 +539,7 @@ export async function upsertInPageMeetingNote(
         date: args.date,
         snippet,
         bodyText,
+        ...(transcriptText !== undefined ? { transcriptText } : {}),
         bodySyncedAt,
         notionLastEditedAt,
         notionUrl: args.url,
@@ -516,6 +560,7 @@ export async function upsertInPageMeetingNote(
       date: args.date,
       snippet,
       bodyText,
+      transcriptText: transcriptText ?? null,
       bodySyncedAt,
       notionLastEditedAt,
       notionUrl: args.url,
@@ -609,6 +654,15 @@ export async function ensureMeetingPageNote(
 
   const now = new Date().toISOString()
   let lastError: string | null = null
+  let noteMeta: ExistingNoteMeta | undefined = existing
+    ? {
+        id: existing.id,
+        bodyText: existing.bodyText,
+        bodySyncedAt: existing.bodySyncedAt,
+        notionLastEditedAt: existing.notionLastEditedAt,
+        sourceKind: existing.sourceKind,
+      }
+    : undefined
   for (const token of tokens) {
     try {
       if (meeting) {
@@ -626,21 +680,20 @@ export async function ensureMeetingPageNote(
             dbName: 'meetings',
             now,
           },
-          existing
-            ? {
-                id: existing.id,
-                bodyText: existing.bodyText,
-                bodySyncedAt: existing.bodySyncedAt,
-                notionLastEditedAt: existing.notionLastEditedAt,
-                sourceKind: existing.sourceKind,
-              }
-            : undefined,
+          noteMeta,
         )
+        // A token from another Notion workspace can't see the page — try the next one.
+        if (result.error && !result.bodyText?.trim()) {
+          lastError = result.error
+          if (result.id) noteMeta = { ...(noteMeta ?? { bodySyncedAt: null, notionLastEditedAt: null }), id: result.id, bodyText: result.bodyText }
+          continue
+        }
         return { error: result.error }
       }
 
       const fetched = await fetchMeetingNoteBody(token, dashed)
       const bodyText = fetched.bodyText.trim() ? fetched.bodyText : null
+      const transcriptText = fetched.transcriptText.trim() ? fetched.transcriptText : null
       const snippet = bodyText ? bodyText.slice(0, 500) : null
       if (existing) {
         await db
@@ -648,6 +701,7 @@ export async function ensureMeetingPageNote(
           .set({
             snippet,
             bodyText,
+            transcriptText,
             bodySyncedAt: now,
             notionLastEditedAt: now,
             notionPageId: dashed,
@@ -663,6 +717,7 @@ export async function ensureMeetingPageNote(
           date: now.slice(0, 10),
           snippet,
           bodyText,
+          transcriptText,
           bodySyncedAt: now,
           notionLastEditedAt: now,
           notionUrl: `https://www.notion.so/${compact}`,
@@ -684,5 +739,6 @@ export async function ensureMeetingPageNote(
       lastError = err instanceof Error ? err.message : 'block fetch failed'
     }
   }
-  return { error: lastError ? `meetings/body/${dashed}: ${lastError}` : null }
+  if (!lastError) return { error: null }
+  return { error: lastError.startsWith('meetings/body/') ? lastError : `meetings/body/${dashed}: ${lastError}` }
 }

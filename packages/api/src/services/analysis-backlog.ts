@@ -39,6 +39,7 @@ export async function listAnalysisBacklog(db: Db, opts: { now?: Date; limit?: nu
       date: meetings.date,
       noteId: meetingNotes.id,
       bodyText: meetingNotes.bodyText,
+      transcriptText: meetingNotes.transcriptText,
     })
     .from(meetings)
     .innerJoin(meetingNotes, eq(meetingNotes.meetingId, meetings.id))
@@ -47,7 +48,9 @@ export async function listAnalysisBacklog(db: Db, opts: { now?: Date; limit?: nu
 
   const byMeeting = new Map<string, { title: string; date: string; noteId: string; bodyText: string }>()
   for (const r of rows) {
-    const body = r.bodyText ?? ''
+    // Prefer the raw conversation over the AI summary when the note has one.
+    const transcript = r.transcriptText?.trim() ?? ''
+    const body = transcript.length >= MIN_BODY_LENGTH ? transcript : r.bodyText ?? ''
     if (body.trim().length < MIN_BODY_LENGTH) continue
     const current = byMeeting.get(r.meetingId)
     if (!current || body.length > current.bodyText.length) {
