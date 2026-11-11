@@ -16,7 +16,9 @@ import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { PersonContextCard } from './PersonContextCard'
 import { PersonAffiliations } from './PersonAffiliations'
 import { PersonAliases } from './PersonAliases'
-import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
+import { ReorderableBlocks, type BlockState, type LayoutBlock } from '@/components/layout/ReorderableBlocks'
+import { PersonMeetingTab } from './PersonMeetingTab'
+import { useResizablePanel } from './useResizablePanel'
 import { WaitingView, flattenWaiting } from '@/components/waiting/WaitingList'
 import { useCommitmentEditor } from '@/components/waiting/useCommitmentEditor'
 import { StatusButton } from '@/components/StatusButton'
@@ -67,12 +69,15 @@ function identityChipLabel(provider: string, accountKey: string): string {
 export function PersonDetailDrawer({ personId, onClose }: Props) {
   const { data: person, isLoading } = trpc.people.getById.useQuery({ id: personId })
   const { data: related } = trpc.people.getRelated.useQuery({ id: personId })
-  const { data: waiting } = trpc.waiting.list.useQuery({ personId })
+  const { data: waiting, isLoading: waitingLoading } = trpc.waiting.list.useQuery({ personId })
   const { data: personContext } = trpc.insights.personContext.useQuery({ personId }, { enabled: !!personId })
   const { data: allProjects = [] } = trpc.projects.list.useQuery()
   const { data: allPeople = [] } = trpc.people.list.useQuery()
   const { data: filterOptions } = trpc.people.filterOptions.useQuery(undefined, { enabled: !!personId })
   const [editing, setEditing] = useState(false)
+  const [tab, setTab] = useState<'meeting' | 'details' | 'history'>('meeting')
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const panel = useResizablePanel()
   const [merging, setMerging] = useState(false)
   const [mergeSearch, setMergeSearch] = useState('')
   const [taskModalOpen, setTaskModalOpen] = useState(false)
@@ -179,6 +184,22 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
     })
   }, [form, personId, update])
 
+  // In side-by-side mode the people list makes room for the panel instead of sitting under a backdrop.
+  useEffect(() => {
+    const root = document.documentElement
+    if (panel.sideBySide) {
+      // The navigation already sits under the panel's edge, so only the overlap beyond it needs room.
+      const page = document.querySelector('.people-page')
+      const taken = page ? window.innerWidth - page.getBoundingClientRect().right : 0
+      root.style.setProperty('--people-panel-inset', `${Math.max(0, panel.width - taken)}px`)
+    } else {
+      root.style.removeProperty('--people-panel-inset')
+    }
+    return () => {
+      root.style.removeProperty('--people-panel-inset')
+    }
+  }, [panel.sideBySide, panel.width])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -223,195 +244,12 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
 
   const color = person.color ?? '#2dd4bf'
 
-  return (
-    <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <div className={cn('drawer flex flex-col', editing && 'border-r-2 border-r-primary')}>
-        {/* Header */}
-        <div className="p-6 pb-0">
-          <div className="flex items-start justify-between mb-5">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold border-2 shrink-0"
-                style={{
-                  background: color + '18',
-                  color,
-                  borderColor: color + '30',
-                }}
-              >
-                {person.name[0]}
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-[#eef3fb] leading-tight">{person.name}</h2>
-                {(person.jobTitle || person.role) && (
-                  <p className="text-sm text-[#7a89ab]">{person.jobTitle || person.role}</p>
-                )}
-                {person.company && (
-                  <p className="text-xs text-[#647399]">{person.company}</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {!editing && (
-                <button className="icon-btn" onClick={() => setEditing(true)} title="ערוך">
-                  <Pencil className="w-4 h-4" />
-                </button>
-              )}
-              <button className="icon-btn" onClick={onClose} title="סגור">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Contact action buttons */}
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {!editing && (
-              <button
-                type="button"
-                className="btn btn-ghost flex items-center gap-1.5 text-xs"
-                aria-expanded={merging}
-                aria-label={`מזג את ${person.name} עם איש קשר אחר`}
-                onClick={() => {
-                  if (merging) {
-                    setMerging(false)
-                    setMergeSearch('')
-                  } else {
-                    setMerging(true)
-                    setMergeSearch(reverseNameHint(person.name))
-                  }
-                }}
-              >
-                <Merge className="w-3.5 h-3.5" />
-                מזג
-              </button>
-            )}
-            {person.phone && (
-              <a href={`tel:${person.phone}`} className="btn btn-ghost flex items-center gap-1.5 text-xs">
-                <Phone className="w-3.5 h-3.5" />
-                התקשר
-              </a>
-            )}
-            {person.email && (
-              <a href={`mailto:${person.email}`} className="btn btn-ghost flex items-center gap-1.5 text-xs">
-                <Mail className="w-3.5 h-3.5" />
-                שלח מייל
-              </a>
-            )}
-            {person.linkedin && (
-              <a
-                href={person.linkedin}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-ghost flex items-center gap-1.5 text-xs"
-              >
-                <Linkedin className="w-3.5 h-3.5" />
-                LinkedIn
-              </a>
-            )}
-          </div>
-
-          {merging && (
-            <div className="mb-6 p-3 rounded-lg" style={{ border: '1px solid #29395d', background: '#0f1729' }}>
-              <p className="text-xs text-[#7a89ab] mb-2">
-                בחרי את איש הקשר שנשאר. הכרטיס הנוכחי יימחק אחרי העברת כל הקישורים.
-              </p>
-              <input
-                className="input text-sm"
-                placeholder="חפש איש קשר למיזוג…"
-                value={mergeSearch}
-                onChange={(e) => setMergeSearch(e.target.value)}
-                autoFocus
-              />
-              {mergeSearch.trim().length > 0 && (
-                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid #29395d' }}>
-                  {mergeResults.filter((r) => r.id !== personId).length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-[#5a688c]">לא נמצאו אנשי קשר</div>
-                  ) : (
-                    mergeResults
-                      .filter((r) => r.id !== personId)
-                      .map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          className="flex items-center justify-between gap-2 w-full px-3 py-2 text-right hover:bg-[#141f36] transition-colors disabled:opacity-50"
-                          onClick={() => merge.mutate({ fromId: personId, toId: r.id })}
-                          disabled={merge.isPending}
-                        >
-                          <span className="min-w-0">
-                            <span className="text-xs text-[#b8c4dc] block truncate">{r.name}</span>
-                            {r.email && (
-                              <span className="text-[11px] text-[#5a688c] block truncate" dir="ltr">
-                                {r.email}
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-[11px] text-[#e8c547] shrink-0">
-                            {merge.isPending ? 'ממזג…' : 'מזג לכאן'}
-                          </span>
-                        </button>
-                      ))
-                  )}
-                </div>
-              )}
-              {merge.isError && (
-                <p className="text-xs text-[#e57373] mt-2">המיזוג נכשל — נסי שוב</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ scrollbarWidth: 'thin' }}>
-          <ReorderableBlocks
-            screen="person"
-            tightGap
-            blocks={[
-              { id: 'tasks', label: 'משימות', node: ({ open: savedOpen, onToggle, isPartOpen, setPartOpen }) => {
-                // Open by default; closing it is shared by all people.
-                const tasksOpen = savedOpen ?? true
-                return (
-                <>
-                <section className="mb-6" data-testid="person-tasks-first">
-                    <button
-                      type="button"
-                      className="text-[11px] font-semibold text-[#5a688c] hover:text-[#97a4c2] uppercase tracking-wider mb-3 flex items-center gap-1.5"
-                      aria-expanded={tasksOpen}
-                      onClick={() => onToggle(!tasksOpen)}
-                      data-testid="person-tasks-toggle"
-                    >
-                      <span aria-hidden className={cn('inline-block transition-transform', tasksOpen && '-rotate-90')}>◂</span>
-                      <CheckSquare className="w-3.5 h-3.5" />
-                      משימות ({taskCount + waitingCount})
-                    </button>
-                    {tasksOpen && (
-                    <>
-                    {waitingCount > 0 && (
-                      <div className="mb-3" data-testid="person-owes-me">
-                        <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">חייב/ת לי</div>
-                        {commitmentEditor.modal}
-                        <WaitingView
-                          buckets={waiting!}
-                          view="time"
-                          showPerson={false}
-                          onOpenTask={(taskId) => {
-                            setEditingTaskId(taskId)
-                            setTaskModalOpen(true)
-                          }}
-                          onOpenCommitment={commitmentEditor.open}
-                        />
-                      </div>
-                    )}
-                    {waitingCount === 0 && taskCount === 0 && (
-                      <p className="text-xs text-[#5a688c]">אין משימות פתוחות</p>
-                    )}
-                    {taskCount > 0 && waitingCount > 0 && (
-                      <div className="text-[11px] font-semibold text-[#7a89ab] mb-1">עוד משימות קשורות</div>
-                    )}
+  const sharedTasksNode = (
                     <div className="space-y-2">
                       {taskGroups.map((group) => {
                         // Finished tasks start folded and are not rendered until opened; the choice is shared by all people.
                         const foldable = group.key === 'done' || group.key === 'cancelled'
-                        const open = !foldable || (isPartOpen(group.key) ?? false)
+                        const open = !foldable || (openGroups[group.key] ?? false)
                         return (
                         <div key={group.key}>
                           {foldable ? (
@@ -419,7 +257,7 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                               type="button"
                               className="text-[11px] font-semibold text-[#7a89ab] hover:text-[#b8c4dc] mt-2 flex items-center gap-1"
                               aria-expanded={open}
-                              onClick={() => setPartOpen(group.key, !open)}
+                              onClick={() => setOpenGroups((g) => ({ ...g, [group.key]: !open }))}
                               data-testid={`person-tasks-toggle-${group.key}`}
                             >
                               <span aria-hidden className={cn('inline-block transition-transform', open && '-rotate-90')}>◂</span>
@@ -494,12 +332,144 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                         )
                       })}
                     </div>
-                    </>
-                    )}
-                  </section>
-                </>
-                )
-              } },
+  )
+
+  return (
+    <>
+      {!panel.sideBySide && <div className="drawer-backdrop" onClick={onClose} />}
+      <div
+        className={cn('drawer flex flex-col', panel.dragging && 'drawer-dragging', editing && 'border-r-2 border-r-primary')}
+        style={{ '--panel-width': `${panel.width}px` } as React.CSSProperties}
+        data-testid="person-panel"
+      >
+        {!panel.isMobile && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="שינוי רוחב החלונית"
+            aria-valuenow={panel.width}
+            aria-valuemin={panel.min}
+            aria-valuemax={panel.max}
+            tabIndex={0}
+            className="panel-resize-handle"
+            data-testid="person-panel-resize"
+            title="גרור לשינוי רוחב · לחיצה כפולה להחלפת גודל"
+            {...panel.handleProps}
+          />
+        )}
+        {/* Header */}
+        <div className="p-6 pb-0">
+          <div className="flex items-start justify-between mb-5">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold border-2 shrink-0"
+                style={{
+                  background: color + '18',
+                  color,
+                  borderColor: color + '30',
+                }}
+              >
+                {person.name[0]}
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-[#eef3fb] leading-tight">{person.name}</h2>
+                {(person.jobTitle || person.role) && (
+                  <p className="text-sm text-[#7a89ab]">{person.jobTitle || person.role}</p>
+                )}
+                {person.company && (
+                  <p className="text-xs text-[#647399]">{person.company}</p>
+                )}
+                {related?.cadence && related.cadence.totalMeetings > 0 && (
+                  <p className="text-xs text-[#7a89ab] mt-0.5">
+                    {related.meetings[0]
+                      ? `נפגשתם לאחרונה ${formatDistanceToNow(new Date(related.meetings[0].date), { locale: he, addSuffix: true })} · `
+                      : ''}
+                    {related.cadence.totalMeetings} פגישות
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {!editing && (
+                <button className="icon-btn" onClick={() => { setEditing(true); setTab('details') }} title="עריכת פרטים">
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              <button className="icon-btn" onClick={onClose} title="סגור">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Contact action buttons */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {person.phone && (
+              <a href={`tel:${person.phone}`} className="btn btn-ghost flex items-center gap-1.5 text-xs">
+                <Phone className="w-3.5 h-3.5" />
+                התקשר
+              </a>
+            )}
+            {person.email && (
+              <a href={`mailto:${person.email}`} className="btn btn-ghost flex items-center gap-1.5 text-xs">
+                <Mail className="w-3.5 h-3.5" />
+                שלח מייל
+              </a>
+            )}
+            {person.linkedin && (
+              <a
+                href={person.linkedin}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-ghost flex items-center gap-1.5 text-xs"
+              >
+                <Linkedin className="w-3.5 h-3.5" />
+                LinkedIn
+              </a>
+            )}
+          </div>
+
+        </div>
+
+        <div role="tablist" aria-label="תצוגות" className="flex gap-1 px-6 border-b border-[#2f4368]">
+          {([['meeting', 'במפגש'], ['details', 'פרטים'], ['history', 'היסטוריה']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`person-tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls="person-tabpanel"
+              data-testid={`person-tab-${key}`}
+              className={cn(
+                'min-h-[44px] px-3 text-sm font-semibold border-b-2 -mb-px transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e8c547]',
+                tab === key ? 'border-[#e8c547] text-[#eef3fb]' : 'border-transparent text-[#7a89ab] hover:text-[#b8c4dc]',
+              )}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Scrollable content */}
+        <div id="person-tabpanel" role="tabpanel" aria-labelledby={`person-tab-${tab}`} className={cn('flex-1 overflow-y-auto px-6 pt-4', tab === 'meeting' ? 'pb-0' : 'pb-6')} style={{ scrollbarWidth: 'thin' }}>
+          {tab === 'meeting' && (
+            <PersonMeetingTab
+              personId={personId}
+              notes={person.notes}
+              lastMeeting={related?.meetings[0] ? { title: related.meetings[0].title, date: related.meetings[0].date } : null}
+              hasContext={!!personContext}
+              theyOwe={waiting}
+              theyOweLoading={waitingLoading}
+              sharedTasks={sharedTasksNode}
+              sharedCount={taskCount}
+              onOpenTask={(taskId) => { setEditingTaskId(taskId); setTaskModalOpen(true) }}
+              onOpenCommitment={commitmentEditor.open}
+            />
+          )}
+          {commitmentEditor.modal}
+          {tab !== 'meeting' && (() => {
+          const allBlocks: LayoutBlock[] = [
               { id: 'details', label: 'פרטים', node: (
                 <>
                 <section className="mb-6">
@@ -832,9 +802,104 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                 </>
                 )
               } },
-            ]}
-          />
-
+          ]
+          const HISTORY_IDS = ['notes', 'meetings']
+          if (tab === 'history') {
+            // The tab is the fold here, so every part starts open and nothing is remembered.
+            const open: BlockState = { open: true, onToggle: () => {}, isPartOpen: () => true, setPartOpen: () => {} }
+            return (
+              <div data-testid="person-history">
+                {!related?.meetings?.length && !related?.meetingNotes?.length && (
+                  <p className="text-sm text-[#7a89ab]">עוד לא היו פגישות עם איש הקשר הזה.</p>
+                )}
+                {allBlocks.filter((b) => HISTORY_IDS.includes(b.id)).map((b) => (
+                  <div key={b.id}>{typeof b.node === 'function' ? b.node(open) : b.node}</div>
+                ))}
+              </div>
+            )
+          }
+          return (
+            <>
+              {!editing && (
+                <div className="mb-4">
+            {!editing && (
+    <button
+      type="button"
+      className="btn btn-ghost flex items-center gap-1.5 text-xs"
+      aria-expanded={merging}
+      aria-label={`מזג את ${person.name} עם איש קשר אחר`}
+      onClick={() => {
+        if (merging) {
+          setMerging(false)
+          setMergeSearch('')
+        } else {
+          setMerging(true)
+          setMergeSearch(reverseNameHint(person.name))
+        }
+      }}
+    >
+      <Merge className="w-3.5 h-3.5" />
+      מזג
+    </button>
+  )}
+                </div>
+              )}
+          {merging && (
+            <div className="mb-6 p-3 rounded-lg" style={{ border: '1px solid #29395d', background: '#0f1729' }}>
+              <p className="text-xs text-[#7a89ab] mb-2">
+                בחרי את איש הקשר שנשאר. הכרטיס הנוכחי יימחק אחרי העברת כל הקישורים.
+              </p>
+              <input
+                className="input text-sm"
+                placeholder="חפש איש קשר למיזוג…"
+                value={mergeSearch}
+                onChange={(e) => setMergeSearch(e.target.value)}
+                autoFocus
+              />
+              {mergeSearch.trim().length > 0 && (
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid #29395d' }}>
+                  {mergeResults.filter((r) => r.id !== personId).length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-[#5a688c]">לא נמצאו אנשי קשר</div>
+                  ) : (
+                    mergeResults
+                      .filter((r) => r.id !== personId)
+                      .map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="flex items-center justify-between gap-2 w-full px-3 py-2 text-right hover:bg-[#141f36] transition-colors disabled:opacity-50"
+                          onClick={() => merge.mutate({ fromId: personId, toId: r.id })}
+                          disabled={merge.isPending}
+                        >
+                          <span className="min-w-0">
+                            <span className="text-xs text-[#b8c4dc] block truncate">{r.name}</span>
+                            {r.email && (
+                              <span className="text-[11px] text-[#5a688c] block truncate" dir="ltr">
+                                {r.email}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px] text-[#e8c547] shrink-0">
+                            {merge.isPending ? 'ממזג…' : 'מזג לכאן'}
+                          </span>
+                        </button>
+                      ))
+                  )}
+                </div>
+              )}
+              {merge.isError && (
+                <p className="text-xs text-[#e57373] mt-2">המיזוג נכשל — נסי שוב</p>
+              )}
+            </div>
+          )}
+              <ReorderableBlocks
+                screen="person"
+                tightGap
+                blocks={allBlocks.filter((b) => !HISTORY_IDS.includes(b.id))}
+              />
+            </>
+          )
+          })()}
         </div>
 
         {/* Sticky footer for edit mode */}

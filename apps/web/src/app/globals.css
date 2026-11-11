@@ -617,13 +617,56 @@ body {
   top: 0;
   right: 0;
   height: 100vh;
-  width: 480px;
+  width: var(--panel-width, 480px);
   max-width: 95vw;
   background: #16233b;
   border-left: 1px solid #2f4368;
   z-index: 91;
   overflow-y: auto;
   animation: slideInFromRight 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Drag handle on the panel's left edge (it opens from the right, RTL). */
+.panel-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.panel-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.drawer-dragging .panel-resize-handle::after {
+  background: #e8c547;
+}
+.panel-resize-handle:focus-visible { outline: none; }
+.drawer-dragging { user-select: none; animation: none; }
+
+/* The people list makes room while the panel sits beside it instead of over it. */
+.people-page { padding-right: var(--people-panel-inset, 0px); transition: padding-right 0.15s; }
+
+/* Meeting tab: one column, two once the panel itself is wide (not the viewport, so a dragged-narrow panel stays single). */
+.panel-cq { container-type: inline-size; }
+.meeting-grid { display: block; }
+@container (min-width: 560px) {
+  .meeting-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 1.5rem; align-items: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .people-page { animation: none; transition: none; }
 }
 
 /* Folded phones (e.g. Z Fold cover screen): the drawer takes the whole screen. */

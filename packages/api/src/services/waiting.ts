@@ -4,7 +4,7 @@
  * card, the person section and the morning briefing.
  */
 import { and, eq, isNotNull, isNull, ne, notInArray } from 'drizzle-orm'
-import { commitments, meetings, people, tasks, type getDb } from '@ak-system/database'
+import { commitments, meetings, people, taskPeople, tasks, type getDb } from '@ak-system/database'
 import { ensureSelfPerson } from './self-person'
 
 type Db = ReturnType<typeof getDb>
@@ -138,4 +138,54 @@ export async function listWaiting(db: Db, options: { personId?: string; now?: Da
     })),
   ]
   return bucketWaiting(items, localDate(options.now))
+}
+
+/**
+ * "What I owe them": open tasks I took on (assignee = me) that the person is linked to through
+ * `task_people`. Nothing else counts: not tasks without an assignee, not tasks of a third person,
+ * not commitments. Same bucket shape as `listWaiting`; `personId` is the other person.
+ */
+export async function listOwedByMe(db: Db, options: { personId: string; now?: Date }): Promise<WaitingBuckets> {
+  const self = await ensureSelfPerson(db)
+  if (options.personId === self.id) return bucketWaiting([], localDate(options.now))
+
+  const rows = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      dueDate: tasks.dueDate,
+      source: tasks.source,
+      meetingId: tasks.meetingId,
+      meetingTitle: meetings.title,
+      personId: people.id,
+      personName: people.name,
+      personColor: people.color,
+    })
+    .from(tasks)
+    .innerJoin(taskPeople, eq(taskPeople.taskId, tasks.id))
+    .innerJoin(people, eq(people.id, taskPeople.personId))
+    .leftJoin(meetings, eq(meetings.id, tasks.meetingId))
+    .where(
+      and(
+        eq(tasks.assigneeId, self.id),
+        eq(taskPeople.personId, options.personId),
+        notInArray(tasks.status, ['done', 'cancelled']),
+      ),
+    )
+
+  return bucketWaiting(
+    rows.map((t) => ({
+      kind: 'task' as const,
+      id: t.id,
+      title: t.title,
+      personId: t.personId,
+      personName: t.personName,
+      personColor: t.personColor,
+      dueDate: t.dueDate,
+      source: t.meetingId ? 'meeting' : t.source,
+      sourceLabel: t.meetingTitle ?? null,
+      meetingId: t.meetingId,
+    })),
+    localDate(options.now),
+  )
 }

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { commitments, people, tasks } from '@ak-system/database'
+import { commitments, people, taskPeople, tasks } from '@ak-system/database'
 import { getTestDb, resetDb } from '../test-utils'
 import { ensureSelfPerson } from './self-person'
-import { bucketWaiting, listWaiting, type WaitingItem } from './waiting'
+import { bucketWaiting, listOwedByMe, listWaiting, type WaitingItem } from './waiting'
 
 const item = (id: string, dueDate: string | null, personName = 'ולרי'): WaitingItem => ({
   kind: 'task', id, title: id, personId: 'p', personName, personColor: null, dueDate, source: 'manual', sourceLabel: null, meetingId: null,
@@ -58,5 +58,55 @@ describe('listWaiting', () => {
     const onlyDan = await listWaiting(db, { personId: 'p_dan', now: NOW })
     expect(onlyDan.today).toHaveLength(0)
     expect(onlyDan.overdue).toHaveLength(1)
+  })
+})
+
+describe('listOwedByMe', () => {
+  const db = getTestDb()
+  const NOW = new Date('2026-11-02T09:00:00.000Z')
+  const stamp = NOW.toISOString()
+
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('counts only open tasks assigned to me and linked to the person', async () => {
+    const self = await ensureSelfPerson(db)
+    await db.insert(people).values([
+      { id: 'p_shani', name: 'שני', status: 'confirmed', source: 'manual', createdAt: stamp },
+      { id: 'p_dan', name: 'דני', status: 'confirmed', source: 'manual', createdAt: stamp },
+    ])
+    const task = (id: string, assigneeId: string | null, extra: Partial<typeof tasks.$inferInsert> = {}) =>
+      db.insert(tasks).values({ id, title: id, assigneeId, createdAt: stamp, updatedAt: stamp, ...extra })
+    await task('t_mine_late', self.id, { dueDate: '2026-10-30' })
+    await task('t_mine_nodate', self.id)
+    await task('t_mine_done', self.id, { status: 'done', done: true })
+    await task('t_nobody', null)
+    await task('t_dan_owns', 'p_dan')
+    await task('t_mine_other_person', self.id)
+    await db.insert(taskPeople).values([
+      { taskId: 't_mine_late', personId: 'p_shani' },
+      { taskId: 't_mine_nodate', personId: 'p_shani' },
+      { taskId: 't_mine_done', personId: 'p_shani' },
+      { taskId: 't_nobody', personId: 'p_shani' },
+      { taskId: 't_dan_owns', personId: 'p_shani' },
+      { taskId: 't_mine_other_person', personId: 'p_dan' },
+    ])
+    await db.insert(commitments).values({
+      id: 'c_me', personId: 'p_shani', owner: 'me', content: 'עליי', source: 'whatsapp_dm', status: 'accepted', createdAt: stamp, updatedAt: stamp,
+    })
+
+    const res = await listOwedByMe(db, { personId: 'p_shani', now: NOW })
+    expect(res.overdue.map((i) => i.id)).toEqual(['t_mine_late'])
+    expect(res.noDate.map((i) => i.id)).toEqual(['t_mine_nodate'])
+    expect(res.today).toHaveLength(0)
+    expect(res.thisWeek).toHaveLength(0)
+    expect(res.later).toHaveLength(0)
+  })
+
+  it('returns nothing for the owner themself', async () => {
+    const self = await ensureSelfPerson(db)
+    const res = await listOwedByMe(db, { personId: self.id, now: NOW })
+    expect(res.noDate).toHaveLength(0)
   })
 })

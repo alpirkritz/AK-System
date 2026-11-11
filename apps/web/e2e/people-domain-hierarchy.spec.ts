@@ -22,6 +22,7 @@ test('links a person to a life domain from the drawer and filters by it', async 
   await page.getByPlaceholder('חיפוש אנשים...').fill(name)
   await page.getByText(name, { exact: true }).first().click()
 
+  await page.getByTestId('person-tab-details').click()
   const section = page.getByTestId('person-affiliations')
   await expect(section).toBeVisible({ timeout: 20000 })
   await section.getByRole('button', { name: 'שייך לעולם' }).click()
@@ -78,7 +79,7 @@ test.describe('folded phone (Z Fold cover screen)', () => {
 
     await page.getByPlaceholder('חיפוש אנשים...').fill(name)
     await page.getByText(name, { exact: true }).first().click()
-    await expect(page.getByTestId('person-affiliations')).toBeVisible({ timeout: 20000 })
+    await expect(page.getByTestId('person-panel')).toBeVisible({ timeout: 20000 })
     const drawerWidth = await page.locator('.drawer').evaluate((el) => el.getBoundingClientRect().width)
     expect(drawerWidth).toBeGreaterThanOrEqual(388)
   })

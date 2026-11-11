@@ -81,7 +81,7 @@ export default function PeoplePage() {
   const total = state.data?.total ?? 0
 
   return (
-    <div>
+    <div className="people-page">
       <Suspense fallback={null}>
         <OpenPersonFromQuery onOpen={state.setDrawerPersonId} />
       </Suspense>

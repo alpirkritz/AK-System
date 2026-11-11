@@ -49,6 +49,7 @@ test('reports to someone outside the workspace, who then joins it', async ({ pag
   const { person, manager } = seed()
   await openPerson(page, person.name)
 
+  await page.getByTestId('person-tab-details').click()
   const section = page.getByTestId('person-affiliations')
   await expect(section).toBeVisible({ timeout: 20000 })
   await section.getByRole('button', { name: 'שייך לעולם' }).click()
