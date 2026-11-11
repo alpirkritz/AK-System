@@ -194,24 +194,27 @@ export function PeopleFilterBar({
   ]
 
   return (
+    <>
     <div className="flex items-center gap-3 mb-4 flex-wrap">
-      <div className="flex items-center gap-1.5">
+      {/* Quick filters scroll sideways on phones instead of stacking into four rows */}
+      <div className="scroll-row md-wrap -mx-4 px-4 md:mx-0 md:px-0 basis-full md:basis-auto">
         {quickFilters.map(qf => (
           <button
             key={qf.label}
-            className={cn('filter-chip', qf.label === 'קשר עכשיו' && 'flex items-center gap-1')}
+            className={cn('filter-chip max-w-[12rem]', qf.label === 'קשר עכשיו' && 'flex items-center gap-1')}
             aria-pressed={qf.active}
             onClick={qf.onClick}
+            title={qf.label}
           >
-            {qf.label === 'קשר עכשיו' && <Clock className="w-3 h-3" />}
-            {qf.label}
+            {qf.label === 'קשר עכשיו' && <Clock className="w-3 h-3 shrink-0" />}
+            <span className="truncate">{qf.label}</span>
           </button>
         ))}
       </div>
 
-      <div className="w-px h-5 bg-[#2f4368]" />
+      <div className="w-px h-5 bg-[#2f4368] hidden md:block" />
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <TagsFilterDropdown
           selectedTags={filters.tags}
           allTags={filterOptions?.tags ?? []}
@@ -266,5 +269,6 @@ export function PeopleFilterBar({
         </>
       )}
     </div>
+    </>
   )
 }

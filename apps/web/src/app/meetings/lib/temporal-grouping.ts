@@ -1,8 +1,10 @@
 import { 
   isSameDay, 
   isToday, 
-  isTomorrow, 
+  isTomorrow,
+  isYesterday,
   isThisWeek, 
+  isThisMonth,
   isAfter, 
   addDays,
   startOfWeek,
@@ -83,4 +85,42 @@ export function getThisWeekMeetings(meetings: Meeting[]): Meeting[] {
     return (isSameDay(date, now) || isAfter(date, now)) && 
            (isSameDay(date, weekEnd) || isBefore(date, weekEnd))
   })
+}
+
+export interface GroupedPastMeetings {
+  yesterday: Meeting[]
+  thisWeek: Meeting[]
+  thisMonth: Meeting[]
+  older: Meeting[]
+}
+
+/**
+ * Groups past meetings (most-recent-first) into: yesterday, this week, this month, older.
+ */
+export function groupPastMeetingsByTime(meetings: Meeting[]): GroupedPastMeetings {
+  const now = new Date()
+  const weekStart = startOfWeek(now, { weekStartsOn: 0 })
+
+  const grouped: GroupedPastMeetings = {
+    yesterday: [],
+    thisWeek: [],
+    thisMonth: [],
+    older: [],
+  }
+
+  for (const meeting of meetings) {
+    const d = new Date(meeting.date + 'T00:00:00')
+    if (isYesterday(d)) {
+      grouped.yesterday.push(meeting)
+    } else if (isToday(d) || (isThisWeek(d, { weekStartsOn: 0 }) && !isYesterday(d))) {
+      // today's ended meetings + rest of this week
+      grouped.thisWeek.push(meeting)
+    } else if (isThisMonth(d) && isBefore(d, weekStart)) {
+      grouped.thisMonth.push(meeting)
+    } else {
+      grouped.older.push(meeting)
+    }
+  }
+
+  return grouped
 }

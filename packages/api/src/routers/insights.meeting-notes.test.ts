@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getDb, meetingNotes, meetingPeople, meetingNotePeople, meetings, people } from '@ak-system/database'
+import {
+  getDb,
+  meetingNoteProjects,
+  meetingNotes,
+  meetingPeople,
+  meetingNotePeople,
+  meetingSeries,
+  meetings,
+  people,
+  projects,
+} from '@ak-system/database'
 import { createTestCaller, resetDb } from '../test-utils'
 import { localTodayIso, localTomorrowIso } from '../lib/calendar-dates'
 
@@ -340,5 +350,160 @@ describe('insights.meetingNotes', () => {
     const ids = result.notes.map((n) => n.id)
     expect(ids).toContain('mn_shani_past')
     expect(ids).toContain('mn_dana_past')
+  })
+
+  it('rejects an empty focusTitle', async () => {
+    const caller = await createTestCaller()
+    await expect(caller.insights.meetingNotes({ focusTitle: '' })).rejects.toThrow()
+  })
+
+  it('focusTitle drops an Algo note that only shares attendees with a DD meeting', async () => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const today = localTodayIso()
+    const [y, m, d] = today.split('-').map(Number)
+    const past = new Date(Date.UTC(y, m - 1, d - 7)).toISOString().slice(0, 10)
+    await db.insert(people).values({ id: 'p_elad', name: 'Elad', createdAt: now })
+    await db.insert(meetings).values({
+      id: 'm_dd',
+      title: 'Follow up DD release discussion',
+      date: today,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(meetingPeople).values({ meetingId: 'm_dd', personId: 'p_elad' })
+    await db.insert(meetingNotes).values([
+      {
+        id: 'mn_dd',
+        title: 'DD release sync',
+        date: past,
+        snippet: 'dd',
+        bodyText: 'DD blockers',
+        notionUrl: null,
+        notionPageId: 'np_dd',
+        meetingId: null,
+        source: 'notion',
+        sourceKind: 'meeting_page_summary',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'mn_algo',
+        title: 'Algo 4.0 - Sync meeting updates',
+        date: past,
+        snippet: 'algo',
+        bodyText: 'Algo milestones',
+        notionUrl: null,
+        notionPageId: 'np_algo',
+        meetingId: null,
+        source: 'notion',
+        sourceKind: 'meeting_page_summary',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    await db.insert(meetingNotePeople).values([
+      { meetingNoteId: 'mn_dd', personId: 'p_elad' },
+      { meetingNoteId: 'mn_algo', personId: 'p_elad' },
+    ])
+
+    const caller = await createTestCaller()
+    const wide = await caller.insights.meetingNotes({ prepDate: 'today' })
+    expect(wide.notes.map((n) => n.id).sort()).toEqual(['mn_algo', 'mn_dd'])
+
+    const focused = await caller.insights.meetingNotes({
+      prepDate: 'today',
+      focusTitle: 'Follow up DD release discussion',
+    })
+    expect(focused.notes.map((n) => n.id)).toEqual(['mn_dd'])
+  })
+
+  it('focusTitle keeps a note that shares the anchor project without a topic token', async () => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(projects).values({
+      id: 'p_dd',
+      name: 'Dragon Drive',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(meetings).values({
+      id: 'm_dd',
+      title: 'Follow up DD release discussion',
+      date: localTodayIso(),
+      projectId: 'p_dd',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(meetingNotes).values({
+      id: 'mn_jordan',
+      title: 'Provide deliverable to Jordan',
+      date: localTodayIso(),
+      snippet: 'jordan',
+      bodyText: 'Send the pack',
+      notionUrl: null,
+      notionPageId: 'np_jordan',
+      meetingId: null,
+      source: 'notion',
+      sourceKind: 'meeting_page_summary',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(meetingNoteProjects).values({ meetingNoteId: 'mn_jordan', projectId: 'p_dd' })
+
+    const caller = await createTestCaller()
+    const result = await caller.insights.meetingNotes({
+      focusTitle: 'Follow up DD release discussion',
+    })
+    expect(result.notes.map((n) => n.id)).toEqual(['mn_jordan'])
+  })
+
+  it('focusTitle keeps a note on the same series when the title does not share a token', async () => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(meetingSeries).values({
+      id: 's_dd',
+      title: 'DD release',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(meetings).values([
+      {
+        id: 'm_dd',
+        title: 'Follow up DD release discussion',
+        date: localTodayIso(),
+        seriesId: 's_dd',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'm_check',
+        title: 'Weekly check-in',
+        date: '2026-09-01',
+        seriesId: 's_dd',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    await db.insert(meetingNotes).values({
+      id: 'mn_check',
+      title: 'Weekly check-in notes',
+      date: '2026-09-01',
+      snippet: 'check',
+      bodyText: 'Series note',
+      notionUrl: null,
+      notionPageId: 'np_check',
+      meetingId: 'm_check',
+      source: 'notion',
+      sourceKind: 'meeting_page_summary',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const caller = await createTestCaller()
+    const result = await caller.insights.meetingNotes({
+      focusTitle: 'Follow up DD release discussion',
+    })
+    expect(result.notes.map((n) => n.id)).toEqual(['mn_check'])
   })
 })

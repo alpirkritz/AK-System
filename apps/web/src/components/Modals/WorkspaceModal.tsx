@@ -1,9 +1,23 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { AddTaskSourceModal } from './AddTaskSourceModal'
+import { WORKSPACE_KIND_OPTIONS, type WorkspaceKind } from '@/components/people/affiliations'
 
 const COLORS = ['#2dd4bf', '#fb7185', '#38bdf8', '#b847e8', '#47e8a8']
+
+interface FormState {
+  name: string
+  color: string
+  notionAccountLabel: string
+  kind: WorkspaceKind | ''
+  description: string
+  parentId: string
+}
+
+const EMPTY_FORM: FormState = { name: '', color: '#2dd4bf', notionAccountLabel: '', kind: '', description: '', parentId: '' }
 
 export function WorkspaceModal({
   open,
@@ -14,12 +28,13 @@ export function WorkspaceModal({
   onClose: () => void
   editingId: string | null
 }) {
-  const [form, setForm] = useState({ name: '', color: '#2dd4bf', notionAccountLabel: '' })
+  const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const { data: workspace, isLoading } = trpc.workspaces.getById.useQuery(
     { id: editingId! },
     { enabled: !!editingId && open },
   )
+  const { data: allWorkspaces = [] } = trpc.workspaces.list.useQuery(undefined, { enabled: open })
   const utils = trpc.useUtils()
   const create = trpc.workspaces.create.useMutation({
     onSuccess: () => { utils.workspaces.list.invalidate(); onClose() },
@@ -40,7 +55,7 @@ export function WorkspaceModal({
     setError(null)
     if (!editingId) {
       if (hydratedFor.current !== 'new') {
-        setForm({ name: '', color: '#2dd4bf', notionAccountLabel: '' })
+        setForm(EMPTY_FORM)
         hydratedFor.current = 'new'
       }
       return
@@ -50,6 +65,9 @@ export function WorkspaceModal({
         name: workspace.name,
         color: workspace.color ?? '#2dd4bf',
         notionAccountLabel: workspace.notionAccountLabel ?? '',
+        kind: (workspace.kind as WorkspaceKind | null) ?? '',
+        description: workspace.description ?? '',
+        parentId: workspace.parentId ?? '',
       })
       hydratedFor.current = editingId
     }
@@ -61,10 +79,13 @@ export function WorkspaceModal({
     const name = form.name.trim()
     if (!name) return
     const notionAccountLabel = form.notionAccountLabel.trim() || null
+    const kind = form.kind || null
+    const description = form.description.trim() || null
+    const parentId = form.parentId || null
     if (editingId) {
-      update.mutate({ id: editingId, name, color: form.color, notionAccountLabel })
+      update.mutate({ id: editingId, name, color: form.color, notionAccountLabel, kind, description, parentId })
     } else {
-      create.mutate({ name, color: form.color, notionAccountLabel })
+      create.mutate({ name, color: form.color, notionAccountLabel, kind, description, parentId })
     }
   }
 
@@ -75,7 +96,7 @@ export function WorkspaceModal({
     <div className="overlay" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-lg mb-6 tracking-tight">
-          {editingId ? 'עריכת מקור' : 'מקור חדש'}
+          {editingId ? 'עריכת עולם' : 'עולם חדש'}
         </div>
         {editingId && isLoading ? (
           <div className="text-[#7a89ab] py-6">טוען...</div>
@@ -87,7 +108,7 @@ export function WorkspaceModal({
             </div>
           )}
           <div>
-            <label className="label" htmlFor="workspace-name">שם המקור</label>
+            <label className="label" htmlFor="workspace-name">שם העולם</label>
             <input
               id="workspace-name"
               className="input"
@@ -96,6 +117,54 @@ export function WorkspaceModal({
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="לדוגמה: Dragontail"
               autoFocus
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="workspace-parent">בתוך עולם</label>
+            <select
+              id="workspace-parent"
+              className="input"
+              value={form.parentId}
+              onChange={(e) => setForm((f) => ({ ...f, parentId: e.target.value }))}
+            >
+              <option value="">זה עולם בפני עצמו</option>
+              {allWorkspaces
+                .filter((w) => !w.parentId && w.id !== editingId)
+                .map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+            </select>
+            <p className="text-[11px] text-[#647399] mt-1.5">
+              ריק = עולם. בחירה = סביבת עבודה בתוך העולם, עם מסדי המשימות שלה
+            </p>
+          </div>
+          <div>
+            <label className="label" htmlFor="workspace-kind">סוג העולם</label>
+            <select
+              id="workspace-kind"
+              className="input"
+              value={form.kind}
+              onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as WorkspaceKind | '' }))}
+            >
+              <option value="">— לא הוגדר —</option>
+              {WORKSPACE_KIND_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-[#647399] mt-1.5">
+              עוזר ל-Hugo להבין את ההקשר — מעסיק, חברה שלך או החיים הפרטיים
+            </p>
+          </div>
+          <div>
+            <label className="label" htmlFor="workspace-description">תיאור קצר</label>
+            <input
+              id="workspace-description"
+              className="input"
+              type="text"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="לדוגמה: סטארטאפ עם שני שותפים"
               autoComplete="off"
             />
           </div>
@@ -154,6 +223,7 @@ function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
   })
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
 
   const invalidate = () => {
     utils.workspaces.listNotionDatabases.invalidate()
@@ -175,7 +245,7 @@ function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
     return (
       <div>
         <label className="label">בסיסי נתונים מקושרים ב-Notion</label>
-        <p className="text-[11px] text-[#647399]">שמור את המקור כדי לקשר אליו בסיסי נתונים מ-Notion.</p>
+        <p className="text-[11px] text-[#647399]">שמור את העולם כדי לקשר אליו בסיסי נתונים מ-Notion.</p>
       </div>
     )
   }
@@ -186,53 +256,91 @@ function NotionDatabaseLinks({ workspaceId }: { workspaceId: string | null }) {
       {isLoading ? (
         <div className="text-[11px] text-[#647399] py-1">טוען…</div>
       ) : databases.length === 0 ? (
-        <p className="text-[11px] text-[#647399]">לא נמצאו בסיסי נתונים ב-Notion. בדוק את הגדרות החיבור.</p>
+        <p className="text-[11px] text-[#647399]">לא נמצאו בסיסי נתונים ב-Notion. אפשר להוסיף אחד עם קישור.</p>
       ) : (
         <div className="flex flex-col gap-1">
           {databases.map((db) => {
             const linkedHere = db.linkedWorkspaceId === workspaceId
             const linkedElsewhere = !!db.linkedWorkspaceId && !linkedHere
             const busy = pendingId === db.notionDatabaseId
+            const removeCustom = () => {
+              if (!db.linkId) return
+              if (!window.confirm(`להסיר את "${db.name}" ממקורות המשימות?`)) return
+              setLinkError(null)
+              setPendingId(db.notionDatabaseId)
+              unlink.mutate({ id: db.linkId })
+            }
             return (
-              <label
+              <div
                 key={db.notionDatabaseId}
                 className={`flex items-center gap-2 py-1.5 px-2 rounded transition-colors ${
-                  linkedElsewhere ? 'opacity-50' : 'cursor-pointer hover:bg-[#29395d]'
+                  linkedElsewhere ? 'opacity-50' : 'hover:bg-[#29395d]'
                 }`}
               >
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
-                  checked={linkedHere}
-                  disabled={linkedElsewhere || busy}
-                  onChange={() => {
-                    setLinkError(null)
-                    setPendingId(db.notionDatabaseId)
-                    if (linkedHere && db.linkId) {
-                      unlink.mutate({ id: db.linkId })
-                    } else {
-                      link.mutate({
-                        workspaceId,
-                        notionDatabaseId: db.notionDatabaseId,
-                        notionDatabaseName: db.name,
-                      })
-                    }
-                  }}
-                />
-                <span className="text-sm text-[#b8c4dc]">{db.name}</span>
-                <span className="text-[11px] text-[#5a688c] truncate">· {db.accountLabel}</span>
-                {busy && <span className="text-[11px] text-[#647399]">מעדכן…</span>}
-                {linkedElsewhere && (
-                  <span className="text-[11px] text-[#647399] mr-auto">מקושר ל-{db.linkedWorkspaceName}</span>
+                <label className={`flex items-center gap-2 flex-1 min-w-0 ${linkedElsewhere ? '' : 'cursor-pointer'}`}>
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border border-[#4d659c] bg-transparent accent-[#2dd4bf]"
+                    checked={linkedHere}
+                    disabled={linkedElsewhere || busy}
+                    onChange={() => {
+                      if (db.source === 'custom' && linkedHere) {
+                        removeCustom()
+                        return
+                      }
+                      setLinkError(null)
+                      setPendingId(db.notionDatabaseId)
+                      if (linkedHere && db.linkId) {
+                        unlink.mutate({ id: db.linkId })
+                      } else {
+                        link.mutate({
+                          workspaceId,
+                          notionDatabaseId: db.notionDatabaseId,
+                          notionDatabaseName: db.name,
+                        })
+                      }
+                    }}
+                  />
+                  <span className="text-sm text-[#b8c4dc]">{db.name}</span>
+                  {db.accountLabel && (
+                    <span className="text-[11px] text-[#5a688c] truncate">· {db.accountLabel}</span>
+                  )}
+                  {busy && <span className="text-[11px] text-[#647399]">מעדכן…</span>}
+                  {linkedElsewhere && (
+                    <span className="text-[11px] text-[#647399] mr-auto">מקושר ל-{db.linkedWorkspaceName}</span>
+                  )}
+                </label>
+                {db.source === 'custom' && linkedHere && (
+                  <button
+                    type="button"
+                    className="icon-btn danger"
+                    aria-label={`הסר את ${db.name}`}
+                    disabled={busy}
+                    onClick={removeCustom}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 )}
-              </label>
+              </div>
             )
           })}
         </div>
       )}
+      <button
+        type="button"
+        className="btn btn-secondary text-xs py-1 px-3 mt-2 self-start"
+        onClick={() => setAddOpen(true)}
+      >
+        + הוסף בסיס נתונים
+      </button>
       {linkError && (
         <p role="alert" className="text-[11px] text-red-400 mt-1.5">{linkError}</p>
       )}
+      <AddTaskSourceModal
+        open={addOpen}
+        workspaceId={workspaceId}
+        onClose={() => setAddOpen(false)}
+      />
     </div>
   )
 }

@@ -247,6 +247,29 @@ function CalendarCheckboxList({
 const PERSONAL_GOOGLE = 'alpirkritz@gmail.com'
 const DAZ_GOOGLE = 'alpir@daz.guru'
 
+function BackupStatusCard() {
+  const { data } = trpc.backup.status.useQuery()
+  const db = data?.kinds.find((k) => k.kind === 'db')
+  const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('he-IL') : '—')
+  return (
+    <div className="card p-4 mb-4" style={{ border: '1px solid #29395d' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-[#cdd7ea]">גיבוי יומי לדרייב</div>
+        <span className={data?.stale ? 'text-[#f87171] text-xs' : 'text-[#2dd4bf] text-xs'}>
+          {!data ? 'טוען…' : data.stale ? 'לא תקין — אין גיבוי טרי' : 'תקין'}
+        </span>
+      </div>
+      <div className="text-xs text-[#5a688c] mt-1">
+        גיבוי מוצלח אחרון: {fmt(db?.lastOk?.startedAt)}
+        {db?.lastOk?.sizeBytes ? ` · ${(db.lastOk.sizeBytes / 1024 / 1024).toFixed(1)}MB` : ''}
+      </div>
+      {db?.last && db.last.status === 'failed' && (
+        <div className="text-xs text-[#f87171] mt-1">ריצה אחרונה נכשלה: {db.last.error ?? 'סיבה לא ידועה'}</div>
+      )}
+    </div>
+  )
+}
+
 function GoogleAccountsCard() {
   const searchParams = useSearchParams()
   const utils = trpc.useUtils()
@@ -303,7 +326,14 @@ function GoogleAccountsCard() {
     }
     const health = healthByEmail.get(email.toLowerCase())
     if (!health || health.status === 'ok') {
-      return <span className="text-xs text-[#34d399]">פעיל ✓</span>
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#34d399]">פעיל ✓</span>
+          <a href={`/api/auth/google-calendar?hint=${encodeURIComponent(email)}`} className="btn btn-ghost text-[10px] py-1 px-2">
+            חבר מחדש
+          </a>
+        </div>
+      )
     }
     return (
       <div className="flex flex-col items-end gap-1 max-w-[220px]">
@@ -334,7 +364,7 @@ function GoogleAccountsCard() {
       <div className="px-5 py-3 text-xs text-[#5a688c] leading-relaxed">
         {connected.size === 0
           ? 'אין חשבונות מחוברים — לחץ "חבר" ואשר גישה ליומן ול-Gmail.'
-          : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל.`}
+          : `${connected.size} חשבון/ות רשומים. "פעיל" = Google Calendar API עובד בפועל. מילוי טלפונים משתמש בחשבון האישי.`}
       </div>
     </Section>
   )
@@ -888,9 +918,9 @@ export default function SettingsPage() {
         style={{ border: '1px solid #29395d' }}
       >
         <div>
-          <div className="text-sm font-semibold text-[#cdd7ea]">מקורות</div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">עולמות</div>
           <div className="text-xs text-[#5a688c] mt-0.5">
-            Alpir Consulting, Dragontail, DAZ ופרטי — שיוך משימות ומיפוי אוטומטי מ-Notion
+            העולמות שהמתג בראש המסך מסנן לפיהם. עולם יכול להכיל סביבת עבודה.
           </div>
         </div>
         <span className="text-[#2dd4bf] text-lg">🗂️</span>
@@ -938,6 +968,8 @@ export default function SettingsPage() {
         <span className="text-[#2dd4bf] text-lg">🏷️</span>
       </Link>
 
+      <BackupStatusCard />
+
       <Link
         href="/settings/notion-statuses"
         className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#2dd4bf44] transition-colors"
@@ -964,6 +996,20 @@ export default function SettingsPage() {
           </div>
         </div>
         <span className="text-[#25D366] text-lg">💬</span>
+      </Link>
+
+      <Link
+        href="/settings/slack"
+        className="card p-4 mb-4 flex items-center justify-between gap-3 hover:border-[#4A154B44] transition-colors"
+        style={{ border: '1px solid #29395d' }}
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#cdd7ea]">Slack</div>
+          <div className="text-xs text-[#5a688c] mt-0.5">
+            ערוצים ארגוניים, FOMO, התחייבויות — קריאה בלבד
+          </div>
+        </div>
+        <span className="text-lg">🟣</span>
       </Link>
 
       <Link
@@ -1004,7 +1050,7 @@ export default function SettingsPage() {
           </svg>
         }
         title="יומנים לסוכנים"
-        description="הוגו, אופטי וסיכומי בוקר יתייחסו רק ליומנים שסימנת"
+        description="הוגו, אופטי, סיכומי בוקר וזיהוי אוטומטי של הקלטות יתייחסו רק ליומנים שסימנת"
       >
         <div>
           <div className="px-5 pt-4 pb-2">
@@ -1203,6 +1249,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ dashboardTasks: value })}
                 fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}
@@ -1219,6 +1266,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ tasksPage: value })}
                 fields={TASK_SORT_KEYS.map((k) => ({ value: k, label: TASK_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}
@@ -1235,6 +1283,7 @@ export default function SettingsPage() {
                 onChange={(value) => setSortPrefs.mutate({ meetingsPast: value })}
                 fields={MEETING_SORT_KEYS.map((k) => ({ value: k, label: MEETING_SORT_LABELS[k] }))}
                 className="w-full max-w-xs"
+                layout="stacked"
               />
             </div>
           )}

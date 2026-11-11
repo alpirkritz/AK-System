@@ -426,3 +426,211 @@ describe('meetings router — analyzeTranscript & getAnalysis', () => {
     expect(analysis!.status).toBe('completed')
   })
 })
+
+describe('meetings router — analysis attendees', () => {
+  beforeEach(async () => {
+    await resetDb()
+    mockedAnalyze.mockClear()
+  })
+
+  async function analyzed() {
+    const { caller, meeting } = await seedMeetingWithTranscript('Attendees')
+    const started = await caller.meetings.analyzeTranscript({ meetingId: meeting.id })
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    return { caller, meeting, analysisId: started.analysisId, analysis: analysis! }
+  }
+
+  it('does not suggest the owner as someone to add', async () => {
+    const { analysis } = await analyzed()
+    expect(analysis.participants.map((person) => person.name)).toEqual(['דנה'])
+  })
+
+  it('creates a confirmed person and attaches them to the meeting', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const result = await caller.meetings.acceptAnalysisParticipant({
+      analysisId,
+      participantIndex: 0,
+    })
+
+    expect(result.created).toBe(true)
+    expect(result.name).toBe('דנה')
+
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === result.personId && person.status === 'confirmed')).toBe(true)
+
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain(result.personId)
+
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    expect(analysis?.participants[0]).toMatchObject({
+      name: 'דנה',
+      personId: result.personId,
+      confirmed: true,
+    })
+  })
+
+  it('reuses an existing person instead of creating a duplicate', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const existing = await caller.people.create({ name: 'דנה' })
+    const result = await caller.meetings.acceptAnalysisParticipant({
+      analysisId,
+      participantIndex: 0,
+    })
+
+    expect(result.created).toBe(false)
+    expect(result.personId).toBe(existing.id)
+    const listed = await caller.people.list()
+    expect(listed.filter((person) => person.name === 'דנה')).toHaveLength(1)
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain(existing.id)
+  })
+
+  it('asks for an explicit pick when two contacts share a name', async () => {
+    const { caller, analysisId } = await analyzed()
+    const { getDb, people } = await import('@ak-system/database')
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(people).values([
+      { id: 'p_dana_a', name: 'דנה', status: 'confirmed', source: 'manual', createdAt: now },
+      { id: 'p_dana_b', name: 'דנה', status: 'confirmed', source: 'manual', createdAt: now },
+    ])
+
+    await expect(
+      caller.meetings.acceptAnalysisParticipant({ analysisId, participantIndex: 0 }),
+    ).rejects.toThrow(/כמה אנשי קשר/)
+  })
+
+  it('removes a suggestion and the meeting link without deleting the contact', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const added = await caller.meetings.acceptAnalysisParticipant({
+      analysisId,
+      participantIndex: 0,
+    })
+    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 0 })
+
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    expect(analysis?.participants.map((person) => person.name)).toEqual([])
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds ?? []).not.toContain(added.personId)
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === added.personId)).toBe(true)
+  })
+
+  it('attachPerson and detachPerson keep the contact in אנשים', async () => {
+    const { caller, meeting } = await analyzed()
+    const attached = await caller.meetings.attachPerson({ meetingId: meeting.id, name: 'יוסי' })
+    expect(attached.created).toBe(true)
+    let refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain(attached.personId)
+
+    await caller.meetings.detachPerson({ meetingId: meeting.id, personId: attached.personId })
+    refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds ?? []).not.toContain(attached.personId)
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === attached.personId)).toBe(true)
+  })
+
+  it('keeps Notion-linked attendees and removes only the one that is wrong', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const { getDb, people, meetingPeople } = await import('@ak-system/database')
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(people).values([
+      {
+        id: 'p_notion_dana',
+        name: 'דנה',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-dana',
+        createdAt: now,
+      },
+      {
+        id: 'p_notion_yosi',
+        name: 'יוסי',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-yosi',
+        createdAt: now,
+      },
+    ])
+    await db.insert(meetingPeople).values([
+      { meetingId: meeting.id, personId: 'p_notion_dana' },
+      { meetingId: meeting.id, personId: 'p_notion_yosi' },
+    ])
+
+    await caller.meetings.acceptAnalysisParticipant({ analysisId, participantIndex: 0 })
+    let refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toEqual(expect.arrayContaining(['p_notion_dana', 'p_notion_yosi']))
+
+    await caller.meetings.removeAnalysisParticipant({ analysisId, participantIndex: 0 })
+    refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds ?? []).not.toContain('p_notion_dana')
+    expect(refreshed?.peopleIds).toContain('p_notion_yosi')
+
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === 'p_notion_dana' && person.notionPageId === 'notion-dana')).toBe(true)
+  })
+
+  it('relinking a suggestion replaces only that attendee', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const { getDb, people, meetingPeople } = await import('@ak-system/database')
+    const db = getDb()
+    const now = new Date().toISOString()
+    await db.insert(people).values([
+      {
+        id: 'p_notion_dana',
+        name: 'דנה',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-dana',
+        createdAt: now,
+      },
+      {
+        id: 'p_notion_yosi',
+        name: 'יוסי',
+        status: 'confirmed',
+        source: 'notion',
+        notionPageId: 'notion-yosi',
+        createdAt: now,
+      },
+      {
+        id: 'p_noa',
+        name: 'נועה',
+        status: 'confirmed',
+        source: 'manual',
+        createdAt: now,
+      },
+    ])
+    await db.insert(meetingPeople).values([
+      { meetingId: meeting.id, personId: 'p_notion_dana' },
+      { meetingId: meeting.id, personId: 'p_notion_yosi' },
+    ])
+
+    await caller.meetings.acceptAnalysisParticipant({
+      analysisId,
+      participantIndex: 0,
+      personId: 'p_noa',
+    })
+
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain('p_noa')
+    expect(refreshed?.peopleIds).toContain('p_notion_yosi')
+    expect(refreshed?.peopleIds ?? []).not.toContain('p_notion_dana')
+    const listed = await caller.people.list()
+    expect(listed.some((person) => person.id === 'p_notion_dana')).toBe(true)
+  })
+
+  it('linkAnalysisParticipant writes meeting_people', async () => {
+    const { caller, meeting, analysisId } = await analyzed()
+    const person = await caller.people.create({ name: 'נועה' })
+    await caller.meetings.linkAnalysisParticipant({
+      analysisId,
+      participantIndex: 0,
+      personId: person.id,
+    })
+    const refreshed = await caller.meetings.getById({ id: meeting.id })
+    expect(refreshed?.peopleIds).toContain(person.id)
+    const analysis = await caller.meetings.getAnalysis({ meetingId: meeting.id })
+    expect(analysis?.participants[0]?.personId).toBe(person.id)
+  })
+})

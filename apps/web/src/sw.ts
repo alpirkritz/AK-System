@@ -2,6 +2,7 @@
 import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from 'serwist'
 import { ExpirationPlugin, NetworkOnly, Serwist, StaleWhileRevalidate } from 'serwist'
+import { notificationTag } from '@/lib/notification-tray'
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -73,13 +74,14 @@ serwist.addEventListeners()
 self.addEventListener('push', (event) => {
   if (!event.data) return
 
-  let data: { title?: string; body?: string; url?: string; icon?: string }
+  let data: { notificationId?: string; title?: string; body?: string; url?: string; icon?: string }
   try {
     data = event.data.json() as typeof data
   } catch {
     data = { title: 'ARO', body: event.data.text() }
   }
 
+  const notificationId = data.notificationId ?? ''
   const title = data.title ?? 'ARO'
   const body = data.body ?? ''
   const icon = data.icon ?? '/icons/icon-192.png'
@@ -89,7 +91,7 @@ self.addEventListener('push', (event) => {
     (async () => {
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       for (const client of clients) {
-        client.postMessage({ type: 'PUSH', title, body, url, icon })
+        client.postMessage({ type: 'PUSH', notificationId, title, body, url, icon })
       }
       await self.registration.showNotification(title, {
         body,
@@ -97,9 +99,10 @@ self.addEventListener('push', (event) => {
         badge: '/icons/icon-192.png',
         dir: 'rtl',
         lang: 'he',
-        tag: 'ak-push',
-        renotify: true,
-        data: { url },
+        tag: notificationTag(notificationId),
+        renotify: false,
+        data: { url, notificationId },
+        actions: [{ action: 'archive', title: 'ארכיון' }],
       })
     })(),
   )
@@ -107,12 +110,58 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data as { url?: string })?.url ?? '/'
+  
+  if (event.action === 'archive') {
+    const notificationId = (event.notification.data as { notificationId?: string })?.notificationId
+    if (notificationId) {
+      event.waitUntil(
+        // REST, not tRPC: the tRPC endpoint expects a superjson envelope a
+        // service worker has no business constructing.
+        fetch('/api/notifications', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: notificationId, action: 'archive' }),
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error(`archive failed: ${res.status}`)
+          })
+          .catch(() => self.clients.openWindow('/notifications')),
+      )
+    }
+    return
+  }
+
+  // Default action: open notification detail or URL
+  const notificationId = (event.notification.data as { notificationId?: string })?.notificationId
+  const fallbackUrl = (event.notification.data as { url?: string })?.url ?? '/'
+  const url = notificationId ? `/notifications?id=${notificationId}` : fallbackUrl
+  
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((c) => c.url.includes(url))
+      const existing = clients.find((c) => c.url.includes('/notifications') || c.url.includes(fallbackUrl))
       if (existing) return existing.focus()
       return self.clients.openWindow(url)
     }),
+  )
+})
+
+// The page tells us which notifications no longer belong in the tray, so state
+// changed on any device converges here once this browser is in focus.
+self.addEventListener('message', (event) => {
+  const data = event.data as { type?: string; notificationIds?: string[] } | undefined
+  if (data?.type !== 'CLOSE_NOTIFICATIONS') return
+
+  const ids = new Set(data.notificationIds ?? [])
+  if (ids.size === 0) return
+
+  event.waitUntil(
+    (async () => {
+      const shown = await self.registration.getNotifications()
+      for (const notification of shown) {
+        const id = (notification.data as { notificationId?: string } | undefined)?.notificationId
+        if (id && ids.has(id)) notification.close()
+      }
+    })(),
   )
 })

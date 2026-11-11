@@ -55,6 +55,8 @@ function formatLastRun(iso: string | null): string {
   }
 }
 
+const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
+
 interface AgentTriggersPanelProps {
   agentId: string
   agentName: string
@@ -148,6 +150,14 @@ export function AgentTriggersPanel({ agentId, agentName }: AgentTriggersPanelPro
               לטריגרים לפי אירוע ←
             </Link>
           </p>
+          {agentId === CALENDAR_OPTIMIZER_AGENT_ID && (
+            <p className="text-[11px] text-[#7a89ab] leading-relaxed">
+              לבחירת יום לכל שעה —{' '}
+              <Link href="/agents/manage" className="text-[#2dd4bf] hover:underline">
+                ניהול סוכנים →
+              </Link>
+            </p>
+          )}
 
           <div className="flex items-center justify-between gap-3">
             <label className="text-sm text-[#97a4c2]">טריגר יומי פעיל</label>

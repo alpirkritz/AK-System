@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { bareUserJid, routeSelfChatJid } from './self-chat.js'
+
+export { bareUserJid, routeSelfChatJid }
 
 function loadEnvFile(): void {
   const envPath = resolve(process.cwd(), '.env')
@@ -34,15 +37,30 @@ function optionalList(name: string): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
+const authStatePath = resolve(process.cwd(), optional('AUTH_STATE_PATH', './data/auth'))
+
 export const config = {
   port: Number(optional('PORT', '3001')),
-  authStatePath: resolve(process.cwd(), optional('AUTH_STATE_PATH', './data/auth')),
+  authStatePath,
+  /**
+   * Capture lists live outside `authStatePath`: clearing the session to force a new QR is a
+   * routine recovery step, and it must not take the group/DM config down with it.
+   */
+  configPath: resolve(process.cwd(), optional('BRIDGE_CONFIG_PATH', join(dirname(authStatePath), 'config'))),
   bridgeSecret: required('BRIDGE_SECRET'),
   akWebhookUrl: process.env.AK_WEBHOOK_URL || '',
   selfJid: process.env.SELF_JID || '',
   selfLid: process.env.SELF_LID || '',
   allowedJids: optionalList('ALLOWED_JIDS'),
   watchGroupJids: new Set(optionalList('WATCH_GROUP_JIDS')),
+  /**
+   * Narrow, explicit allow-list for the one new outbound capability that isn't
+   * self-chat: a daily agent (Tier 1 QA) posting into a specific WhatsApp
+   * group. Separate from `allowedJids`/`isSelfChatJid` on purpose — the
+   * self-chat-only guard on `/send` and `sendWhatsAppMessage` is untouched for
+   * every other caller. See docs/specs/tier1-qa-whatsapp-agent.md §5.
+   */
+  allowedGroupJids: new Set(optionalList('WHATSAPP_ALLOWED_GROUP_JIDS')),
   deviceName: optional('DEVICE_NAME', 'ARO'),
   akGroupSummaryUrl: process.env.AK_GROUP_SUMMARY_URL || '',
   akGroupClusterSummaryUrl: process.env.AK_GROUP_CLUSTER_SUMMARY_URL || '',
@@ -65,23 +83,26 @@ export function setSelfLid(jid: string): void {
   config.selfLid = jid
 }
 
-function normalizeJidBase(jid: string): string {
-  return jid.split(':')[0] ?? jid
-}
-
 /** Message Yourself — only explicit self JIDs, never all @lid contacts. */
 export function isSelfChatJid(jid: string): boolean {
-  const base = normalizeJidBase(jid)
-  if (config.selfJid && base === normalizeJidBase(config.selfJid)) return true
-  if (config.selfLid && base === normalizeJidBase(config.selfLid)) return true
+  const base = bareUserJid(jid)
+  if (config.selfJid && base === bareUserJid(config.selfJid)) return true
+  if (config.selfLid && base === bareUserJid(config.selfLid)) return true
   if (config.allowedJids.length > 0) {
-    return config.allowedJids.some((allowed) => base === normalizeJidBase(allowed))
+    return config.allowedJids.some((allowed) => base === bareUserJid(allowed))
   }
   return false
 }
 
 export function isAllowedJid(jid: string): boolean {
   return isSelfChatJid(jid)
+}
+
+/** Explicit allow-list check for the group-send capability — never true for an empty list. */
+export function isAllowedGroupJid(jid: string): boolean {
+  if (config.allowedGroupJids.size === 0) return false
+  const base = bareUserJid(jid)
+  return Array.from(config.allowedGroupJids).some((allowed) => base === bareUserJid(allowed))
 }
 
 export function getSelfChatTarget(): string {

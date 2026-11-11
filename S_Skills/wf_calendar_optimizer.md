@@ -31,7 +31,7 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 ## Stage 1: Categorize
 
 ### Step 1.1 — Classify Events
-- **Action:** Work = Dragontail/yum.com + Daz (daz.guru). Personal/Family = Family/Home calendars unrelated to work. Private (alpirkritz@gmail.com) busy events (isTransparent: false) = treat as potential conflicts with work meetings.
+- **Action:** Work = Dragontail/yum.com + Daz (daz.guru). Personal/Family = Family/Home calendars unrelated to work. Private (alpirkritz@gmail.com) busy events (isTransparent: false) = treat as potential conflicts with work meetings. Events marked Free (transparency: transparent), on any calendar = still shown in the brief, but excluded from load hours, conflict detection, and the overload threshold (same tier as DNS/focus blocks).
 - **Output:** Categorized calendar
 
 ---
@@ -39,11 +39,11 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 ## Stage 2: Detect
 
 ### Step 2.1 — Double Bookings
-- **Action:** Find overlaps. Real conflicts = meetings with participants. Events with no participants (focus blocks, DNS, reminders) = flag for awareness, not actionable.
+- **Action:** Find overlaps. Real conflicts = meetings with participants. Events with no participants (focus blocks, DNS, reminders) = flag for awareness, not actionable. Same for events marked Free (transparency: transparent) — awareness only.
 - **Output:** Conflict list + awareness overlaps
 
 ### Step 2.2 — Overloaded Days
-- **Action:** Flag any day with more than 4 hours of meetings
+- **Action:** Flag any day with more than 4 hours of meetings. Events marked Free (transparency: transparent) do not count toward this total.
 - **Output:** Load assessment
 
 ### Step 2.3 — Recent Meeting History
@@ -67,7 +67,7 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 ## Stage 4: Recommend & Notify
 
 ### Step 4.1 — Compose Recommendation (Notion-parity brief)
-- **Action:** All channels (WhatsApp / Telegram / ARO). Primary source = ARO calendars; Notion optional for Reminders only. Structure in order: (1) title with date; (2) **Quick Summary** 3–5 bullets (conflicts / back-to-back / load / day context); (3) **Today's Meetings** — one bullet per timed event `HH:MM–HH:MM — Title` + duration + short context ≤20 words; (4) **Conflicts & Overlaps** — "None" when clean, else list; (5) **Load Analysis** vs 4h + free windows; (6) **Focus Time Opportunities** 1–3 windows; (7) **Reminders** optional if grounded; (8) **Recommendations** ≤3 only for conflict/overload (2–3 alt slots per move). **Never** Markdown tables. **Never** meta/"I understood" preambles or duplicate analysis.
+- **Action:** All channels (WhatsApp / Telegram / ARO). Primary source = ARO calendars. Do not list open tasks, tasks due today, overdue tasks, or Notion task rows. Structure in order: (1) title with date; (2) **Quick Summary** 3–5 bullets (conflicts / back-to-back / load / day context); (3) **Today's Meetings** — one bullet per timed event `HH:MM–HH:MM — Title` + duration + short context ≤20 words; (4) **Conflicts & Overlaps** — "None" when clean, else list; (5) **Load Analysis** vs 4h + free windows; (6) **Focus Time Opportunities** 1–3 windows, clock range only; (7) **Recommendations** ≤3 only for conflict/overload (2–3 alt slots per move). **Never** Markdown tables. **Never** meta/"I understood" preambles or duplicate analysis. The agent card in `A_Agents/06_calendar_optimizer.md` is the source of truth if this step and the card disagree.
 
 ### Step 4.2 — Notify & Save (approval-gated)
 - **Action:** Send Notion Inbox notification after the daily run and whenever approval is needed. Save results as a page under the database. Append run to `M_Memory/`.
@@ -92,3 +92,4 @@ CATEGORIZE → DETECT (conflicts/overload) → PRIORITIZE → RECOMMEND → NOTI
 | 2026-06-28 | System | Imported from AI Instructions doc (Calendar Optimizer) |
 | 2026-07-19 | System | Secretary brief on all channels — no Markdown tables |
 | 2026-07-22 | System | Notion-parity brief (WhatsApp-safe): rich sections, calendars primary |
+| 2026-09-29 | System | Free-marked (transparency: transparent) events shown for awareness only — excluded from load hours, conflicts, overload threshold |

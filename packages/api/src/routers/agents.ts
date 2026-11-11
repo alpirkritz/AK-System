@@ -11,6 +11,8 @@ import {
   setEventSubscription,
   type AgentScheduleConfig,
 } from '../services/agent-schedules'
+import { agentRunLogs } from '@ak-system/database'
+import { desc, eq, and } from 'drizzle-orm'
 
 /** Zero-padded 24-hour HH:MM — anything else could never match a cron slot. */
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
@@ -43,6 +45,8 @@ export const agentsRouter = router({
         agentId: z.string().min(1),
         enabled: z.boolean().optional(),
         scheduleTimes: scheduleTimesSchema.optional(),
+        /** Map of HH:MM → 0 (today) | 1 (tomorrow). Only meaningful for 06_calendar_optimizer. */
+        scheduleDayOffsets: z.record(timeSchema, z.union([z.literal(0), z.literal(1)])).optional(),
         triggerMessage: z.string().max(4000).nullable().optional(),
       }),
     )
@@ -111,4 +115,76 @@ export const agentsRouter = router({
         })),
       }
     }),
+
+  runLogs: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(200).default(50),
+          status: z.enum(['ok', 'degraded', 'empty', 'rate_limited', 'error']).optional(),
+          agentId: z.string().optional(),
+          channel: z.enum(['web', 'whatsapp', 'telegram', 'cron']).optional(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        const conditions = []
+        if (input.status) conditions.push(eq(agentRunLogs.status, input.status))
+        if (input.agentId) conditions.push(eq(agentRunLogs.agentId, input.agentId))
+        if (input.channel) conditions.push(eq(agentRunLogs.channel, input.channel))
+
+        const where = conditions.length > 0 ? and(...conditions) : undefined
+
+        const rows = await ctx.db
+          .select({
+            id: agentRunLogs.id,
+            runId: agentRunLogs.runId,
+            agentId: agentRunLogs.agentId,
+            channel: agentRunLogs.channel,
+            priority: agentRunLogs.priority,
+            status: agentRunLogs.status,
+            finishReason: agentRunLogs.finishReason,
+            geminiCalls: agentRunLogs.geminiCalls,
+            queueWaitMs: agentRunLogs.queueWaitMs,
+            modelTier: agentRunLogs.modelTier,
+            cacheHit: agentRunLogs.cacheHit,
+            durationMs: agentRunLogs.durationMs,
+            createdAt: agentRunLogs.createdAt,
+          })
+          .from(agentRunLogs)
+          .where(where)
+          .orderBy(desc(agentRunLogs.createdAt))
+          .limit(input.limit)
+
+        return { logs: rows }
+      }),
+  }),
+
+  runtimeHealth: protectedProcedure.query(async ({ ctx }) => {
+    // Get recent stats from agent_run_logs (last 100 runs)
+    const recentLogs = await ctx.db
+      .select({
+        status: agentRunLogs.status,
+        cacheHit: agentRunLogs.cacheHit,
+      })
+      .from(agentRunLogs)
+      .orderBy(desc(agentRunLogs.createdAt))
+      .limit(100)
+
+    const totalRuns = recentLogs.length
+    const degradedCount = recentLogs.filter((log) => log.status === 'degraded').length
+    const cacheHitCount = recentLogs.filter((log) => log.cacheHit).length
+
+    const degradedResponseRate = totalRuns > 0 ? (degradedCount / totalRuns) * 100 : 0
+    const cacheHitRate = totalRuns > 0 ? (cacheHitCount / totalRuns) * 100 : 0
+
+    // For now, return placeholder values for gateway stats
+    // (These will be replaced when gateway integration is complete)
+    return {
+      breakerState: 'closed' as const,
+      queueLength: 0,
+      dailyBudgetRemaining: 200,
+      degradedResponseRate,
+      cacheHitRate,
+    }
+  }),
 })

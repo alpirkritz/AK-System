@@ -187,18 +187,25 @@ function compareMeetings<T extends {
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-export function sortTasksByKeys<T extends {
+type SortableTask = {
   id?: string
   priority?: string | null
   dueDate?: string | null
   status?: string | null
   createdAt?: string | null
-}>(tasks: T[], pref: SortPref<TaskSortKey>): T[] {
-  return [...tasks].sort((a, b) => {
+}
+
+export function sortTasksByKeys<T extends readonly any[]>(
+  tasks: T,
+  pref: SortPref<TaskSortKey>,
+): T[number][] {
+  const list = [...tasks] as SortableTask[]
+  list.sort((a, b) => {
     const primaryCmp = compareTasks(a, b, pref.primary)
     if (primaryCmp !== 0 || pref.thenBy === 'none') return primaryCmp
     return compareTasks(a, b, pref.thenBy as TaskSortKey)
   })
+  return list as T[number][]
 }
 
 export function sortMeetingsByKeys<T extends {

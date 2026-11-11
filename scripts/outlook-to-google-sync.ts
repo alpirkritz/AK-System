@@ -32,6 +32,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { toZonedIso } from '../packages/api/src/lib/calendar-dates'
 import {
   listGoogleConnections,
   getAccessTokenForConnection,
@@ -352,10 +353,10 @@ export function eventBody(
   const timeZone = opts.timeZone ?? TIME_ZONE
   const start = e.allDay
     ? { date: allDayDates(e.start, e.end).start }
-    : { dateTime: e.start, timeZone }
+    : { dateTime: toZonedIso(e.start, timeZone), timeZone }
   const end = e.allDay
     ? { date: allDayDates(e.start, e.end).end }
-    : { dateTime: e.end, timeZone }
+    : { dateTime: toZonedIso(e.end, timeZone), timeZone }
 
   let description = e.description ?? undefined
   if (e.attendees.length > 0) {

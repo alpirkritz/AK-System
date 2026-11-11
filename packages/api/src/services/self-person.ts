@@ -8,6 +8,15 @@
  */
 
 import { getDb, people, sql } from '@ak-system/database'
+import { getSelfPersonName } from '../lib/self-identity'
+
+export {
+  getSelfPersonName,
+  isSelfPersonName,
+  matchTaskAssigneeId,
+  omitSelfParticipants,
+  ownerIdentityPrompt,
+} from '../lib/self-identity'
 
 type Db = ReturnType<typeof getDb>
 
@@ -15,11 +24,6 @@ export interface SelfPerson {
   id: string
   name: string
   color: string | null
-}
-
-/** Display name of the owner's contact row. */
-export function getSelfPersonName(): string {
-  return process.env.NOTION_USER_NAME?.trim() || 'Alpir Kritzler'
 }
 
 /** Find the owner's contact row, creating it on first use. */

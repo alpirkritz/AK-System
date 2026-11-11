@@ -7,6 +7,11 @@ const withSerwist = require('@serwist/next').default({
   cacheOnNavigation: true,
   reloadOnOnline: true,
   disable: process.env.NODE_ENV === 'development',
+  // Defaults to ['**/*'], which precaches the ~100MB Android APK and makes every
+  // web visitor download it before the service worker activates. Neither `exclude`
+  // (webpack assets only) nor `manifestTransforms` (runs before public/ files are
+  // appended) can drop it, so it has to be filtered at the glob.
+  globPublicPatterns: ['**/!(*.apk)'],
 })
 
 // Local paths for build cache – Google Drive does not support inode

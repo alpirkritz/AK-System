@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
+  identityQueue,
   people,
   personExternalIds,
   meetings,
@@ -13,13 +15,47 @@ import {
   projects,
   projectPeople,
   workspaces,
+  seriesRoster,
+  whatsappPersonLinks,
+  whatsappDmMessages,
+  whatsappDmSummaries,
+  commitments,
+  personEmailThreads,
+  voiceRecordingPeople,
+  peopleNotionSources,
   PEOPLE_STATUSES,
 } from '@ak-system/database'
 import { eq, or, like, sql, and, asc, desc, inArray } from 'drizzle-orm'
-import { ensureSelfPerson } from '../services/self-person'
-import { repointPersonExternalIds } from '../services/person-external-ids'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from '../services/self-person'
+import { repointPersonExternalIds, upsertPersonExternalId } from '../services/person-external-ids'
+import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
+import { AliasConflictError, addAlias, listAliases, moveAliasesOnMerge, removeAlias } from '../services/person-resolution'
+import { createNotification } from '../lib/notification-store'
+import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
+import { EmailOwnedElsewhereError, addPersonEmail, listPersonEmails, removePersonEmail } from '../services/person-emails'
+import { syncEmailThreads } from '../services/email-sync'
+import {
+  resolveDatabases,
+  listNotionAccountLabels,
+  findNotionAccountToken,
+  extractNotionDatabaseId,
+  resolveDatabaseFieldMappings,
+} from '../services/notion-tasks-sync'
+import { fetchDatabaseInfo } from '../services/notion-people-directory'
+import {
+  clearPersonWorkspaces,
+  listAffiliations,
+  personIdsInWorkspace,
+  removeAffiliation,
+  repointPersonWorkspaces,
+  upsertAffiliation,
+} from '../services/person-workspaces'
 
 const statusEnum = z.enum(PEOPLE_STATUSES)
+
+const MERGE_FILL_FIELDS = [
+  'email', 'phone', 'company', 'companyId', 'role', 'jobTitle', 'linkedin', 'goal', 'notes', 'expertIn', 'tags', 'notionPageId',
+] as const
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -41,6 +77,7 @@ const createInput = z.object({
 
 const updateInput = createInput.extend({
   id: z.string().min(1),
+  captureWhatsapp: z.boolean().optional(),
 })
 
 const idInput = z.object({ id: z.string().min(1) })
@@ -78,9 +115,20 @@ export const peopleRouter = router({
       lastContactBefore: z.string().optional(),
       contactNow: z.boolean().optional(),
       includeStatuses: z.array(statusEnum).optional(),
+      workspaceId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const conditions = []
+
+      let affiliationFirst: ReturnType<typeof sql> | null = null
+      if (input.workspaceId) {
+        const ids = await personIdsInWorkspace(ctx.db, input.workspaceId)
+        const unaffiliated = sql`NOT EXISTS (SELECT 1 FROM person_workspaces WHERE person_id = ${people.id})`
+        conditions.push(ids.length > 0 ? or(inArray(people.id, ids), unaffiliated)! : unaffiliated)
+        if (ids.length > 0) {
+          affiliationFirst = sql`CASE WHEN ${people.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) THEN 0 ELSE 1 END`
+        }
+      }
 
       // Default: only confirmed people. Review queue passes includeStatuses explicitly.
       if (input.includeStatuses && input.includeStatuses.length > 0) {
@@ -144,7 +192,7 @@ export const peopleRouter = router({
           .select()
           .from(people)
           .where(where)
-          .orderBy(orderFn(col))
+          .orderBy(...(affiliationFirst ? [affiliationFirst, orderFn(col)] : [orderFn(col)]))
           .limit(input.pageSize)
           .offset(offset),
         ctx.db
@@ -153,8 +201,10 @@ export const peopleRouter = router({
           .where(where),
       ])
 
+      const affiliations = await listAffiliations(ctx.db, items.map((p) => p.id))
+
       return {
-        items,
+        items: items.map((p) => ({ ...p, affiliations: affiliations.get(p.id) ?? [] })),
         total: countResult[0]?.count ?? 0,
         page: input.page,
         pageSize: input.pageSize,
@@ -200,6 +250,8 @@ export const peopleRouter = router({
   }),
 
   getRelated: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
+    const [subject] = await ctx.db.select({ name: people.name }).from(people).where(eq(people.id, input.id))
+    const ownerProfile = isSelfPersonName(subject?.name)
     const relatedMeetingIds = await ctx.db
       .select({ meetingId: meetingPeople.meetingId })
       .from(meetingPeople)
@@ -242,10 +294,14 @@ export const peopleRouter = router({
       .select()
       .from(tasks)
       .where(eq(tasks.assigneeId, input.id))
+    const mineIds = new Set(tasksAsAssignee.map((t) => t.id))
     const tasksAsLinked = linkedIds.length > 0
       ? await ctx.db.select().from(tasks).where(inArray(tasks.id, linkedIds))
       : []
-    const allTaskIds = [...new Set([...tasksAsAssignee.map(t => t.id), ...tasksAsLinked.map(t => t.id)])]
+    // The owner's own tasks belong to him, not to his contact card.
+    const visibleAssignee = ownerProfile ? [] : tasksAsAssignee
+    const visibleLinked = ownerProfile ? tasksAsLinked.filter((t) => !mineIds.has(t.id)) : tasksAsLinked
+    const allTaskIds = [...new Set([...visibleAssignee.map(t => t.id), ...visibleLinked.map(t => t.id)])]
 
     const tasksWithContext =
       allTaskIds.length === 0
@@ -255,6 +311,8 @@ export const peopleRouter = router({
               id: tasks.id,
               title: tasks.title,
               done: tasks.done,
+              status: tasks.status,
+              priority: tasks.priority,
               dueDate: tasks.dueDate,
               meetingId: tasks.meetingId,
               projectId: tasks.projectId,
@@ -463,11 +521,163 @@ export const peopleRouter = router({
       }
 
       await repointPersonExternalIds(ctx.db, input.fromId, input.toId)
+      await repointPersonWorkspaces(ctx.db, input.fromId, input.toId)
+      await ctx.db.update(seriesRoster).set({ personId: input.toId }).where(eq(seriesRoster.personId, input.fromId))
+      await ctx.db.update(whatsappPersonLinks).set({ personId: input.toId }).where(eq(whatsappPersonLinks.personId, input.fromId))
+      await ctx.db.update(whatsappDmMessages).set({ personId: input.toId }).where(eq(whatsappDmMessages.personId, input.fromId))
+      await ctx.db.update(whatsappDmSummaries).set({ personId: input.toId }).where(eq(whatsappDmSummaries.personId, input.fromId))
+      await ctx.db.update(commitments).set({ personId: input.toId }).where(eq(commitments.personId, input.fromId))
+      const keptThreads = (
+        await ctx.db.select({ t: personEmailThreads.gmailThreadId }).from(personEmailThreads).where(eq(personEmailThreads.personId, input.toId))
+      ).map((r) => r.t)
+      if (keptThreads.length > 0) {
+        await ctx.db
+          .delete(personEmailThreads)
+          .where(and(eq(personEmailThreads.personId, input.fromId), inArray(personEmailThreads.gmailThreadId, keptThreads)))
+      }
+      await ctx.db.update(personEmailThreads).set({ personId: input.toId }).where(eq(personEmailThreads.personId, input.fromId))
+      const keptRecordings = (
+        await ctx.db.select({ r: voiceRecordingPeople.recordingId }).from(voiceRecordingPeople).where(eq(voiceRecordingPeople.personId, input.toId))
+      ).map((r) => r.r)
+      if (keptRecordings.length > 0) {
+        await ctx.db
+          .delete(voiceRecordingPeople)
+          .where(and(eq(voiceRecordingPeople.personId, input.fromId), inArray(voiceRecordingPeople.recordingId, keptRecordings)))
+      }
+      await ctx.db.update(voiceRecordingPeople).set({ personId: input.toId }).where(eq(voiceRecordingPeople.personId, input.fromId))
+
+      // Like Google Contacts: the kept record inherits fields it was missing.
+      const [from] = await ctx.db.select().from(people).where(eq(people.id, input.fromId)).limit(1)
+      const [to] = await ctx.db.select().from(people).where(eq(people.id, input.toId)).limit(1)
+      if (from && to) {
+        const fill: Partial<typeof from> = {}
+        for (const key of MERGE_FILL_FIELDS) {
+          if (!to[key] && from[key]) (fill as Record<string, unknown>)[key] = from[key]
+        }
+        if (Object.keys(fill).length > 0) await ctx.db.update(people).set(fill).where(eq(people.id, input.toId))
+      }
+
+      await moveAliasesOnMerge(ctx.db, input.fromId, input.toId)
 
       // Remove the source person (cascades remove its now-duplicate links)
       await ctx.db.delete(people).where(eq(people.id, input.fromId))
       return { ok: true }
     }),
+
+  findDuplicates: protectedProcedure.query(async ({ ctx }) => {
+    return { pairs: await findDuplicatePairs(ctx.db) }
+  }),
+
+  compareDuplicates: protectedProcedure
+    .input(z.object({ personIdA: z.string().min(1), personIdB: z.string().min(1) }))
+    .query(async ({ ctx, input }) => compareDuplicatePair(ctx.db, input.personIdA, input.personIdB)),
+
+  notifyNewDuplicates: protectedProcedure.mutation(async ({ ctx }) =>
+    notifyNewDuplicates(ctx.db, (n) => createNotification({ ...n, type: 'system' })),
+  ),
+
+  markNotDuplicate: protectedProcedure
+    .input(z.object({ personIdA: z.string().min(1), personIdB: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await markNotDuplicate(ctx.db, input.personIdA, input.personIdB)
+      return { ok: true }
+    }),
+
+  aliases: router({
+    list: protectedProcedure
+      .input(z.object({ personId: z.string().min(1) }))
+      .query(({ ctx, input }) => listAliases(ctx.db, input.personId)),
+
+    add: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), alias: z.string().trim().min(1).max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await addAlias(ctx.db, input.personId, input.alias, 'manual')
+        } catch (err) {
+          if (err instanceof AliasConflictError) {
+            throw new TRPCError({ code: 'CONFLICT', message: err.message, cause: { ownerId: err.ownerId } })
+          }
+          throw err
+        }
+        return listAliases(ctx.db, input.personId)
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        await removeAlias(ctx.db, input.id)
+        return { ok: true }
+      }),
+  }),
+
+  /** Names no source could place, answered one at a time. */
+  identityQueue: router({
+    count: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await ctx.db.select({ id: identityQueue.id }).from(identityQueue).where(eq(identityQueue.status, 'pending'))
+      return rows.length
+    }),
+
+    next: protectedProcedure.query(async ({ ctx }) => {
+      const [row] = await ctx.db
+        .select()
+        .from(identityQueue)
+        .where(eq(identityQueue.status, 'pending'))
+        .orderBy(identityQueue.createdAt)
+        .limit(1)
+      if (!row) return null
+      const [candidate] = row.candidatePersonId
+        ? await ctx.db.select({ id: people.id, name: people.name }).from(people).where(eq(people.id, row.candidatePersonId)).limit(1)
+        : []
+      return { id: row.id, name: row.name, source: row.source, context: row.context, email: row.email ?? null, candidate: candidate ?? null }
+    }),
+
+    answer: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          action: z.enum(['link', 'new', 'dismiss']),
+          personId: z.string().min(1).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [row] = await ctx.db.select().from(identityQueue).where(eq(identityQueue.id, input.id)).limit(1)
+        if (!row || row.status !== 'pending') return { ok: true }
+        if (input.action === 'link') {
+          const personId = input.personId ?? row.candidatePersonId
+          if (!personId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'חסר אדם לקישור' })
+          try {
+            await addAlias(ctx.db, personId, row.name, 'queue', { origin: row.source })
+          } catch (err) {
+            if (err instanceof AliasConflictError) throw new TRPCError({ code: 'CONFLICT', message: err.message })
+            throw err
+          }
+          // Attach the sender address so the person's mail archives from now on.
+          if (row.email) {
+            await upsertPersonExternalId(ctx.db, {
+              personId,
+              provider: 'email',
+              accountKey: 'work-mail',
+              externalId: row.email,
+            })
+          }
+          await ctx.db.update(identityQueue).set({ status: 'linked' }).where(eq(identityQueue.id, row.id))
+        } else if (input.action === 'new') {
+          await ctx.db.insert(people).values({
+            id: 'p' + Date.now() + Math.random().toString(36).slice(2, 6),
+            name: row.name,
+            email: row.email ?? null,
+            status: 'confirmed',
+            source: 'manual',
+            color: '#2dd4bf',
+            createdAt: new Date().toISOString(),
+          })
+          await ctx.db.update(identityQueue).set({ status: 'new' }).where(eq(identityQueue.id, row.id))
+        } else {
+          await ctx.db.update(identityQueue).set({ status: 'dismissed' }).where(eq(identityQueue.id, row.id))
+        }
+        return { ok: true }
+      }),
+  }),
 
   search: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))
@@ -488,6 +698,33 @@ export const peopleRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    if (isSelfPersonName(input.name)) {
+      const self = await ensureSelfPerson(ctx.db)
+      await ctx.db.update(people).set({
+        name: getSelfPersonName(),
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.phone !== undefined ? { phone: input.phone } : {}),
+        ...(input.company !== undefined ? { company: input.company } : {}),
+        ...(input.companyId !== undefined ? { companyId: input.companyId } : {}),
+        ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
+        ...(input.linkedin !== undefined ? { linkedin: input.linkedin } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(input.expertIn !== undefined ? { expertIn: input.expertIn } : {}),
+        ...(input.lastContact !== undefined ? { lastContact: input.lastContact } : {}),
+        ...(input.goal !== undefined ? { goal: input.goal } : {}),
+        ...(input.contactFrequencyDays !== undefined ? { contactFrequencyDays: input.contactFrequencyDays } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      }).where(eq(people.id, self.id))
+      if (input.phone) {
+        await setCaptureWhatsapp(ctx.db, self.id, true)
+        await pushDmAllowlist(ctx.db)
+      }
+      const [row] = await ctx.db.select().from(people).where(eq(people.id, self.id))
+      return row!
+    }
+
     const id = 'p' + Date.now()
     const createdAt = new Date().toISOString()
     await ctx.db.insert(people).values({
@@ -509,11 +746,21 @@ export const peopleRouter = router({
       notes: input.notes ?? null,
       createdAt,
     })
+    // A phone number at creation time is enough to opt this person into WhatsApp 1:1 capture by
+    // default — forward-only from now, no backfill, same semantics as toggling it on manually.
+    if (input.phone) {
+      await setCaptureWhatsapp(ctx.db, id, true)
+      await pushDmAllowlist(ctx.db)
+    }
     const [row] = await ctx.db.select().from(people).where(eq(people.id, id))
     return row!
   }),
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+    const [before] = await ctx.db
+      .select({ phone: people.phone, capture: people.captureWhatsapp })
+      .from(people)
+      .where(eq(people.id, input.id))
     await ctx.db
       .update(people)
       .set({
@@ -534,18 +781,222 @@ export const peopleRouter = router({
         notes: input.notes ?? null,
       })
       .where(eq(people.id, input.id))
+    if (input.captureWhatsapp !== undefined) await setCaptureWhatsapp(ctx.db, input.id, input.captureWhatsapp)
     const [row] = await ctx.db.select().from(people).where(eq(people.id, input.id))
+    const allowlistChanged =
+      !!before && (!!before.capture !== !!row?.captureWhatsapp || (!!row?.captureWhatsapp && before.phone !== row.phone))
+    if (allowlistChanged) await pushDmAllowlist(ctx.db)
     return row ?? null
   }),
 
+  /** Opt a person in or out of WhatsApp 1:1 capture; capture starts from now, never backfills. */
+  setCaptureWhatsapp: protectedProcedure
+    .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const state = await setCaptureWhatsapp(ctx.db, input.id, input.enabled)
+      if (!state) throw new TRPCError({ code: 'NOT_FOUND', message: 'Person not found' })
+      const bridge = await pushDmAllowlist(ctx.db)
+      return { captureWhatsapp: !!state.capture, captureWhatsappSince: state.since, bridgeUpdated: bridge.pushed }
+    }),
+
+  /** A person's email addresses — the mail counterpart of WhatsApp sender links. */
+  emails: router({
+    list: protectedProcedure
+      .input(z.object({ personId: z.string().min(1) }))
+      .query(({ ctx, input }) => listPersonEmails(ctx.db, input.personId)),
+
+    add: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), address: z.string().min(3) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { added } = await addPersonEmail(ctx.db, input.personId, input.address)
+          // Gmail archives right away; Outlook mail follows on the bridge's next 15-min run.
+          if (added) await syncEmailThreads(ctx.db, { personIds: [input.personId] }).catch(() => null)
+          return { added }
+        } catch (err) {
+          if (err instanceof EmailOwnedElsewhereError) throw new TRPCError({ code: 'CONFLICT', message: err.message })
+          if (err instanceof Error) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+          throw err
+        }
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ personId: z.string().min(1), address: z.string().min(3) }))
+      .mutation(({ ctx, input }) => removePersonEmail(ctx.db, input.personId, input.address)),
+  }),
+
+  // ── Notion "people" sources: env-configured + self-service (Settings ← מקורות) ──
+
+  /** Account labels configured in NOTION_ACCOUNTS, for the "add source" account picker. */
+  notionAccounts: protectedProcedure.query(() => {
+    return listNotionAccountLabels().map((label) => ({ label }))
+  }),
+
+  /** Every database the People pass currently scans: env-configured (read-only) + custom (removable). */
+  notionSources: protectedProcedure.query(async ({ ctx }) => {
+    const env = resolveDatabases('people').map((d) => ({
+      source: 'env' as const,
+      id: null as string | null,
+      accountLabel: d.accountLabel,
+      notionDatabaseId: d.databaseId,
+      name: d.name,
+    }))
+    const customRows = await ctx.db.select().from(peopleNotionSources)
+    const custom = customRows.map((r) => ({
+      source: 'custom' as const,
+      id: r.id as string | null,
+      accountLabel: r.accountLabel,
+      notionDatabaseId: r.notionDatabaseId,
+      name: r.notionDatabaseName ?? r.notionDatabaseId,
+    }))
+    return [...env, ...custom]
+  }),
+
+  /**
+   * Validates a pasted Notion database link/id against one account's token and previews its
+   * title, without writing anything yet — the UI shows this for confirmation before `addNotionSource`.
+   */
+  resolveNotionDatabaseLink: protectedProcedure
+    .input(z.object({ accountLabel: z.string().min(1), link: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const notionDatabaseId = extractNotionDatabaseId(input.link)
+      if (!notionDatabaseId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'לא זיהיתי מזהה בסיס נתונים בקישור הזה' })
+      }
+      const token = findNotionAccountToken(input.accountLabel)
+      if (!token) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      let info: Awaited<ReturnType<typeof fetchDatabaseInfo>>
+      try {
+        info = await fetchDatabaseInfo(token, notionDatabaseId)
+      } catch {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `האינטגרציה של ${input.accountLabel} לא משותפת לבסיס הנתונים הזה ב-Notion — שתף אותו קודם משם ונסה שוב`,
+        })
+      }
+      const alreadyEnv = resolveDatabases('people').some((d) => d.databaseId === notionDatabaseId)
+      const [existingCustom] = await ctx.db
+        .select({ id: peopleNotionSources.id })
+        .from(peopleNotionSources)
+        .where(eq(peopleNotionSources.notionDatabaseId, notionDatabaseId))
+      return {
+        notionDatabaseId,
+        name: info.title || notionDatabaseId,
+        alreadyAdded: alreadyEnv || !!existingCustom,
+        fieldMappings: resolveDatabaseFieldMappings(info.properties),
+      }
+    }),
+
+  addNotionSource: protectedProcedure
+    .input(z.object({
+      accountLabel: z.string().min(1),
+      notionDatabaseId: z.string().min(1),
+      notionDatabaseName: z.string().min(1),
+      phonePropertyName: z.string().nullable().optional(),
+      rolePropertyName: z.string().nullable().optional(),
+      companyPropertyName: z.string().nullable().optional(),
+      linkedinPropertyName: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!findNotionAccountToken(input.accountLabel)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'חשבון Notion לא נמצא' })
+      }
+      const alreadyEnv = resolveDatabases('people').some((d) => d.databaseId === input.notionDatabaseId)
+      const [existingCustom] = await ctx.db
+        .select()
+        .from(peopleNotionSources)
+        .where(eq(peopleNotionSources.notionDatabaseId, input.notionDatabaseId))
+      if (alreadyEnv || existingCustom) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'בסיס הנתונים כבר רשום כמקור אנשים' })
+      }
+      const id = 'pns' + Date.now() + Math.random().toString(36).slice(2, 7)
+      await ctx.db.insert(peopleNotionSources).values({
+        id,
+        phonePropertyName: input.phonePropertyName ?? null,
+        rolePropertyName: input.rolePropertyName ?? null,
+        companyPropertyName: input.companyPropertyName ?? null,
+        linkedinPropertyName: input.linkedinPropertyName ?? null,
+        accountLabel: input.accountLabel,
+        notionDatabaseId: input.notionDatabaseId,
+        notionDatabaseName: input.notionDatabaseName.trim() || null,
+        createdAt: new Date().toISOString(),
+      })
+      const [row] = await ctx.db.select().from(peopleNotionSources).where(eq(peopleNotionSources.id, id))
+      return row!
+    }),
+
+  removeNotionSource: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await ctx.db.delete(peopleNotionSources).where(eq(peopleNotionSources.id, input.id))
+    return { ok: true }
+  }),
+
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    await clearPersonWorkspaces(ctx.db, [input.id])
     await ctx.db.delete(people).where(eq(people.id, input.id))
     return { ok: true }
   }),
 
+  /** One person's life-domain affiliations, for the detail drawer. */
+  affiliations: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      return (await listAffiliations(ctx.db, [input.personId])).get(input.personId) ?? []
+    }),
+
+  /** Upserts the (person, workspace) row — a person may hold rows in several workspaces at once. */
+  linkToWorkspace: protectedProcedure
+    .input(z.object({
+      personId: z.string().min(1),
+      workspaceId: z.string().min(1),
+      relationshipType: z.string().trim().min(1),
+      reportsToPersonId: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await upsertAffiliation(ctx.db, input)
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'השיוך נכשל' })
+      }
+    }),
+
+  unlinkFromWorkspace: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), workspaceId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await removeAffiliation(ctx.db, input.personId, input.workspaceId)
+      return { ok: true }
+    }),
+
+  /** Confirmed people in one workspace with their role there — also the reports-to picker's source. */
+  listByWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const ids = await personIdsInWorkspace(ctx.db, input.workspaceId)
+      if (ids.length === 0) return []
+      const rows = await ctx.db
+        .select()
+        .from(people)
+        .where(and(inArray(people.id, ids), eq(people.status, 'confirmed')))
+        .orderBy(people.name)
+      const affiliations = await listAffiliations(ctx.db, rows.map((p) => p.id))
+      return rows.map((person) => {
+        const here = affiliations.get(person.id)?.find((a) => a.workspaceId === input.workspaceId)
+        return {
+          person,
+          relationshipType: here?.relationshipType ?? '',
+          reportsToPersonId: here?.reportsToPersonId ?? null,
+          reportsToName: here?.reportsToName ?? null,
+          notes: here?.notes ?? null,
+        }
+      })
+    }),
+
   bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string().min(1)).min(1) }))
     .mutation(async ({ ctx, input }) => {
+      await clearPersonWorkspaces(ctx.db, input.ids)
       await ctx.db.delete(people).where(inArray(people.id, input.ids))
       return { ok: true, deleted: input.ids.length }
     }),

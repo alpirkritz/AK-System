@@ -54,10 +54,11 @@ export function PersonSelect({
     return sorted.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
+        (p.id === selfId && 'אני'.includes(q)) ||
         (p.company ?? '').toLowerCase().includes(q) ||
         (p.role ?? '').toLowerCase().includes(q)
     )
-  }, [sorted, query])
+  }, [sorted, query, selfId])
 
   const selected = options.find((p) => p.id === value)
 
@@ -147,12 +148,7 @@ export function PersonSelect({
           />
         ) : (
           <span className={cn('flex-1 truncate', !selected && 'text-[#647399]')}>
-            {selected ? selected.name : 'ללא אחראי'}
-          </span>
-        )}
-        {selected && selected.id === selfId && !open && (
-          <span className="shrink-0 text-[11px] text-[#2dd4bf] bg-[#2dd4bf]/10 border border-[#2dd4bf]/30 rounded-full px-2 py-0.5">
-            אני
+            {selected ? (selected.id === selfId ? 'אני' : selected.name) : 'ללא אחראי'}
           </span>
         )}
         <ChevronDown
@@ -197,8 +193,7 @@ export function PersonSelect({
                 onMouseEnter={() => setHighlight(index)}
                 onClick={() => select(p.id)}
               >
-                <span className="truncate">{p.name}</span>
-                {p.id === selfId && <span className="text-[11px] text-[#2dd4bf]">אני</span>}
+                <span className="truncate">{p.id === selfId ? 'אני' : p.name}</span>
                 {p.company && (
                   <span className="text-[11px] text-[#5a688c] truncate">· {p.company}</span>
                 )}

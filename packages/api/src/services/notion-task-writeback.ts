@@ -11,6 +11,7 @@ import {
   clearPeopleDirectoryCache,
   fetchPeopleDirectoryIndex,
   findPeopleRelation,
+  pickAssigneePeoplePropertyName,
   type PeopleRelationInfo,
 } from './notion-people-directory'
 
@@ -49,7 +50,7 @@ interface DatabaseSchema {
   status: StatusSchema | null
   /** First `date`-type property found, best-effort target for a task's due date on create. */
   datePropertyName: string | null
-  /** First `people`-type property — where an assignee goes. Every task database surveyed has exactly one. */
+  /** Assignee/Owner/אחראי people property. Falls back to the first people property. */
   peoplePropertyName: string | null
   priority: PrioritySchema | null
   /** Relation pointing at a people directory, where a task's related people go. */
@@ -138,7 +139,7 @@ async function fetchDatabaseSchema(token: string, databaseId: string): Promise<D
   }
   const titlePropertyName = Object.entries(properties).find(([, p]) => p?.type === 'title')?.[0] ?? null
   const datePropertyName = Object.entries(properties).find(([, p]) => p?.type === 'date')?.[0] ?? null
-  const peoplePropertyName = Object.entries(properties).find(([, p]) => p?.type === 'people')?.[0] ?? null
+  const peoplePropertyName = pickAssigneePeoplePropertyName(properties)
 
   let priority: PrioritySchema | null = null
   for (const [name, p] of Object.entries(properties)) {
@@ -303,7 +304,7 @@ export async function pushTaskProperties(input: {
   dueDate?: string | null  // null means clear the date
   status?: CanonicalStatus
 }): Promise<WriteBackResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {
@@ -419,7 +420,7 @@ export async function pushTaskPeople(input: {
   notionDb: string | null | undefined
   personNames: string[]
 }): Promise<PeopleRelationResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {
@@ -476,7 +477,7 @@ export async function pushTaskMeeting(input: {
   notionDb: string | null | undefined
   meetingNotionPageId: string | null
 }): Promise<WriteBackResult> {
-  const target = resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
+  const target = await resolveTaskDatabaseTarget(input.notionAccount, input.notionDb)
   if (!target) return { ok: false, reason: 'account' }
 
   try {

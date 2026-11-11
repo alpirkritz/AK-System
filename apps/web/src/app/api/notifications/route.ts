@@ -16,16 +16,30 @@ async function requireMobileSession(request: NextRequest) {
   return sessionFromBearer(auth)
 }
 
-/** GET /api/notifications — list non-archived notifications for Helm app */
+/** GET /api/notifications — list non-archived notifications or fetch single by ID for Helm app */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const session = await requireMobileSession(request)
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const db = getDb()
+  const id = request.nextUrl.searchParams.get('id')
+
+  // Single notification fetch
+  if (id) {
+    const row = await db.select().from(notifications).where(eq(notifications.id, id)).limit(1)
+    // Archived rows must 404. The installed app refetches this id after Archive
+    // and reopens the sheet whenever a body comes back.
+    if (!row[0] || row[0].archivedAt) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    return NextResponse.json({ notification: row[0] })
+  }
+
+  // List notifications
   const limit = Math.min(Number(request.nextUrl.searchParams.get('limit') ?? 50), 100)
   const includeArchived = request.nextUrl.searchParams.get('includeArchived') === '1'
-  const db = getDb()
   const rows = includeArchived
     ? await db
         .select()

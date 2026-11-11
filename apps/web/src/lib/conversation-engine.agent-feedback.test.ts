@@ -14,6 +14,7 @@ vi.mock('./notion', () => ({
   searchNotion: vi.fn(),
 }))
 vi.mock('@ak-system/api', () => ({
+  getDefaultTimezone: () => 'Asia/Jerusalem',
   localTodayIso: () => '2026-08-02',
   filterEventsByCalendarScope: (events: unknown[]) => events,
   getAgentCalendarIds: vi.fn().mockResolvedValue([]),

@@ -34,8 +34,8 @@ test.describe('Dashboard open tasks — open modal + sort', () => {
       timeout: 15000,
     })
 
-    const section = page.getByRole('region', { name: 'משימות פתוחות' })
-    await expect(section.getByLabel('מיון משימות')).toBeVisible()
+    const section = page.getByRole('region', { name: 'המשימות שלי' })
+    await expect(section.getByRole('combobox', { name: 'מיון', exact: true })).toBeVisible()
     await expect(section.getByRole('button', { name: title })).toBeVisible({ timeout: 15000 })
 
     // No horizontal page scroll — content must fit the viewport width

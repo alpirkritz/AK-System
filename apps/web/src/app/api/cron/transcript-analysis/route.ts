@@ -1,11 +1,17 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, meetings, meetingNotes, meetingAnalyses } from '@ak-system/database'
-import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm'
+import { eq, and, isNull, isNotNull, desc, gte } from 'drizzle-orm'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { formatAnalysisMessage } from '@/lib/analysis-message-formatter'
-import { analyzeTranscript } from '@ak-system/api'
+import { analyzeTranscript, notifyAnalysisOnWhatsApp, proposeCommitmentsFromAnalysis, runAnalysisBacklog } from '@ak-system/api'
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Jerusalem'
+
+/** Older notes never analysed: drained a few per run so the relationships board fills over days. */
+function backfillPerRun(): number {
+  const raw = Number(process.env.ANALYSIS_BACKFILL_PER_RUN)
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 3
+}
 
 /**
  * Cron: Transcript analysis (run every 15 minutes).
@@ -45,7 +51,8 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
         meetingTime: meetings.time,
         meetingEndTime: meetings.endTime,
         noteId: meetingNotes.id,
-        transcriptText: meetingNotes.bodyText,
+        bodyText: meetingNotes.bodyText,
+        rawTranscript: meetingNotes.transcriptText,
         analysisId: meetingAnalyses.id,
         analysisStatus: meetingAnalyses.status,
         analysisCreatedAt: meetingAnalyses.createdAt,
@@ -61,6 +68,13 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
       )
       .orderBy(desc(meetings.date), desc(meetings.time))
       .limit(10)
+      .then((rows) =>
+        rows.map(({ bodyText, rawTranscript, ...rest }) => ({
+          ...rest,
+          // Analyse the conversation itself when Notion gave us one; else the AI summary.
+          transcriptText: (rawTranscript?.trim().length ?? 0) >= 100 ? rawTranscript!.trim() : bodyText,
+        })),
+      )
 
     // Filter in JS for complex time logic
     const toAnalyze = eligibleMeetings.filter((m) => {
@@ -89,10 +103,6 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
 
       return meetingEnd.toISOString() > thirtyMinutesAgo && meetingEnd < now
     })
-
-    if (toAnalyze.length === 0) {
-      return NextResponse.json({ ok: true, analyzed: 0, message: 'No eligible meetings' })
-    }
 
     const analyzed: string[] = []
     const failed: Array<{ meetingId: string; error: string }> = []
@@ -143,10 +153,15 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
           })
           .where(eq(meetingAnalyses.id, analysisId))
 
-        // Format and send message
-        const message = formatAnalysisMessage(result, meeting.meetingTitle, meeting.meetingDate)
+        await proposeCommitmentsFromAnalysis(db, analysisId).catch((err) => {
+          console.warn('[cron/transcript-analysis] commitments not proposed:', err)
+        })
 
-        await pushAssistantMessage(message, 'cron', { typeId: 'meeting_analysis' })
+        const message = formatAnalysisMessage(result, meeting.meetingTitle, meeting.meetingDate)
+        await notifyAnalysisOnWhatsApp(db, analysisId).catch((err) => {
+          console.warn('[cron/transcript-analysis] WhatsApp failed:', err)
+        })
+        await pushAssistantMessage(message, 'cron', { typeId: 'meeting_analysis', whatsapp: false })
 
         analyzed.push(meeting.meetingId)
       } catch (error) {
@@ -171,12 +186,38 @@ async function runTranscriptAnalysis(request: NextRequest): Promise<NextResponse
       }
     }
 
+    const recentSince = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString()
+    const pendingNotify = await db
+      .select({ id: meetingAnalyses.id })
+      .from(meetingAnalyses)
+      .where(and(
+        eq(meetingAnalyses.status, 'completed'),
+        isNull(meetingAnalyses.whatsappNotifiedAt),
+        gte(meetingAnalyses.createdAt, recentSince),
+      ))
+      .limit(5)
+    let notified = 0
+    for (const row of pendingNotify) {
+      const result = await notifyAnalysisOnWhatsApp(db, row.id).catch(() => ({ sent: false }))
+      if (result.sent) notified++
+    }
+
+    const backfill = await runAnalysisBacklog(db, { limit: backfillPerRun() }).catch((err) => {
+      console.warn('[cron/transcript-analysis] backfill failed:', err)
+      return null
+    })
+
     return NextResponse.json({
       ok: true,
       analyzed: analyzed.length,
       failed: failed.length,
+      notified,
       analyzedMeetings: analyzed,
       failedMeetings: failed,
+      backfilled: backfill?.analysed ?? 0,
+      backfillFailed: backfill?.failed ?? 0,
+      backlogRemaining: backfill?.remaining ?? null,
+      ...(toAnalyze.length === 0 ? { message: 'No recently ended meetings' } : {}),
     })
   } catch (err) {
     console.error('[cron/transcript-analysis]', err)

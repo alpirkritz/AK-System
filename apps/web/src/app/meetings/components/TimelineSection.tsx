@@ -6,6 +6,9 @@ interface TimelineSectionProps {
   title: string
   count: number
   defaultExpanded?: boolean
+  /** The owner's saved open/closed choice; wins over `defaultExpanded` when set. */
+  expanded?: boolean
+  onToggle?: (open: boolean) => void
   children: React.ReactNode
 }
 
@@ -13,14 +16,18 @@ export function TimelineSection({
   title, 
   count, 
   defaultExpanded = false, 
+  expanded,
+  onToggle,
   children 
 }: TimelineSectionProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+  // `expanded` is the owner's saved choice; without one the section follows its default.
+  const [isExpanded, setIsExpanded] = useState(expanded ?? defaultExpanded)
 
   if (count === 0) return null
 
   const handleToggle = () => {
     setIsExpanded(!isExpanded)
+    onToggle?.(!isExpanded)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

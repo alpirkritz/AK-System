@@ -26,6 +26,14 @@ services:
     init: true
     shm_size: '256mb'
     restart: unless-stopped
+    # Cap container logs. Docker's default json-file driver keeps *everything*
+    # forever; on a 1 GB / small-disk instance the log file quietly grows and
+    # competes with the DB for disk and page cache.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
 
   whatsapp-bridge:
     profiles:
@@ -37,17 +45,27 @@ services:
       - '3001:3001'
     volumes:
       - bridge-auth:/data/auth
+      # Separate volume on purpose — clearing bridge-auth to force a new QR must not
+      # wipe the capture lists. See docs/specs/bridge-config-outside-auth-state.md.
+      - bridge-config:/data/config
     env_file:
       - whatsapp-bridge.env
     environment:
       AUTH_STATE_PATH: /data/auth
+      BRIDGE_CONFIG_PATH: /data/config
       PORT: '3001'
       AK_GROUP_SUMMARY_URL: http://web:3000/api/whatsapp/group-summary
       AK_GROUP_CLUSTER_SUMMARY_URL: http://web:3000/api/whatsapp/group-cluster-summary
       AK_MESSAGES_INGEST_URL: http://web:3000/api/whatsapp/messages/ingest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
 
 volumes:
   web-data:
   abc-data:
   bridge-auth:
+  bridge-config:

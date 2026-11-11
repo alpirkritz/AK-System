@@ -7,10 +7,13 @@ import {
   meetingNotes,
   tasks,
   people,
+  workspaces,
   MEETING_CATEGORIES,
 } from '@ak-system/database'
-import { eq, inArray, and, isNotNull, isNull, desc } from 'drizzle-orm'
+import { eq, inArray, and, isNotNull, isNull, desc, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { upsertPersonExternalId } from '../services/person-external-ids'
+import { resolvePerson } from '../services/person-resolution'
 import {
   fetchGoogleCalendarEvents,
   isGoogleCalendarConfigured,
@@ -24,6 +27,24 @@ import {
 import { FREE_BUSY_PLACEHOLDER_TITLES_FOR_DB } from '../lib/calendar-filters'
 import { localDateRangeToUtc } from '../lib/calendar-dates'
 import { pushMeetingProperties, type MeetingWriteBackResult } from '../services/notion-meeting-writeback'
+import {
+  acceptAnalysisParticipant,
+  attachPersonToMeeting,
+  detachPersonFromMeeting,
+  linkAnalysisParticipant as linkAnalysisParticipantRecord,
+  removeAnalysisParticipant,
+  resolvePersonForMeeting,
+} from '../services/meeting-attendees'
+import { TRPCError } from '@trpc/server'
+import {
+  parseCalendarParticipants,
+  seriesTitleKey,
+  type CalendarParticipant,
+} from '../lib/calendar-participants'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
+import { getMeetingPrep } from '../services/meeting-preps'
+import { withPersonNames } from '../services/people-resolve'
+import { mergeRecordingNotes } from '../lib/recording-notes'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -102,6 +123,7 @@ export const meetingsRouter = router({
         projectId: z.string().optional(),
         personId: z.string().optional(),
         status: z.enum(['scheduled', 'completed', 'cancelled']).optional(),
+        workspaceId: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -110,6 +132,11 @@ export const meetingsRouter = router({
       
       if (input?.projectId) {
         conditions.push(eq(meetings.projectId, input.projectId))
+      }
+
+      if (input?.workspaceId) {
+        const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+        conditions.push(or(inArray(meetings.workspaceId, ids), isNull(meetings.workspaceId))!)
       }
       
       if (input?.status) {
@@ -214,6 +241,27 @@ export const meetingsRouter = router({
     }
   }),
 
+  setWorkspace: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1), workspaceId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const [meeting] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
+      if (!meeting) throw new TRPCError({ code: 'BAD_REQUEST', message: 'הפגישה לא נמצאה' })
+      if (input.workspaceId) {
+        const [world] = await ctx.db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, input.workspaceId))
+        if (!world) throw new TRPCError({ code: 'BAD_REQUEST', message: 'העולם לא נמצא' })
+      }
+      await ctx.db
+        .update(meetings)
+        .set({
+          workspaceId: input.workspaceId,
+          workspaceSource: input.workspaceId ? 'manual' : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(meetings.id, input.meetingId))
+      const [row] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
+      return row!
+    }),
+
   listSeries: protectedProcedure.query(async ({ ctx }) => {
     const series = await ctx.db.select().from(meetingSeries).orderBy(meetingSeries.title)
     if (series.length === 0) return []
@@ -280,7 +328,7 @@ export const meetingsRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
-    const id = 'm' + Date.now()
+    const id = 'm' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     const seriesId = await ensureManualSeries(ctx, {
       title: input.title,
@@ -537,6 +585,72 @@ export const meetingsRouter = router({
         }
       }
 
+      // ── Participants snapshot per event (attendees, or the Dragontail description block) ──
+      const ownerEmails = new Set<string>()
+      for (const ev of allEvents) {
+        const acct = (ev as GoogleCalendarEvent).accountEmail
+        if (acct) ownerEmails.add(acct.toLowerCase())
+      }
+      const ownerName = getSelfPersonName()
+      const participantsByEventId = new Map<string, CalendarParticipant[]>()
+      for (const ev of allEvents) {
+        participantsByEventId.set(ev.id, parseCalendarParticipants({
+          attendees: 'attendees' in ev && Array.isArray(ev.attendees) ? ev.attendees : [],
+          description: (ev as { description?: string | null }).description ?? null,
+          ownerEmails: [...ownerEmails],
+          ownerName,
+        }))
+      }
+
+      // ── Title-based series for events that repeat without a recurring id (Outlook bridge) ──
+      const seriesByTitleKey = new Map<string, string>()
+      const titleKeyByEventId = new Map<string, string>()
+      const titleKeyCounts = new Map<string, number>()
+      for (const ev of allEvents) {
+        if ((ev as GoogleCalendarEvent).recurringEventId || !ev.calendarId) continue
+        if ((participantsByEventId.get(ev.id) ?? []).length === 0) continue
+        const key = seriesTitleKey(ev.calendarId, ev.title)
+        titleKeyByEventId.set(ev.id, key)
+        titleKeyCounts.set(key, (titleKeyCounts.get(key) ?? 0) + 1)
+      }
+      if (titleKeyCounts.size > 0) {
+        const existingTitleSeries = await ctx.db
+          .select({ id: meetingSeries.id, titleKey: meetingSeries.titleKey })
+          .from(meetingSeries)
+          .where(inArray(meetingSeries.titleKey, [...titleKeyCounts.keys()]))
+        for (const s of existingTitleSeries) {
+          if (s.titleKey) seriesByTitleKey.set(s.titleKey, s.id)
+        }
+        for (const ev of allEvents) {
+          const key = titleKeyByEventId.get(ev.id)
+          if (!key || seriesByTitleKey.has(key) || (titleKeyCounts.get(key) ?? 0) < 2) continue
+          const sid = 'ms_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+          const weekday = new Date(ev.start.split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })
+          await ctx.db.insert(meetingSeries).values({
+            id: sid,
+            title: ev.title,
+            cadence: 'weekly',
+            recurrenceDay: weekday,
+            rollingNotes: null,
+            titleKey: key,
+            createdAt: now,
+            updatedAt: now,
+          })
+          seriesByTitleKey.set(key, sid)
+        }
+      }
+
+      // Series with a saved roster never flood the review queue with their attendees.
+      const allSeriesIds = [...seriesByRecurringId.values(), ...seriesByTitleKey.values()]
+      const rosteredSeriesIds = new Set<string>()
+      if (allSeriesIds.length > 0) {
+        const rostered = await ctx.db
+          .select({ id: meetingSeries.id })
+          .from(meetingSeries)
+          .where(and(inArray(meetingSeries.id, allSeriesIds), isNotNull(meetingSeries.rosterSavedAt)))
+        for (const r of rostered) rosteredSeriesIds.add(r.id)
+      }
+
       // Pre-load all people for attendee matching (case-insensitive by email)
       const peopleByEmail = new Map<string, { id: string; status: string }>()
       const allPeople = await ctx.db.select({ id: people.id, email: people.email, status: people.status }).from(people)
@@ -549,15 +663,18 @@ export const meetingsRouter = router({
         meetingId: string,
         ev: SyncCalendarEvent,
         calendarSource: string,
+        knownOnly: boolean,
       ) => {
         const attendees = ('attendees' in ev && Array.isArray(ev.attendees)) ? ev.attendees : []
+        const linked = new Set<string>()
         for (const attendee of attendees) {
           const email = (attendee as { email?: string }).email?.trim()
           if (!email || (attendee as { self?: boolean }).self) continue
           const key = email.toLowerCase()
           const match = peopleByEmail.get(key)
           if (match) {
-            if (match.status === 'ignored') continue
+            if (match.status === 'ignored' || linked.has(match.id)) continue
+            linked.add(match.id)
             await ctx.db.insert(meetingPeople).values({ meetingId, personId: match.id })
             await upsertPersonExternalId(ctx.db, {
               personId: match.id,
@@ -566,6 +683,23 @@ export const meetingsRouter = router({
               externalId: key,
               displayName: (attendee as { displayName?: string }).displayName || email,
             })
+            continue
+          }
+          if (knownOnly) continue
+          const attendeeName = (attendee as { displayName?: string }).displayName
+          const byName = attendeeName ? await resolvePerson(ctx.db, { name: attendeeName }) : null
+          if (byName?.kind === 'match') {
+            if (!linked.has(byName.personId)) {
+              linked.add(byName.personId)
+              await ctx.db.insert(meetingPeople).values({ meetingId, personId: byName.personId })
+              await upsertPersonExternalId(ctx.db, {
+                personId: byName.personId,
+                provider: 'email',
+                accountKey: calendarSource,
+                externalId: key,
+                displayName: attendeeName || email,
+              })
+            }
             continue
           }
           const personId = 'p_cal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
@@ -588,6 +722,15 @@ export const meetingsRouter = router({
             displayName: (attendee as { displayName?: string }).displayName || email,
           })
           await ctx.db.insert(meetingPeople).values({ meetingId, personId })
+          linked.add(personId)
+        }
+        // Description-listed participants link only when already a known person.
+        for (const p of participantsByEventId.get(ev.id) ?? []) {
+          if (p.source !== 'description' || !p.email) continue
+          const match = peopleByEmail.get(p.email)
+          if (!match || match.status === 'ignored' || linked.has(match.id)) continue
+          linked.add(match.id)
+          await ctx.db.insert(meetingPeople).values({ meetingId, personId: match.id })
         }
       }
 
@@ -597,8 +740,13 @@ export const meetingsRouter = router({
         const startTime = ev.start.includes('T') ? ev.start.split('T')[1].slice(0, 5) : '09:00'
         const source = 'source' in ev ? 'apple' : 'google'
         const rid = (ev as GoogleCalendarEvent).recurringEventId
-        const seriesId = rid ? (seriesByRecurringId.get(rid) ?? null) : null
-        const isRecurring = Boolean(rid)
+        const titleKey = titleKeyByEventId.get(ev.id)
+        const seriesId = rid
+          ? (seriesByRecurringId.get(rid) ?? null)
+          : (titleKey ? (seriesByTitleKey.get(titleKey) ?? null) : null)
+        const isRecurring = Boolean(seriesId)
+        const participants = participantsByEventId.get(ev.id) ?? []
+        const calendarParticipants = participants.length > 0 ? JSON.stringify(participants) : null
         const recurrenceDay = isRecurring
           ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })
           : null
@@ -616,6 +764,8 @@ export const meetingsRouter = router({
               seriesId,
               recurring: isRecurring ? 'weekly' : null,
               recurrenceDay,
+              calendarParticipants,
+              calendarId: ev.calendarId ?? null,
               updatedAt: now,
             })
             .where(eq(meetings.id, existing.id))
@@ -634,16 +784,18 @@ export const meetingsRouter = router({
           location: ev.location ?? null,
           calendarEventId: ev.id,
           calendarSource: source,
+          calendarId: ev.calendarId ?? null,
           notes: null,
           projectId: null,
           seriesId,
           recurring: isRecurring ? 'weekly' : null,
           recurrenceDay,
+          calendarParticipants,
           createdAt: now,
           updatedAt: now,
         })
 
-        await linkAttendees(id, ev, source)
+        await linkAttendees(id, ev, source, seriesId ? rosteredSeriesIds.has(seriesId) : false)
 
         created++
       }
@@ -691,14 +843,30 @@ export const meetingsRouter = router({
         throw new Error('Meeting not found')
       }
 
-      const [note] = await ctx.db
-        .select()
-        .from(meetingNotes)
-        .where(eq(meetingNotes.meetingId, input.meetingId))
-        .limit(1)
+      const { analysableNoteText, MIN_ANALYSABLE_NOTE_CHARS, ensureMeetingPageNote } = await import(
+        '../services/notion-meeting-note-body'
+      )
+      const loadNote = async () =>
+        (
+          await ctx.db
+            .select()
+            .from(meetingNotes)
+            .where(eq(meetingNotes.meetingId, input.meetingId))
+            .orderBy(desc(meetingNotes.updatedAt))
+            .limit(1)
+        )[0]
 
-      const transcriptText = note?.bodyText || ''
-      if (!transcriptText || transcriptText.trim().length < 100) {
+      let note = await loadNote()
+      let transcriptText = analysableNoteText(note)
+      // The stored copy may predate Notion finishing its AI notes — pull fresh once.
+      const notionPageId = note?.notionPageId ?? meeting.notionPageId
+      if (transcriptText.length < MIN_ANALYSABLE_NOTE_CHARS && notionPageId) {
+        const { error } = await ensureMeetingPageNote(ctx.db, notionPageId)
+        if (error) console.warn('[meetings.analyzeTranscript] Notion refetch:', error)
+        note = await loadNote()
+        transcriptText = analysableNoteText(note)
+      }
+      if (transcriptText.length < MIN_ANALYSABLE_NOTE_CHARS) {
         throw new Error('No transcript available or transcript too short')
       }
 
@@ -750,13 +918,20 @@ export const meetingsRouter = router({
             kaizenKeep: result.kaizenKeep,
             kaizenImprove: result.kaizenImprove,
             openQuestion: result.openQuestion,
-            participantsJson: JSON.stringify(result.participants),
+            participantsJson: JSON.stringify(omitSelfParticipants(result.participants ?? [])),
             actionItemsJson: JSON.stringify(result.actionItems),
             model: 'gemini-2.5-flash',
             status: 'completed',
             updatedAt: now,
           })
           .where(eq(meetingAnalyses.id, analysisId))
+
+        const { proposeCommitmentsFromAnalysis } = await import('../services/commitments')
+        await proposeCommitmentsFromAnalysis(ctx.db, analysisId)
+        const { notifyAnalysisOnWhatsApp } = await import('../services/analysis-whatsapp')
+        await notifyAnalysisOnWhatsApp(ctx.db, analysisId).catch((err) => {
+          console.warn('[meetings] analysis WhatsApp failed:', err)
+        })
 
         return { analysisId }
       } catch (error) {
@@ -772,6 +947,13 @@ export const meetingsRouter = router({
 
         throw new Error(`Analysis failed: ${errorMessage}`)
       }
+    }),
+
+  getInsight: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const { meetingInsight } = await import('../services/warmth')
+      return meetingInsight(ctx.db, input.meetingId)
     }),
 
   getAnalysis: protectedProcedure
@@ -802,16 +984,57 @@ export const meetingsRouter = router({
         kaizenKeep: analysis.kaizenKeep,
         kaizenImprove: analysis.kaizenImprove,
         openQuestion: analysis.openQuestion,
+        // Linked items (personId) carry the current People name — docs/specs/recording-uses-chosen-people.md.
         participants: analysis.participantsJson
-          ? JSON.parse(analysis.participantsJson)
+          ? await withPersonNames(
+              ctx.db,
+              omitSelfParticipants(JSON.parse(analysis.participantsJson) as { name: string; confirmed?: boolean; personId?: string }[]),
+            )
           : [],
         actionItems: analysis.actionItemsJson
-          ? JSON.parse(analysis.actionItemsJson)
+          ? await withPersonNames(
+              ctx.db,
+              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string }[],
+            )
           : [],
         status: analysis.status,
         error: analysis.error,
         createdAt: analysis.createdAt,
       }
+    }),
+
+  attachPerson: protectedProcedure
+    .input(
+      z.object({
+        meetingId: z.string().min(1),
+        personId: z.string().min(1).optional(),
+        name: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const hasId = Boolean(input.personId)
+      const hasName = Boolean(input.name?.trim())
+      if (hasId === hasName) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'יש לבחור איש קשר או להקליד שם' })
+      }
+      const resolved = await resolvePersonForMeeting(ctx.db, {
+        personId: input.personId,
+        name: input.name,
+      })
+      await attachPersonToMeeting(ctx.db, input.meetingId, resolved.id)
+      return { personId: resolved.id, name: resolved.name, created: resolved.created }
+    }),
+
+  detachPerson: protectedProcedure
+    .input(
+      z.object({
+        meetingId: z.string().min(1),
+        personId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await detachPersonFromMeeting(ctx.db, input.meetingId, input.personId)
+      return { ok: true as const }
     }),
 
   linkAnalysisParticipant: protectedProcedure
@@ -823,66 +1046,32 @@ export const meetingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { meetingAnalyses } = await import('@ak-system/database')
+      return linkAnalysisParticipantRecord(ctx.db, input)
+    }),
 
-      // 1. Fetch the analysis
-      const [analysis] = await ctx.db
-        .select()
-        .from(meetingAnalyses)
-        .where(eq(meetingAnalyses.id, input.analysisId))
-        .limit(1)
+  acceptAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+        personId: z.string().min(1).optional(),
+        name: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const resolved = await acceptAnalysisParticipant(ctx.db, input)
+      return { personId: resolved.id, name: resolved.name, created: resolved.created }
+    }),
 
-      if (!analysis) {
-        throw new Error('Analysis not found')
-      }
-
-      // 2. Parse participants JSON
-      const participants = analysis.participantsJson
-        ? JSON.parse(analysis.participantsJson)
-        : []
-
-      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
-        throw new Error('Invalid participant index')
-      }
-
-      // 3. Update the participant
-      participants[input.participantIndex] = {
-        ...participants[input.participantIndex],
-        personId: input.personId,
-        confirmed: true,
-      }
-
-      // 4. Update the analysis record
-      await ctx.db
-        .update(meetingAnalyses)
-        .set({
-          participantsJson: JSON.stringify(participants),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(meetingAnalyses.id, input.analysisId))
-
-      // 5. Auto-add person to meeting if not already present
-      const [meeting] = await ctx.db
-        .select()
-        .from(meetings)
-        .where(eq(meetings.id, analysis.meetingId))
-        .limit(1)
-
-      if (meeting) {
-        const currentPeopleIds = meeting.peopleIds ? JSON.parse(meeting.peopleIds) : []
-        if (!currentPeopleIds.includes(input.personId)) {
-          currentPeopleIds.push(input.personId)
-          await ctx.db
-            .update(meetings)
-            .set({
-              peopleIds: JSON.stringify(currentPeopleIds),
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(meetings.id, analysis.meetingId))
-        }
-      }
-
-      return { success: true }
+  removeAnalysisParticipant: protectedProcedure
+    .input(
+      z.object({
+        analysisId: z.string().min(1),
+        participantIndex: z.number(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return removeAnalysisParticipant(ctx.db, input)
     }),
 
   confirmAnalysisParticipant: protectedProcedure
@@ -893,44 +1082,8 @@ export const meetingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { meetingAnalyses } = await import('@ak-system/database')
-
-      // 1. Fetch the analysis
-      const [analysis] = await ctx.db
-        .select()
-        .from(meetingAnalyses)
-        .where(eq(meetingAnalyses.id, input.analysisId))
-        .limit(1)
-
-      if (!analysis) {
-        throw new Error('Analysis not found')
-      }
-
-      // 2. Parse participants JSON
-      const participants = analysis.participantsJson
-        ? JSON.parse(analysis.participantsJson)
-        : []
-
-      if (input.participantIndex < 0 || input.participantIndex >= participants.length) {
-        throw new Error('Invalid participant index')
-      }
-
-      // 3. Mark participant as confirmed
-      participants[input.participantIndex] = {
-        ...participants[input.participantIndex],
-        confirmed: true,
-      }
-
-      // 4. Update the analysis record
-      await ctx.db
-        .update(meetingAnalyses)
-        .set({
-          participantsJson: JSON.stringify(participants),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(meetingAnalyses.id, input.analysisId))
-
-      return { success: true }
+      const resolved = await acceptAnalysisParticipant(ctx.db, input)
+      return { success: true as const, personId: resolved.id, name: resolved.name, created: resolved.created }
     }),
 
   createTasksFromAnalysis: protectedProcedure
@@ -966,15 +1119,18 @@ export const meetingsRouter = router({
       for (const item of itemsToCreate) {
         if (item.taskId) continue // Already created
 
-        // Try to match owner to existing person
+        // His own action items stay assigned to him. They are not a task of the
+        // Alpir Kritzler contact.
         let assigneeId: string | null = null
-        if (item.owner) {
+        if (item.owner && isSelfPersonName(item.owner)) {
+          assigneeId = (await ensureSelfPerson(ctx.db)).id
+        } else if (item.owner) {
           const [match] = await ctx.db
-            .select({ id: people.id })
+            .select({ id: people.id, name: people.name })
             .from(people)
             .where(eq(people.name, item.owner))
             .limit(1)
-          assigneeId = match?.id || null
+          assigneeId = match && !isSelfPersonName(match.name) ? match.id : null
         }
 
         const taskId = 't' + Date.now() + Math.random().toString(36).slice(2, 7)
@@ -997,6 +1153,7 @@ export const meetingsRouter = router({
 
         item.taskId = taskId
         createdTaskIds.push(taskId)
+        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, taskId)
       }
 
       // Update analysis with task IDs
@@ -1053,6 +1210,7 @@ export const meetingsRouter = router({
 
         item.taskId = link.taskId
         linked++
+        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, link.taskId)
       }
 
       // Update analysis with task IDs
@@ -1067,9 +1225,164 @@ export const meetingsRouter = router({
       return { linked }
     }),
 
+  /** The pre-meeting brief the herald stored for this meeting, or null when none was generated. */
+  getPrep: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => getMeetingPrep(ctx.db, input.meetingId)),
+
+  /**
+   * Notes typed during a web recording. Only `notes` is written — `update` would also
+   * rewrite title, project, type, and recurrence.
+   */
+  saveRecordingNotes: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1), notes: z.string().max(20000) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ notes: meetings.notes })
+        .from(meetings)
+        .where(eq(meetings.id, input.meetingId))
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Meeting not found' })
+      const notes = mergeRecordingNotes(row.notes, input.notes)
+      await ctx.db
+        .update(meetings)
+        .set({ notes, updatedAt: new Date().toISOString() })
+        .where(eq(meetings.id, input.meetingId))
+      return { notes }
+    }),
+
+  /**
+   * Home for a recording started without a calendar event, so notes typed while recording
+   * have a meeting to land on. `source = 'manual'` keeps calendar sync away from it.
+   */
+  createManual: protectedProcedure
+    .input(z.object({
+      title: z.string().min(1).max(200),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      time: z.string().regex(/^\d{2}:\d{2}$/),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = 'm_manual_' + Date.now() + Math.random().toString(36).slice(2, 7)
+      const now = new Date().toISOString()
+      await ctx.db.insert(meetings).values({
+        id,
+        title: input.title,
+        date: input.date,
+        time: input.time,
+        source: 'manual',
+        createdAt: now,
+        updatedAt: now,
+      })
+      return { id }
+    }),
+
+  /**
+   * Removes a manual meeting that ended up with nothing attached (recording cancelled, too
+   * short, or linked to a calendar meeting instead). Notes typed during the recording do not
+   * count as content: they are re-saved onto whichever meeting the recording ends up on.
+   */
+  deleteIfEmpty: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ source: meetings.source, notes: meetings.notes })
+        .from(meetings)
+        .where(eq(meetings.id, input.meetingId))
+      if (!row || row.source !== 'manual') return { deleted: false }
+      if (mergeRecordingNotes(row.notes, '')) return { deleted: false }
+      const { meetingAnalyses, voiceRecordings } = await import('@ak-system/database')
+      const [rec, analysis, task] = await Promise.all([
+        ctx.db.select({ id: voiceRecordings.id }).from(voiceRecordings).where(eq(voiceRecordings.meetingId, input.meetingId)).limit(1),
+        ctx.db.select({ id: meetingAnalyses.id }).from(meetingAnalyses).where(eq(meetingAnalyses.meetingId, input.meetingId)).limit(1),
+        ctx.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.meetingId, input.meetingId)).limit(1),
+      ])
+      if (rec.length || analysis.length || task.length) return { deleted: false }
+      await ctx.db.delete(meetingPeople).where(eq(meetingPeople.meetingId, input.meetingId))
+      await ctx.db.delete(meetings).where(eq(meetings.id, input.meetingId))
+      return { deleted: true }
+    }),
+
   linkOrphanedNotes: protectedProcedure.mutation(async () => {
     const { linkOrphanedNotes } = await import('../services/notion-meeting-sync')
     const result = await linkOrphanedNotes()
     return result
   }),
+
+  /** Returns calendar-sourced meetings from a given date, for the attach-to-calendar picker. */
+  calendarOnDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: meetings.id, title: meetings.title, time: meetings.time, endTime: meetings.endTime })
+        .from(meetings)
+        .where(and(eq(meetings.date, input.date), eq(meetings.source, 'calendar')))
+        .orderBy(meetings.time)
+      return { meetings: rows }
+    }),
+
+  /**
+   * Moves analyses, voice recordings, tasks, and voice commitments from a
+   * voice/notion/manual meeting onto a calendar meeting from the same date.
+   * The source placeholder meeting is deleted if it was auto-created by the recording pipeline.
+   */
+  attachToCalendar: protectedProcedure
+    .input(z.object({
+      meetingId: z.string().min(1),
+      calendarMeetingId: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { meetingId, calendarMeetingId } = input
+      if (meetingId === calendarMeetingId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'אותה פגישה' })
+
+      const [src, dst] = await Promise.all([
+        ctx.db.select({ id: meetings.id, source: meetings.source, date: meetings.date }).from(meetings).where(eq(meetings.id, meetingId)).then(r => r[0]),
+        ctx.db.select({ id: meetings.id, source: meetings.source, date: meetings.date }).from(meetings).where(eq(meetings.id, calendarMeetingId)).then(r => r[0]),
+      ])
+      if (!src) throw new TRPCError({ code: 'NOT_FOUND', message: 'פגישת מקור לא נמצאה' })
+      if (!dst) throw new TRPCError({ code: 'NOT_FOUND', message: 'פגישת יעד לא נמצאה' })
+      if (src.source === 'calendar') throw new TRPCError({ code: 'BAD_REQUEST', message: 'פגישת המקור כבר אירוע יומן' })
+      if (dst.source !== 'calendar') throw new TRPCError({ code: 'BAD_REQUEST', message: 'פגישת היעד אינה אירוע יומן' })
+
+      const { meetingAnalyses, voiceRecordings, commitments } = await import('@ak-system/database')
+
+      // Move meeting analyses
+      await ctx.db.update(meetingAnalyses).set({ meetingId: calendarMeetingId }).where(eq(meetingAnalyses.meetingId, meetingId))
+      // Move voice recordings
+      const recRows = await ctx.db
+        .select({ id: voiceRecordings.id, createdMeetingId: voiceRecordings.createdMeetingId })
+        .from(voiceRecordings)
+        .where(eq(voiceRecordings.meetingId, meetingId))
+      for (const rec of recRows) {
+        const wasPlaceholder = rec.createdMeetingId === meetingId
+        await ctx.db.update(voiceRecordings)
+          .set({ meetingId: calendarMeetingId, ...(wasPlaceholder ? { createdMeetingId: null } : {}) })
+          .where(eq(voiceRecordings.id, rec.id))
+      }
+      // Move tasks
+      await ctx.db.update(tasks).set({ meetingId: calendarMeetingId }).where(eq(tasks.meetingId, meetingId))
+      // Move voice commitments whose sourceId pointed at the source meeting
+      await ctx.db.update(commitments)
+        .set({ sourceId: calendarMeetingId })
+        .where(and(eq(commitments.source, 'voice'), eq(commitments.sourceId, meetingId)))
+      // Move meeting people to the calendar meeting (merge — don't overwrite existing attendees)
+      const existingPeople = await ctx.db
+        .select({ personId: meetingPeople.personId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.meetingId, calendarMeetingId))
+      const existingSet = new Set(existingPeople.map(r => r.personId))
+      const srcPeople = await ctx.db
+        .select({ personId: meetingPeople.personId })
+        .from(meetingPeople)
+        .where(eq(meetingPeople.meetingId, meetingId))
+      for (const { personId } of srcPeople) {
+        if (!existingSet.has(personId)) {
+          await ctx.db.insert(meetingPeople).values({ meetingId: calendarMeetingId, personId })
+        }
+      }
+      // Delete the source meeting if it was a voice placeholder (source='voice')
+      if (src.source === 'voice') {
+        await ctx.db.delete(meetings).where(eq(meetings.id, meetingId))
+      }
+
+      return { calendarMeetingId }
+    }),
 })

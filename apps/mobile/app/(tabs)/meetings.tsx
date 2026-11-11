@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native'
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
@@ -20,6 +20,12 @@ import {
   syncMeetingsFromCalendar,
   type MobileMeeting,
 } from '../../lib/data'
+import {
+  emptyMeetingsCopy,
+  endDateForWindow,
+  meetingWindowPhrase,
+  parseMeetingWindow,
+} from '../../lib/dashboard-window'
 import { colors } from '../../lib/theme'
 
 function isPast(date: string, time: string): boolean {
@@ -40,7 +46,11 @@ export default function MeetingsScreen() {
   const { token } = useAuth()
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { focus } = useLocalSearchParams<{ focus?: string }>()
+  const { focus, window: windowParam } = useLocalSearchParams<{
+    focus?: string
+    window?: string | string[]
+  }>()
+  const meetingWindow = parseMeetingWindow(windowParam)
   const listRef = useRef<FlatList<MobileMeeting>>(null)
 
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
@@ -52,6 +62,7 @@ export default function MeetingsScreen() {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -60,6 +71,7 @@ export default function MeetingsScreen() {
       setError(null)
       try {
         setMeetings(await fetchMeetings(token))
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הפגישות נכשלה')
       } finally {
@@ -70,20 +82,25 @@ export default function MeetingsScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
   const upcoming = useMemo(() => {
+    const end = meetingWindow ? endDateForWindow(meetingWindow) : null
     return meetings
       .filter((m) => !isPast(m.date, m.time))
+      .filter((m) => (end ? m.date <= end : true))
       .filter((m) => (recurringOnly ? m.recurring : true))
       .sort(
         (a, b) =>
           new Date(a.date + 'T' + (a.time || '00:00')).getTime() -
           new Date(b.date + 'T' + (b.time || '00:00')).getTime(),
       )
-  }, [meetings, recurringOnly])
+  }, [meetings, recurringOnly, meetingWindow])
 
   const past = useMemo(() => {
     return meetings
@@ -163,6 +180,14 @@ export default function MeetingsScreen() {
           {syncing ? <ActivityIndicator size="small" color={colors.accent} /> : null}
           <Text style={styles.syncBtnText}>{syncing ? 'מסנכרן…' : 'סנכרן מיומן'}</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.push('/record' as Href)}
+          accessibilityRole="button"
+          accessibilityLabel="הקלט שיחה"
+          style={styles.syncBtn}
+        >
+          <Text style={styles.syncBtnText}>הקלט שיחה</Text>
+        </Pressable>
       </View>
 
       {syncMessage ? <Text style={styles.notice}>{syncMessage}</Text> : null}
@@ -193,6 +218,19 @@ export default function MeetingsScreen() {
         </Pressable>
       </View>
 
+      {meetingWindow ? (
+        <Pressable
+          onPress={() => router.setParams({ window: '' })}
+          style={styles.windowBanner}
+          accessibilityRole="button"
+          accessibilityLabel="הצג את כל הפגישות הקרובות"
+        >
+          <Text style={styles.windowBannerText}>
+            פגישות {meetingWindowPhrase(meetingWindow)} · הצג הכל
+          </Text>
+        </Pressable>
+      ) : null}
+
       <FilterChips
         items={[
           { key: 'all', label: 'הכל' },
@@ -220,9 +258,16 @@ export default function MeetingsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="📅"
-            text={activeTab === 'upcoming' 
-              ? (recurringOnly ? 'אין פגישות חוזרות קרובות' : 'אין פגישות קרובות')
-              : (recurringOnly ? 'אין פגישות חוזרות קודמות' : 'אין פגישות קודמות')
+            text={
+              activeTab === 'upcoming'
+                ? recurringOnly
+                  ? 'אין פגישות חוזרות קרובות'
+                  : meetingWindow
+                    ? emptyMeetingsCopy(meetingWindow)
+                    : 'אין פגישות קרובות'
+                : recurringOnly
+                  ? 'אין פגישות חוזרות קודמות'
+                  : 'אין פגישות קודמות'
             }
           />
         }
@@ -269,7 +314,7 @@ export default function MeetingsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  actionRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12 },
+  actionRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12 },
   syncBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -321,6 +366,19 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: colors.bg,
     fontWeight: '600',
+  },
+  windowBanner: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  windowBannerText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   list: { paddingHorizontal: 16, flexGrow: 1 },
   card: { padding: 16, marginBottom: 10 },

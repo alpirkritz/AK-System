@@ -127,3 +127,13 @@ pnpm mobile             # expo start
 pnpm whatsapp-bridge:dev
 pnpm deploy:ec2         # ship to production
 ```
+
+<!-- grag:start -->
+## grag
+
+Database: `/Users/alpir/.grag/AK_system-a552389e-3d61-44bf-b787-1ea725943732.lbdb`  
+Use the registered MCP connection to the shared database owner. BM25 works without an embedding model.
+
+Ground project answers in grag: `cypher_query` for exact facts, `search_knowledge` for discovery; request `freshness="require"` when current code matters.  
+Index missing code scope with `ingest_code`. Save sourced facts with `upsert_nodes` / `upsert_edges`. See the grag skill for detailed workflows.
+<!-- grag:end -->

@@ -1,4 +1,5 @@
 import { google, calendar_v3 } from 'googleapis'
+import { toZonedIso } from '../lib/calendar-dates'
 import {
   getAccessTokenForConnection,
   getConnectionForCalendarId,
@@ -170,8 +171,8 @@ function mapGoogleEvent(
   return {
     id: `${accountEmail}::${e.id}`,
     title: e.summary || '(ללא כותרת)',
-    start: e.start?.dateTime || e.start?.date || new Date().toISOString(),
-    end: e.end?.dateTime || e.end?.date || new Date().toISOString(),
+    start: toZonedIso(e.start?.dateTime || e.start?.date || new Date().toISOString()),
+    end: toZonedIso(e.end?.dateTime || e.end?.date || new Date().toISOString()),
     isAllDay: !e.start?.dateTime,
     location: e.location ?? null,
     description: e.description ?? null,

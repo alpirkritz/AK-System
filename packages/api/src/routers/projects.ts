@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '../trpc'
 import {
   projects,
@@ -8,14 +9,26 @@ import {
   people,
   meetingNotes,
   meetingNoteProjects,
+  companies,
+  workspaces,
 } from '@ak-system/database'
-import { eq, desc, inArray } from 'drizzle-orm'
+import { eq, desc, inArray, isNull, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { pushProjectPeople } from '../services/notion-task-writeback'
+import { projectWarmth } from '../services/warmth'
+import { readProjectStanding, writeProjectStanding } from '../services/project-standing'
 
 const createInput = z.object({
   name: z.string().min(1),
   color: z.string().optional(),
+  workspaceId: z.string().nullable().optional(),
 })
+
+async function assertWorkspace(db: import('../trpc').Context['db'], workspaceId: string | null | undefined) {
+  if (!workspaceId) return
+  const [row] = await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId))
+  if (!row) throw new TRPCError({ code: 'BAD_REQUEST', message: 'העולם לא נמצא' })
+}
 
 const updateInput = createInput.extend({
   id: z.string().min(1),
@@ -53,12 +66,39 @@ async function replaceProjectPeople(
 }
 
 export const projectsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(projects).orderBy(projects.name)
-  }),
+  list: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!input?.workspaceId) {
+        return ctx.db.select().from(projects).orderBy(projects.name)
+      }
+      const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+      return ctx.db
+        .select()
+        .from(projects)
+        .where(or(inArray(projects.workspaceId, ids), isNull(projects.workspaceId)))
+        .orderBy(projects.name)
+    }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
-    const [row] = await ctx.db.select().from(projects).where(eq(projects.id, input.id))
+    const [row] = await ctx.db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        color: projects.color,
+        workspaceId: projects.workspaceId,
+        notionPageId: projects.notionPageId,
+        companyId: projects.companyId,
+        companyName: companies.name,
+        source: projects.source,
+        standingBrief: projects.standingBrief,
+        standingBriefAt: projects.standingBriefAt,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+      })
+      .from(projects)
+      .leftJoin(companies, eq(projects.companyId, companies.id))
+      .where(eq(projects.id, input.id))
     return row ?? null
   }),
 
@@ -105,12 +145,44 @@ export const projectsRouter = router({
       .orderBy(desc(meetingNotes.date))
       .limit(50)
 
+    const warmth = await projectWarmth(ctx.db, input.id)
+    const standing = await readProjectStanding(ctx.db, input.id)
     return {
       people: relatedPeople,
       meetings: relatedMeetings,
       tasks: relatedTasks,
       meetingNotes: noteLinks,
+      warmth: {
+        trend: warmth.trend,
+        recentAvg: warmth.recentAvg,
+        olderAvg: warmth.olderAvg,
+        count: warmth.count,
+        dataReason: warmth.dataReason,
+        scoreText: warmth.scoreText,
+        recentScore: warmth.recentScore,
+        olderScore: warmth.olderScore,
+        people: warmth.people,
+        timeline: warmth.timeline.map((p) => ({
+          meetingId: p.meetingId,
+          date: p.date,
+          title: p.title,
+          score: p.score,
+          scoreRationale: p.scoreRationale,
+          mood: p.mood,
+          subtext: p.subtext,
+          keyInsight: p.keyInsight,
+        })),
+      },
+      standing,
     }
+  }),
+
+  getStanding: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
+    return readProjectStanding(ctx.db, input.id)
+  }),
+
+  writeStanding: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    return writeProjectStanding(ctx.db, input.id)
   }),
 
   setPeople: protectedProcedure
@@ -147,13 +219,15 @@ export const projectsRouter = router({
     }),
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
-    const id = 'proj' + Date.now()
+    await assertWorkspace(ctx.db, input.workspaceId)
+    const id = 'proj' + Date.now() + Math.random().toString(36).slice(2, 7)
     const now = new Date().toISOString()
     await ctx.db.insert(projects).values({
       id,
       name: input.name,
       color: input.color ?? '#47b8e8',
       source: 'manual',
+      workspaceId: input.workspaceId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -162,11 +236,13 @@ export const projectsRouter = router({
   }),
 
   update: protectedProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+    if (input.workspaceId !== undefined) await assertWorkspace(ctx.db, input.workspaceId)
     await ctx.db
       .update(projects)
       .set({
         name: input.name,
         color: input.color ?? undefined,
+        ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(projects.id, input.id))

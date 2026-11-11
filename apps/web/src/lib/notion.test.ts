@@ -200,6 +200,39 @@ describe('getNotionEntries (extended db types)', () => {
   })
 })
 
+describe('formatNotionContextForPrompt task omission', () => {
+  it('drops task buckets and the calendar review page when asked', () => {
+    const ctx = {
+      today: '2026-09-23',
+      tasks: {
+        overdue: [{ account: 'Personal', db: 'To-do', title: 'ישן', due: '2026-09-01', status: 'open', priority: 'high', assignee: '' }],
+        today: [{ account: 'Personal', db: 'To-do', title: 'לסגור מע״מ', due: '2026-09-23', status: 'open', priority: 'high', assignee: '' }],
+        soon: [{ account: 'Personal', db: 'To-do', title: 'מחר', due: '2026-09-24', status: 'open', priority: 'low', assignee: '' }],
+        highPriority: [],
+      },
+      meetings: {
+        today: [{ account: 'DT', db: 'Meetings', title: 'Standup', date: '2026-09-23', time: '09:00', attendees: '', status: '' }],
+        upcoming: [],
+      },
+      meetingNotes: [],
+      calendarReview: 'previous brief לסגור מע״מ',
+      errors: [],
+    }
+    const full = formatNotionContextForPrompt(ctx)
+    expect(full).toContain('Tasks — Due Today')
+    expect(full).toContain('לסגור מע״מ')
+    expect(full).toContain('Calendar Review')
+
+    const calendarOnly = formatNotionContextForPrompt(ctx, { omitTasks: true, omitCalendarReview: true })
+    expect(calendarOnly).toContain('Standup')
+    expect(calendarOnly).not.toContain('Tasks — Due Today')
+    expect(calendarOnly).not.toContain('Tasks — Overdue')
+    expect(calendarOnly).not.toContain('Tasks — Soon')
+    expect(calendarOnly).not.toContain('לסגור מע״מ')
+    expect(calendarOnly).not.toContain('Calendar Review')
+  })
+})
+
 describe('getNotionContext + formatNotionContextForPrompt', () => {
   it('aggregates tasks + meetings and surfaces access warnings without blanking', async () => {
     const ctx = await getNotionContext()

@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { resolveIntent, saveChatMessage } from '@/lib/conversation-engine'
+import { saveChatMessage } from '@/lib/conversation-engine'
+import { runHugoConversation } from '@/lib/agent-runner'
 import { clientChannel, getApiSession } from '@/lib/api-session'
 
 /**
- * POST /api/chat — send a message to the conversation engine.
+ * POST /api/chat — send a message to Hugo.
  * Body: { message: string }
  * Returns: { userMessage, assistantMessage }
  */
@@ -23,8 +24,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const channel = clientChannel(request)
     await saveChatMessage('user', message, channel)
 
-    const response = await resolveIntent(message, { channel })
-    const assistantText = response || 'לא הצלחתי לקבל תשובה.'
+    // The caller renders the reply, so no push — see runHugoConversation.
+    const response = await runHugoConversation({ message, channel, notifyOnComplete: false })
+    const assistantText = response.text || 'לא הצלחתי לקבל תשובה.'
 
     await saveChatMessage('assistant', assistantText, channel)
 

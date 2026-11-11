@@ -19,7 +19,7 @@ Open http://localhost:3001/ and scan the QR code (WhatsApp → Linked Devices).
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | QR pairing page |
-| GET | `/status` | — | Connection status + self Jid |
+| GET | `/status` | — | Connection status, self Jid, capture-list sizes |
 | GET | `/qr` | — | QR as data URL JSON |
 | POST | `/send` | Bearer | `{ "text": "...", "to?": "jid" }` |
 | GET | `/groups` | Bearer | Watched groups + buffer counts |
@@ -29,6 +29,8 @@ Open http://localhost:3001/ and scan the QR code (WhatsApp → Linked Devices).
 
 ## Deploy
 
-Run on a VM or Railway **with a persistent volume** mounted at `AUTH_STATE_PATH` (e.g. `/data/auth`).
+Run on a VM or Railway **with persistent volumes** mounted at `AUTH_STATE_PATH` (e.g. `/data/auth`)
+and `BRIDGE_CONFIG_PATH` (e.g. `/data/config`). They must be separate: clearing the auth state to
+force a new QR is routine, and it must not delete the group/DM capture lists.
 
 See [`S_Skills/wf_whatsapp_bridge.md`](../../S_Skills/wf_whatsapp_bridge.md) for full workflow and compliance checklist.

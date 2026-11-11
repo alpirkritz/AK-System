@@ -1,0 +1,39 @@
+---
+description: How production deploy (pnpm deploy:ec2) actually works — read before deploying, debugging "my change isn't live", or editing deploy scripts/Dockerfiles.
+globs: scripts/deploy-ec2.sh,scripts/production-start.sh,scripts/ci.sh,deploy/**,.dockerignore,apps/web/next.config.*
+alwaysApply: false
+---
+
+# Production deploy (EC2) — what is built where
+
+`pnpm deploy:ec2` → `scripts/deploy-ec2.sh`. Two different "builds", in two places:
+
+| What | Where | How |
+|---|---|---|
+| Next.js bundle (`apps/web/.next`) | **Mac** | `scripts/ci.sh` or `AK_DEPLOY_BUILD=1 pnpm build` (step 1). The 1 GB instance can't run `next build`. |
+| Docker image (`deploy-web`, `deploy-whatsapp-bridge`) | **EC2** | `docker compose ... up -d --build --force-recreate` (step 4), from the rsynced tree. `deploy/Dockerfile.runtime` copies the Mac-built `.next` + `packages/` + `A_Agents/`/`S_Skills/` into the image. |
+
+"Built locally" refers to the **Next.js bundle only**. No Docker image is built on the Mac or pushed to a registry.
+
+## Hard rules
+
+- **Never remove `--build`** from the compose `up` in `deploy-ec2.sh`. Without it, compose reuses the previous image forever: rsync delivers new code, `--force-recreate` restarts the container on the **old** image, deploy prints ✓, nothing changes. (Happened 2026-10-04→05.)
+- **Keep `--force-recreate`** — compose doesn't recreate a container when only an `env_file` (`deploy/production.env`, `deploy/whatsapp-bridge.env`) changed.
+- **Don't Ctrl+C a slow deploy.** `RUN pnpm install --frozen-lockfile` on EC2 is slow (several minutes) only when `pnpm-lock.yaml` changed; otherwise it's cached. Interrupting means no new image.
+- The script ends by checking the running container's `apps/web/.next/BUILD_ID` equals the Mac's. If it fails, the image wasn't rebuilt — fix that, don't bypass the check.
+
+## Agent cards (A_Agents / S_Skills) in production
+
+Production reads them from the `abc-data` volume (`ABC_ROOT=/data/abc`), not the image. `scripts/production-start.sh` seeds the volume from the image's `abc-seed/` using `/data/abc/.seed-manifest`: files unchanged since the last seed are updated from the repo; files edited in `/agents/manage` are kept (logged as `⚠ kept UI-edited`). `ABC_SEED_FORCE_FILES` (comma list in `deploy/production.env`) forces specific files once — remove it after that deploy.
+
+A workflow shows under Skills in `/agents/manage` if it's in `AGENT_WORKFLOWS` in `apps/web/src/lib/abc-agents.ts`, or named `S_Skills/wf_<agent id without NN_>.md`.
+
+## "My change isn't live" — check each hop, in order
+
+```bash
+cat apps/web/.next/BUILD_ID                     # Mac
+ssh -i ~/.ssh/ak-system.pem ubuntu@<host> 'cd /opt/ak-system && cat apps/web/.next/BUILD_ID \
+  && sudo docker image ls --format "{{.Repository}} {{.CreatedAt}}" | grep deploy- \
+  && sudo docker compose -f deploy/docker-compose.production.yml exec -T web cat apps/web/.next/BUILD_ID'
+```
+Mac ≠ host → rsync problem. Host = Mac but image `CreatedAt` is old / container ≠ host → image not rebuilt (`--build`). All equal but agent card old → seeding (`docker compose logs web | grep -E "seeding|updated|kept"`).

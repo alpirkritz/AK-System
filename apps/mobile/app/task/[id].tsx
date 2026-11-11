@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { KeyboardSafe } from '../../components/KeyboardSafe'
 import { useAuth } from '../../lib/auth'
 import {
   createTask,
@@ -88,6 +88,7 @@ export default function TaskDetailScreen() {
   const isNew = !id || id === 'new'
   const { token } = useAuth()
   const router = useRouter()
+  const scrollRef = useRef<ScrollView>(null)
 
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -171,6 +172,7 @@ export default function TaskDetailScreen() {
     return ordered.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
+        (p.id === selfPersonId && 'אני'.includes(q)) ||
         (p.company ?? '').toLowerCase().includes(q) ||
         (p.role ?? '').toLowerCase().includes(q),
     )
@@ -292,13 +294,9 @@ export default function TaskDetailScreen() {
         }}
       />
 
-      {/* iOS needs explicit padding; Android relies on softwareKeyboardLayoutMode: 'resize'
-          in app.config.ts, and stacking both causes double-adjustment inside a formSheet. */}
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardSafe style={styles.flex} scrollRef={scrollRef}>
         <ScrollView
+          ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -334,14 +332,13 @@ export default function TaskDetailScreen() {
             onPress={() => setAssigneePickerOpen(true)}
             style={[styles.input, styles.assigneeField]}
             accessibilityRole="button"
-            accessibilityLabel={assignee ? `אחראי ${assignee.name}` : 'בחר אחראי'}
+            accessibilityLabel={
+              assignee ? `אחראי ${assignee.id === selfPersonId ? 'אני' : assignee.name}` : 'בחר אחראי'
+            }
           >
             <Text style={[styles.dateText, !assignee && styles.datePlaceholder]}>
-              {assignee ? assignee.name : 'ללא אחראי'}
+              {assignee ? (assignee.id === selfPersonId ? 'אני' : assignee.name) : 'ללא אחראי'}
             </Text>
-            {assignee && assignee.id === selfPersonId ? (
-              <Text style={styles.selfTag}>אני</Text>
-            ) : null}
           </Pressable>
 
           <Text style={styles.label}>סטטוס</Text>
@@ -505,7 +502,7 @@ export default function TaskDetailScreen() {
             <Text style={styles.saveBtnText}>{saving ? 'שומר…' : 'שמור'}</Text>
           </Pressable>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafe>
 
       <Modal
         visible={assigneePickerOpen}
@@ -513,6 +510,7 @@ export default function TaskDetailScreen() {
         transparent
         onRequestClose={closeAssigneePicker}
       >
+        <KeyboardSafe style={styles.modalFill}>
         <Pressable style={styles.modalOverlay} onPress={closeAssigneePicker}>
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>אחראי</Text>
@@ -553,9 +551,8 @@ export default function TaskDetailScreen() {
                       style={[styles.personName, active && styles.personNameActive]}
                       numberOfLines={1}
                     >
-                      {item.name}
+                      {item.id === selfPersonId ? 'אני' : item.name}
                     </Text>
-                    {item.id === selfPersonId ? <Text style={styles.selfTag}>אני</Text> : null}
                     {item.company ? (
                       <Text style={styles.personMeta} numberOfLines={1}>
                         {item.company}
@@ -575,6 +572,7 @@ export default function TaskDetailScreen() {
             </Pressable>
           </Pressable>
         </Pressable>
+        </KeyboardSafe>
       </Modal>
     </>
   )
@@ -617,17 +615,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  selfTag: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '600',
-    borderWidth: 1,
-    borderColor: colors.accent + '55',
-    backgroundColor: colors.accent + '22',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
+  modalFill: { flex: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: '#00000099',

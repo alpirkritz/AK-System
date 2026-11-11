@@ -4,6 +4,8 @@ export interface BufferedGroupMessage {
   senderName: string
   text: string
   timestamp: number
+  /** Set when the message came from a history sync, so AK can skip reply/notification paths. */
+  historySync?: boolean
 }
 
 const buffers = new Map<string, BufferedGroupMessage[]>()

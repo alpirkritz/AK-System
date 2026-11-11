@@ -1,5 +1,6 @@
 'use client'
 
+import { ArrowDownUp } from 'lucide-react'
 import type { SortPref } from '@/lib/sort-keys'
 
 interface ThenBySortProps<K extends string> {
@@ -9,6 +10,8 @@ interface ThenBySortProps<K extends string> {
   showReset?: boolean
   onReset?: () => void
   className?: string
+  /** Stack the two controls vertically (settings page). Default is a compact inline row. */
+  layout?: 'inline' | 'stacked'
 }
 
 export function ThenBySort<K extends string>({
@@ -18,6 +21,7 @@ export function ThenBySort<K extends string>({
   showReset = false,
   onReset,
   className = '',
+  layout = 'inline',
 }: ThenBySortProps<K>) {
   // Helper to extract base field name (e.g., "priority" from "priority_high")
   const getBaseField = (key: string): string => {
@@ -38,12 +42,26 @@ export function ThenBySort<K extends string>({
     return fieldBase !== primaryBase
   })
 
+  const inline = layout === 'inline'
+  const selectClass = inline
+    ? 'select w-auto max-w-[9.5rem] sm:max-w-[11rem] text-xs py-1.5 ps-2 pe-6 min-h-[32px]'
+    : 'select text-xs py-1.5 px-2'
+
   return (
-    <div className={`flex flex-col gap-2 ${className}`}>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs text-[#7a89ab] font-medium">מיון</label>
+    <div
+      className={
+        inline
+          ? `flex flex-wrap items-center gap-x-2 gap-y-1.5 ${className}`
+          : `flex flex-col gap-2 ${className}`
+      }
+    >
+      <div className={inline ? 'flex items-center gap-1.5 min-w-0' : 'flex flex-col gap-1.5'}>
+        <label className="text-xs text-[#7a89ab] font-medium inline-flex items-center gap-1 shrink-0">
+          {inline && <ArrowDownUp size={12} className="opacity-70" aria-hidden />}
+          <span className={inline ? 'hidden sm:inline' : undefined}>מיון</span>
+        </label>
         <select
-          className="select text-xs py-1.5 px-2"
+          className={selectClass}
           aria-label="מיון"
           data-testid="sort-primary"
           value={value.primary}
@@ -64,10 +82,10 @@ export function ThenBySort<K extends string>({
         </select>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs text-[#7a89ab] font-medium">ואז</label>
+      <div className={inline ? 'flex items-center gap-1.5 min-w-0' : 'flex flex-col gap-1.5'}>
+        <label className="text-xs text-[#7a89ab] font-medium shrink-0">ואז</label>
         <select
-          className="select text-xs py-1.5 px-2"
+          className={selectClass}
           aria-label="מיון משני"
           data-testid="sort-then-by"
           value={value.thenBy}
@@ -89,7 +107,7 @@ export function ThenBySort<K extends string>({
       {showReset && onReset && (
         <button
           type="button"
-          className="btn btn-ghost text-xs py-1 px-2 mt-1"
+          className={`btn btn-ghost text-xs py-1 px-2 ${inline ? '' : 'mt-1'}`}
           onClick={onReset}
         >
           איפוס לברירת מחדל

@@ -17,10 +17,29 @@ export interface NotificationTypeDef {
   routable?: boolean
   /** Suggested agent for the UI picker (not auto-applied). */
   suggestedAgentId?: string
+  /**
+   * Agent that actually runs this event when the user has not routed it anywhere.
+   * Unlike `suggestedAgentId` this is applied, not just displayed — for events whose
+   * raw output is only useful with an agent's judgment. An explicit routing wins,
+   * and the caller's template remains the fallback if the agent run fails.
+   */
+  defaultAgentId?: string
+  /**
+   * Per-channel default when no preference row exists yet (e.g. a brand-new
+   * type). Missing entries default to `true` (existing behavior — every
+   * available channel on until the user changes it). Used for staged
+   * rollouts like tier1_qa_daily_update, which ships WhatsApp off until
+   * manually enabled. See docs/specs/tier1-qa-whatsapp-agent.md.
+   */
+  defaultChannels?: Partial<Record<NotificationChannel, boolean>>
 }
 
 const ALL_CHANNELS: NotificationChannel[] = ['whatsapp', 'push', 'telegram']
 const PUSH_ONLY: NotificationChannel[] = ['push']
+
+function defaultChannelValue(def: NotificationTypeDef | undefined, channel: NotificationChannel): boolean {
+  return def?.defaultChannels?.[channel] ?? true
+}
 
 /** Static catalog of every notification the system can emit. */
 export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
@@ -84,6 +103,18 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     schedulable: false,
   },
   {
+    id: 'harness_insight',
+    category: 'cron',
+    label: 'תובנות חוצות-תחומים',
+    description: 'קישורים שה-Harness מצא בין פגישות, וואטסאפ, התחייבויות ופיננסים — רק תובנות דחופות נשלחות',
+    availableChannels: ALL_CHANNELS,
+    schedulable: false,
+    routable: true,
+    // A list of detector output is facts without a recommendation, so this one runs
+    // through Hugo unless the user picks someone else.
+    defaultAgentId: '01_Hugo_orchestrator',
+  },
+  {
     id: 'agent_run',
     category: 'agent',
     label: 'סוכנים מתוזמנים',
@@ -123,6 +154,29 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     availableChannels: ALL_CHANNELS,
     schedulable: true,
     defaultTime: '20:30',
+  },
+  {
+    id: 'slack_fomo',
+    category: 'whatsapp',
+    label: 'FOMO בסלאק',
+    description: 'ריבוי הודעות בערוץ Slack בזמן קצר — פוש בלבד',
+    availableChannels: PUSH_ONLY,
+    schedulable: false,
+  },
+  {
+    id: 'tier1_qa_daily_update',
+    category: 'agent',
+    label: 'עדכון QA יומי — Tier 1',
+    description: 'עדכון בדיקות Tier 1 היומי (Notion) לדור ואור',
+    availableChannels: ALL_CHANNELS,
+    schedulable: true,
+    defaultTime: '07:00',
+    routable: true,
+    suggestedAgentId: '10_tier1_qa_reporter',
+    // Draft-mode rollout (docs/specs/tier1-qa-whatsapp-agent.md): visible via
+    // push/in-app only until Alpir reviews a few clean runs and flips this on
+    // in Settings — never auto-enabled just because a preference row is saved.
+    defaultChannels: { whatsapp: false },
   },
   {
     id: 'hugo_reply',
@@ -196,9 +250,9 @@ export async function resolveNotificationChannels(typeId: string): Promise<Resol
     if (!row) {
       return {
         enabled: true,
-        whatsapp: supports('whatsapp'),
-        push: supports('push'),
-        telegram: supports('telegram'),
+        whatsapp: supports('whatsapp') && defaultChannelValue(def, 'whatsapp'),
+        push: supports('push') && defaultChannelValue(def, 'push'),
+        telegram: supports('telegram') && defaultChannelValue(def, 'telegram'),
       }
     }
     return {
@@ -211,9 +265,9 @@ export async function resolveNotificationChannels(typeId: string): Promise<Resol
     console.warn('[notification-preferences] resolve failed, defaulting to all channels:', err)
     return {
       enabled: true,
-      whatsapp: supports('whatsapp'),
-      push: supports('push'),
-      telegram: supports('telegram'),
+      whatsapp: supports('whatsapp') && defaultChannelValue(def, 'whatsapp'),
+      push: supports('push') && defaultChannelValue(def, 'push'),
+      telegram: supports('telegram') && defaultChannelValue(def, 'telegram'),
     }
   }
 }
@@ -345,9 +399,15 @@ export async function listNotificationPreferences(): Promise<NotificationPrefIte
       ...def,
       enabled: row ? !!row.enabled : true,
       channels: {
-        whatsapp: def.availableChannels.includes('whatsapp') && (row ? !!row.channelWhatsapp : true),
-        push: def.availableChannels.includes('push') && (row ? !!row.channelPush : true),
-        telegram: def.availableChannels.includes('telegram') && (row ? !!row.channelTelegram : true),
+        whatsapp:
+          def.availableChannels.includes('whatsapp') &&
+          (row ? !!row.channelWhatsapp : defaultChannelValue(def, 'whatsapp')),
+        push:
+          def.availableChannels.includes('push') &&
+          (row ? !!row.channelPush : defaultChannelValue(def, 'push')),
+        telegram:
+          def.availableChannels.includes('telegram') &&
+          (row ? !!row.channelTelegram : defaultChannelValue(def, 'telegram')),
       },
       scheduleTimes:
         times.length > 0 ? times : def.defaultTime ? [def.defaultTime] : [],
@@ -402,9 +462,9 @@ export async function upsertNotificationPreference(
   const row = {
     typeId: input.typeId,
     enabled: input.enabled ?? (prev ? !!prev.enabled : true),
-    channelWhatsapp: input.channels?.whatsapp ?? (prev ? !!prev.channelWhatsapp : true),
-    channelPush: input.channels?.push ?? (prev ? !!prev.channelPush : true),
-    channelTelegram: input.channels?.telegram ?? (prev ? !!prev.channelTelegram : true),
+    channelWhatsapp: input.channels?.whatsapp ?? (prev ? !!prev.channelWhatsapp : defaultChannelValue(def, 'whatsapp')),
+    channelPush: input.channels?.push ?? (prev ? !!prev.channelPush : defaultChannelValue(def, 'push')),
+    channelTelegram: input.channels?.telegram ?? (prev ? !!prev.channelTelegram : defaultChannelValue(def, 'telegram')),
     scheduleTimes: scheduleTimes.length > 0 ? JSON.stringify(scheduleTimes) : null,
     lastSentAt: prev?.lastSentAt ?? null,
     agentId,

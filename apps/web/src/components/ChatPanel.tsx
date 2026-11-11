@@ -25,6 +25,9 @@ export function ChatPanel() {
   const [highlightOn, setHighlightOn] = useState(false)
   const linkedHandled = useRef(false)
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  // Auto-send focus prompt when arriving via /chat?prompt=focus
+  const [pendingFocusPrompt, setPendingFocusPrompt] = useState(false)
+  const focusHandled = useRef(false)
 
   const scrollToBottom = useCallback(() => {
     const list = messagesListRef.current
@@ -32,10 +35,15 @@ export function ChatPanel() {
   }, [])
 
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('message')?.trim()
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('message')?.trim()
     if (id) {
       setLinkedId(id)
       setHighlightOn(true)
+    }
+    if (params.get('prompt') === 'focus' && !focusHandled.current) {
+      setPendingFocusPrompt(true)
+      window.history.replaceState(null, '', '/chat')
     }
   }, [])
 
@@ -100,8 +108,17 @@ export function ChatPanel() {
     }
   }, [loading, loadHistory])
 
-  async function handleSend() {
-    const text = input.trim()
+  // Fire the focus prompt once history is loaded
+  useEffect(() => {
+    if (!pendingFocusPrompt || initialLoading || focusHandled.current) return
+    focusHandled.current = true
+    setPendingFocusPrompt(false)
+    void handleSend('סכם מה חשוב עכשיו, למה, ומה הצעד הבא')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFocusPrompt, initialLoading])
+
+  async function handleSend(textOverride?: string) {
+    const text = (textOverride ?? input).trim()
     if (!text || loading) return
 
     const tempUserMsg: ChatMessage = {
@@ -112,7 +129,7 @@ export function ChatPanel() {
       createdAt: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, tempUserMsg])
-    setInput('')
+    if (!textOverride) setInput('')
     setLoading(true)
 
     try {
@@ -205,7 +222,7 @@ export function ChatPanel() {
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap transition-shadow duration-300 ${
+              className={`max-w-[85%] sm:max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap wrap-anywhere transition-shadow duration-300 ${
                 msg.role === 'user'
                   ? 'bg-[#2dd4bf] text-[#0a1120] rounded-br-sm'
                   : msg.role === 'system'

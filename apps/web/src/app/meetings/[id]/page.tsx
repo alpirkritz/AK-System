@@ -1,15 +1,20 @@
 'use client'
 
+import { formatTimeRange } from '@/lib/clock-time'
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, DAYS_HE } from '@ak-system/types'
-import { WorkspacePill } from '@/components/WorkspacePill'
+import { WorldBadge } from '@/components/WorldBadge'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 import { SyncToast } from '@/components/SyncToast'
 import { notionPeopleSyncMessage } from '@/lib/notion-people-sync-message'
 import { ConversationAnalysis } from '../components/ConversationAnalysis'
+import { MeetingInsight } from '../components/MeetingInsight'
+import { MeetingAttendees } from '../components/MeetingAttendees'
 import { NotionSummaryCard } from '../components/NotionSummaryCard'
+import { CircleCard } from '../components/CircleCard'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -26,6 +31,7 @@ export default function MeetingDetailPage() {
   const { data: tasksList = [] } = trpc.tasks.list.useQuery()
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
+  const { data: prep } = trpc.meetings.getPrep.useQuery({ meetingId: id }, { enabled: !!id })
 
   type MeetingExtended = typeof meeting & {
     projectId?: string | null
@@ -53,8 +59,11 @@ export default function MeetingDetailPage() {
   const SOURCE_COLOR: Record<string, string> = { google: '#4285f4', apple: '#7a89ab' }
 
   function formatDuration(start: string, end: string): string {
-    const diffMs = new Date(end).getTime() - new Date(start).getTime()
+    // Manual meetings keep a bare "HH:MM" end — anchor it to the meeting date.
+    const endIso = end.includes('T') ? end : `${start.slice(0, 10)}T${end}`
+    const diffMs = new Date(endIso).getTime() - new Date(start).getTime()
     const mins = Math.round(diffMs / 60000)
+    if (!Number.isFinite(mins) || mins <= 0) return ''
     if (mins < 60) return `${mins} דק׳`
     const h = Math.floor(mins / 60)
     const m = mins % 60
@@ -62,6 +71,12 @@ export default function MeetingDetailPage() {
   }
 
   const utils = trpc.useUtils()
+  const setWorkspace = trpc.meetings.setWorkspace.useMutation({
+    onSuccess: () => {
+      utils.meetings.getById.invalidate({ id })
+      utils.meetings.list.invalidate()
+    },
+  })
 
   const toggleTask = trpc.tasks.toggleDone.useMutation({
     onSuccess: () => utils.tasks.list.invalidate(),
@@ -110,6 +125,20 @@ export default function MeetingDetailPage() {
   // Copy-summary feedback
   const [copied, setCopied] = useState(false)
 
+  // Attach-to-calendar state (for voice/notion/manual meetings)
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false)
+  const nonCalendarSource = mx?.source && mx.source !== 'calendar'
+  const calendarOnDateQuery = trpc.meetings.calendarOnDate.useQuery(
+    { date: meeting?.date ?? '' },
+    { enabled: Boolean(calendarPickerOpen && meeting?.date) },
+  )
+  const calendarMeetings = calendarOnDateQuery.data?.meetings ?? []
+  const attachToCalendar = trpc.meetings.attachToCalendar.useMutation({
+    onSuccess: (res) => {
+      router.push(`/meetings/${res.calendarMeetingId}`)
+    },
+  })
+
   useEffect(() => {
     if (!moreOpen) return
     function handler(e: MouseEvent) {
@@ -120,7 +149,6 @@ export default function MeetingDetailPage() {
   }, [moreOpen])
 
   const getPerson = (pid: string) => people.find((p) => p.id === pid)
-  const getWorkspace = (wid?: string | null) => (wid ? workspaces.find((w) => w.id === wid) : undefined)
   const tasks = tasksList.filter((t) => t.meetingId === id)
 
   if (isLoading || !meeting) {
@@ -208,16 +236,20 @@ export default function MeetingDetailPage() {
   return (
     <div>
       {/* ── Action bar ─────────────────────────────────────────────────────── */}
-      <div className="flex gap-2 items-center mb-7 flex-wrap">
-        <Link href="/meetings" className="btn btn-ghost">← חזרה</Link>
-        <button className="btn btn-ghost" onClick={() => setMeetingModalOpen(true)}>✏ ערוך</button>
-        <button className="btn btn-ghost" onClick={copySummary} title="העתק סיכום ללוח">
+      {/* One scrolling strip on phones (back + primary stay in reach), wraps on wide screens */}
+      <div className="flex items-start gap-2 mb-5 md:mb-7">
+      <div className="scroll-row md-wrap gap-2 items-center flex-1 min-w-0">
+        <Link href="/meetings" className="btn btn-ghost whitespace-nowrap" aria-label="חזרה לפגישות">← <span className="hidden sm:inline">חזרה</span></Link>
+        <button className="btn btn-primary whitespace-nowrap" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
+        <button className="btn btn-ghost whitespace-nowrap" onClick={() => setMeetingModalOpen(true)}>✏ ערוך</button>
+        <button className="btn btn-ghost whitespace-nowrap" onClick={copySummary} title="העתק סיכום ללוח">
           {copied ? '✓ הועתק' : '📋 צור סיכום'}
         </button>
-        <button className="btn btn-primary" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
+        <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost whitespace-nowrap">🎙 הקלט פגישה</Link>
+      </div>
 
-        {/* More menu — follow-up + delete */}
-        <div className="relative" ref={moreRef}>
+        {/* More menu — follow-up + delete (outside the scroll strip so the dropdown is never clipped) */}
+        <div className="relative shrink-0" ref={moreRef}>
           <button
             className="btn btn-ghost px-2.5"
             onClick={() => setMoreOpen((v) => !v)}
@@ -256,7 +288,7 @@ export default function MeetingDetailPage() {
 
       {/* ── Title + badges ─────────────────────────────────────────────────── */}
       <div className="flex gap-2 items-center mb-1.5 flex-wrap">
-        <h1 className="text-[26px] font-bold tracking-tight">{meeting.title}</h1>
+        <h1 className="text-[22px] sm:text-[26px] font-bold tracking-tight min-w-0 break-words">{meeting.title}</h1>
         {meeting.recurring && (
           <span className="pill">↻ {DAYS_HE[meeting.recurrenceDay ?? ''] ?? 'שבועי'}</span>
         )}
@@ -331,104 +363,97 @@ export default function MeetingDetailPage() {
             + שייך לפרויקט
           </button>
         )}
+
+        <div className="min-w-[180px]">
+          <label className="label" htmlFor="meeting-world">עולם</label>
+          <WorkspacePicker
+            id="meeting-world"
+            value={meeting.workspaceId ?? ''}
+            disabled={setWorkspace.isPending}
+            onChange={(workspaceId) => setWorkspace.mutate({ meetingId: id, workspaceId: workspaceId || null })}
+          />
+          {setWorkspace.error && (
+            <p className="mt-1 text-[11px] text-red-400">{setWorkspace.error.message}</p>
+          )}
+        </div>
+
+        {/* Attach to calendar event — shown for voice/notion/manual meetings */}
+        {nonCalendarSource && (
+          <div className="relative">
+            <button
+              className="text-[11px] text-[#435a8c] hover:text-[#6f7ea0] transition-colors border border-dashed rounded-full px-2.5 py-0.5"
+              style={{ borderColor: '#2e2e2e' }}
+              onClick={() => setCalendarPickerOpen((v) => !v)}
+              title="שייך לאירוע ביומן"
+              data-testid="attach-to-calendar-btn"
+            >
+              📅 שייך לאירוע ביומן
+            </button>
+            {calendarPickerOpen && (
+              <div
+                className="absolute top-full mt-1.5 z-50 rounded-xl overflow-hidden shadow-2xl"
+                style={{ minWidth: 240, background: '#141f36', border: '1px solid #29395d' }}
+                data-testid="attach-to-calendar-picker"
+              >
+                <div className="px-3 py-2.5 text-xs font-semibold text-[#b8c4dc]">פגישות יומן — {meeting.date}</div>
+                {calendarOnDateQuery.isPending ? (
+                  <div className="px-3 py-3 text-xs text-[#5a688c]">טוען…</div>
+                ) : calendarMeetings.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-[#5a688c]">אין פגישות יומן בתאריך זה</div>
+                ) : (
+                  calendarMeetings.map((cm) => (
+                    <button
+                      key={cm.id}
+                      type="button"
+                      className="flex items-center gap-2 w-full px-3 py-2 hover:bg-[#1e1e1e] text-right text-xs transition-colors"
+                      disabled={attachToCalendar.isPending}
+                      onClick={() => attachToCalendar.mutate({ meetingId: id, calendarMeetingId: cm.id })}
+                    >
+                      <span className="tabular-nums text-[#5a688c] shrink-0">{formatTimeRange(cm.time, cm.endTime)}</span>
+                      <span className="text-[#b8c4dc] truncate">{cm.title}</span>
+                    </button>
+                  ))
+                )}
+                <div className="border-t border-[#29395d] px-3 py-2">
+                  <button
+                    type="button"
+                    className="text-[11px] text-[#5a688c] hover:text-[#97a4c2]"
+                    onClick={() => setCalendarPickerOpen(false)}
+                  >
+                    סגור
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Two-column body ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-        {/* Left: Attendees + Notes */}
+        {/* Left: Prep + Attendees + Notes */}
         <div>
-          <div className="card">
-            <div className="text-xs font-semibold text-[#5a688c] mb-3 uppercase tracking-wider">משתתפים</div>
-            
-            {/* Quick Add Tags */}
-            {(() => {
-              // Extract unique tags from all people
-              const allTags = new Set<string>()
-              people.forEach((p) => {
-                if (p.tags) {
-                  p.tags.split(',').forEach((tag) => {
-                    const trimmed = tag.trim()
-                    if (trimmed) allTags.add(trimmed)
-                  })
-                }
-              })
-              
-              if (allTags.size > 0) {
-                return (
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {[...allTags].map((tag) => {
-                      // Count people with this tag
-                      const taggedPeople = people.filter((p) =>
-                        p.tags?.split(',').some((t) => t.trim() === tag)
-                      )
-                      const count = taggedPeople.length
-                      
-                      return (
-                        <button
-                          key={tag}
-                          onClick={() => {
-                            // Add all people with this tag to the meeting
-                            const newPeopleIds = [...peopleIds]
-                            taggedPeople.forEach((p) => {
-                              if (!newPeopleIds.includes(p.id)) {
-                                newPeopleIds.push(p.id)
-                              }
-                            })
-                            if (newPeopleIds.length > peopleIds.length) {
-                              updateMeeting.mutate({
-                                id,
-                                title: meeting.title,
-                                date: meeting.date,
-                                time: meeting.time ?? '',
-                                category: meeting.category,
-                                recurring: meeting.recurring,
-                                recurrenceDay: meeting.recurrenceDay,
-                                notes: meeting.notes ?? '',
-                                projectId: meeting.projectId,
-                                typeId: meeting.typeId,
-                                peopleIds: JSON.stringify(newPeopleIds),
-                              })
-                            }
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:border-teal-500/50 rounded-lg text-xs font-medium transition-all"
-                        >
-                          + {tag}
-                          <span className="text-[10px] opacity-70">({count})</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )
-              }
-              return null
-            })()}
-            
-            {peopleIds.map((pid) => {
-              const p = getPerson(pid)
-              return p ? (
-                <div key={pid} className="flex gap-2.5 items-center mb-2.5">
-                  <div
-                    className="avatar w-[34px] h-[34px] text-[13px] border-[1.5px]"
-                    style={{
-                      background: (p.color ?? '#2dd4bf') + '22',
-                      color: p.color ?? '#2dd4bf',
-                      borderColor: (p.color ?? '#2dd4bf') + '33',
-                    }}
-                  >
-                    {p.name[0]}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{p.name}</div>
-                    <div className="text-[11px] text-[#5a688c]">{p.role}</div>
-                  </div>
+          {prep && (
+            <div className="card mb-4" data-testid="meeting-prep">
+              <div className="flex justify-between items-center gap-2 mb-2.5 flex-wrap">
+                <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">הכנה לפגישה</div>
+                <div className="flex items-center gap-2">
+                  <span className="pill text-[10px]">🤖 {prep.source === 'agent' ? 'הרלד' : 'תבנית'}</span>
+                  <span className="text-[11px] text-[#5a688c] tabular-nums">
+                    {new Date(prep.updatedAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
                 </div>
-              ) : null
-            })}
-          </div>
+              </div>
+              <div className="text-sm text-[#97a4c2] leading-relaxed whitespace-pre-wrap">{prep.bodyText}</div>
+            </div>
+          )}
+
+          <MeetingAttendees meetingId={id} people={people} peopleIds={peopleIds} />
 
           {/* Conversation Analysis */}
           <div className="mt-4">
+            <MeetingInsight meetingId={id} />
             <ConversationAnalysis meetingId={id} />
           </div>
 
@@ -565,7 +590,7 @@ onClick={() => {
                     </span>
                   )}
                 </div>
-                <WorkspacePill workspace={getWorkspace((t as { workspaceId?: string | null }).workspaceId)} />
+                <WorldBadge workspaceId={(t as { workspaceId?: string | null }).workspaceId} />
                 <div
                   className="dot"
                   style={{ color: PRIORITY_COLORS[t.priority as keyof typeof PRIORITY_COLORS] }}
@@ -607,6 +632,8 @@ onClick={() => {
           </div>
         </div>
       </div>
+
+      {series && <CircleCard seriesId={series.id} meetingId={id} />}
 
       {/* ── Series card — shared notes + sibling instances ─────────────────── */}
       {series && (

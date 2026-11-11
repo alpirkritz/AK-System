@@ -13,6 +13,54 @@ const SCHEMA_TTL_MS = 5 * 60 * 1000
 /** Names task databases give the relation that points at a directory of people. */
 export const PEOPLE_RELATION_NAME = /people|person|אנשים|אנשי\s*קשר/i
 
+/**
+ * People-property names that mean "who owns the task". First match wins, so Assignee
+ * beats Owner when a database has both. Reporter, QA, and reviewer fields do not match.
+ */
+const ASSIGNEE_PEOPLE_PROPERTY_RANK = [
+  /assignee/i,
+  /assigned/i,
+  /\bassign\b/i,
+  /owner|אחראי|אחראית|בעלים|משויך/i,
+  /responsible/i,
+]
+
+function firstRankedPropertyName(names: string[]): string | null {
+  for (const pattern of ASSIGNEE_PEOPLE_PROPERTY_RANK) {
+    const hit = names.find((name) => pattern.test(name))
+    if (hit) return hit
+  }
+  return null
+}
+
+export function bestAssigneePeoplePropertyName(
+  properties: Record<string, { type?: string } | undefined>,
+): string | null {
+  const peopleNames = Object.entries(properties)
+    .filter(([, prop]) => prop?.type === 'people')
+    .map(([name]) => name)
+  return firstRankedPropertyName(peopleNames)
+}
+
+/** Relation column that means "who owns the task" (Assignee / אחראי pointing at a people directory). */
+export function bestAssigneeRelationPropertyName(
+  properties: Record<string, { type?: string } | undefined>,
+): string | null {
+  const relationNames = Object.entries(properties)
+    .filter(([, prop]) => prop?.type === 'relation')
+    .map(([name]) => name)
+  return firstRankedPropertyName(relationNames)
+}
+
+/** Property write-back should fill. A named assignee field wins; otherwise the only/first people field. */
+export function pickAssigneePeoplePropertyName(
+  properties: Record<string, { type?: string } | undefined>,
+): string | null {
+  const named = bestAssigneePeoplePropertyName(properties)
+  if (named) return named
+  return Object.entries(properties).find(([, prop]) => prop?.type === 'people')?.[0] ?? null
+}
+
 export interface PeopleRelationInfo {
   propertyName: string
   targetDatabaseId: string
@@ -42,6 +90,34 @@ export function sameNotionId(a: string, b: string): boolean {
  * otherwise the property name has to say so. Relations back into the task database itself (sub-tasks,
  * parent task, blockers) are never candidates.
  */
+/**
+ * Every relation that points at a directory of people. Adding another people database must
+ * not hide an Assignee relation that points at a different directory — the first configured
+ * target is not the only one worth indexing.
+ */
+export function listPeopleRelations(
+  properties: Record<string, { type?: string; relation?: { database_id?: string } }>,
+  taskDatabaseId: string,
+  configuredPeopleDatabaseIds: string[],
+): PeopleRelationInfo[] {
+  const out: PeopleRelationInfo[] = []
+  const seen = new Set<string>()
+  for (const [propertyName, p] of Object.entries(properties)) {
+    if (p?.type !== 'relation') continue
+    const targetDatabaseId = p.relation?.database_id
+    if (!targetDatabaseId || sameNotionId(targetDatabaseId, taskDatabaseId)) continue
+    const configured = configuredPeopleDatabaseIds.some((id) => sameNotionId(id, targetDatabaseId))
+    const named =
+      PEOPLE_RELATION_NAME.test(propertyName) || firstRankedPropertyName([propertyName]) !== null
+    if (!configured && !named) continue
+    const key = targetDatabaseId.replace(/-/g, '')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ propertyName, targetDatabaseId })
+  }
+  return out
+}
+
 export function findPeopleRelation(
   properties: Record<string, { type?: string; relation?: { database_id?: string } }>,
   taskDatabaseId: string,
@@ -83,6 +159,37 @@ export async function fetchDatabaseProperties(
     properties?: Record<string, { type?: string; relation?: { database_id?: string } }>
   }
   return data.properties ?? {}
+}
+
+export interface NotionDatabaseInfo {
+  title: string
+  properties: Record<string, { type?: string; relation?: { database_id?: string } }>
+}
+
+/**
+ * GET one database's title + properties. Used to validate/preview a pasted Notion database
+ * link before registering it as a people source (see `notion-people-source-manager` spec).
+ * A non-2xx response (404/403 both look the same from Notion) means either the id is wrong
+ * or the integration behind `token` hasn't been shared into that database — the caller decides
+ * how to phrase that to the user.
+ */
+export async function fetchDatabaseInfo(token: string, databaseId: string): Promise<NotionDatabaseInfo> {
+  const res = await fetch(`https://api.notion.com/v1/databases/${databaseId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Notion-Version': NOTION_VERSION,
+    },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Notion API ${res.status}: ${body.slice(0, 200)}`)
+  }
+  const data = (await res.json()) as {
+    title?: Array<{ plain_text?: string }>
+    properties?: Record<string, { type?: string; relation?: { database_id?: string } }>
+  }
+  const title = (data.title ?? []).map((t) => t.plain_text ?? '').join('').trim()
+  return { title, properties: data.properties ?? {} }
 }
 
 /**

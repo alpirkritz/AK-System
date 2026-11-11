@@ -9,7 +9,7 @@ import { sendMobilePush } from './mobile-push'
 import { createNotification } from './notification-store'
 import { withChatMessageId } from './notification-url'
 import { chatMessages, getDb, desc, eq, whatsappGroups } from '@ak-system/database'
-import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs, formatQuietDayGroupMessage, QUIET_DAY_BODY } from '@ak-system/api'
+import { resolveNotificationChannels, getDefaultTimezone, normalizeWhatsappTs, formatQuietDayGroupMessage, QUIET_DAY_BODY, ownerIdentityPrompt } from '@ak-system/api'
 
 function normalizeEchoText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
@@ -178,9 +178,9 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
         const pushTitle = await resolveAgentDisplayName(HUGO_AGENT_ID)
         const pushBody = pushExcerpt(result.text)
         const url = withChatMessageId('/chat', messageId)
-        await createNotification({ title: pushTitle, body: result.text, url, type: 'hugo' })
-        await sendBrowserPush(pushTitle, pushBody, url)
-        await sendMobilePush(pushTitle, pushBody, url)
+        const notificationId = await createNotification({ title: pushTitle, body: result.text, url, type: 'hugo' })
+        await sendBrowserPush(pushTitle, pushBody, url, { notificationId })
+        await sendMobilePush(pushTitle, pushBody, url, { notificationId })
       }
     } catch (err) {
       console.warn('[WhatsAppBot] Push failed:', err)
@@ -227,6 +227,7 @@ export async function summarizeFomoMessages(
   })
 
   const prompt = [
+    ownerIdentityPrompt(),
     `You are summarizing a burst of WhatsApp activity in group "${groupName}" for a personal FOMO alert.`,
     'Respond in Hebrew unless most messages are in English.',
     'Format exactly like this (no extra headings):',

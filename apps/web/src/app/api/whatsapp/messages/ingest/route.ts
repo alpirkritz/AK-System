@@ -9,12 +9,16 @@ interface IngestMessage {
   senderName: string
   text: string
   timestamp: number
+  /** Set by the bridge for messages that arrived in a history sync rather than live. */
+  historySync?: boolean
 }
 
 /**
  * POST /api/whatsapp/messages/ingest — persist watched-group messages for insights.
  * Called by the whatsapp-bridge flush loop. Stores only for `enabled` groups,
  * normalizes timestamps to ms, and dedupes by (group_jid, wa_message_id).
+ * Pure persistence — no replies and no notifications, so history-sync messages
+ * (`historySync: true`) take the same path as live ones.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!verifyWhatsAppBridgeAuth(request)) {

@@ -8,17 +8,23 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router'
 import { FormSheetScaffold } from '../../components/FormSheetScaffold'
+import { ProjectVibeCard } from '../../components/ProjectVibeCard'
 import { useAuth } from '../../lib/auth'
 import {
   deleteProject,
   fetchProject,
+  fetchProjectRelated,
   fetchTasks,
   toggleTaskDone,
   updateProject,
+  writeProjectStanding,
+  type MobileProjectStanding,
+  type MobileProjectWarmth,
   type MobileTask,
 } from '../../lib/data'
+import { groupTasksByDueState, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
 import { colors } from '../../lib/theme'
 
 export default function ProjectDetailScreen() {
@@ -33,15 +39,20 @@ export default function ProjectDetailScreen() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [tasks, setTasks] = useState<MobileTask[]>([])
+  const [warmth, setWarmth] = useState<MobileProjectWarmth | null>(null)
+  const [standing, setStanding] = useState<MobileProjectStanding | null>(null)
+  const [writingBrief, setWritingBrief] = useState(false)
+  const [briefError, setBriefError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token || !id) return
     setLoading(true)
     setError(null)
     try {
-      const [project, allTasks] = await Promise.all([
+      const [project, allTasks, related] = await Promise.all([
         fetchProject(token, id),
         fetchTasks(token),
+        fetchProjectRelated(token, id).catch(() => null),
       ])
       if (!project) {
         setError('הפרויקט לא נמצא')
@@ -50,6 +61,8 @@ export default function ProjectDetailScreen() {
       setName(project.name)
       setDescription(project.description ?? '')
       setTasks(allTasks.filter((t) => t.projectId === id))
+      setWarmth(related?.warmth ?? null)
+      setStanding(related?.standing ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'טעינה נכשלה')
     } finally {
@@ -61,7 +74,28 @@ export default function ProjectDetailScreen() {
     void load()
   }, [load])
 
-  const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
+  const taskGroups = useMemo(
+    () => groupTasksByDueState(sortTasksByPriorityThenDue(tasks)),
+    [tasks],
+  )
+  const openCount = useMemo(
+    () => taskGroups.filter((group) => group.key === 'overdue' || group.key === 'upcoming').reduce((sum, group) => sum + group.tasks.length, 0),
+    [taskGroups],
+  )
+
+  const onWriteBrief = async () => {
+    if (!token || !id || writingBrief) return
+    setWritingBrief(true)
+    setBriefError(null)
+    try {
+      const next = await writeProjectStanding(token, id)
+      setStanding(next)
+    } catch (err) {
+      setBriefError(err instanceof Error ? err.message : 'כתיבת התמצית נכשלה. אפשר לנסות שוב.')
+    } finally {
+      setWritingBrief(false)
+    }
+  }
 
   const onSave = async () => {
     if (!token || !id) return
@@ -147,6 +181,15 @@ export default function ProjectDetailScreen() {
     >
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      <ProjectVibeCard
+        warmth={warmth}
+        standing={standing}
+        writing={writingBrief}
+        writeError={briefError}
+        onWrite={() => void onWriteBrief()}
+        onOpenMeeting={(meetingId) => router.push(`/meeting/${meetingId}` as Href)}
+      />
+
       <Text style={styles.label}>שם</Text>
       <TextInput
         value={name}
@@ -169,22 +212,27 @@ export default function ProjectDetailScreen() {
       />
 
       <Text style={styles.sectionTitle}>
-        משימות ({openTasks.length} פתוחות)
+        משימות ({openCount} פתוחות)
       </Text>
       {tasks.length === 0 ? (
         <Text style={styles.emptyTasks}>אין משימות בפרויקט</Text>
       ) : (
-        tasks.map((task) => (
-          <View key={task.id} style={styles.taskRow}>
-            <Pressable
-              onPress={() => void onToggleTask(task.id)}
-              style={[styles.checkbox, task.done && styles.checkboxDone]}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: task.done }}
-            >
-              {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
-            </Pressable>
-            <Text style={[styles.taskTitle, task.done && styles.taskDone]}>{task.title}</Text>
+        taskGroups.map((group) => (
+          <View key={group.key}>
+            <Text style={styles.groupLabel}>{group.label}</Text>
+            {group.tasks.map((task) => (
+              <View key={task.id} style={styles.taskRow}>
+                <Pressable
+                  onPress={() => void onToggleTask(task.id)}
+                  style={[styles.checkbox, task.done && styles.checkboxDone]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: task.done }}
+                >
+                  {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
+                </Pressable>
+                <Text style={[styles.taskTitle, task.done && styles.taskDone]}>{task.title}</Text>
+              </View>
+            ))}
           </View>
         ))
       )}
@@ -218,6 +266,14 @@ const styles = StyleSheet.create({
   },
   inputRtl: { writingDirection: 'rtl' },
   multiline: { minHeight: 80, textAlignVertical: 'top' },
+  groupLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 10,
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 15,

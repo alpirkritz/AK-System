@@ -228,6 +228,43 @@ describe('agents router', () => {
     expect(at9.agents.map((a) => a.agentId)).toEqual(['07_email_assistant'])
   })
 
+  it('setSchedule persists scheduleDayOffsets and returns them on list', async () => {
+    const caller = await createTestCaller()
+    await caller.agents.setSchedule({
+      agentId: '06_calendar_optimizer',
+      enabled: true,
+      scheduleTimes: ['07:00', '20:00'],
+      scheduleDayOffsets: { '20:00': 1 },
+    })
+
+    const { agents } = await caller.agents.list()
+    const optimizer = agents.find((a) => a.agentId === '06_calendar_optimizer')
+    expect(optimizer).toBeDefined()
+    expect(optimizer?.scheduleDayOffsets).toEqual({ '20:00': 1 })
+    // 07:00 has no offset entry — treated as today (0)
+    expect(optimizer?.scheduleDayOffsets['07:00']).toBeUndefined()
+  })
+
+  it('setSchedule drops scheduleDayOffsets entries for removed times', async () => {
+    const caller = await createTestCaller()
+    await caller.agents.setSchedule({
+      agentId: '06_calendar_optimizer',
+      enabled: true,
+      scheduleTimes: ['07:00', '20:00'],
+      scheduleDayOffsets: { '20:00': 1 },
+    })
+    // Remove 20:00 from the schedule
+    await caller.agents.setSchedule({
+      agentId: '06_calendar_optimizer',
+      enabled: true,
+      scheduleTimes: ['07:00'],
+    })
+
+    const { agents } = await caller.agents.list()
+    const optimizer = agents.find((a) => a.agentId === '06_calendar_optimizer')
+    expect(optimizer?.scheduleDayOffsets).toEqual({})
+  })
+
   it('list requires auth', async () => {
     const caller = await createUnauthCaller()
     await expect(caller.agents.list()).rejects.toThrow()

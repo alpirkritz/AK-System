@@ -1,34 +1,57 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { clockFromTime } from '@/lib/clock-time'
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import dynamic from 'next/dynamic'
 const MeetingModal = dynamic(() => import('@/components/Modals/MeetingModal').then((m) => m.MeetingModal), { ssr: false })
 import { LS } from '@/lib/ls-keys'
 
 // New components
+import { FilteredWorldChip } from '@/components/WorldSwitcher'
+import { UnassignedHeading } from '@/components/WorldBadge'
+import { useWorldFilter } from '@/lib/world-filter'
 import { SearchInput } from './components/SearchInput'
 import { QuickFilterButton } from './components/QuickFilterButton'
+import { ReorderableBlocks } from '@/components/layout/ReorderableBlocks'
 import { TimelineSection } from './components/TimelineSection'
 import { MeetingCard, type MeetingCardData } from './components/MeetingCard'
 import { AdvancedFiltersPanel } from './components/AdvancedFiltersPanel'
 
 // Helpers
-import { groupMeetingsByTime, getTodayMeetings, getThisWeekMeetings } from './lib/temporal-grouping'
+import { groupMeetingsByTime, getTodayMeetings, getThisWeekMeetings, groupPastMeetingsByTime } from './lib/temporal-grouping'
 import { searchMeetings } from './lib/search'
 
 type MeetingRow = MeetingCardData
 
-function isPastMeeting(date: string, time: string): boolean {
-  const [h = 0, min = 0] = (time ?? '00:00').split(':').map(Number)
+function isPastMeeting(date: string, time: string, endTime?: string | null): boolean {
+  // A meeting is past only once its end time has passed.
+  // If endTime is missing fall back to start time + 1 hour so a meeting-in-progress stays "upcoming".
+  const [sh = 0, sm = 0] = (time ?? '00:00').split(':').map(Number)
+  let endH = sh, endM = sm
+  const endClock = clockFromTime(endTime)
+  if (endClock) {
+    // Calendar sync stores endTime as a full ISO string; normalise before splitting,
+    // otherwise NaN hours made every synced meeting "upcoming" forever.
+    const [eh = 0, em = 0] = endClock.split(':').map(Number)
+    endH = eh; endM = em
+  } else {
+    // no endTime — treat as 1-hour meeting so it stays upcoming while it's running
+    endH = sh + 1; endM = sm
+  }
   const dt = new Date(date + 'T00:00:00')
-  dt.setHours(h, min, 0, 0)
+  dt.setHours(endH, endM, 0, 0)
   return dt < new Date()
 }
 
 export default function MeetingsPage() {
   // Data queries
-  const { data: meetings = [], isLoading: meetingsLoading } = trpc.meetings.list.useQuery()
+  const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
+  const { data: meetings = [], isLoading: meetingsLoading } = trpc.meetings.list.useQuery(
+    worldFilter ? { workspaceId: worldFilter } : undefined,
+    { enabled: worldReady },
+  )
   const { data: people = [] } = trpc.people.list.useQuery()
   const { data: projects = [] } = trpc.projects.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
@@ -194,27 +217,30 @@ export default function MeetingsPage() {
   const getPerson = (id: string) => peopleMap.get(id)
   const typesMap = useMemo(() => new Map(meetingTypes.map((t) => [t.id, t])), [meetingTypes])
 
+  const scopedMeetings = worldFilter ? meetings.filter((m) => m.workspaceId) : meetings
+  const unassignedMeetings = worldFilter ? meetings.filter((m) => !m.workspaceId) : []
+
   // Split meetings into upcoming/past/needsDate
   const { upcomingMeetings, pastMeetings, needsDateMeetings } = useMemo(() => {
-    const needsDate = meetings.filter((m) => m.date === '9999-12-31')
-    const withDate = meetings.filter((m) => m.date !== '9999-12-31')
+    const needsDate = scopedMeetings.filter((m) => m.date === '9999-12-31')
+    const withDate = scopedMeetings.filter((m) => m.date !== '9999-12-31')
     
     const upcoming = withDate
-      .filter((m) => !isPastMeeting(m.date, m.time))
+      .filter((m) => !isPastMeeting(m.date, m.time, m.endTime))
       .sort((a, b) => {
         const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
         const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
         return da - db
       })
     const past = withDate
-      .filter((m) => isPastMeeting(m.date, m.time))
+      .filter((m) => isPastMeeting(m.date, m.time, m.endTime))
       .sort((a, b) => {
         const da = new Date(a.date + 'T' + (a.time || '00:00')).getTime()
         const db = new Date(b.date + 'T' + (b.time || '00:00')).getTime()
         return db - da // most recent first
       })
     return { upcomingMeetings: upcoming, pastMeetings: past, needsDateMeetings: needsDate }
-  }, [meetings])
+  }, [scopedMeetings])
 
   // Apply search + filters
   const filteredUpcoming = useMemo(() => {
@@ -257,6 +283,7 @@ export default function MeetingsPage() {
 
   // Temporal grouping
   const grouped = useMemo(() => groupMeetingsByTime(filteredUpcoming), [filteredUpcoming])
+  const groupedPast = useMemo(() => groupPastMeetingsByTime(pastMeetings), [pastMeetings])
 
   const handleApplyAdvancedFilters = useCallback((filters: typeof advancedFilters) => {
     setAdvancedFilters(filters)
@@ -270,8 +297,11 @@ export default function MeetingsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      <Suspense fallback={null}>
+        <OpenNewMeeting onOpen={() => { setEditingId(null); setModalOpen(true) }} />
+      </Suspense>
       {/* Header */}
-      <div className="flex justify-between items-center mb-7">
+      <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold tracking-tight">פגישות</h1>
         <div className="flex gap-2 items-center">
           {notionSyncMessage && (
@@ -415,6 +445,8 @@ export default function MeetingsPage() {
         </div>
       </div>
 
+      <FilteredWorldChip />
+
       {/* Search + Quick Filters */}
       <div className="flex gap-2 mb-4 items-center flex-wrap">
         <SearchInput
@@ -515,7 +547,12 @@ export default function MeetingsPage() {
             </div>
           )}
 
-          <TimelineSection title="היום" count={grouped.today.length} defaultExpanded={true}>
+          <ReorderableBlocks
+  screen="meetings"
+  tightGap
+  blocks={[
+    { id: 'today', label: 'היום', node: (state) => (
+      <TimelineSection title="היום" count={grouped.today.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
             {grouped.today.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -529,8 +566,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="מחר" count={grouped.tomorrow.length} defaultExpanded={true}>
+    ) },
+    { id: 'tomorrow', label: 'מחר', node: (state) => (
+      <TimelineSection title="מחר" count={grouped.tomorrow.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
             {grouped.tomorrow.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -544,8 +582,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="השבוע" count={grouped.thisWeek.length} defaultExpanded={grouped.thisWeek.length <= 5}>
+    ) },
+    { id: 'thisWeek', label: 'השבוע', node: (state) => (
+      <TimelineSection title="השבוע" count={grouped.thisWeek.length} defaultExpanded={grouped.thisWeek.length <= 5} expanded={state.open} onToggle={state.onToggle}>
             {grouped.thisWeek.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -559,8 +598,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="שבוע הבא" count={grouped.nextWeek.length} defaultExpanded={false}>
+    ) },
+    { id: 'nextWeek', label: 'שבוע הבא', node: (state) => (
+      <TimelineSection title="שבוע הבא" count={grouped.nextWeek.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
             {grouped.nextWeek.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -574,8 +614,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
-
-          <TimelineSection title="מאוחר יותר" count={grouped.later.length} defaultExpanded={false}>
+    ) },
+    { id: 'later', label: 'מאוחר יותר', node: (state) => (
+      <TimelineSection title="מאוחר יותר" count={grouped.later.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
             {grouped.later.map((m) => (
               <MeetingCard
                 key={m.id}
@@ -589,6 +630,9 @@ export default function MeetingsPage() {
               />
             ))}
           </TimelineSection>
+    ) },
+  ]}
+/>
         </>
       )}
 
@@ -600,21 +644,82 @@ export default function MeetingsPage() {
               <p className="text-[#5a688c] text-sm">אין פגישות קודמות</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {pastMeetings.map((m) => (
-                <MeetingCard
-                  key={m.id}
-                  meeting={m}
-                  importance="normal"
-                  past={true}
-                  projects={projects}
-                  meetingTypes={typesMap}
-                  getPerson={getPerson}
-                  onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
-                  onDelete={() => deleteMeeting.mutate({ id: m.id })}
-                />
-              ))}
-            </div>
+            <>
+              <ReorderableBlocks
+  screen="meetings"
+  tightGap
+  blocks={[
+    { id: 'p-yesterday', label: 'אתמול', node: (state) => (
+      <TimelineSection title="אתמול" count={groupedPast.yesterday.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
+                {groupedPast.yesterday.map((m) => (
+                  <MeetingCard
+                    key={m.id}
+                    meeting={m}
+                    importance="normal"
+                    past={true}
+                    projects={projects}
+                    meetingTypes={typesMap}
+                    getPerson={getPerson}
+                    onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                    onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                  />
+                ))}
+              </TimelineSection>
+    ) },
+    { id: 'p-thisWeek', label: 'השבוע', node: (state) => (
+      <TimelineSection title="השבוע" count={groupedPast.thisWeek.length} defaultExpanded={true} expanded={state.open} onToggle={state.onToggle}>
+                {groupedPast.thisWeek.map((m) => (
+                  <MeetingCard
+                    key={m.id}
+                    meeting={m}
+                    importance="normal"
+                    past={true}
+                    projects={projects}
+                    meetingTypes={typesMap}
+                    getPerson={getPerson}
+                    onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                    onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                  />
+                ))}
+              </TimelineSection>
+    ) },
+    { id: 'p-thisMonth', label: 'החודש', node: (state) => (
+      <TimelineSection title="החודש" count={groupedPast.thisMonth.length} defaultExpanded={groupedPast.thisMonth.length <= 5} expanded={state.open} onToggle={state.onToggle}>
+                {groupedPast.thisMonth.map((m) => (
+                  <MeetingCard
+                    key={m.id}
+                    meeting={m}
+                    importance="normal"
+                    past={true}
+                    projects={projects}
+                    meetingTypes={typesMap}
+                    getPerson={getPerson}
+                    onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                    onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                  />
+                ))}
+              </TimelineSection>
+    ) },
+    { id: 'p-older', label: 'מוקדם יותר', node: (state) => (
+      <TimelineSection title="מוקדם יותר" count={groupedPast.older.length} defaultExpanded={false} expanded={state.open} onToggle={state.onToggle}>
+                {groupedPast.older.map((m) => (
+                  <MeetingCard
+                    key={m.id}
+                    meeting={m}
+                    importance="compact"
+                    past={true}
+                    projects={projects}
+                    meetingTypes={typesMap}
+                    getPerson={getPerson}
+                    onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                    onDelete={() => deleteMeeting.mutate({ id: m.id })}
+                  />
+                ))}
+              </TimelineSection>
+    ) },
+  ]}
+/>
+            </>
           )}
         </>
       )}
@@ -662,6 +767,25 @@ export default function MeetingsPage() {
         </>
       )}
 
+      {worldFilter && unassignedMeetings.length > 0 && (
+        <div>
+          <UnassignedHeading count={unassignedMeetings.length} />
+          <div className="space-y-2">
+            {unassignedMeetings.map((m) => (
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                projects={projects}
+                meetingTypes={typesMap}
+                getPerson={getPerson}
+                onEdit={() => { setEditingId(m.id); setModalOpen(true) }}
+                onDelete={() => deleteMeeting.mutate({ id: m.id })}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <MeetingModal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditingId(null) }}
@@ -671,4 +795,21 @@ export default function MeetingsPage() {
       />
     </div>
   )
+}
+
+function OpenNewMeeting({ onOpen }: { onOpen: () => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const opened = useRef(false)
+
+  useEffect(() => {
+    if (opened.current || searchParams.get('new') !== '1') return
+    opened.current = true
+    onOpenRef.current()
+    router.replace('/meetings', { scroll: false })
+  }, [searchParams, router])
+
+  return null
 }

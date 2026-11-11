@@ -1,10 +1,12 @@
 import { Agent } from '@cursor/sdk'
 import type { SDKAgent } from '@cursor/sdk'
 import {
+  agentCardRequestsDueTasks,
   agentNeedsNotionContext,
   getAbcRootPath,
   getAgentInstructions,
 } from './abc-agents'
+import { ownerIdentityPrompt } from '@ak-system/api'
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 
 export interface ChatTurn {
@@ -45,6 +47,7 @@ async function buildPrompt(
   const instructions = getAgentInstructions(agentId)
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\`.`,
+    ownerIdentityPrompt(),
     `Today is ${formatDateLabel()} (${new Date().toISOString().split('T')[0]}).`,
     `Repository root (ABC workspace): ${getAbcRootPath()}`,
     '',
@@ -63,7 +66,16 @@ async function buildPrompt(
   if (agentNeedsNotionContext(agentId)) {
     try {
       const ctx = await getNotionContext()
-      parts.push(formatNotionContextForPrompt(ctx), '', '---', '')
+      const hideTasks = agentId === '06_calendar_optimizer' && !agentCardRequestsDueTasks(instructions)
+      parts.push(
+        formatNotionContextForPrompt(
+          ctx,
+          hideTasks ? { omitTasks: true, omitCalendarReview: true } : undefined,
+        ),
+        '',
+        '---',
+        '',
+      )
     } catch (err) {
       parts.push(
         `_Notion context unavailable: ${err instanceof Error ? err.message : 'error'}_`,

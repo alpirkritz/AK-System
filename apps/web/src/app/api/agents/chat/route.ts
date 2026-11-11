@@ -46,6 +46,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         message,
         history,
         channel,
+        // This endpoint returns the reply to whoever called it — the agents screen
+        // renders it, so a push would duplicate what the user is already reading.
+        notifyOnComplete: false,
       })
       assistantText = result.text
     } else {

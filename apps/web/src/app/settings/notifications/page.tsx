@@ -316,8 +316,12 @@ export default function NotificationSettingsPage() {
                               onChange={(e) => saveAgent(item.id, e.target.value)}
                             >
                               <option value="">
-                                תבנית מערכת (ללא סוכן)
-                                {item.suggestedAgentId
+                                {/* A type with defaultAgentId really does run that agent when
+                                    nothing is chosen — don't call it "ללא סוכן". */}
+                                {item.defaultAgentId
+                                  ? `ברירת מחדל: ${agentNameById.get(item.defaultAgentId) ?? item.defaultAgentId}`
+                                  : 'תבנית מערכת (ללא סוכן)'}
+                                {!item.defaultAgentId && item.suggestedAgentId
                                   ? ` — מומלץ: ${agentNameById.get(item.suggestedAgentId) ?? item.suggestedAgentId}`
                                   : ''}
                               </option>

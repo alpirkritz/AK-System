@@ -5,11 +5,14 @@
 
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
+import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { TaskModal } from '@/components/Modals/TaskModal'
 import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
+import { matchTaskAssigneeId } from '@ak-system/api/lib/self-identity'
+import { AddPersonControl } from './AddPersonControl'
 
 interface ConversationAnalysisProps {
   meetingId: string
@@ -20,11 +23,11 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [batchModalOpen, setBatchModalOpen] = useState(false)
   const [selectedActionIndex, setSelectedActionIndex] = useState<number | null>(null)
-  const [participantPopoverOpen, setParticipantPopoverOpen] = useState(false)
-  const [selectedParticipantIndex, setSelectedParticipantIndex] = useState<number | null>(null)
-  const [linkingParticipant, setLinkingParticipant] = useState(false)
-  const [personQuery, setPersonQuery] = useState('')
-  const popoverRef = useRef<HTMLDivElement>(null)
+  const [linkIndex, setLinkIndex] = useState<number | null>(null)
+  const [linkQuery, setLinkQuery] = useState('')
+  const [confirmRemoveIndex, setConfirmRemoveIndex] = useState<number | null>(null)
+  const [peopleNotice, setPeopleNotice] = useState<string | null>(null)
+  const [peopleError, setPeopleError] = useState<string | null>(null)
 
   const { data: analysis, isLoading, refetch } = trpc.meetings.getAnalysis.useQuery({ meetingId })
   const { data: meeting } = trpc.meetings.getById.useQuery({ id: meetingId })
@@ -39,18 +42,58 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     },
   })
 
-  const linkParticipantMutation = trpc.meetings.linkAnalysisParticipant.useMutation({
-    onSuccess: () => {
-      refetch()
-      closeParticipantPopover()
+  const utils = trpc.useUtils()
+
+  function refreshPeople() {
+    void refetch()
+    void utils.meetings.getById.invalidate()
+    void utils.meetings.list.invalidate()
+    void utils.people.list.invalidate()
+  }
+
+  function peopleErrorText(error: unknown): string {
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+      return error.message
+    }
+    return 'לא הצלחנו לעדכן את המשתתפים. נסה שוב.'
+  }
+
+  const acceptParticipant = trpc.meetings.acceptAnalysisParticipant.useMutation({
+    onSuccess: (result) => {
+      setPeopleError(null)
+      setLinkIndex(null)
+      setLinkQuery('')
+      setPeopleNotice(
+        result.created
+          ? `${result.name} נוסף לפגישה ולאנשי הקשר`
+          : `${result.name} נוסף לפגישה`,
+      )
+      refreshPeople()
     },
+    onError: (error) => setPeopleError(peopleErrorText(error)),
   })
 
-  const confirmParticipantMutation = trpc.meetings.confirmAnalysisParticipant.useMutation({
+  const removeParticipant = trpc.meetings.removeAnalysisParticipant.useMutation({
     onSuccess: () => {
-      refetch()
-      closeParticipantPopover()
+      setPeopleError(null)
+      setConfirmRemoveIndex(null)
+      setPeopleNotice('ההצעה הוסרה')
+      refreshPeople()
     },
+    onError: (error) => setPeopleError(peopleErrorText(error)),
+  })
+
+  const attachPerson = trpc.meetings.attachPerson.useMutation({
+    onSuccess: (result) => {
+      setPeopleError(null)
+      setPeopleNotice(
+        result.created
+          ? `${result.name} נוסף לפגישה ולאנשי הקשר`
+          : `${result.name} נוסף לפגישה`,
+      )
+      refreshPeople()
+    },
+    onError: (error) => setPeopleError(peopleErrorText(error)),
   })
 
   const linkActionItemMutation = trpc.meetings.linkActionItemTasks.useMutation({
@@ -58,19 +101,6 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
       refetch()
     },
   })
-
-  // Close popover when clicking outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        closeParticipantPopover()
-      }
-    }
-    if (participantPopoverOpen) {
-      document.addEventListener('mousedown', handler)
-    }
-    return () => document.removeEventListener('mousedown', handler)
-  }, [participantPopoverOpen])
 
   const handleAnalyze = (force: boolean) => {
     analyzeMutation.mutate({ meetingId, force })
@@ -82,37 +112,6 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
       : analyzeMutation.error
         ? String(analyzeMutation.error)
         : null
-
-  const openParticipantPopover = (index: number) => {
-    setSelectedParticipantIndex(index)
-    setParticipantPopoverOpen(true)
-    setLinkingParticipant(false)
-    setPersonQuery('')
-  }
-
-  const closeParticipantPopover = () => {
-    setParticipantPopoverOpen(false)
-    setSelectedParticipantIndex(null)
-    setLinkingParticipant(false)
-    setPersonQuery('')
-  }
-
-  const handleLinkToPerson = (personId: string) => {
-    if (!analysis || selectedParticipantIndex === null) return
-    linkParticipantMutation.mutate({
-      analysisId: analysis.id,
-      participantIndex: selectedParticipantIndex,
-      personId,
-    })
-  }
-
-  const handleConfirmParticipant = () => {
-    if (!analysis || selectedParticipantIndex === null) return
-    confirmParticipantMutation.mutate({
-      analysisId: analysis.id,
-      participantIndex: selectedParticipantIndex,
-    })
-  }
 
   const openTaskModal = (index: number) => {
     setSelectedActionIndex(index)
@@ -140,11 +139,11 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
   }
 
   function matchPersonByName(ownerName: string | undefined): string {
-    if (!ownerName) return ''
-    const normalized = ownerName.trim().toLowerCase()
-    const match = people.find((p) => p.name.toLowerCase() === normalized)
-    return match?.id ?? ''
+    return matchTaskAssigneeId(ownerName, people)
   }
+
+  const meetingPeopleIds: string[] = meeting?.peopleIds ?? []
+  const peopleBusy = acceptParticipant.isPending || removeParticipant.isPending || attachPerson.isPending
 
   if (isLoading) {
     return (
@@ -311,102 +310,6 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
 
           {/* Right Column */}
           <div className="space-y-4">
-            {/* Participants */}
-            {analysis.participants.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                  👥 משתתפים
-                </div>
-                <div className="flex flex-wrap gap-2 relative">
-                  {analysis.participants.map((p, i) => (
-                    <button
-                      key={i}
-                      onClick={() => openParticipantPopover(i)}
-                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs transition-all hover:shadow-md ${
-                        p.confirmed
-                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/50'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      {p.confirmed ? '✓' : '?'} {p.name}
-                    </button>
-                  ))}
-
-                  {/* Participant Popover */}
-                  {participantPopoverOpen && selectedParticipantIndex !== null && (
-                    <div
-                      ref={popoverRef}
-                      className="absolute top-full mt-2 left-0 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 min-w-[280px]"
-                    >
-                      {!linkingParticipant ? (
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
-                            {analysis.participants[selectedParticipantIndex]?.name}
-                          </div>
-                          <button
-                            onClick={() => setLinkingParticipant(true)}
-                            className="w-full text-right px-3 py-2 text-sm bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors"
-                          >
-                            🔗 קשר לאיש קשר קיים
-                          </button>
-                          <button
-                            onClick={handleConfirmParticipant}
-                            disabled={confirmParticipantMutation.isPending}
-                            className="w-full text-right px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 rounded-lg transition-colors disabled:opacity-50"
-                          >
-                            ✓ אשר כמו שזה
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                              קשר לאיש קשר
-                            </div>
-                            <button
-                              onClick={() => setLinkingParticipant(false)}
-                              className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                            >
-                              חזור
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            autoFocus
-                            value={personQuery}
-                            onChange={(e) => setPersonQuery(e.target.value)}
-                            placeholder="חפש איש קשר..."
-                            className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          />
-                          <div className="max-h-[200px] overflow-y-auto space-y-1">
-                            {people
-                              .filter((person) =>
-                                person.name.toLowerCase().includes(personQuery.toLowerCase())
-                              )
-                              .slice(0, 10)
-                              .map((person) => (
-                                <button
-                                  key={person.id}
-                                  onClick={() => handleLinkToPerson(person.id)}
-                                  disabled={linkParticipantMutation.isPending}
-                                  className="w-full text-right px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 rounded transition-colors disabled:opacity-50"
-                                >
-                                  {person.name}
-                                  {person.company && (
-                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">
-                                      · {person.company}
-                                    </span>
-                                  )}
-                                </button>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Kaizen */}
             <div className="space-y-3">
@@ -441,6 +344,185 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
           </div>
         </div>
 
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            {/* Participants */}
+            <div>
+              <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                👥 משתתפים מומלצים
+              </div>
+              {analysis.participants.length === 0 ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  הניתוח לא זיהה משתתפים. אפשר להוסיף אדם לפגישה.
+                </p>
+              ) : (
+                <div className="space-y-2 mb-3">
+                  {analysis.participants.map((p, i) => {
+                    const linkedOnMeeting = people.filter(
+                      (person) =>
+                        meetingPeopleIds.includes(person.id) &&
+                        person.name.trim().toLowerCase() === p.name.trim().toLowerCase(),
+                    )
+                    const onMeeting = Boolean(
+                      (p.personId && meetingPeopleIds.includes(p.personId)) || linkedOnMeeting.length === 1,
+                    )
+                    const linking = linkIndex === i
+                    const confirming = confirmRemoveIndex === i
+                    const linkChoices = people.filter((person) =>
+                      person.name.toLowerCase().includes(linkQuery.trim().toLowerCase()),
+                    )
+                    return (
+                      <div key={`${p.name}-${i}`} className="rounded-lg bg-gray-50 dark:bg-gray-900/60 p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-[8rem]">
+                            {onMeeting ? '✓' : '?'}{' '}
+                            {p.personId && p.personName ? (
+                              <Link
+                                href={`/people?person=${p.personId}`}
+                                className="text-teal-700 dark:text-teal-300 hover:underline"
+                                data-testid="analysis-participant-link"
+                              >
+                                {p.personName}
+                              </Link>
+                            ) : (
+                              p.name
+                            )}
+                            {onMeeting ? (
+                              <span className="text-xs text-teal-600 dark:text-teal-400 mr-2">בפגישה</span>
+                            ) : null}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-primary min-h-[44px]"
+                            disabled={peopleBusy}
+                            aria-expanded={linking}
+                            onClick={() => {
+                              setLinkIndex(linking ? null : i)
+                              setLinkQuery('')
+                              setConfirmRemoveIndex(null)
+                            }}
+                          >
+                            קשר לאיש קשר קיים
+                          </button>
+                          {confirming ? (
+                            <>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 w-full">
+                                להסיר את {p.name} מהפגישה? איש הקשר יישאר באנשים.
+                              </p>
+                              <button
+                                type="button"
+                                className="btn btn-ghost min-h-[44px]"
+                                disabled={peopleBusy}
+                                onClick={() => setConfirmRemoveIndex(null)}
+                              >
+                                ביטול
+                              </button>
+                              <button
+                                type="button"
+                                className="btn min-h-[44px] bg-[#fb7185] text-[#0e1626]"
+                                disabled={peopleBusy}
+                                onClick={() =>
+                                  removeParticipant.mutate({
+                                    analysisId: analysis.id,
+                                    participantIndex: i,
+                                  })
+                                }
+                              >
+                                הסר
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-ghost min-h-[44px]"
+                              disabled={peopleBusy}
+                              aria-label={
+                                onMeeting
+                                  ? `הסר את ${p.name} מהפגישה`
+                                  : `הסר את ההצעה ${p.name}`
+                              }
+                              onClick={() => {
+                                if (onMeeting) setConfirmRemoveIndex(i)
+                                else {
+                                  removeParticipant.mutate({
+                                    analysisId: analysis.id,
+                                    participantIndex: i,
+                                  })
+                                }
+                              }}
+                            >
+                              הסר
+                            </button>
+                          )}
+                        </div>
+                        {linking && (
+                          <div className="mt-2 space-y-1">
+                            <input
+                              className="input"
+                              value={linkQuery}
+                              onChange={(e) => setLinkQuery(e.target.value)}
+                              placeholder="חפש איש קשר"
+                              aria-label={`חיפוש איש קשר עבור ${p.name}`}
+                            />
+                            {linkChoices.slice(0, 8).map((person) => (
+                              <button
+                                key={person.id}
+                                type="button"
+                                className="btn btn-ghost min-h-[44px] w-full text-right"
+                                disabled={peopleBusy}
+                                onClick={() =>
+                                  acceptParticipant.mutate({
+                                    analysisId: analysis.id,
+                                    participantIndex: i,
+                                    personId: person.id,
+                                  })
+                                }
+                              >
+                                {person.name}
+                                {person.company ? (
+                                  <span className="text-[#7a89ab] mr-2">· {person.company}</span>
+                                ) : null}
+                              </button>
+                            ))}
+                            {linkQuery.trim().length >= 2 &&
+                            !people.some(
+                              (person) => person.name.trim().toLowerCase() === linkQuery.trim().toLowerCase(),
+                            ) ? (
+                              <button
+                                type="button"
+                                className="btn btn-ghost min-h-[44px] w-full text-right"
+                                disabled={peopleBusy}
+                                onClick={() =>
+                                  acceptParticipant.mutate({
+                                    analysisId: analysis.id,
+                                    participantIndex: i,
+                                    name: linkQuery.trim(),
+                                  })
+                                }
+                              >
+                                צור איש קשר «{linkQuery.trim()}» והוסף
+                              </button>
+                            ) : null}
+                            {linkChoices.length === 0 && linkQuery.trim().length < 2 ? (
+                              <p className="text-sm text-gray-500 dark:text-gray-400 px-1">הקלידו שם כדי לחפש באנשים</p>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <AddPersonControl
+                people={people}
+                excludeIds={meetingPeopleIds}
+                disabled={peopleBusy}
+                onAttach={(input) => attachPerson.mutate({ meetingId, ...input })}
+              />
+              {peopleNotice ? <p className="mt-2 text-sm text-[#34d399]">{peopleNotice}</p> : null}
+              {peopleError ? <p className="mt-2 text-sm text-[#fb7185]">{peopleError}</p> : null}
+            </div>
+        </div>
+
         {/* Action Items */}
         {analysis.actionItems.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
@@ -470,10 +552,22 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                     <div className="text-sm text-gray-900 dark:text-gray-100">
                       {item.content}
                     </div>
-                    {item.owner && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {item.owner}
+                    {item.personId && item.personName ? (
+                      <div className="text-xs mt-1">
+                        <Link
+                          href={`/people?person=${item.personId}`}
+                          className="text-teal-700 dark:text-teal-300 hover:underline"
+                          data-testid="analysis-action-owner-link"
+                        >
+                          {item.personName}
+                        </Link>
                       </div>
+                    ) : (
+                      item.owner && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {item.owner}
+                        </div>
+                      )
                     )}
                   </div>
                   {!item.taskId ? (
@@ -528,7 +622,10 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
             title: analysis.actionItems[selectedActionIndex]?.content,
             priority: derivePriorityFromContext(analysis.actionItems[selectedActionIndex]?.content ?? ''),
             dueDate: meeting?.date,
-            assigneeId: matchPersonByName(analysis.actionItems[selectedActionIndex]?.owner),
+            // A linked owner is already a People record; otherwise fall back to the name match.
+            assigneeId:
+              (analysis.actionItems[selectedActionIndex]?.personName && analysis.actionItems[selectedActionIndex]?.personId) ||
+              matchPersonByName(analysis.actionItems[selectedActionIndex]?.owner),
           }}
           people={people}
           meetings={meetings}

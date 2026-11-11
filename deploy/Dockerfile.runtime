@@ -40,7 +40,10 @@ RUN apt-get update \
     libxtst6 \
     wget \
     xdg-utils \
+    ffmpeg \
   && rm -rf /var/lib/apt/lists/*
+# ffmpeg: used by packages/api/src/services/audio-features.ts to decode recordings for
+# self-voice matching (see docs/specs/recording-background-and-speaker-id.md).
 
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 

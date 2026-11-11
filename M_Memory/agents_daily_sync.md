@@ -1691,3 +1691,739 @@ Implemented pre-fill task creation from meeting analysis action items, replacing
 - Test with real Notion transcripts
 - Validate mobile batch modal on smaller screens (iPhone SE)
 
+
+## 2026-09-24 · Person context hierarchy, circles, warmth, duplicates
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` · spec `docs/specs/person-context-hierarchy.md`
+- **Actions:** Calendar participants parsed from attendees or the Dragontail `משתתפים:` description and stored per meeting. Title-based series for bridge events. Circles (roster saved once from the calendar, diff, absent/guest per occurrence, follow). Person card hierarchy (recommendation, loops, WhatsApp since the last Notion meeting, notes, older WhatsApp, circles). Warmth for people and series. Duplicate review + merge page. Chat-free meeting-prep context. Compact mobile person card.
+- **Outputs:** `reports/person-context-hierarchy.md` (APPROVED WITH NITS), `reports/qa-person-context-hierarchy.md`
+- **Production:** EC2 SQLite migrates automatically via `PERSON_CONTEXT_TABLES` bootstrap; back up `/data/ak_system.sqlite` first, then run a calendar sync.
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored [x] No raw WhatsApp text in agent prep context [x] No ABC workspace files changed
+- **Tests:** API 857/857 · web brief 22/22 · e2e new spec 2/2 (suite 78 pass / 21 already failing, same set as `qa-whatsapp-daily-digest`)
+- **Performance notes:** Warmth and duplicates computed on read. Duplicate scan is O(n²); add blocking if contacts grow into the thousands.
+
+## 2026-09-24 · Person context hierarchy — gap pass
+
+- **Agent:** Dev pipeline (Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/person-context-hierarchy.md`
+- **Actions:** Morning-brief cooling flags. Blocked WhatsApp phone matches. Mobile circle section on the meeting screen. Touch-visible circle ×. Nightly `people-duplicates` cron with one notification per new pair.
+- **Outputs:** `reports/person-context-hierarchy.md` (follow-up section)
+- **Production:** New column `user_settings.duplicates_notified_pairs` applied by bootstrap. Reinstall EC2 crontab for `people-duplicates`.
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored
+- **Tests:** API 860/860 · web lib 29/29 · lint clean · web build pass
+
+## 2026-09-24 · WhatsApp 1:1 capture + commitments queue
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/whatsapp-dm-capture.md` (Implementation Decisions section)
+- **Actions:** Opt-in 1:1 capture per person (bridge allowlist + ingest re-check + capture start stamp). 1:1 messages merged into the person card with a "פרטי" badge and pin. Nightly DM summary cron proposes commitments. New `commitments` router and `/commitments` page (web + mobile), accept → `tasks.create`. DM retention: text expires at 90 days unless pinned; pinned group messages kept.
+- **Outputs:** `reports/whatsapp-dm-capture.md` (APPROVED WITH NITS), `reports/qa-whatsapp-dm-capture.md`
+- **Production:** Back up `/data/ak_system.sqlite`, deploy web + bridge (`--profile whatsapp`), reinstall EC2 crontab (`whatsapp-dm-summary`, `people-duplicates`).
+- **Compliance:** [x] Spec-first [x] tRPC client only [x] Both schemas mirrored [x] Capture opt-in, enforced in bridge and ingest [x] No raw chat text in meeting prep
+- **Tests:** API 875/875 · bridge 10/10 · new e2e 2/2 · lint clean · web build pass
+- **Performance notes:** Fixed a drizzle push drift (bootstrap `DEFAULT 0` / missing `NOT NULL` / column order) that broke `pnpm test`; local dev DB backed up to `/tmp` and repaired (new empty columns only).
+
+## 2026-09-24 · Email archive + voice capture + Hugo commitments
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md` (Implementation Decisions section)
+- **Actions:**
+  - Hourly Gmail archive: metadata + snippet per (thread, known person), heuristic email commitments, Gmail links on the person card.
+  - Consented voice upload: Gemini transcription → `analyzeTranscript` into the given meeting or a placeholder `source='voice'` meeting. Attach/move to a real meeting. Web recorder `/voice`.
+  - Commitments proposed from every completed analysis.
+  - Source badges and links on `/commitments`.
+  - Morning brief sections "התחייבויות פתוחות" and "זכור לטפל"; meeting prep commitment lines with source labels.
+  - Mobile person screen shows emails and recordings (read-only).
+- **Outputs:** `reports/email-voice-commitments-hugo.md` (APPROVED WITH NITS), `reports/qa-email-voice-commitments-hugo.md`
+- **Production:** Back up `/data/ak_system.sqlite`, `pnpm deploy:ec2` (tables via `EMAIL_VOICE_TABLES` bootstrap; audio in `/data/voice`), reinstall EC2 crontab (`email-sync` hourly).
+- **Compliance:** [x] Spec-first [x] tRPC client only (upload is multipart by design) [x] Both schemas mirrored [x] Consent enforced server-side [x] Email bodies not stored [x] No raw snippets in meeting prep
+- **Tests:** API 887/887 · web 233/233 · new e2e 4/4 (suite 82 pass / 23 fail = 22 baseline + flaky agent-config) · lint clean · web build pass · mobile tsc pass
+- **Performance notes:** Bootstrap DDL verified against drizzle ("No changes detected"). Native mobile recorder deferred: needs `expo-audio`, which would touch the in-progress Expo upgrade in `apps/mobile/package.json`.
+
+## 2026-09-24 · EC2 deploy (Life Context Ledger steps 1–3) + native mobile recorder
+
+- **Agent:** Dev pipeline (PM → UI → Dev → Tests → QA → Reviewer)
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md` (Voice → Recorders → Mobile)
+- **Actions:**
+  - Backed up EC2 SQLite (`~/backups/ak_system-20260924-145313.sqlite`, copy in `~/ak-backups/` on the Mac).
+  - Rehearsed container-start `drizzle-kit push` and bootstrap on a copy. Push aborts harmlessly on a drizzle "not-null" false alarm; `getDb()` creates all ledger tables.
+  - `SKIP_CI=1 pnpm deploy:ec2`, cron reinstalled. First email-sync: 65 threads for 18 people, no account errors.
+  - Mobile: `expo-audio` recorder screen `/record` (consent, timer, meter, pause/resume, upload progress, result/attach/retry). Entry points on the person screen and the meetings tab.
+  - Built APK 1.0.2 (versionCode 3) locally with `eas build --local`, same signing key as 1.0.1.
+- **Outputs:** `~/Desktop/ARO-1.0.2.apk`, `reports/email-voice-commitments-hugo.md` (follow-up section, APPROVED WITH NITS)
+- **Compliance:** [x] Backup before deploy [x] Consent gate on device and server [x] tRPC client for data, multipart only for audio [x] No background recording
+- **Tests:** mobile voice-format 4/4 · API voice suite 13/13 · mobile tsc clean · production upload probe (bearer → 400 too short, none → 401)
+- **Performance notes:** `pnpm-lock.yaml` left uncommitted because it mixes `expo-audio` with the owner's in-progress Expo upgrade. Commit it together with that upgrade.
+
+## 2026-09-24 · Voice recorder: consent default, participants and project
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/email-voice-commitments-hugo.md`
+- **Actions:** Consent checkbox starts checked on web and mobile. The recording screen can add, edit and remove participants and one project; the project is stored on the recording and copied onto its meeting. Removing a participant removes them from the placeholder meeting.
+- **Production:** Backup `~/backups/ak_system-20260924-162341.sqlite`. Deployed. `voice_recordings.project_id` added. APK `~/Desktop/ARO-1.0.3.apk` (versionCode 4), local build.
+- **Tests:** API voice suite 14/14 · mobile tsc clean
+
+## 2026-09-24 · Relationship flags on the people list
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/mobile-person-warmth.md`
+- **Actions:** `insights.relationshipFlags` lists confirmed people who are warming or cooling. The people page (web and ARO) shows a דגלים block with both averages, and opens the person. The ARO person screen shows the −1…+1 bar graph and the meeting rows.
+- **Production:** Backup `~/backups/ak_system-20260924-171140.sqlite`. Deployed. APK `~/Desktop/ARO-1.0.4.apk` (versionCode 5).
+- **Tests:** person-context suite 10/10 · warmth-format 2/2 · mobile tsc clean
+
+## 2026-09-25 · Relationship flags on the dashboard
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/mobile-person-warmth.md`
+- **Actions:** The web dashboard and the ARO home screen show the warming/cooling flags under the greeting when any exist, and stay quiet when none do. On the web, a flag opens the person drawer.
+- **Production:** Backup `~/backups/ak_system-20260924-211031.sqlite`. Deployed. APK `~/Desktop/ARO-1.0.5.apk` (versionCode 6).
+
+## 2026-09-25 · Relationships page
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/relationships-attention.md`
+- **Actions:** `/relationships` lists warming and cooling people and circles, with the score sentence and an editable "למה אני חושב כך". Dashboard shows the strongest shift. People rows keep a pill.
+- **Production:** Backup `~/backups/ak_system-20260925-052311.sqlite`. Deployed. Columns `warmth_note` on people and meeting_series. APK `~/Desktop/ARO-1.0.6.apk`.
+- **Tests:** person-context suite 12/12
+
+## 2026-10-02 · WhatsApp group commitments — bugfix sweep
+
+- **Agent:** Dev pipeline (bug investigation & fix)
+- **Spec:** `docs/specs/whatsapp-group-commitment-scan.md` (feature already APPROVED)
+- **Root cause investigation:** User reported commitments from groups like "טכני" not appearing. Found 4 bugs in the implemented feature:
+  1. **selfJid fallback missing** — when the WhatsApp bridge is briefly offline during the `whatsapp-group-commitments` cron run, `getBridgeStatus()` fails → `selfJid = null` → the owner's own messages in groups can't be attributed to `ensureSelfPerson` (which has no phone) → silently skipped.
+  2. **Gemini returns messageId with brackets** — prompt shows `[3EB0C7...]` and LLM occasionally returns `"[3EB0C7...]"` with brackets, causing `ids.has(messageId)` to fail → commitment silently dropped.
+  3. **`.slice(-80)` truncation** — `classifyMessagesWithModel` sent only the last 80 messages to Gemini. On first run (cursor=0) with many historical messages, commitments in earlier messages were permanently skipped.
+  4. **Verb heuristic too narrow** — the regex fallback (used when Gemini fails) covered ~12 verbs; missed common ones like אקנה, אביא, אנסה, אסיים, אבצע, etc.
+- **Actions:**
+  - Added `whatsapp_self_jid TEXT` column to `user_settings` (schema.pg.ts, schema.ts, index.ts ALTER).
+  - `setGroupCommitmentCursor` now accepts and persists `selfJid` when freshly fetched from the bridge.
+  - Added `getCachedSelfJid(db)` — reads back the last-known selfJid from `user_settings` as fallback.
+  - `scanGroupCommitments` uses cached selfJid when bridge is offline; sets `selfJidFromBridge` flag to only update cache when live.
+  - `classifyMessagesWithModel`: strip brackets from returned messageId (`.replace(/^\[|\]$/g, '')`); increased message window from 80 → 200; updated prompt to say "copy verbatim without the brackets".
+  - Expanded SELF_PROMISE, PRESENT_PROMISE, PLURAL_PROMISE, REQUEST regexes with ~25 additional Hebrew verbs.
+- **Build:** `pnpm --filter @ak-system/web build` ✓ (exit 0). Pre-existing Drizzle union-type TS errors unchanged.
+- **Compliance:** ✓ no PII, no new tRPC procedures, no behavioral change to existing scan logic beyond fixing silent drops.
+- **Next:** Deploy (`pnpm deploy:ec2`) so production server gets the fixes. Verify `whatsapp_messages` table is non-empty for "טכני" by calling `/api/cron/whatsapp-group-commitments` manually.
+
+## 2026-09-30 · Relationships board — backfill and full picture
+
+- **Agent:** Dev pipeline
+- **Workflow:** spec `docs/specs/relationships-board-backfill.md`
+- **Root cause:** `/relationships` was empty because almost no meeting had an analysis — the cron only analysed meetings that ended in the last 30 minutes and the Notion `meeting_page_summary` notes never triggered analysis — and the board dropped every person who was not warming or cooling.
+- **Actions:** New `analysis-backlog` service drains unanalysed notes (180 days, ≥100 chars) — 3 per `transcript-analysis` cron run, or up to 5 from the "נתח עכשיו" button on the page, silently (no WhatsApp/push/commitments). Board now returns every confirmed person with analysed data (cooling / warming / stable / no trend yet), with average score, last meeting, latest mood and insight, and a summary strip. Person trend falls back to newest-half vs older-half when all meetings sit inside 90 days. Circles no longer require `rosterSavedAt`.
+- **Tests:** analysis-backlog 2/2 · person-context suite 13/13 (API suite 1041 pass; 3 pre-existing voice failures unrelated).
+
+---
+
+## 2026-10-04 — Dev pipeline — whatsapp-digest-heading-and-emoji
+
+**Workflow:** `docs/specs/whatsapp-digest-heading-and-emoji.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Rename the daily WhatsApp digest from `צריך אותך` and add a few emojis so it reads as a briefing.
+- **Context:** Owner asked to change the digest name and make the message more interesting.
+
+### Actions Taken
+1. Spec at `docs/specs/whatsapp-digest-heading-and-emoji.md`.
+2. Date header + push title → `💬 סיכום וואטסאפ יומי`; action heading → `📌 לטפל`.
+3. Default digest prompt + JSON contract: one emoji per group/event beat.
+4. Updated formatter tests (25/25 targeted).
+
+### Output
+- `packages/api/src/services/whatsapp-daily-digest.ts`
+- `packages/api/src/services/whatsapp-insights.ts`
+- `packages/api/src/services/whatsapp-daily-digest.test.ts`
+- `reports/qa-whatsapp-digest-heading-and-emoji.md`
+- `reports/whatsapp-digest-heading-and-emoji.md`
+
+### Compliance
+✓ informal WhatsApp copy (owner requested emojis); no PII; no ABC formal artifact.
+
+### Performance notes
+- Saved custom prompts are unchanged until reset in `/settings/whatsapp`.
+- Next digest (cron or **סכם עכשיו**) uses the new header immediately.
+
+---
+
+## 2026-10-04 — Dev pipeline — whatsapp-digest-custom-prompt-format
+
+**Workflow:** `docs/specs/whatsapp-digest-custom-prompt-format.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Make a saved daily-digest prompt control the actual WhatsApp briefing.
+- **Context:** Owner saved an executive-briefing template with Action Items and label sections; **סכם עכשיו את כל הקבוצות במעקב** still produced the old spoken story because the server appended a JSON contract (no bullets) and rebuilt the message.
+
+### Actions Taken
+1. Customized prompt → `contract: 'freeform'`; model markdown is sent as the body.
+2. Default (null) prompt still uses JSON + 900-char story renderer.
+3. Settings hint updated: saved text sets structure, not only tone.
+
+### Output
+- `packages/api/src/services/whatsapp-insights.ts`
+- `packages/api/src/services/whatsapp-daily-digest.ts`
+- `apps/web/src/app/settings/whatsapp/page.tsx`
+- `packages/api/src/services/whatsapp-daily-digest.test.ts` (12/12)
+
+### Compliance
+✓ no PII; owner-authored prompt stored as today.
+
+### Performance notes
+- Needs deploy. Saved prompt is already in DB; production code still overrides it until then.
+
+---
+
+## 2026-10-06 — Dev pipeline — meeting-prep-topic-isolation
+
+**Workflow:** `docs/specs/meeting-prep-topic-isolation.md`
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Stop a DD pre-meeting brief from citing Algo notes and tasks just because the same people were in both rooms.
+- **Context:** Owner approved the spec. "Follow up DD release discussion" was filled with Algo 4.0 milestones.
+
+### Actions Taken
+1. Added `topicTokens` / `titlesShareTopic`. `DD` stays, `release` / `4.0` drop.
+2. `insights.meetingNotes` accepts `focusTitle` and drops person-only matches.
+3. The 15-minute prep injects that title into `get_notion_meeting_notes` and `get_notion_tasks`.
+
+### Output
+- `docs/specs/meeting-prep-topic-isolation.md`
+- `packages/api/src/lib/topic-match.ts`
+- `packages/api/src/routers/insights.ts`
+
+### Compliance
+✓ no new PII; notes already stored for the owner.
+
+### Performance notes
+- Day-wide prep is unchanged. Needs a deploy before the next DD meeting uses it.
+
+
+---
+
+## 2026-10-06 — harness-agent-integration (Hugo / Dev pipeline)
+
+- **Goal:** Wire the Intelligence Harness into the agent layer. User asked what "פתח כרטיס" opens (answer: nothing — dead deep link) and decided the agents should read the cross-domain layer, recalling the original design where everything routes through Hugo.
+- **Actions Taken:** Confirmed Hugo's Chief-of-Staff orchestration is alive and actively tuned *against* over-delegation (`gemini-agent-engine.ts`). Added `get_harness_insights` tool gated to `01_Hugo_orchestrator` / `03_morning_briefing` / `04_meeting_prep_herald` + general chat; harness made a mandatory leg of Hugo's multi-source scan with cite-`basedOn` and "absence is not a finding" rules; new declarative `defaultAgentId` on notification types (distinct from display-only `suggestedAgentId`) routing `harness_insight` through Hugo, with template fallback on agent failure; honest picker label; fixed `/people?person=` deep link via Suspense-wrapped `OpenPersonFromQuery`.
+- **Outputs:** `docs/specs/harness-agent-integration.md`, `reports/harness-agent-integration.md` (APPROVED WITH NITS). Tests +16 (8 tool gating/executor, 6 event-runner default, 2 prompt).
+- **Compliance:** Spec written and both design decisions put to the user before coding, per dev-pipeline. Web 268/268, API 1178/1178, lint 0, build 0. Deployed to EC2 and verified on the box: harness cron `ok:true` (1736 nodes / 2785 edges / 14 insights).
+- **Blockers:** Hugo actually invoking the tool is unverified — no urgent insights to fire the cron's agent branch, and no auth bypass in production to trigger an agent run by curl. Needs a live "מה חשוב עכשיו" in the app.
+
+---
+
+## 2026-10-06 — agent-clock-and-harness-surfacing (Hugo / Dev pipeline)
+
+- **Goal:** User reported two defects in a live Hugo reply: "בוקר טוב" at 15:07, and an answer that looked calendar/Notion-only with no cross-domain content.
+- **Actions Taken:** Diagnosed from `agent_run_logs` — Hugo DID call `get_harness_insights` (first of two tools) but dropped the 12 returned insights from the reply. Added clock to the agent + chat system instructions with a rule against contradicting time-of-day greetings, and fixed `formatDateLabel` missing `timeZone` (latent: UTC container reported the previous day after 21:00 Israel). Added a mandatory `קישורים בין תחומים:` section to Hugo's judgment contract plus a bounded one-shot retry guard in `runChatLoop` keyed on that header (transliteration-proof, unlike matching insight text).
+- **Outputs:** `docs/specs/agent-clock-and-harness-surfacing.md`, `reports/agent-clock-and-harness-surfacing.md` (APPROVED). Tests +6; 6 existing suites needed `getDefaultTimezone` in their `@ak-system/api` mock.
+- **Compliance:** Spec before code per dev-pipeline. Web 274/274, lint 0, build 0. Deployed to EC2; verified container UTC 12:16 → agent-visible zoned clock 15:16.
+- **Blockers:** None. Watch for Hugo runs with `gemini_calls: 2` in `agent_run_logs` — if the surfacing retry fires routinely, switch to injecting insights into the prefetched context instead of relying on the tool call.
+
+
+---
+
+### 2026-10-06 — Harness email scope
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/harness-email-scope.md` (approved by user: "מאשר")
+- **Actions:** Added an `email` scope to the Intelligence Harness indexer. Gmail threads from
+  `person_email_threads` now become `email_thread` nodes (subject + snippet only, no bodies),
+  carrying a deep link into the thread in Gmail. Edges: `MENTIONED_IN` person → thread, and
+  `RELATED_TO` thread → commitment via the deterministic `source='email'` / `source_id` join.
+  Surfaced through `personSignals.emails`, Hugo's `get_harness_insights` tool, the
+  `unanswered_thread` detector's sources, and the dashboard widget's source labels.
+- **Outputs:** `reports/harness-email-scope.md` (APPROVED)
+- **Compliance:** Metadata-only indexing per the user's explicit choice; no message bodies are
+  read or stored. Gmail link points at the user's own mailbox.
+- **Verification:** 1185 API + 274 web tests pass; lint and build clean. Deployed to EC2 and ran
+  the harness cron there — 54 `email_thread` nodes indexed, and the specific gap the user
+  reported (Tovit Gal's correspondence missing from People/Commitments context) is closed.
+- **Performance note:** My first diagnosis searched for the person by Hebrew name and concluded
+  there was no correspondence. She is stored as "Tovit Gal" in English; the user corrected this.
+  Searching contact tables by email rather than display name would have avoided the detour.
+
+---
+
+### 2026-10-06 — Agent schedule time-awareness
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/agent-schedule-time-awareness.md`
+- **Trigger:** User reported Hugo answering about meetings that had already ended, and not
+  knowing what time the question was asked. Applies to all agents, not only Hugo.
+- **Actions:** Added `packages/api/src/lib/event-time-status.ts` as the single source of truth
+  for past / current / upcoming / all-day. The prefetched calendar prompt block now presents
+  today split by the clock, with all-day markers demoted to one inline background line; the
+  day/week calendar tool payloads return `now` plus pre-split buckets instead of a flat list.
+  Both agent system instructions describe the buckets and forbid a self-invented two-way split.
+- **Outputs:** `reports/agent-schedule-time-awareness.md` (APPROVED)
+- **Verification:** 1204 API + 274 web tests pass; lint and build clean. Deployed to EC2 and
+  asked the live Hugo at 16:23 — he now leads with what is in progress, files the finished
+  11:30 sync under "כבר הסתיים", and keeps today's birthdays as background rather than past.
+- **Performance notes:**
+  - My first diagnosis fixed the calendar *tool* payload. Deploying it changed nothing, because
+    Hugo reads the prefetched prompt block. Checking which surface the agent actually consumes,
+    before changing one, would have saved two deploy cycles.
+  - Prompt wording alone did not hold: three tightenings still left all-day events filed as
+    past. Removing them from the event list worked immediately. General lesson — when an agent
+    must not do something with a list, take away the list rather than asking more firmly.
+
+---
+
+### 2026-10-06 — Hugo as the general assistant (+ push incident)
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc` — full chain
+- **Spec:** `docs/specs/hugo-as-general-assistant.md` · **Report:** `reports/hugo-as-general-assistant.md`
+- **Incident first:** The user reported Hugo "sending messages every 15 minutes since the
+  deploy". Investigated on EC2: `agent_schedules` has Hugo `enabled: 0` with no times, the
+  crontab has no Hugo entry, and all eight of the day's Hugo runs were `channel: web` between
+  12:07 and 13:23 UTC — i.e. **my own verification calls** while fixing the schedule bug. Each
+  call to `/api/agents/chat` pushed the full reply to his phone. Not a cron, not a bug in the
+  product: my process.
+- **Actions:** Interactive surfaces now pass `notifyOnComplete: false` (`/api/chat`, Telegram,
+  `/api/agents/chat`); WhatsApp and cron keep pushing because there the push is the delivery.
+  Separately, on the user's request, the nameless "general assistant" was removed: its 89-line
+  inline prompt in `resolveIntent` is deleted, and the web chat plus Telegram now run through
+  Hugo via a new `runHugoConversation`, sharing one conversation thread with WhatsApp. Rules
+  that existed only in the deleted prompt (output formatting, WhatsApp time arguments,
+  agent-feedback wording) were migrated into the shared agent instruction.
+- **Verification:** 283 web tests pass; lint and build clean. On EC2 the chat now answers
+  "אני הוגו, ראש המטה שלך", recalls the previous turn from the shared thread, and produced
+  zero notifications across four runs.
+- **Performance notes:**
+  - Verifying a change by running a production agent is not free and not silent. It costs a
+    Gemini call (~15–20s on flash-thinking) and, until today, notified the user every time.
+    Check what a verification path delivers to the user before using it repeatedly.
+  - Before deleting a prompt, diff its rules against the replacement instead of assuming
+    overlap. Three rule groups here existed in only one of the two prompts.
+
+---
+
+### 2026-10-06 — WhatsApp ingestion restored + notification sync/archive fixes
+
+- **Agent:** Dev pipeline (PM → Dev → Dev Tests → QA → Reviewer)
+- **Workflow:** `.cursor/rules/dev-pipeline.mdc`
+- **Specs:** `docs/specs/notification-sync-and-archive.md`
+- **Report:** `reports/notification-sync-and-archive.md` — APPROVED
+
+**WhatsApp ingestion (ops, no code change).** Dead since 2026-10-05T08:56Z. Two
+layered causes:
+
+1. The Baileys linked-device session could not decrypt anything — 52 `sent retry
+   receipt` against 0 messages ever buffered. Fixed by re-pairing (user scanned a
+   QR served from the bridge on EC2 through an SSH tunnel). After pairing: 0 retry
+   receipts.
+2. **Self-inflicted:** `rm -rf /data/auth/*` to force the QR also deleted
+   `dm-config.json` (87-contact DM capture allowlist), `dm-lid-map.json` (405
+   entries) and `group-config.json` (63 watched groups) — the bridge stores
+   operational config in the same directory as session credentials. With an empty
+   allowlist `resolveCapturedDm` returns null for every chat, which surfaced as
+   `"Ignored — not self-chat"` on the user's own test message. Restored all three
+   from the pre-wipe backup (`/data/auth/auth-backup-20261006-1637.tgz`).
+
+Verified in production on both channels: `dm:1` at 17:02Z, `group:2` at 17:08Z —
+first rows since 2026-10-05.
+
+**Notifications (items 2+3).** The archive state was never the problem: 5976 of
+5978 rows were correctly archived. Four display-layer causes, all verified on EC2
+before coding — a broken tRPC call from the service worker (reproduced as a 400),
+a shared `tag` that made each push replace the previous one, no reconciliation
+between server state and the OS tray, and a web page that never refetched.
+
+**Compliance:** engineering work under `apps/`/`packages/`; `.cursorrules` ABC
+guardrails not applicable. No PII written to any artifact.
+
+**Lessons**
+
+- The bridge's auth directory mixes session credentials with operational config.
+  "Reset the session" therefore silently destroys capture allowlists. Back it up
+  first (I did) *and* restore the non-session files immediately (I did not — it
+  cost a second round of debugging and a second test message from the user).
+- `pnpm deploy:ec2` already re-syncs that config to the bridge
+  (`{"enabled":63,"dmAllowlist":87,"dmPushed":true}`), so a plain redeploy would
+  have recovered it. Know the recovery paths the tooling already gives you.
+- "No data" and "broken pipeline" look identical in a quiet window. The decisive
+  move was asking the user to send one message — a controlled input beats more
+  log reading.
+- A grace window matters when reconciling a cache against a live feed: the first
+  version of the tray reconciler would have closed a push that arrived between
+  two polls, before the user ever saw it.
+
+---
+
+### 2026-10-06 (late) — Four features shipped in two parallel tracks
+
+- **Agent:** Dev pipeline, two parallel implementer subagents + parent review
+- **Specs:** `bridge-config-outside-auth-state`, `whatsapp-history-ingestion`,
+  `meeting-prep-on-meeting-page`, `identify-unknown-speakers`
+- **Reports:** all four under `reports/` — APPROVED, APPROVED WITH NITS,
+  APPROVED, APPROVED WITH NITS respectively
+- Deployed to EC2 and verified there: three new tables with their unique indexes
+  bootstrapped on production SQLite, `voice_recordings.speaker_prompt_sent_at`
+  present, bridge `/status` reporting `dmAllowlist: 87` / `watchedGroups: 63`
+  from the new `/data/config` volume, and all three config files confirmed
+  migrated out of `/data/auth`.
+
+**Compliance:** engineering work under `apps/`/`packages/`; ABC guardrails in
+`.cursorrules` not applicable. No PII in any artifact.
+
+**Lessons**
+
+- **Parallelism has a shared-fixture cost I did not plan for.** API tests use one
+  seeded SQLite file with `fileParallelism: false`. Two concurrent vitest runs
+  collide on it, which produced 5 failures in `harness-context.test.ts` and
+  `people.duplicates.test.ts` that looked like real regressions and were not. I
+  almost debugged a phantom. Partition agents by *file area* and serialise the
+  *test runs*, not just the edits.
+- **Review the risk the change creates, not only the criteria it claims.** The
+  speaker work replaced the Gemini transcription contract for every recording.
+  Its own tests passed, yet a turn the model timed badly was dropped whole, and
+  a response where every turn was like that stored raw JSON as the transcript —
+  the text the user reads and the analysis step consumes. Timings serve only the
+  voice sample; conflating them with the transcript was the actual defect.
+- **A reported nit can be wrong in the safe direction.** The missing unique index
+  on `wa_message_id` had existed all along in all three layers and in production.
+  Verifying took one query and closed the item instead of adding a migration.
+- **Delegation still needs a reviewer who reads the diff.** Both subagents
+  reported green suites honestly; the regression and the non-nit were only found
+  by reading the code and querying production.
+
+---
+
+### 2026-10-07 — Android APK rebuilt locally; APK dropped from SW precache
+
+- **Agent:** Dev pipeline (build + one config fix)
+- **Spec/report:** `exclude-apk-from-sw-precache` — APPROVED
+- Built `apps/mobile` locally via `eas build --local` (Gradle, ~36 min, zero cloud
+  quota). Artifact: 103.5 MB, `EXPO_PUBLIC_API_URL` baked as
+  `retype-engross-strike.ngrok-free.dev`, confirmed reaching EC2 with a 200 on
+  `/api/health` before shipping.
+- Installed as `apps/web/public/helm.apk`, deployed, and verified byte-identical
+  on the box by sha256 rather than trusting the rsync.
+
+**Compliance:** engineering work under `apps/`; ABC guardrails not applicable.
+
+**Lessons**
+
+- **Shipping the artifact surfaced a pre-existing bug worth more than the build.**
+  `@serwist/next` precaches all of `public/`, so `/helm.apk` was a precache entry
+  — every web visitor downloaded the whole mobile app before the service worker
+  activated, and replacing an 85 MB APK with a 103 MB one would have forced that
+  re-download on everyone. Checking what a routine file copy *implies* caught it.
+- **Two plausible fixes were wrong, and only building proved it.** `exclude`
+  sees webpack assets, not `public/` files. `manifestTransforms` looked correct
+  and reads correct — but workbox appends `additionalPrecacheEntries` after
+  transforms, so it silently did nothing. I only knew because I rebuilt and
+  grepped the output instead of trusting the diff. Leading-`!` glob negation was
+  likewise a no-op in glob 13. Each wrong turn cost one build; assuming any of
+  them worked would have cost a false "fixed".
+- **Verify the manifest by diffing it, not by grepping for the thing removed.**
+  Comparing before/after showed exactly one real removal and proved the two
+  build-ID path changes were hash-identical — the grep alone could not have.
+- **Pricing a task in the user's actual currency matters.** He worried the build
+  would "eat tokens"; APK builds cost none either way. The real tradeoff was EAS
+  cloud quota versus local CPU and an Android/JDK toolchain. Correcting the
+  premise picked the better option instead of answering the question as asked.
+
+---
+
+## 2026-10-07 — Hugo — owner-identity-everywhere
+
+**Workflow:** dev pipeline — spec then implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Hugo and every model prompt know the user is Alpir Kritzler, and recorded conversations do not turn him into another contact.
+- **Context:** Analysis and voice enrollment were listing אלפיר as a participant / a separate person.
+
+### Actions Taken
+1. Wrote `docs/specs/owner-identity-everywhere.md`.
+2. Injected a principal block into agent prompts, transcript analysis, voice transcription, and WhatsApp/feed briefings.
+3. Omitted owner aliases from suggested participants, and pointed voice enrollment at the canonical self row.
+
+### Outputs
+- `docs/specs/owner-identity-everywhere.md`
+- `A_Agents/01_Hugo_orchestrator.md`, `A_Agents/09_conversation_analyst.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- Identity is enforced in code (name filter), not only in the prompt, so an old analysis that already listed אלפיר stops offering him as someone to add.
+
+---
+
+## 2026-10-12 — Dev — harness-situation-alerts
+
+**Workflow:** apps/ engineering — spec then implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Situation alerts in the Harness, plus an email reply-need gate, deployed to EC2.
+- **Context:** Insights were mostly about one person, and a single-message email counted as a reply debt.
+
+### Actions Taken
+1. Wrote `docs/specs/harness-situation-alerts.md`.
+2. Added eight situation detectors and the reply-need gate (`reply_need` on `person_email_threads`).
+3. Push now sends up to 5 urgent cards and up to 3 unpushed situation attention cards.
+4. Deployed with `SKIP_CI=1 pnpm deploy:ec2`. BUILD_ID matched. Public HTTPS health check was still warming.
+
+### Outputs
+- `docs/specs/harness-situation-alerts.md`
+- `packages/api/src/services/harness-reasoner.ts`
+- `packages/api/src/services/email-reply-need.ts`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No PII exposed without redaction
+
+### Performance Improvements
+- FYI and noreply mail is excluded before any model call. Ambiguous threads fail closed when Gemini is down.
+
+---
+
+## 2026-10-13 — Dev Agent — recording-context-before-upload
+
+**Workflow:** S_Skills (dev pipeline) — PM → Dev → Dev Tests → QA → Reviewer
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Add a context-confirmation step before any voice recording uploads, pass confirmed people/project to Gemini, and auto-rename placeholder meeting titles from AI topic.
+- **Context:** User requested that both web and mobile show a review screen (project + attendees) before upload. Decision: confirmation gate only (not mandatory selection). Meeting title policy: rename only voice-created placeholders.
+
+### Actions Taken
+1. Wrote PM spec at `docs/specs/recording-context-before-upload.md`.
+2. **Web** (`apps/web/src/app/voice/page.tsx`): replaced `stopAndUpload` with `stopAndReview` (stores blob into `pendingReview`) and added a review panel with `PeoplePicker` + project `<select>` + "העלה שיחה" / "ביטול" buttons; `doUpload` now receives explicit people/project from review state.
+3. **Mobile live recording** (`apps/mobile/app/(tabs)/record.tsx`): added `'review'` to `Phase`; split `stopAndUpload` into `stopRecording` (→ review) + `confirmUpload` (→ upload) + `discardReview`; updated `beforeRemove` guard to cover `'review'`; meeting-based recordings now pre-seed people/project in review from meeting context.
+4. **Mobile import** (`apps/mobile/app/(tabs)/import-recording.tsx`): added `'review'` phase after file pick + consent; integrated `RecordingContextEditor`.
+5. Extracted `RecordingContextEditor` from `record.tsx` into new shared `apps/mobile/components/RecordingContextEditor.tsx`.
+6. **Backend analysis** (`packages/api/src/services/meeting-analysis.ts`): added `projectName?` and `knownPeople?` to `AnalyzeTranscriptOptions`; `buildAnalysisPrompt` adds a CONTEXT block when these fields are set.
+7. **Backend voice** (`packages/api/src/services/voice.ts`): `processVoiceRecording` now loads people profiles (role, company) and project name; passes them to `analyzeTranscript`; after saving analysis, renames `meetings.title` from `result.topic` when the meeting was created by the recording pipeline and its title still starts with `שיחה מוקלטת`.
+8. Updated existing test that expected placeholder title; added 7 new Vitest tests in `packages/api/src/services/recording-context-before-upload.test.ts`.
+9. Wrote reviewer report at `reports/recording-context-before-upload.md`.
+
+### Output Paths
+- `docs/specs/recording-context-before-upload.md`
+- `apps/web/src/app/voice/page.tsx`
+- `apps/mobile/app/(tabs)/record.tsx`
+- `apps/mobile/app/(tabs)/import-recording.tsx`
+- `apps/mobile/components/RecordingContextEditor.tsx` (new)
+- `packages/api/src/services/meeting-analysis.ts`
+- `packages/api/src/services/voice.ts`
+- `packages/api/src/services/recording-context-before-upload.test.ts` (new)
+- `packages/api/src/routers/email-voice-commitments.test.ts` (updated)
+- `reports/recording-context-before-upload.md`
+
+### Compliance
+- [x] Business logic in structured code under `apps/` and `packages/` (standard engineering)
+- [x] No PII exposed or stored beyond what already existed
+- [x] All 1300+ Vitest tests pass; 1 pre-existing failure in harness-reasoner (unrelated)
+- [x] `pnpm -r run lint` — no new errors
+- [x] `pnpm --filter @ak-system/web build` — clean
+
+### Performance Notes
+- Gemini prompt is enriched with CRM context on every voice analysis; negligible token overhead (~50–150 tokens for 2–3 people profiles).
+- Meeting title rename is a single `db.update` after analysis; no additional LLM call.
+
+---
+
+## 2026-10-13 — Dev Agent — auto-identify-two-person-speakers
+
+**Workflow:** dev pipeline — PM → UI/UX → Dev → Dev Tests → QA → Reviewer
+**Status:** Completed; unrelated full-E2E baseline failures documented
+
+### Stand-up
+- **Goal:** Safely infer the only other speaker in a confirmed one-on-one recording and feed resolved names back into analysis without retranscribing audio.
+- **Context:** Speaker answers were stored only as recording-local links after analysis, so analysis remained on `דובר N` labels.
+
+### Actions Taken
+1. Wrote and approved `docs/specs/auto-identify-two-person-speakers.md`.
+2. Added conservative two-person inference: exactly two labels, enrolled owner already matched, and exactly one confirmed external participant.
+3. Added analysis-only attributed transcripts and a text refresh after all manual answers are resolved.
+4. Kept the original recording transcript unchanged and avoided a second model call when attribution is known before initial analysis.
+5. Added visible “זוהה אוטומטית” UI with an explicit correction path.
+6. Added Vitest safety/refresh coverage and a Playwright automatic-match correction flow.
+7. Wrote QA and reviewer reports.
+
+### Output Paths
+- `docs/specs/auto-identify-two-person-speakers.md`
+- `packages/api/src/services/voice-diarization.ts`
+- `packages/api/src/services/voice.ts`
+- `packages/api/src/routers/voice.ts`
+- `packages/api/src/services/voice-speakers.test.ts`
+- `apps/web/src/app/voice/page.tsx`
+- `apps/web/e2e/email-voice-commitments.spec.ts`
+- `reports/qa-auto-identify-two-person-speakers.md`
+- `reports/auto-identify-two-person-speakers.md`
+
+### Compliance
+- [x] Standard `apps/` / `packages/` engineering pipeline followed
+- [x] No third-party biometric voiceprints added
+- [x] No automatic guess in ambiguous conversations
+- [x] Full unit suite: 1,609/1,609 passing
+- [x] Focused voice E2E: 7/7 passing
+- [x] Lint and production build passing
+- [ ] Full E2E baseline: 98 passing, 2 skipped, 28 unrelated failures
+
+### Performance Notes
+- Safe one-on-one attribution happens before the original analysis call, so it adds no Gemini request.
+- Manual completion triggers at most one text-only refresh; all-skipped/no-change results avoid that call.
+- No deployment was performed in the implementation run. If requested, use `SKIP_CI=1 pnpm deploy:ec2` while retaining the production build step.
+
+---
+
+## 2026-10-13 — Dev Agent — auto-identify-two-person-speakers deploy
+
+**Workflow:** EC2 deploy with `SKIP_CI=1`
+**Status:** Completed
+
+### Actions Taken
+1. Deployed with `SKIP_CI=1 pnpm deploy:ec2`, which still ran `AK_DEPLOY_BUILD=1 pnpm build`.
+2. Docker images were rebuilt on EC2 and containers recreated.
+3. Confirmed the running web container `BUILD_ID` equals the Mac build: `eZ1z_kp5htnS_2JAqi6sR`.
+4. Confirmed the shipped voice bundle contains the automatic-identification UI copy.
+
+### Compliance
+- [x] CI skipped by explicit user policy
+- [x] Production bundle rebuilt before sync
+- [x] Container build identity verified
+
+---
+
+## 2026-10-19 — Dev Agent — calendar-link-and-commitment-task-modal
+
+**Workflow:** dev-pipeline — full feature implementation
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Fix two UX gaps: (1) calendar meeting link lost after recording, (2) commitment accept opens TaskModal with prefill
+- **Context:** Spec at `docs/specs/calendar-link-and-commitment-task-modal.md`, all todos completed
+
+### Actions Taken
+1. **Backend — `packages/api/src/routers/meetings.ts`**: Added `calendarOnDate` query (returns calendar-source meetings for a date) and `attachToCalendar` mutation (merges voice/notion/manual meeting into a calendar event — moves analyses, recordings, commitments, people, then deletes source). Added source-is-calendar guard.
+2. **Backend — `packages/api/src/routers/commitments.ts`**: Added `taskPrefill` query (returns prefill data + Hebrew explanations for each field). Extended `accept` to accept an optional `taskId` for the fast-path when the caller already created a task via TaskModal.
+3. **Web — `apps/web/src/app/voice/page.tsx`**: Added `reviewMeetingId`/`reviewMeetingTitle`/`showReviewMeetingPicker` state; show meeting link row in review panel; "free recording" button becomes secondary/ghost when a preset calendar meeting is active.
+4. **Web — `apps/web/src/app/meetings/[id]/page.tsx`**: Added "📅 שייך לאירוע ביומן" button + same-day calendar meeting picker (only shown for non-calendar meetings).
+5. **Web — `apps/web/src/components/Modals/TaskModal.tsx`**: Added `explanations?: Record<string, string>` prop; renders 💡 hints under each relevant field.
+6. **Web — `apps/web/src/app/commitments/page.tsx`**: Replaced inline mini-form with `TaskModal` + `commitments.taskPrefill` prefill. Added meetings/projects/people queries. "קבל" button opens modal.
+7. **Mobile — `apps/mobile/app/(tabs)/record.tsx`**: Added `Modal` import; always fetch `meetingChoices` (for picker even when `params.meetingId` is set); added `showMeetingChangePicker` state; added meeting display row in review phase with "החלף"/"הסר" controls and a bottom-sheet modal; free-recording button deprioritized when preset meeting is set.
+8. **Tests**: Added `packages/api/src/routers/calendar-link-and-commitment-task-modal.test.ts` (11 Vitest tests) + `apps/web/e2e/calendar-link-and-commitment-task-modal.spec.ts` (4 Playwright specs).
+
+### Output Paths
+- `packages/api/src/routers/meetings.ts` (calendarOnDate, attachToCalendar)
+- `packages/api/src/routers/commitments.ts` (taskPrefill, accept extended)
+- `apps/web/src/app/voice/page.tsx`
+- `apps/web/src/app/meetings/[id]/page.tsx`
+- `apps/web/src/components/Modals/TaskModal.tsx`
+- `apps/web/src/app/commitments/page.tsx`
+- `apps/mobile/app/(tabs)/record.tsx`
+- `packages/api/src/routers/calendar-link-and-commitment-task-modal.test.ts`
+- `apps/web/e2e/calendar-link-and-commitment-task-modal.spec.ts`
+
+### Compliance
+- [x] No PII exposed; all data stays within user's own DB
+- [x] Lint: warnings only (pre-existing), no errors
+- [x] Tests: 1321 passed, 0 new failures
+
+---
+
+## 2026-10-20 — Dev Agent — people-domain-hierarchy
+
+### Stand-up
+- **Goal:** Model Alpir's life domains (DAZ startup, Dragontail employer, Alpir Consulting, personal) so people belong to one or more domains with a free-text relationship and a per-domain reports-to; feed it to the Harness; enrich company/job title/notes from Google Contacts; responsive for Galaxy Z Fold 7.
+- **Workflow:** dev pipeline (PM spec → UI review → Dev → Tests → QA → Reviewer). Spec: `docs/specs/people-domain-hierarchy.md`.
+
+### Actions Taken
+1. **DB:** `workspaces.kind` + `description`; new many-to-many `person_workspaces` (relationship_type, reports_to_person_id, notes). Both schemas + SQLite bootstrap + default-kind seed.
+2. **API:** `people.affiliations / linkToWorkspace / unlinkFromWorkspace / listByWorkspace`, `listPaginated.workspaceId` + per-row affiliations, merge/delete cleanup; `workspaces.create/update` kind + description; `contacts.previewGoogleProfiles / applyGoogleProfiles` (additive only).
+3. **Harness:** person nodes now carry domains, relationship and manager in summary + attrs.
+4. **Web:** workspace filter chips, badges in table/cards, affiliations editor in the person drawer, "פרטים מגוגל" review dialog, kind/description in the workspace modal; drawer full-width and cards by default below 768px.
+5. **EC2 schema check:** probed the production SQLite schema read-only. Found that `db:push` always fails and rolls back in production (pre-existing drizzle-kit duplicate-index bug), so the `getDb()` bootstrap is the real migration path. Rewrote the `person_workspaces` bootstrap DDL in drizzle-kit's form so push sees no diff, and verified the bootstrap on a production replica.
+
+### Output Paths
+- `docs/specs/people-domain-hierarchy.md`, `reports/people-domain-hierarchy.md`, `reports/qa-people-domain-hierarchy.md`
+- `packages/database/src/{schema.pg.ts,schema.ts,index.ts}`
+- `packages/api/src/services/{person-workspaces.ts,google-profile-fill.ts,harness-context.ts}`, `packages/api/src/routers/{people.ts,workspaces.ts,contacts.ts}`
+- `apps/web/src/components/people/{affiliations.ts,WorkspaceBadges.tsx,PersonAffiliations.tsx,GoogleProfileFillModal.tsx,...}`, `apps/web/src/components/Modals/WorkspaceModal.tsx`
+- Tests: `packages/api/src/routers/people-domain-hierarchy.test.ts` (19), `apps/web/e2e/people-domain-hierarchy.spec.ts` (3)
+
+### Compliance
+- [x] No PII exported: the production probe read schema DDL and workspace names only
+- [x] Google enrichment never overwrites user-entered fields
+- [x] Lint: warnings only; build passes
+
+### Performance Notes
+- Production `db:push` has been silently failing on every deploy. It is worth a dedicated bugfix spec, because new tables that rely only on push never reach production.
+
+### Deployment — 2026-10-20 15:20
+- Created a transactionally consistent production DB backup: `/data/backups/pre-people-domain-20261020-152056.sqlite` (45 MB).
+- Tagged the prior web image as `ak-system-web:rollback-20261020-152056`.
+- First deploy attempt used a stale/missing local `.next` after e2e cleanup; verification caught it, the site was immediately restored from the rollback image, and health returned HTTP 307 / Next Ready.
+- Rebuilt the Next.js bundle locally and redeployed successfully. BUILD_ID matched: `0c9k2J3W_YO5nv9ZV_ByX`.
+- Post-deploy health: local and public HTTP 307 (expected auth redirect).
+- Production schema verified: `workspaces.kind`, `workspaces.description`, and `person_workspaces` are present.
+- Existing Notion database links and task counts were verified unchanged; no workspace, database link, or task was merged/deleted/moved.
+
+---
+
+## 2026-10-20 — Dev Agent — worlds-and-workspaces phase 1A deploy
+
+### Stand-up
+- **Goal:** Deploy the non-destructive world → workspace hierarchy and settings assignment control while preserving every existing workspace, Notion database link, and task assignment.
+- **Workflow:** `docs/specs/worlds-and-workspaces.md` — approved decisions; partial Phase 1A only.
+
+### Actions Taken
+1. Added nullable hierarchy/entity columns to SQLite + Postgres schemas and EC2 bootstrap: `workspaces.parent_id`, `projects.workspace_id`, `meetings.workspace_id/workspace_source`, `meeting_series.workspace_id`.
+2. Added hierarchy validation, tree query, merge preview, and same-world merge service/API. No automatic reparenting or merging.
+3. Added "בתוך עולם" control to the workspace modal and nested display in Settings.
+4. Added 4 hierarchy tests; combined hierarchy suites pass 23/23. Lint has no errors; production build passes.
+5. Created `/data/backups/pre-worlds-20261020-202938.sqlite` and rollback image `ak-system-web:rollback-20261020-202938`.
+6. First image build stopped before container replacement because EC2 Docker storage was full. Removed only unused build/image artifacts and one obsolete rollback image, retaining the current rollback + DB backup. Retry deployed successfully with BUILD_ID `FU_i9OCzh167IGm2fvfp-`.
+7. Post-deploy verification: local/public HTTP 307; all new columns present; all six existing workspaces still `parent_id = NULL`; all Notion DB links and task counts unchanged.
+
+### Compliance
+- [x] No existing workspace, task, person, project, meeting, or Notion DB link moved
+- [x] Rollback DB + image created before deploy
+- [x] Production schema and data shape verified after deploy
+
+---
+
+### 2026-10-21 — Android APK ARO 1.0.10 built locally
+
+- **Agent:** Dev pipeline (build only; trivial version bump, no spec — zero behavioral change)
+- **Why:** Ship the mobile changes from commit `6f3d189` (tasks chips/priority dot, record screen HH:MM–HH:MM range, FilterChips sizing) to the phone.
+- **Actions:** Bumped `apps/mobile/app.config.ts` to 1.0.10 / versionCode 11. Mobile `tsc --noEmit` clean. `eas build --local --profile preview` with Homebrew openjdk@17 (~20 min Gradle). Verified with `aapt` (versionCode 11) and grepped the JS bundle for the new `clockOf` code. `EXPO_PUBLIC_API_URL` = `retype-engross-strike.ngrok-free.dev`, `/api/health` 200.
+- **Outputs:** `~/Desktop/ARO-1.0.10.apk`, copy in `My Drive/ARO-1.0.10.apk`, and `apps/web/public/helm.apk` (not deployed to EC2).
+- **Compliance:** engineering work under `apps/`; ABC guardrails not applicable.
+
+---
+
+## 2026-10-23 — Dev Agent — WhatsApp bridge capture recovery
+
+### Stand-up
+- **Goal:** Restore group-summary and FOMO capture after the owner reported empty summaries despite active groups.
+- **Workflow:** `docs/specs/whatsapp-bridge-capture-recovery.md` — approved immediate repair and deployment.
+
+### Actions Taken
+1. Read-only production diagnostics confirmed the bridge had 66 watched/FOMO-enabled groups and a valid webhook configuration, but `whatsapp_messages` had zero messages in the previous 24 hours; the latest persisted message was `2026-10-20T21:02:22Z`.
+2. Bridge logs showed repeated `Bad MAC` session errors and recurring reconnects, identifying corrupted WhatsApp linked-device cryptographic state as the capture failure. This explains both empty DB-based summaries and absent FOMO events.
+3. With explicit owner approval, removed only Docker volume `deploy_bridge-auth`; retained `deploy_bridge-config`, so the persisted 66-group and 91-DM capture configuration was preserved.
+4. Rebuilt and force-recreated the production `whatsapp-bridge` container. Post-deploy status: QR available, 66 watched groups restored, webhook configured. The owner must scan the new QR to complete pairing; then live messages will resume capture.
+
+### Output Paths
+- `docs/specs/whatsapp-bridge-capture-recovery.md`
+- Production: `deploy-whatsapp-bridge-1`, `deploy_bridge-auth` (recreated), `deploy_bridge-config` (preserved)
+
+### Compliance
+- [x] No group messages, database records, group rules, or DM capture configuration were exported or deleted.
+- [x] Auth reset was explicitly approved before the destructive volume operation.
+- [x] Deployment built and started successfully; bridge health was checked without exposing credentials.
+
+### Performance Notes
+- Baileys logged a large volume of sensitive session diagnostics while failing (`Bad MAC`). Reduce the Baileys logger verbosity and redaction scope in a separate security/observability change.

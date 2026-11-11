@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { isPublicPagePath } from '@/lib/public-paths'
 
 function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
   const origin = req.headers.get('origin') ?? '*'
@@ -7,7 +8,9 @@ function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
   res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.headers.set(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-AK-Client',
+    // The mobile client also sends ngrok-skip-browser-warning; without it the
+    // Expo web preview (localhost:8081) fails every preflight.
+    'Content-Type, Authorization, X-AK-Client, ngrok-skip-browser-warning',
   )
   res.headers.set('Access-Control-Allow-Credentials', 'true')
   return res
@@ -16,7 +19,7 @@ function applyDevCors(res: NextResponse, req: NextRequest): NextResponse {
 // Auth gate for page routes. API routes are excluded via the matcher below and
 // enforce their own auth:
 //   - /api/trpc      → tRPC protectedProcedure (getServerSession)
-//   - /api/whatsapp, /api/telegram, /api/cron → Bearer/secret tokens
+//   - /api/whatsapp, /api/telegram, /api/cron, /api/slack → Bearer/secret tokens
 //   - /api/auth      → NextAuth itself
 // Static assets (sw.js, manifest.json, icons) are also excluded so the PWA installs.
 export function middleware(req: NextRequest) {
@@ -39,6 +42,16 @@ export function middleware(req: NextRequest) {
   // API routes enforce their own auth (tRPC session, Bearer secrets, NextAuth).
   // Never HTML-redirect them — clients expect JSON and otherwise hit "JSON Parse Error".
   if (req.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next()
+  }
+
+  // The Helm APK is installed from the phone browser before a session exists.
+  if (req.nextUrl.pathname === '/helm.apk') {
+    return NextResponse.next()
+  }
+
+  // Public homepage + privacy policy required by Google's OAuth consent screen.
+  if (isPublicPagePath(req.nextUrl.pathname)) {
     return NextResponse.next()
   }
 
@@ -71,6 +84,6 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/api/:path*',
-    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|login).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|login|helm\\.apk).*)',
   ],
 }

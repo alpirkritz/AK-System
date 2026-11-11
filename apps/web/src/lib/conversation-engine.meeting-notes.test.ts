@@ -11,16 +11,22 @@ vi.mock('./notion', () => ({
   getNotionTasks: vi.fn(),
   searchNotion: vi.fn(),
 }))
-vi.mock('@ak-system/api', () => ({
-  localTodayIso: () => '2026-08-13',
-  filterEventsByCalendarScope: (events: unknown[]) => events,
-  getAgentCalendarIds: vi.fn().mockResolvedValue([]),
-}))
+vi.mock('@ak-system/api', async () => {
+  const { titlesShareTopic } = await import('../../../../packages/api/src/lib/topic-match')
+  return {
+    getDefaultTimezone: () => 'Asia/Jerusalem',
+    localTodayIso: () => '2026-08-13',
+    filterEventsByCalendarScope: (events: unknown[]) => events,
+    getAgentCalendarIds: vi.fn().mockResolvedValue([]),
+    titlesShareTopic,
+  }
+})
 vi.mock('@ak-system/database', () => ({
   chatMessages: {},
   getDb: vi.fn(),
 }))
 
+import { getNotionTasks } from './notion'
 import { executeTool } from './conversation-engine'
 
 type AnyCaller = Parameters<typeof executeTool>[2]
@@ -101,5 +107,73 @@ describe('executeTool — get_notion_meeting_notes', () => {
     )) as { prepFor?: { date: string } }
     expect(meetingNotes).toHaveBeenCalledWith({ prepDate: 'tomorrow' })
     expect(result.prepFor?.date).toBe('2026-08-31')
+  })
+
+  it('passes focusTitle through to insights.meetingNotes', async () => {
+    const meetingNotes = vi.fn().mockResolvedValue({ notes: [], count: 0 })
+    const caller = { insights: { meetingNotes } } as unknown as AnyCaller
+    await executeTool(
+      'get_notion_meeting_notes',
+      { prepDate: 'today', focusTitle: 'Follow up DD release discussion' },
+      caller,
+    )
+    expect(meetingNotes).toHaveBeenCalledWith({
+      prepDate: 'today',
+      focusTitle: 'Follow up DD release discussion',
+    })
+  })
+})
+
+describe('executeTool — get_notion_tasks focusTitle', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('drops tasks that do not share a topic token', async () => {
+    vi.mocked(getNotionTasks).mockResolvedValue({
+      overdue: [
+        {
+          account: 'a',
+          db: 'DT',
+          title: 'Ensure QA monitoring is in place and confirm readiness for Algo 4.0',
+          due: '2026-08-13',
+          status: 'open',
+          priority: 'high',
+          assignee: '',
+        },
+      ],
+      today: [
+        {
+          account: 'a',
+          db: 'DT',
+          title: 'Confirm DD release blockers',
+          due: '2026-08-13',
+          status: 'open',
+          priority: 'high',
+          assignee: '',
+        },
+      ],
+      soon: [
+        {
+          account: 'a',
+          db: 'DT',
+          title: 'Provide deliverable to Jordan (with Adam) based on Elad discussion',
+          due: '2026-08-14',
+          status: 'open',
+          priority: 'medium',
+          assignee: '',
+        },
+      ],
+      highPriority: [],
+      errors: [],
+    })
+
+    const result = (await executeTool(
+      'get_notion_tasks',
+      { focusTitle: 'Follow up DD release discussion' },
+      {} as AnyCaller,
+    )) as { today: Array<{ title: string }>; overdue: unknown[]; soon: unknown[] }
+
+    expect(result.today.map((t) => t.title)).toEqual(['Confirm DD release blockers'])
+    expect(result.overdue).toEqual([])
+    expect(result.soon).toEqual([])
   })
 })

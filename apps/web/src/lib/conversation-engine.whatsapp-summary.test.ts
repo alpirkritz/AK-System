@@ -14,6 +14,7 @@ vi.mock('./notion', () => ({
   searchNotion: vi.fn(),
 }))
 vi.mock('@ak-system/api', () => ({
+  getDefaultTimezone: () => 'Asia/Jerusalem',
   localTodayIso: () => '2026-07-16',
   filterEventsByCalendarScope: (events: unknown[]) => events,
   getAgentCalendarIds: vi.fn().mockResolvedValue([]),
@@ -28,15 +29,13 @@ import { executeTool } from './conversation-engine'
 type AnyCaller = Parameters<typeof executeTool>[2]
 
 function buildCaller(overrides: {
-  digest?: ReturnType<typeof vi.fn>
-  forGroup?: ReturnType<typeof vi.fn>
+  forTool?: ReturnType<typeof vi.fn>
   trigger?: ReturnType<typeof vi.fn>
 }) {
   return {
     whatsapp: {
-      insights: {
-        digest: overrides.digest ?? vi.fn(),
-        forGroup: overrides.forGroup ?? vi.fn(),
+      messages: {
+        forTool: overrides.forTool ?? vi.fn(),
       },
       summaries: {
         trigger: overrides.trigger ?? vi.fn(),
@@ -48,112 +47,119 @@ function buildCaller(overrides: {
 describe('executeTool — summarize_whatsapp_groups', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('summarizes all groups via the DB-backed digest (inline), not the bridge', async () => {
-    const digest = vi.fn().mockResolvedValue({
-      text: '📡 מה קורה עכשיו בקבוצות\n\nהכול רגוע.',
-      items: [],
+  it('returns all-groups raw DB data (inline), not the bridge', async () => {
+    const forTool = vi.fn().mockResolvedValue({
+      groups: [{ groupName: 'צוות', groupJid: '123@g.us', messageCount: 5, priority: 0 }],
+      totalGroups: 1,
       window: '24h',
+      rangeLabel: '24 השעות האחרונות',
+      empty: false,
     })
     const trigger = vi.fn()
-    const caller = buildCaller({ digest, trigger })
+    const caller = buildCaller({ forTool, trigger })
 
     const result = (await executeTool('summarize_whatsapp_groups', {}, caller)) as {
-      text: string
+      groups: unknown[]
       window: string
     }
 
-    expect(digest).toHaveBeenCalledWith({ window: '24h' })
+    expect(forTool).toHaveBeenCalledWith({ window: '24h' })
     expect(trigger).not.toHaveBeenCalled()
-    expect(result.text).toContain('מה קורה עכשיו בקבוצות')
+    expect(result.groups).toHaveLength(1)
   })
 
-  it('returns an honest empty-state message inline (never "המערכת עמוסה")', async () => {
-    const digest = vi.fn().mockResolvedValue({
-      text: 'אין פעילות חדשה בקבוצות שאתה עוקב אחריהן בטווח הזה.',
-      items: [],
+  it('returns an honest empty-state inline (never "המערכת עמוסה")', async () => {
+    const forTool = vi.fn().mockResolvedValue({
+      groups: [],
+      totalGroups: 0,
       window: '24h',
+      rangeLabel: '24 השעות האחרונות',
+      empty: true,
     })
-    const caller = buildCaller({ digest })
+    const caller = buildCaller({ forTool })
 
-    const result = (await executeTool('summarize_whatsapp_groups', {}, caller)) as { text: string }
+    const result = (await executeTool('summarize_whatsapp_groups', {}, caller)) as { empty: boolean }
 
-    expect(result.text).toContain('אין פעילות חדשה')
-    expect(result.text).not.toContain('המערכת עמוסה')
+    expect(result.empty).toBe(true)
   })
 
-  it('summarizes a single group via insights.forGroup when groupJid is given', async () => {
-    const forGroup = vi.fn().mockResolvedValue({
-      text: '📋 סיכום קבוצה — צוות',
-      messageCount: 5,
-      mode: 'summary',
+  it('returns raw DB data for a single group when groupJid is given', async () => {
+    const forTool = vi.fn().mockResolvedValue({
+      groupName: 'צוות',
+      groupJid: '120363@g.us',
       window: '7d',
+      messageCount: 5,
+      topSenders: [{ name: 'דוד', count: 3 }],
+      recentMessages: ['[10:00] דוד: היי', '[10:05] שרה: מה נשמע'],
+      empty: false,
     })
-    const digest = vi.fn()
-    const caller = buildCaller({ forGroup, digest })
+    const caller = buildCaller({ forTool })
 
     const result = (await executeTool(
       'summarize_whatsapp_groups',
       { groupJid: '120363@g.us' },
       caller,
-    )) as { text: string; messageCount: number }
+    )) as { messageCount: number }
 
-    expect(forGroup).toHaveBeenCalledWith({ groupJid: '120363@g.us', window: '7d', mode: 'summary' })
-    expect(digest).not.toHaveBeenCalled()
+    expect(forTool).toHaveBeenCalledWith({ groupJid: '120363@g.us', window: '7d' })
     expect(result.messageCount).toBe(5)
   })
 
-  it('honors an explicit window for the all-groups digest', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: '6h' })
-    const caller = buildCaller({ digest })
+  it('honors an explicit window for the all-groups data', async () => {
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: '6h', empty: true })
+    const caller = buildCaller({ forTool })
 
     await executeTool('summarize_whatsapp_groups', { window: '6h' }, caller)
 
-    expect(digest).toHaveBeenCalledWith({ window: '6h' })
+    expect(forTool).toHaveBeenCalledWith({ window: '6h' })
   })
 })
 
 describe('executeTool — WhatsApp time-anchored windows', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('passes window=today through to the digest', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום' })
-    const caller = buildCaller({ digest })
+  it('passes window=today through to forTool', async () => {
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: 'today', rangeLabel: 'היום', empty: true })
+    const caller = buildCaller({ forTool })
 
     const result = (await executeTool('whatsapp_now', { window: 'today' }, caller)) as {
       rangeLabel: string
     }
 
-    expect(digest).toHaveBeenCalledWith({ window: 'today' })
+    expect(forTool).toHaveBeenCalledWith({ window: 'today' })
     expect(result.rangeLabel).toBe('היום')
   })
 
-  it('passes window=yesterday through to the digest', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'yesterday', rangeLabel: 'אתמול' })
-    const caller = buildCaller({ digest })
+  it('passes window=yesterday through to forTool', async () => {
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: 'yesterday', rangeLabel: 'אתמול', empty: true })
+    const caller = buildCaller({ forTool })
 
     await executeTool('summarize_whatsapp_groups', { window: 'yesterday' }, caller)
 
-    expect(digest).toHaveBeenCalledWith({ window: 'yesterday' })
+    expect(forTool).toHaveBeenCalledWith({ window: 'yesterday' })
   })
 
   it('forwards an hour range and anchors it to today when no window is given', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום 14:00–16:00' })
-    const caller = buildCaller({ digest })
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: 'today', rangeLabel: 'היום 14:00–16:00', empty: true })
+    const caller = buildCaller({ forTool })
 
     await executeTool('whatsapp_now', { sinceHour: 14, untilHour: 16 }, caller)
 
-    expect(digest).toHaveBeenCalledWith({ window: 'today', sinceHour: 14, untilHour: 16 })
+    expect(forTool).toHaveBeenCalledWith({ window: 'today', sinceHour: 14, untilHour: 16 })
   })
 
   it('keeps an hour range anchored to yesterday when asked', async () => {
-    const forGroup = vi.fn().mockResolvedValue({
-      text: 'y',
+    const forTool = vi.fn().mockResolvedValue({
+      groupName: 'test',
+      groupJid: '120363@g.us',
       messageCount: 2,
-      mode: 'summary',
       window: 'yesterday',
       rangeLabel: 'אתמול מ-22:00',
+      topSenders: [],
+      recentMessages: [],
+      empty: false,
     })
-    const caller = buildCaller({ forGroup })
+    const caller = buildCaller({ forTool })
 
     await executeTool(
       'summarize_whatsapp_groups',
@@ -161,29 +167,28 @@ describe('executeTool — WhatsApp time-anchored windows', () => {
       caller,
     )
 
-    expect(forGroup).toHaveBeenCalledWith({
+    expect(forTool).toHaveBeenCalledWith({
       groupJid: '120363@g.us',
       window: 'yesterday',
       sinceHour: 22,
-      mode: 'summary',
     })
   })
 
   it('accepts numeric hours sent as strings and drops out-of-range values', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: 'today', rangeLabel: 'היום מ-08:00' })
-    const caller = buildCaller({ digest })
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: 'today', rangeLabel: 'היום מ-08:00', empty: true })
+    const caller = buildCaller({ forTool })
 
     await executeTool('whatsapp_now', { sinceHour: '8', untilHour: 99 }, caller)
 
-    expect(digest).toHaveBeenCalledWith({ window: 'today', sinceHour: 8 })
+    expect(forTool).toHaveBeenCalledWith({ window: 'today', sinceHour: 8 })
   })
 
   it('falls back to the default window when the model invents one', async () => {
-    const digest = vi.fn().mockResolvedValue({ text: 'x', items: [], window: '24h', rangeLabel: '24 השעות האחרונות' })
-    const caller = buildCaller({ digest })
+    const forTool = vi.fn().mockResolvedValue({ groups: [], window: '24h', rangeLabel: '24 השעות האחרונות', empty: true })
+    const caller = buildCaller({ forTool })
 
     await executeTool('whatsapp_now', { window: 'this-week' }, caller)
 
-    expect(digest).toHaveBeenCalledWith({ window: '24h' })
+    expect(forTool).toHaveBeenCalledWith({ window: '24h' })
   })
 })

@@ -72,12 +72,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   scrollRow: {
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignItems: 'center',
   },
   // Mirroring the ScrollView and un-mirroring each child keeps chip order RTL
@@ -85,8 +85,8 @@ const styles = StyleSheet.create({
   scrollFlip: { transform: [{ scaleX: -1 }] },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    minHeight: 36,
+    paddingVertical: 6,
+    minHeight: 38,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,

@@ -22,6 +22,18 @@ describe('formatMorningBriefingContext', () => {
     expect(text).toContain('• [high] לסגור מע״מ')
   })
 
+  it('prints UTC instants in Israel time, not the Z clock', () => {
+    const text = formatMorningBriefingContext('2026-09-23', [
+      {
+        start: '2026-09-23T12:30:00.000Z',
+        end: '2026-09-23T13:00:00.000Z',
+        title: 'חוג מדע ורפואה של רום',
+      },
+    ], [])
+    expect(text).toContain('• 15:30–16:00 – חוג מדע ורפואה של רום')
+    expect(text).not.toContain('12:30')
+  })
+
   it('adds a finance section when something stands out', () => {
     const text = formatMorningBriefingContext('2026-07-20', [], [], ['• מזון — ₪800 מעל הרגיל'])
     expect(text).toContain('פיננסים:')
@@ -31,5 +43,96 @@ describe('formatMorningBriefingContext', () => {
 
   it('leaves the finance section out entirely when there is nothing to say', () => {
     expect(formatMorningBriefingContext('2026-07-20', [], [], [])).not.toContain('פיננסים')
+  })
+
+  it('drops due tasks when includeDueTasks is false', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [{ start: '2026-07-20T09:30:00', title: '1:1 עם טינקו' }],
+      [{ title: 'לסגור מע״מ', priority: 'high', done: false, dueDate: '2026-07-20' }],
+      [],
+      { includeDueTasks: false },
+    )
+    expect(text).toContain('1:1 עם טינקו')
+    expect(text).not.toContain('משימות להיום')
+    expect(text).not.toContain('לסגור מע״מ')
+  })
+})
+
+describe('formatMorningBriefingContext cooling flags', () => {
+  it('marks meetings with cooling people or a cooling circle', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [
+        { id: 'ev1', start: '2026-07-20T10:00:00', end: '2026-07-20T11:00:00', title: 'Dana 1:1' },
+        { id: 'ev2', start: '2026-07-20T12:00:00', end: '2026-07-20T13:00:00', title: 'Algo 4.0' },
+        { id: 'ev3', start: '2026-07-20T14:00:00', end: '2026-07-20T15:00:00', title: 'Fine' },
+      ],
+      [],
+      [],
+      {
+        coolingFlags: [
+          { calendarEventId: 'ev1', title: 'Dana 1:1', coolingPeople: ['Dana'], circleCooling: false },
+          { calendarEventId: 'ev2', title: 'Algo 4.0', coolingPeople: [], circleCooling: true },
+        ],
+      },
+    )
+    expect(text).toContain('Dana 1:1 (↓ Dana)')
+    expect(text).toContain('Algo 4.0 (↓ הפגישה מתקררת)')
+    expect(text).toMatch(/– Fine$/m)
+  })
+})
+
+describe('formatMorningBriefingContext commitments', () => {
+  it('adds open commitments after the events and a separate reminder block', () => {
+    const text = formatMorningBriefingContext(
+      '2026-07-20',
+      [{ start: '2026-07-20T10:00:00', end: '2026-07-20T11:00:00', title: 'Dana 1:1' }],
+      [],
+      [],
+      {
+        commitments: {
+          byPerson: [
+            {
+              personName: 'דנה',
+              items: [
+                { personName: 'דנה', owner: 'them', content: 'לשלוח מצגת', source: 'email' },
+                { personName: 'דנה', owner: 'me', content: 'לבדוק תקציב', source: 'voice' },
+              ],
+            },
+          ],
+          mine: [{ personName: 'רון', owner: 'me', content: 'להחזיר תשובה', source: 'whatsapp_dm' }],
+        },
+      },
+    )
+    expect(text).toContain('התחייבויות פתוחות:\n• דנה לי: לשלוח מצגת (מאימייל)\n• אני ל-דנה: לבדוק תקציב (מהקלטה)')
+    expect(text).toContain('זכור לטפל:\n• אמרת ל-רון: להחזיר תשובה')
+    expect(text.indexOf('אירועים:')).toBeLessThan(text.indexOf('התחייבויות פתוחות:'))
+  })
+
+  it('a day with only commitments is not reported as empty', () => {
+    const text = formatMorningBriefingContext('2026-07-20', [], [], [], {
+      commitments: { byPerson: [], mine: [{ personName: 'רון', owner: 'me', content: 'להחזיר תשובה', source: 'email' }] },
+    })
+    expect(text).not.toContain('אין אירועים')
+    expect(text).toContain('זכור לטפל:')
+  })
+
+  it('lists what others owe me today, what first, late items marked', () => {
+    const text = formatMorningBriefingContext('2026-11-02', [], [], [], {
+      waiting: {
+        overdue: [{ personName: 'דני', title: 'לשלוח הצעה', dueDate: '2026-10-30' }],
+        today: [{ personName: 'ולרי', title: 'להעביר חוזה', dueDate: '2026-11-02' }],
+      },
+    })
+    expect(text).toContain('חייבים לי היום:')
+    expect(text).toContain('• לשלוח הצעה — דני (באיחור)')
+    expect(text).toContain('• להעביר חוזה — ולרי')
+    expect(text).not.toContain('אין אירועים')
+  })
+
+  it('omits the waiting section when nobody owes anything today', () => {
+    const text = formatMorningBriefingContext('2026-11-02', [], [], [], { waiting: { overdue: [], today: [] } })
+    expect(text).not.toContain('חייבים לי')
   })
 })

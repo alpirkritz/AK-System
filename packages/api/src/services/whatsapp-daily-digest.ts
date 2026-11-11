@@ -1,9 +1,9 @@
 /**
  * One evening briefing of every followed WhatsApp group.
- * The renderer owns order: actions, then label sections, then the quiet line.
+ * The renderer owns order: actions, then one spoken story. Quiet groups are omitted.
  */
 import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
-import { chatMessages, getDb, whatsappGroups, whatsappLabels, whatsappMessages } from '@ak-system/database'
+import { chatMessages, getDb, userSettings, whatsappGroups, whatsappLabels, whatsappMessages } from '@ak-system/database'
 import { resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import { createNotification } from '../lib/notification-store'
 import { sendMobilePush } from '../lib/mobile-push'
@@ -12,6 +12,7 @@ import { QUIET_DAY_BODY } from './whatsapp-summary-clusters'
 import { wasNotificationSentToday, resolveNotificationChannels } from './notification-preferences'
 import { isBridgeConfigured, sendBridgeText } from './whatsapp-bridge-client'
 import {
+  DIGEST_NARRATIVE_FALLBACK,
   generateDailyDigestModel,
   type DailyDigestModel,
 } from './whatsapp-insights'
@@ -20,11 +21,26 @@ type Db = ReturnType<typeof getDb>
 
 export const WHATSAPP_DAILY_DIGEST_TYPE = 'whatsapp_daily_digest'
 const OTHER_SECTION = 'אחר'
-const ACTION_HEADING = 'צריך אותך'
+export const DIGEST_DISPLAY_NAME = 'סיכום וואטסאפ יומי'
+export const DIGEST_TITLE = `💬 ${DIGEST_DISPLAY_NAME}`
+export const ACTION_HEADING = '📌 לטפל'
 const WA_CAP = 4000
-const SUMMARY_CAP = 280
-const MAX_ACTIONS = 8
-const MAX_POINTS = 4
+const MAX_ACTIONS = 5
+const SETTINGS_ID = 'default'
+const PROMPT_MIN = 40
+const PROMPT_MAX = 4000
+export const NARRATIVE_CAP = 900
+
+export const DEFAULT_DAILY_DIGEST_PROMPT = [
+  'אתה חבר שמספר מה היה היום בקבוצות הוואטסאפ שבמעקב.',
+  'כתוב עברית מדוברת, כמו שיחה על כוס קפה — לא דוח, בלי בולטים ובלי תוויות כמו "נושא:".',
+  'ספר רק על קבוצות שיש בהן הודעות. אל תזכיר קבוצה שלא קרה בה כלום.',
+  'לכל קבוצה פעילה: כמה משפטים קצרים על מה דיברו, מה עלה, ואם הוחלט משהו. תהיה תמציתי — משפט או שניים כשזה מספיק, יותר רק אם באמת קרה משהו. כל הסיפור עד 900 תווים.',
+  'בתחילת כל מקטע על קבוצה או אירוע שים אימוג׳י אחד שמתאים (🏫 גן, 👨‍👩‍👧 משפחה, 💼 עבודה, 📅 אירוע, ✅ החלטה, ⚠️ דחיפות, 🎉 חדשות טובות). אימוג׳י אחד לנקודה — בלי שרשראות ובלי אימוג׳י בכל משפט.',
+  'אם אותו אירוע עלה בכמה קבוצות של אותה תווית — ספר אותו פעם אחת. ציין שם קבוצה רק כשהפרט שייך לה לבד.',
+  'אל תמציא עובדות ואל תצטט הודעות ארוכות.',
+  'ב-actions שים רק משהו שהמשתמש צריך לעשות: בקשה, שאלה פתוחה, דדליין, או דבר להביא, לאשר, לשלם או לענות. החלטה שכבר התקבלה בלי משימה פתוחה אינה action.',
+].join('\n')
 
 export interface FollowedDigestGroup {
   jid: string
@@ -40,23 +56,13 @@ export interface DigestAction {
   source: string
 }
 
-export interface DigestPoint {
-  source: string
-  text: string
-}
-
-export interface DigestSection {
-  title: string
-  summary: string
-  points: DigestPoint[]
-}
-
 export interface ArrangedDigest {
   dateLabel: string
   actions: DigestAction[]
-  sections: DigestSection[]
-  quiet: string[]
+  narrative: string
   emptyDay: boolean
+  /** Saved prompt owns the body; do not rebuild 📌 לטפל or clip to 900 chars. */
+  passthrough?: boolean
 }
 
 export interface DigestRunResult {
@@ -91,10 +97,32 @@ function sectionTitle(group: FollowedDigestGroup): string {
   return group.labelName?.trim() || OTHER_SECTION
 }
 
-function clip(text: string, max: number): string {
+/** Clip at the last sentence or paragraph break so a long story stays one screen. */
+export function clipNarrative(text: string, max = NARRATIVE_CAP): string {
   const trimmed = text.trim()
   if (trimmed.length <= max) return trimmed
-  return trimmed.slice(0, max - 1).trimEnd() + '…'
+  const slice = trimmed.slice(0, max)
+  const boundary = Math.max(
+    slice.lastIndexOf('.'),
+    slice.lastIndexOf('!'),
+    slice.lastIndexOf('?'),
+    slice.lastIndexOf('\n'),
+  )
+  if (boundary > max * 0.5) return slice.slice(0, boundary + 1).trim()
+  return slice.trimEnd() + '…'
+}
+
+export function effectiveDigestPrompt(stored: string | null | undefined): string {
+  const trimmed = stored?.trim()
+  return trimmed ? trimmed : DEFAULT_DAILY_DIGEST_PROMPT
+}
+
+export function normalizeDigestPrompt(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed.length < PROMPT_MIN || trimmed.length > PROMPT_MAX) {
+    throw new Error('DIGEST_PROMPT_LENGTH')
+  }
+  return trimmed
 }
 
 export function arrangeDailyDigest(input: {
@@ -104,18 +132,24 @@ export function arrangeDailyDigest(input: {
 }): ArrangedDigest {
   const groups = input.groups
   const busy = groups.filter((g) => g.messageCount > 0)
-  const quiet = groups
-    .filter((g) => g.messageCount === 0)
-    .map((g) => g.name)
-    .sort((a, b) => a.localeCompare(b, 'he'))
 
   if (busy.length === 0) {
     return {
       dateLabel: input.dateLabel,
       actions: [],
-      sections: [],
-      quiet: [],
+      narrative: '',
       emptyDay: true,
+    }
+  }
+
+  if (input.model?.passthrough) {
+    const rawNarrative = input.model.narrative?.trim() ?? ''
+    return {
+      dateLabel: input.dateLabel,
+      actions: [],
+      narrative: rawNarrative || DIGEST_NARRATIVE_FALLBACK,
+      emptyDay: false,
+      passthrough: true,
     }
   }
 
@@ -143,81 +177,17 @@ export function arrangeDailyDigest(input: {
     })
     .slice(0, MAX_ACTIONS)
 
-  const actionSources = new Set(actions.map((a) => a.source))
-  const lineByName = new Map((model?.groups ?? []).map((g) => [g.name.trim(), g]))
-  const sharedByLabel = new Map((model?.shared ?? []).map((s) => [s.label.trim(), s.summary.trim()]))
-
-  const byTitle = new Map<string, FollowedDigestGroup[]>()
-  for (const g of busy) {
-    const title = sectionTitle(g)
-    const list = byTitle.get(title) ?? []
-    list.push(g)
-    byTitle.set(title, list)
-  }
-
-  const sections: (DigestSection & { priority: number; messageCount: number; hasAction: boolean })[] = []
-  for (const [title, members] of byTitle) {
-    const sortedMembers = [...members].sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority
-      return a.name.localeCompare(b.name, 'he')
-    })
-    const shared = sharedByLabel.get(title)?.trim() || ''
-    const fallbackSummary = sortedMembers.map((g) => lineByName.get(g.name)?.line.trim() || '').filter(Boolean)[0] || ''
-    const summary = title === OTHER_SECTION ? '' : clip(shared || fallbackSummary, SUMMARY_CAP)
-
-    const points: DigestPoint[] = []
-    const seen = new Set<string>()
-    for (const g of sortedMembers) {
-      const fromModel = lineByName.get(g.name)
-      const detail = fromModel?.detail.trim() || ''
-      const line = fromModel?.line.trim() || ''
-      let text = ''
-      if (title === OTHER_SECTION) {
-        text = line || detail || `היו ${g.messageCount} הודעות היום`
-      } else if (detail && detail !== summary) {
-        text = detail
-      } else if (!line && !detail) {
-        text = `היו ${g.messageCount} הודעות היום`
-      } else if (members.length > 1 && line && line !== summary && line !== shared && line !== fallbackSummary) {
-        text = line
-      }
-      if (!text || seen.has(text)) continue
-      seen.add(text)
-      points.push({ source: g.name, text })
-    }
-
-    sections.push({
-      title,
-      summary,
-      points: points.slice(0, MAX_POINTS),
-      priority: Math.max(...sortedMembers.map((g) => g.priority)),
-      messageCount: sortedMembers.reduce((n, g) => n + g.messageCount, 0),
-      hasAction:
-        actionSources.has(title) || sortedMembers.some((g) => actionSources.has(g.name)),
-    })
-  }
-
-  sections.sort((a, b) => {
-    const otherLast = Number(a.title === OTHER_SECTION && !a.hasAction) - Number(b.title === OTHER_SECTION && !b.hasAction)
-    if (otherLast !== 0) return otherLast
-    const actionFirst = Number(!a.hasAction) - Number(!b.hasAction)
-    if (actionFirst !== 0) return actionFirst
-    if (a.priority !== b.priority) return b.priority - a.priority
-    if (a.messageCount !== b.messageCount) return b.messageCount - a.messageCount
-    return a.title.localeCompare(b.title, 'he')
-  })
-
+  const rawNarrative = model?.narrative?.trim() ?? ''
   return {
     dateLabel: input.dateLabel,
-    actions,
-    sections: sections.map(({ title, summary, points }) => ({ title, summary, points })),
-    quiet,
+    actions: rawNarrative ? actions : [],
+    narrative: clipNarrative(rawNarrative || DIGEST_NARRATIVE_FALLBACK),
     emptyDay: false,
   }
 }
 
 function headerLine(dateLabel: string): string {
-  return `מה היה היום — ${dateLabel}`
+  return `${DIGEST_TITLE} — ${dateLabel}`
 }
 
 export function renderDailyDigestPlain(digest: ArrangedDigest): string {
@@ -226,42 +196,23 @@ export function renderDailyDigestPlain(digest: ArrangedDigest): string {
   }
 
   const lines: string[] = [headerLine(digest.dateLabel), '']
-  if (digest.actions.length > 0) {
+  if (!digest.passthrough && digest.actions.length > 0) {
     lines.push(ACTION_HEADING)
     for (const action of digest.actions) {
       lines.push(`• ${action.text} — ${action.source}`)
     }
     lines.push('')
   }
-  for (const section of digest.sections) {
-    lines.push(section.title)
-    if (section.summary) lines.push(section.summary)
-    for (const point of section.points) {
-      lines.push(`• ${point.source}: ${point.text}`)
-    }
-    lines.push('')
-  }
-  if (digest.quiet.length > 0) {
-    lines.push(`שקט היום: ${digest.quiet.join(', ')}`)
-  }
+  if (digest.narrative) lines.push(digest.narrative)
 
   const full = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
   if (full.length <= WA_CAP) return full
 
-  const names = [
-    ...digest.sections.flatMap((s) => s.points.map((p) => p.source)),
-    ...digest.quiet,
-  ]
-  const budget = WA_CAP - 60
+  const budget = WA_CAP - 40
   let cut = full.slice(0, budget)
   const nl = cut.lastIndexOf('\n')
   if (nl > budget * 0.5) cut = cut.slice(0, nl)
-  const missing = names.filter((name) => name && !cut.includes(name))
-  const note =
-    missing.length > 0
-      ? `\n\nועוד ${missing.length} קבוצות בכרטיס ההתראה.`
-      : '\n\nהמשך בכרטיס ההתראה.'
-  return (cut.trimEnd() + note).slice(0, WA_CAP)
+  return (cut.trimEnd() + '\n\nהמשך בכרטיס ההתראה.').slice(0, WA_CAP)
 }
 
 /** Markdown twin for the in-app notification. Headings and bullets match parseNotificationBody. */
@@ -271,29 +222,19 @@ export function renderDailyDigestMarkdown(digest: ArrangedDigest): string {
   }
 
   const lines: string[] = [`# ${headerLine(digest.dateLabel)}`, '']
-  if (digest.actions.length > 0) {
+  if (!digest.passthrough && digest.actions.length > 0) {
     lines.push(`## ${ACTION_HEADING}`)
     for (const action of digest.actions) {
       lines.push(`- ${action.text} — ${action.source}`)
     }
     lines.push('')
   }
-  for (const section of digest.sections) {
-    lines.push(`## ${section.title}`)
-    if (section.summary) lines.push(section.summary)
-    for (const point of section.points) {
-      lines.push(`- ${point.source}: ${point.text}`)
-    }
-    lines.push('')
-  }
-  if (digest.quiet.length > 0) {
-    lines.push(`שקט היום: ${digest.quiet.join(', ')}`)
-  }
+  if (digest.narrative) lines.push(digest.narrative)
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-export function digestTitle(digest: ArrangedDigest): string {
-  return digest.actions.length > 0 ? ACTION_HEADING : 'מה היה היום'
+export function digestTitle(_digest: ArrangedDigest): string {
+  return DIGEST_TITLE
 }
 
 export function digestPushBody(plain: string): string {
@@ -403,6 +344,63 @@ async function deliverDigest(
   return { notificationId, error: sendError }
 }
 
+async function readStoredDigestPrompt(db: Db): Promise<string | null> {
+  const rows = await db
+    .select({ prompt: userSettings.whatsappDailyDigestPrompt })
+    .from(userSettings)
+    .where(eq(userSettings.id, SETTINGS_ID))
+    .limit(1)
+  return rows[0]?.prompt ?? null
+}
+
+export async function getDailyDigestPrompt(db: Db): Promise<{ prompt: string; customized: boolean }> {
+  const stored = await readStoredDigestPrompt(db)
+  const customized = Boolean(stored?.trim())
+  return { prompt: effectiveDigestPrompt(stored), customized }
+}
+
+export async function saveDailyDigestPrompt(
+  db: Db,
+  raw: string,
+): Promise<{ prompt: string; customized: true }> {
+  const prompt = normalizeDigestPrompt(raw)
+  const now = new Date().toISOString()
+  const rows = await db
+    .select({ id: userSettings.id })
+    .from(userSettings)
+    .where(eq(userSettings.id, SETTINGS_ID))
+    .limit(1)
+  if (rows[0]) {
+    await db
+      .update(userSettings)
+      .set({ whatsappDailyDigestPrompt: prompt, updatedAt: now })
+      .where(eq(userSettings.id, SETTINGS_ID))
+  } else {
+    await db.insert(userSettings).values({
+      id: SETTINGS_ID,
+      whatsappDailyDigestPrompt: prompt,
+      updatedAt: now,
+    })
+  }
+  return { prompt, customized: true }
+}
+
+export async function resetDailyDigestPrompt(db: Db): Promise<{ prompt: string; customized: false }> {
+  const now = new Date().toISOString()
+  const rows = await db
+    .select({ id: userSettings.id })
+    .from(userSettings)
+    .where(eq(userSettings.id, SETTINGS_ID))
+    .limit(1)
+  if (rows[0]) {
+    await db
+      .update(userSettings)
+      .set({ whatsappDailyDigestPrompt: null, updatedAt: now })
+      .where(eq(userSettings.id, SETTINGS_ID))
+  }
+  return { prompt: DEFAULT_DAILY_DIGEST_PROMPT, customized: false }
+}
+
 export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
   const groups = await loadFollowedGroups(db)
   if (groups.length === 0) {
@@ -414,6 +412,7 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
   let model: DailyDigestModel | null = null
   if (busy.length > 0) {
     try {
+      const { prompt, customized } = await getDailyDigestPrompt(db)
       model = await generateDailyDigestModel(
         busy.map((g) => ({
           name: g.name,
@@ -421,6 +420,8 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
           priority: g.priority,
           messages: g.messages,
         })),
+        prompt,
+        { contract: customized ? 'freeform' : 'json' },
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Daily digest failed'
@@ -438,8 +439,8 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
     ok: !delivered.error,
     text: plain,
     actionCount: arranged.actions.length,
-    sectionCount: arranged.sections.length,
-    quietCount: arranged.quiet.length,
+    sectionCount: arranged.emptyDay || !arranged.narrative ? 0 : 1,
+    quietCount: 0,
     error: delivered.error,
     notificationId: delivered.notificationId,
     title,

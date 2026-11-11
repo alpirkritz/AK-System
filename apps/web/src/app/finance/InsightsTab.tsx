@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import { SummaryCard } from './SummaryCard'
 import { MonthlyTrendChart } from './components/MonthlyTrendChart'
@@ -28,6 +28,9 @@ export default function InsightsTab() {
   const [drawerSection, setDrawerSection] = useState<'categorize' | 'categories'>('categorize')
   const [compositionOpen, setCompositionOpen] = useState(false)
   const [showAllInsights, setShowAllInsights] = useState(false)
+  const [narrativeRefreshing, setNarrativeRefreshing] = useState(false)
+  const [narrativeRefreshError, setNarrativeRefreshError] = useState(false)
+  const utils = trpc.useUtils()
 
   const coverage = trpc.finance.analytics.coverage.useQuery()
   const trend = trpc.finance.analytics.monthlyTrend.useQuery({ months: window })
@@ -36,12 +39,32 @@ export default function InsightsTab() {
   const insights = trpc.finance.analytics.insights.useQuery({ month })
   const overview = trpc.finance.analytics.overview.useQuery()
 
-  // The narrative is the one query allowed to fail without consequence — retries stay manual
-  // so a Gemini outage cannot turn into a retry storm behind a tab nobody is looking at.
+  // Reads the last saved paragraph only. Gemini runs from refreshNarrative, never from this query.
   const narrative = trpc.finance.analytics.narrative.useQuery(
     { scope: 'cashflow', month },
     { retry: false, refetchOnWindowFocus: false }
   )
+
+  useEffect(() => {
+    setNarrativeRefreshError(false)
+  }, [month])
+
+  async function refreshNarrative() {
+    setNarrativeRefreshing(true)
+    setNarrativeRefreshError(false)
+    try {
+      const next = await utils.finance.analytics.narrative.fetch({
+        scope: 'cashflow',
+        month,
+        force: true,
+      })
+      utils.finance.analytics.narrative.setData({ scope: 'cashflow', month }, next)
+    } catch {
+      setNarrativeRefreshError(true)
+    } finally {
+      setNarrativeRefreshing(false)
+    }
+  }
 
   const point = useMemo(
     () => trend.data?.months.find((p) => p.month === month) ?? null,
@@ -214,8 +237,10 @@ export default function InsightsTab() {
         data={narrative.data ?? null}
         isLoading={narrative.isLoading}
         isError={narrative.isError}
-        isRefreshing={narrative.isFetching && !narrative.isLoading}
-        onRetry={() => narrative.refetch()}
+        isRefreshing={narrativeRefreshing}
+        refreshError={narrativeRefreshError}
+        onGenerate={() => void refreshNarrative()}
+        onRetry={() => void narrative.refetch()}
       />
 
       {/* KPI row */}

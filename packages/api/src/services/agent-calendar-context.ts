@@ -1,5 +1,6 @@
 import { isExcludedFromTimedMeetingAlerts } from '../lib/calendar-filters'
-import { localDateRangeToUtc, localTodayIso } from '../lib/calendar-dates'
+import { formatLocalRange, localDateRangeToUtc, localTodayIso } from '../lib/calendar-dates'
+import { groupEventsByTime, nowClockBlock } from '../lib/event-time-status'
 import {
   filterEventsByCalendarScope,
   getAgentCalendarIds,
@@ -15,12 +16,17 @@ export type AgentCalendarContext = {
 export type AgentCalendarContextOptions = {
   /** When true (06_calendar_optimizer), drop all-day and timed events ≥ 8 hours. */
   forCalendarOptimizer?: boolean
+  /**
+   * ISO date (YYYY-MM-DD) to fetch instead of today. Used by the calendar optimizer
+   * when a schedule slot is configured to look ahead to tomorrow (dayOffset = 1).
+   */
+  planDate?: string
 }
 
 export async function getAgentCalendarContext(
   options?: AgentCalendarContextOptions,
 ): Promise<AgentCalendarContext> {
-  const today = localTodayIso()
+  const today = options?.planDate ?? localTodayIso()
   const { timeMin, timeMax } = localDateRangeToUtc(today, today)
   const scopeIds = await getAgentCalendarIds()
   const { events, errors } = await fetchGoogleCalendarEvents(timeMin, timeMax)
@@ -32,23 +38,15 @@ export async function getAgentCalendarContext(
   return { today, events: scoped, errors }
 }
 
-function formatEventTime(ev: GoogleCalendarEvent): string {
-  if (ev.isAllDay || !ev.start.includes('T')) return 'כל היום'
-  try {
-    return new Date(ev.start).toLocaleTimeString('he-IL', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: process.env.TIMEZONE || 'Asia/Jerusalem',
-    })
-  } catch {
-    return ev.start.slice(11, 16)
-  }
-}
-
 function eventLine(ev: GoogleCalendarEvent): string {
   const cal = ev.calendarName ? ` [${ev.calendarName}]` : ''
-  return `- ${formatEventTime(ev)} ${ev.title}${cal}`
+  const when = ev.isAllDay ? 'כל היום' : formatLocalRange(ev.start, ev.end)
+  const freeTag = ev.transparency === 'transparent' ? ' (מסומן כפנוי)' : ''
+  return `- ${when} ${ev.title}${cal}${freeTag}`
+}
+
+function allDayLabel(ev: GoogleCalendarEvent): string {
+  return ev.calendarName ? `${ev.title} [${ev.calendarName}]` : ev.title
 }
 
 /** Hebrew prompt block with today's Google Calendar events (agent scope applied). */
@@ -59,7 +57,10 @@ export function formatAgentCalendarContextForPrompt(ctx: AgentCalendarContext): 
     '',
     '**Use this block as source of truth for today\'s schedule load, conflicts, and meeting hours.**',
     'Do NOT report 0 hours or an empty day when events are listed below.',
-    'List EVERY event below in your day schedule — never omit any event. Personal time blocks (e.g. "אבא וצף" on the personal calendar) are real commitments: include them in the schedule and in the load. NOTE: attendee lists are often empty in this data even for real meetings, so judge conflicts by event title/type/calendar (1:1s, syncs, trainings) — do NOT assume "no attendees" means it is not a real meeting.',
+    'MANDATORY day-schedule format. The timed events below are already split by the clock into "מתרחש כרגע", "עוד לפניך היום" and "כבר הסתיים היום". Reuse EXACTLY those groupings and names — do not invent your own two-way "עבר / לפניך" split, and never move an event between them. Answer "what is left today" from "מתרחש כרגע" + "עוד לפניך היום" first; "כבר הסתיים היום" goes last and only as context.',
+    'The "רקע ליום" line is NOT part of the schedule: those are all-day markers (birthdays, WFH, trips) that hold for the whole day. They have NOT passed. Never list them as events, never put them under any heading meaning "passed"/"הסתיים"/"עבר", and never let them push the real meetings down. Mention them in at most one short line, or omit them when the user only asked what is left.',
+    'List EVERY event below within its own section — never omit an event, and never relabel its section. Personal time blocks (e.g. "אבא וצף" on the personal calendar) are real commitments: include them in the schedule and in the load. NOTE: attendee lists are often empty in this data even for real meetings, so judge conflicts by event title/type/calendar (1:1s, syncs, trainings) — do NOT assume "no attendees" means it is not a real meeting.',
+    'Events tagged "(מסומן כפנוי)" are marked Free in Google Calendar: mention them in the schedule for awareness, but do NOT count them toward meeting-load hours, do NOT flag them as double-bookings/conflicts, and do NOT use them to justify an overloaded day — treat them like a DNS/focus block.',
   ]
 
   if (hasErrors) {
@@ -71,19 +72,39 @@ export function formatAgentCalendarContextForPrompt(ctx: AgentCalendarContext): 
     )
   }
 
-  lines.push(
-    '',
-    '### Events today',
-    ...ctx.events.map(eventLine),
-    ...(ctx.events.length === 0
-      ? [hasErrors
-          ? '- אף אירוע לא הוחזר — אך היו שגיאות טעינה, כך שהיום כנראה אינו באמת ריק.'
-          : '- None returned from Google Calendar API']
-      : []),
-  )
+  if (ctx.events.length === 0) {
+    lines.push(
+      '',
+      '### Events today',
+      hasErrors
+        ? '- אף אירוע לא הוחזר — אך היו שגיאות טעינה, כך שהיום כנראה אינו באמת ריק.'
+        : '- None returned from Google Calendar API',
+    )
+  } else {
+    // Split by the clock rather than handing over one flat list. Agents read the flat
+    // version top-to-bottom and reported finished meetings as still ahead.
+    const clock = nowClockBlock()
+    const { inProgress, upcoming, allDay, past } = groupEventsByTime(ctx.events)
+    lines.push('', `### Events today (now: ${clock.localTime} ${clock.timeZone})`)
+    const section = (heading: string, events: GoogleCalendarEvent[], emptyNote: string) => {
+      lines.push('', heading, ...(events.length > 0 ? events.map(eventLine) : [`- ${emptyNote}`]))
+    }
+    section('**מתרחש כרגע:**', inProgress, 'אין אירוע שמתרחש בדיוק עכשיו')
+    section('**עוד לפניך היום:**', upcoming, 'אין עוד אירועים עם שעה להיום')
+    section('**כבר הסתיים היום:**', past, 'שום אירוע לא הסתיים עדיין')
+    // Deliberately one inline label instead of a bulleted section. As a list of events
+    // the agent kept re-filing birthdays under its own "already passed" heading; as a
+    // background note there is no event list to re-file.
+    if (allDay.length > 0) {
+      lines.push(
+        '',
+        `**רקע ליום (לא לוח זמנים, לא אירועים שעברו):** ${allDay.map(allDayLabel).join(' · ')}`,
+      )
+    }
+  }
 
   const meetingHours = ctx.events
-    .filter((e) => !e.isAllDay && e.start.includes('T'))
+    .filter((e) => !e.isAllDay && e.start.includes('T') && e.transparency !== 'transparent')
     .reduce((sum, e) => {
       const ms = new Date(e.end).getTime() - new Date(e.start).getTime()
       return sum + Math.max(0, ms) / 3_600_000

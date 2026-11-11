@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 /** CRM review status — unconfirmed people (e.g. unknown calendar attendees) stay out of the main list */
 export const PEOPLE_STATUSES = ['confirmed', 'unconfirmed', 'ignored'] as const
@@ -71,6 +71,17 @@ export const people = sqliteTable('people', {
   /** Notion page id when this person was synced from a Notion people database */
   notionPageId: text('notion_page_id'),
   createdAt: text('created_at').notNull(),
+  /** Opt-in: save this person's WhatsApp 1:1 chat. Declared last to match the SQLite ALTER order. */
+  captureWhatsapp: integer('capture_whatsapp', { mode: 'boolean' }).notNull().default(false),
+  /** When capture was switched on; earlier messages are never stored */
+  captureWhatsappSince: text('capture_whatsapp_since'),
+  /** Owner's one-line reading of why this relationship is warming or cooling */
+  warmthNote: text('warmth_note'),
+  warmthNoteUpdatedAt: text('warmth_note_updated_at'),
+  /** ISO time of the last character-trait write. */
+  traitsAt: text('traits_at'),
+  /** When the owner marked the "needs a 1:1" flag as seen. Declared last to match the SQLite ALTER order. */
+  attentionAckAt: text('attention_ack_at'),
 }, (table) => ({
   emailIdx: index('idx_people_email').on(table.email),
   statusIdx: index('idx_people_status').on(table.status),
@@ -105,13 +116,18 @@ export const projects = sqliteTable('projects', {
   color: text('color').default('#47b8e8'),
   notionPageId: text('notion_page_id'),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  /** The one world or workspace this project belongs to. Null until assigned. */
+  workspaceId: text('workspace_id'),
   /** manual | notion */
   source: text('source').notNull().default('manual'),
+  standingBrief: text('standing_brief'),
+  standingBriefAt: text('standing_brief_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   notionPageIdIdx: index('idx_projects_notion_page_id').on(table.notionPageId),
   companyIdIdx: index('idx_projects_company_id').on(table.companyId),
+  workspaceIdIdx: index('idx_projects_workspace_id').on(table.workspaceId),
 }))
 
 export const projectPeople = sqliteTable('project_people', {
@@ -130,9 +146,37 @@ export const workspaces = sqliteTable('workspaces', {
   color: text('color').default('#2dd4bf'),
   /** Legacy free-text fallback: matched against a synced task's notionDb / notionAccount to auto-assign the workspace */
   notionAccountLabel: text('notion_account_label'),
+  /** WorkspaceKind; null until the owner classifies it. Meaningful on worlds; a workspace shows its world's kind. */
+  kind: text('kind'),
+  description: text('description'),
+  /** Null = this row is a world. Set = it is a workspace inside that world. One level only. */
+  parentId: text('parent_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-})
+}, (table) => ({
+  parentIdIdx: index('idx_workspaces_parent_id').on(table.parentId),
+}))
+
+/**
+ * A person's place in one life domain. Many-to-many: the same person can be a colleague at
+ * Dragontail and a friend in the personal workspace — one row per (person, workspace).
+ */
+export const personWorkspaces = sqliteTable('person_workspaces', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  /** Free text; the UI suggests values per workspace kind */
+  relationshipType: text('relationship_type').notNull(),
+  /** Org-chart line inside this workspace only */
+  reportsToPersonId: text('reports_to_person_id').references(() => people.id, { onDelete: 'set null' }),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_person_workspaces_pair').on(table.personId, table.workspaceId),
+  workspaceIdIdx: index('idx_person_workspaces_workspace_id').on(table.workspaceId),
+  personIdIdx: index('idx_person_workspaces_person_id').on(table.personId),
+}))
 
 /** Explicit workspace ↔ Notion database (by id) links — preferred over the free-text label match */
 export const workspaceNotionDatabases = sqliteTable('workspace_notion_databases', {
@@ -140,10 +184,41 @@ export const workspaceNotionDatabases = sqliteTable('workspace_notion_databases'
   workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
   notionDatabaseId: text('notion_database_id').notNull(),
   notionDatabaseName: text('notion_database_name'),
+  /**
+   * Set when the database was registered by paste-a-link (see notion-task-source-manager).
+   * Matches a `NOTION_ACCOUNTS` label; the token is resolved at sync time and never stored.
+   * Null on rows linked from the env checkbox list — those tokens come from `resolveDatabases('tasks')`.
+   */
+  accountLabel: text('account_label'),
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   workspaceIdIdx: index('idx_workspace_notion_databases_workspace_id').on(table.workspaceId),
   notionDatabaseIdUq: uniqueIndex('uq_workspace_notion_databases_notion_database_id').on(table.notionDatabaseId),
+}))
+
+/**
+ * Self-service "people" Notion database registrations (Settings ← מקורות), additive to whatever
+ * is already configured via the `NOTION_ACCOUNTS` env var. Not workspace-scoped — people sync
+ * pulls from every registered directory regardless of workspace. `accountLabel` matches a label
+ * in `NOTION_ACCOUNTS`; the token itself is resolved from env at sync time, never stored here.
+ */
+export const peopleNotionSources = sqliteTable('people_notion_sources', {
+  id: text('id').primaryKey(),
+  accountLabel: text('account_label').notNull(),
+  notionDatabaseId: text('notion_database_id').notNull(),
+  notionDatabaseName: text('notion_database_name'),
+  /**
+   * Pinned per-field property names, chosen once (auto-detected or picked by the owner) when the
+   * source is added — see notion-people-full-field-sync. Null means "skip this field for this
+   * source", not "fall back to a heuristic": pinning is all-or-nothing per source.
+   */
+  phonePropertyName: text('phone_property_name'),
+  rolePropertyName: text('role_property_name'),
+  companyPropertyName: text('company_property_name'),
+  linkedinPropertyName: text('linkedin_property_name'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  notionDatabaseIdUq: uniqueIndex('uq_people_notion_sources_notion_database_id').on(table.notionDatabaseId),
 }))
 
 /** Canonical task status values (Notion-faithful) — orthogonal to the derived `done` boolean */
@@ -161,6 +236,40 @@ export const notionStatusOverrides = sqliteTable('notion_status_overrides', {
   rawLabelUq: uniqueIndex('uq_notion_status_overrides_raw_label').on(table.rawLabel),
 }))
 
+/**
+ * Last value imported from Notion per entity field. A field whose current local value
+ * differs from its baseline was edited locally, so the Notion sync must not overwrite it.
+ */
+export const notionFieldBaselines = sqliteTable('notion_field_baselines', {
+  id: text('id').primaryKey(),
+  /** task | meeting | project | company */
+  entity: text('entity').notNull(),
+  entityId: text('entity_id').notNull(),
+  field: text('field').notNull(),
+  /** JSON-encoded value */
+  baselineValue: text('baseline_value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  entityFieldUq: uniqueIndex('uq_notion_field_baselines_entity_field').on(table.entity, table.entityId, table.field),
+}))
+
+/** One row per backup job run (db snapshot, audio upload, audio cleanup), reported by the host scripts. */
+export const backupRuns = sqliteTable('backup_runs', {
+  id: text('id').primaryKey(),
+  /** db | audio | audio_cleanup */
+  kind: text('kind').notNull(),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  /** ok | failed */
+  status: text('status').notNull(),
+  sizeBytes: integer('size_bytes'),
+  sha256: text('sha256'),
+  driveFileId: text('drive_file_id'),
+  error: text('error'),
+}, (table) => ({
+  kindStartedIdx: index('idx_backup_runs_kind_started').on(table.kind, table.startedAt),
+}))
+
 /** Meeting category for daily summary (Work/Family/General) */
 export const MEETING_CATEGORIES = ['work', 'family', 'general'] as const
 export type MeetingCategory = (typeof MEETING_CATEGORIES)[number]
@@ -176,10 +285,60 @@ export const meetingSeries = sqliteTable('meeting_series', {
   rollingNotes: text('rolling_notes'),
   /** Google recurring event id used to group synced instances */
   googleRecurringEventId: text('google_recurring_event_id'),
+  /** `calendarId|normalized title` — groups calendar events that recur without a recurring id (Outlook bridge) */
+  titleKey: text('title_key'),
+  /** When the standing roster was first saved from the calendar */
+  rosterSavedAt: text('roster_saved_at'),
+  /** Signature of a calendar diff the owner dismissed; hidden until the calendar changes again */
+  rosterDismissedSig: text('roster_dismissed_sig'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  /** Owner's one-line reading of why this circle is warming or cooling. Last, to match the SQLite ALTER order. */
+  warmthNote: text('warmth_note'),
+  warmthNoteUpdatedAt: text('warmth_note_updated_at'),
+  /** The one world or workspace this series belongs to. Its meetings inherit it unless set by hand. */
+  workspaceId: text('workspace_id'),
+}, (table) => ({
+  googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
+  titleKeyIdx: index('idx_meeting_series_title_key').on(table.titleKey),
+  workspaceIdIdx: index('idx_meeting_series_workspace_id').on(table.workspaceId),
+}))
+
+export const SERIES_ROSTER_SOURCES = ['attendees', 'description', 'manual'] as const
+export type SeriesRosterSource = (typeof SERIES_ROSTER_SOURCES)[number]
+
+/** Standing participants of a recurring series, read from the calendar. Not CRM people until followed. */
+export const seriesRoster = sqliteTable('series_roster', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id').notNull().references(() => meetingSeries.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  /** attendees | description | manual */
+  source: text('source').notNull(),
+  personId: text('person_id').references(() => people.id, { onDelete: 'set null' }),
+  inactive: integer('inactive', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
-  googleRecurringEventIdIdx: index('idx_meeting_series_google_recurring_event_id').on(table.googleRecurringEventId),
+  seriesIdIdx: index('idx_series_roster_series_id').on(table.seriesId),
+  personIdIdx: index('idx_series_roster_person_id').on(table.personId),
+}))
+
+export const ROSTER_EXCEPTION_KINDS = ['absent', 'guest'] as const
+export type RosterExceptionKind = (typeof ROSTER_EXCEPTION_KINDS)[number]
+
+/** Per-occurrence deviation from the series roster: someone missing today, or a guest. */
+export const meetingRosterExceptions = sqliteTable('meeting_roster_exceptions', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  /** absent | guest */
+  kind: text('kind').notNull(),
+  rosterId: text('roster_id').references(() => seriesRoster.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  email: text('email'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  meetingIdIdx: index('idx_meeting_roster_exceptions_meeting_id').on(table.meetingId),
 }))
 
 /** User-managed meeting types (1:1, strategy, operations, ...) — mirrors projects */
@@ -208,16 +367,25 @@ export const meetings = sqliteTable('meetings', {
   typeId: text('type_id').references(() => meetingTypes.id, { onDelete: 'set null' }),
   calendarEventId: text('calendar_event_id'),
   calendarSource: text('calendar_source'),
+  /** The connected calendar's own id (e.g. from `fetchGoogleCalendarEvents`), used to scope calendar-based features like recording auto-linking; null for non-calendar-sourced meetings or rows synced before this column existed */
+  calendarId: text('calendar_id'),
   /** Notion Meetings page id when synced from a Notion meetings database */
   notionPageId: text('notion_page_id'),
   /** Source of this meeting: 'calendar' | 'notion_note' | 'manual' */
   source: text('source').notNull().default('calendar'),
   /** When source='notion_note', this is the first note that created the meeting */
   sourceNoteId: text('source_note_id').references(() => meetingNotes.id, { onDelete: 'set null' }),
+  /** JSON CalendarParticipant[] read from calendar attendees or the description `משתתפים:` block */
+  calendarParticipants: text('calendar_participants'),
+  /** The one world or workspace this meeting belongs to. Null until assigned. */
+  workspaceId: text('workspace_id'),
+  /** manual | series | calendar | attendees — manual is never overwritten */
+  workspaceSource: text('workspace_source'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   dateIdx: index('idx_meetings_date').on(table.date),
+  workspaceIdIdx: index('idx_meetings_workspace_id').on(table.workspaceId),
   projectIdIdx: index('idx_meetings_project_id').on(table.projectId),
   seriesIdIdx: index('idx_meetings_series_id').on(table.seriesId),
   typeIdIdx: index('idx_meetings_type_id').on(table.typeId),
@@ -257,6 +425,8 @@ export const meetingNotes = sqliteTable('meeting_notes', {
   sourceKind: text('source_kind'),
   /** Notion block id of the in-page AI Meeting Notes widget when known. */
   sourceBlockId: text('source_block_id'),
+  /** Raw Notion AI transcript (dialogue), capped at 50,000 chars. Body stays the summary. */
+  transcriptText: text('transcript_text'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
@@ -307,12 +477,31 @@ export const meetingAnalyses = sqliteTable('meeting_analyses', {
   status: text('status').notNull().default('pending'),
   error: text('error'),
   consentConfirmedAt: text('consent_confirmed_at'),
+  /** Set after the learning WhatsApp for this analysis was sent */
+  whatsappNotifiedAt: text('whatsapp_notified_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   meetingIdIdx: index('idx_meeting_analyses_meeting_id').on(table.meetingId),
   statusIdx: index('idx_meeting_analyses_status').on(table.status),
   sourceIdx: index('idx_meeting_analyses_source').on(table.source),
+}))
+
+export { MEETING_PREP_SOURCES, type MeetingPrepSource } from './schema.pg'
+
+/** The pre-meeting brief generated ~15 min before a meeting, kept so the meeting page can show it. */
+export const meetingPreps = sqliteTable('meeting_preps', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  /** Null when the built-in template produced the brief instead of an agent. */
+  agentId: text('agent_id'),
+  /** agent | template */
+  source: text('source').notNull(),
+  bodyText: text('body_text').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  meetingIdUq: uniqueIndex('uq_meeting_preps_meeting_id').on(table.meetingId),
 }))
 
 export const tasks = sqliteTable('tasks', {
@@ -416,6 +605,7 @@ export const BANK_CONNECTION_STATUSES = [
   'error',
   'disabled',
   'awaiting_otp',
+  'awaiting_captcha',
 ] as const
 export type BankConnectionStatus = (typeof BANK_CONNECTION_STATUSES)[number]
 
@@ -485,6 +675,64 @@ export const financeInsightNarratives = sqliteTable('finance_insight_narratives'
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   scopeHashUq: uniqueIndex('uq_finance_insight_narratives_scope_hash').on(table.scopeKey, table.inputHash),
+}))
+
+// ─── Personal CFO Module Tables ────────────────────────────────────────────
+
+/**
+ * User-defined debts for the Debt Avalanche engine: overdrafts, credit loans, installments.
+ * Enables tracking and optimal payoff schedule calculation.
+ */
+export const financeDebts = sqliteTable('finance_debts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(), // e.g. "משיכת יתר בנק הפועלים"
+  balance: text('balance').notNull(), // current debt balance
+  apr: text('apr').notNull(), // annual percentage rate (decimal, e.g. "0.15" for 15%)
+  minPayment: text('min_payment').notNull(), // minimum monthly payment
+  debtType: text('debt_type').notNull(), // 'overdraft' | 'credit_loan' | 'installment'
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_debts_user_id').on(table.userId),
+}))
+
+/**
+ * Pension & long-term savings policies for audit and fee benchmarking.
+ * Tracks deposit fees, accumulation fees, and policy activity status.
+ */
+export const financePensionPolicies = sqliteTable('finance_pension_policies', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  provider: text('provider').notNull(), // e.g. "מיטב דש", "הראל"
+  policyType: text('policy_type').notNull(), // 'pension' | 'keren_hishtalmut' | 'gemel_lehaskaa' | 'bituach_managers'
+  balance: text('balance').notNull(), // current accumulated balance
+  depositFeePct: text('deposit_fee_pct').notNull(), // management fee on deposits (decimal)
+  accumFeePct: text('accum_fee_pct').notNull(), // management fee on accumulated balance (decimal)
+  monthlyDeposit: text('monthly_deposit').notNull(), // average monthly deposit
+  retirementAge: integer('retirement_age').notNull().default(67), // target retirement age
+  isActive: integer('is_active').notNull().default(1), // 0/1 for duplicate detection
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_pension_policies_user_id').on(table.userId),
+}))
+
+/**
+ * Cache of LLM-generated CFO reports: leak negotiation letters, pension fee-reduction
+ * requests, monthly review summaries. Keyed by scopeKey + inputHash to avoid regeneration.
+ */
+export const financeCfoReports = sqliteTable('finance_cfo_reports', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  reportMonth: text('report_month').notNull(), // YYYY-MM
+  scopeKey: text('scope_key').notNull(), // 'leak' | 'debt' | 'liquidity' | 'pension' | 'monthly'
+  inputHash: text('input_hash').notNull(), // hash of facts sent to LLM
+  reportJson: text('report_json').notNull(), // JSON: { headline, body, actionItems, formalLetter? }
+  model: text('model'), // Gemini model ID
+  generatedAt: text('generated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  userIdIdx: index('idx_finance_cfo_reports_user_id').on(table.userId),
+  scopeHashUq: uniqueIndex('uq_finance_cfo_reports_scope_hash').on(table.userId, table.scopeKey, table.inputHash),
 }))
 
 // ─── Feed (עדכוני כלכלה וחדשות) ───────────────────────────────────────────
@@ -596,7 +844,14 @@ export const userSettings = sqliteTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
+  layoutPrefs: text('layout_prefs'), // JSON LayoutPrefs — block order per screen
   autoCreateActionItemTasks: integer('auto_create_action_item_tasks', { mode: 'boolean' }).notNull().default(false), // Auto-create tasks from analysis action items
+  duplicatesNotifiedPairs: text('duplicates_notified_pairs'), // JSON string[] "idA|idB" already announced by the duplicates cron
+  whatsappDailyDigestPrompt: text('whatsapp_daily_digest_prompt'), // null = code default for the evening digest
+  whatsappGroupCommitmentScanCursor: text('whatsapp_group_commitment_scan_cursor'), // ms ts (as text) of the newest whatsapp_messages row already scanned for group commitments
+  whatsappSelfJid: text('whatsapp_self_jid'), // bridge's own JID cached after last successful getBridgeStatus — fallback when bridge is offline during group-commitment scan
+  slackCommitmentScanCursor: text('slack_commitment_scan_cursor'), // ms ts (as text) of the newest slack_messages row already scanned for channel commitments
+  teamsCommitmentScanCursor: text('teams_commitment_scan_cursor'), // ms ts (as text) of the newest teams_messages row already scanned
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -665,6 +920,8 @@ export const agentSchedules = sqliteTable('agent_schedules', {
   agentId: text('agent_id').primaryKey(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
   scheduleTimes: text('schedule_times').notNull().default('[]'), // JSON ["07:00"]
+  /** JSON map { "HH:MM": 0 | 1 } — 0 = today, 1 = tomorrow. Only used for 06_calendar_optimizer. */
+  scheduleDayOffsets: text('schedule_day_offsets').notNull().default('{}'),
   triggerMessage: text('trigger_message'),
   lastRunAt: text('last_run_at'),
   lastRunStatus: text('last_run_status'), // 'ok' | 'error'
@@ -674,6 +931,26 @@ export const agentSchedules = sqliteTable('agent_schedules', {
 
 export type AgentSchedule = typeof agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof agentSchedules.$inferInsert
+
+/**
+ * One row per successful Tier 1 QA daily-agent run. Powers day-over-day
+ * diffing for the WhatsApp update (docs/specs/tier1-qa-whatsapp-agent.md).
+ * `snapshotDate` is the Asia/Jerusalem calendar day, unique.
+ */
+export const tier1QaSnapshots = sqliteTable('tier1_qa_snapshots', {
+  id: text('id').primaryKey(),
+  snapshotDate: text('snapshot_date').notNull().unique(),
+  // JSON: { testId, statusBdika, done, testedBy, hasResultLink, linkedBugIds[] }[]
+  testsSnapshot: text('tests_snapshot').notNull(),
+  // JSON: { bugId, status, priority, assignee, due, archived, deleted }[]
+  bugsSnapshot: text('bugs_snapshot').notNull(),
+  // JSON: computed aggregate counts, for audit/debug without re-deriving
+  summaryStats: text('summary_stats').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
+export type Tier1QaSnapshot = typeof tier1QaSnapshots.$inferSelect
+export type NewTier1QaSnapshot = typeof tier1QaSnapshots.$inferInsert
 
 // ─── Health (heart rate, sleep — for meeting correlation) ─────────────────────
 
@@ -833,10 +1110,80 @@ export const whatsappMessages = sqliteTable('whatsapp_messages', {
   text: text('text').notNull(),
   ts: integer('ts').notNull(), // epoch ms of the message
   createdAt: text('created_at').notNull(),
+  /** Kept past retention. Declared last to match the SQLite ALTER order. */
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 }, (table) => ({
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
+
+/** A WhatsApp sender JID confirmed as a CRM person, so group messages reach that person's card. */
+export const whatsappPersonLinks = sqliteTable('whatsapp_person_links', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  whatsappJid: text('whatsapp_jid').notNull(),
+  /** manual | blocked (owner rejected an automatic phone match for this person) */
+  matchedBy: text('matched_by').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_person_links_person_id').on(table.personId),
+  jidUq: uniqueIndex('uq_whatsapp_person_links_jid').on(table.whatsappJid),
+}))
+
+/** Pairs the owner marked "not the same person"; `personIdA < personIdB`. */
+export const duplicateReviews = sqliteTable('duplicate_reviews', {
+  id: text('id').primaryKey(),
+  personIdA: text('person_id_a').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  personIdB: text('person_id_b').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  pairUq: uniqueIndex('uq_duplicate_reviews_pair').on(table.personIdA, table.personIdB),
+}))
+
+
+/** Other names for a canonical person; `aliasNorm` is the normalised match key and is unique across people. */
+export const personAliases = sqliteTable('person_aliases', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  alias: text('alias').notNull(),
+  aliasNorm: text('alias_norm').notNull(),
+  /** manual | merge | queue | sync | backfill */
+  source: text('source').notNull(),
+  /** Channel the name was seen in: slack | whatsapp | meeting | email | notion | voice | analysis | calendar. */
+  origin: text('origin'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_aliases_person_id').on(table.personId),
+  aliasNormUq: uniqueIndex('uq_person_aliases_alias_norm').on(table.aliasNorm),
+}))
+
+/** A name no source could place; waits for one answer from the owner. */
+export const identityQueue = sqliteTable('identity_queue', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  nameNorm: text('name_norm').notNull(),
+  /** meeting | whatsapp | notion | email | voice | analysis | slack */
+  source: text('source').notNull(),
+  /** One line of where the name was seen. */
+  context: text('context'),
+  /** Sender address for source='email' entries — attached to the person when added. */
+  email: text('email'),
+  candidatePersonId: text('candidate_person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** pending | linked | new | dismissed */
+  status: text('status').notNull().default('pending'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  statusIdx: index('idx_identity_queue_status').on(table.status),
+  nameNormIdx: index('idx_identity_queue_name_norm').on(table.nameNorm),
+}))
+
+export type PersonAlias = typeof personAliases.$inferSelect
+export type IdentityQueueRow = typeof identityQueue.$inferSelect
+
+export type SeriesRosterRow = typeof seriesRoster.$inferSelect
+export type MeetingRosterException = typeof meetingRosterExceptions.$inferSelect
+export type WhatsappPersonLink = typeof whatsappPersonLinks.$inferSelect
+export type DuplicateReview = typeof duplicateReviews.$inferSelect
 
 export type WhatsappLabel = typeof whatsappLabels.$inferSelect
 export type NewWhatsappLabel = typeof whatsappLabels.$inferInsert
@@ -844,6 +1191,87 @@ export type WhatsappGroup = typeof whatsappGroups.$inferSelect
 export type NewWhatsappGroup = typeof whatsappGroups.$inferInsert
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect
 export type NewWhatsappMessage = typeof whatsappMessages.$inferInsert
+
+// ─── Slack integration ────────────────────────────────────────────────────────
+
+export const slackConnections = sqliteTable('slack_connections', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull().unique(),
+  teamName: text('team_name').notNull(),
+  botToken: text('bot_token').notNull(),
+  botUserId: text('bot_user_id').notNull(),
+  scopes: text('scopes').notNull(),
+  installedAt: text('installed_at').notNull(),
+  revokedAt: text('revoked_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const slackChannels = sqliteTable('slack_channels', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  channelId: text('channel_id').notNull().unique(),
+  name: text('name').notNull(),
+  isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoEnabled: integer('fomo_enabled', { mode: 'boolean' }).notNull().default(false),
+  fomoThreshold: integer('fomo_threshold').notNull().default(10),
+  fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
+  keywords: text('keywords').notNull().default('[]'),
+  lastFomoAlertAt: text('last_fomo_alert_at'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  teamIdIdx: index('idx_slack_channels_team_id').on(table.teamId),
+}))
+
+export const slackMessages = sqliteTable('slack_messages', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  channelId: text('channel_id').notNull(),
+  slackTs: text('slack_ts').notNull(),
+  userId: text('user_id').notNull(),
+  userName: text('user_name').notNull(),
+  text: text('text').notNull(),
+  threadTs: text('thread_ts'),
+  ts: integer('ts').notNull(),
+  editedTs: text('edited_ts'),
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  channelTsUq: uniqueIndex('uq_slack_messages_channel_ts').on(table.channelId, table.slackTs),
+  channelTsIdx: index('idx_slack_messages_channel_ts').on(table.channelId, table.ts),
+}))
+
+export type SlackConnection = typeof slackConnections.$inferSelect
+export type SlackChannel = typeof slackChannels.$inferSelect
+export type SlackMessage = typeof slackMessages.$inferSelect
+
+/** Microsoft Teams chat pulled by the local work-comms bridge (SQLite mirror). */
+export const teamsChats = sqliteTable('teams_chats', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').notNull().unique(),
+  topic: text('topic'),
+  chatType: text('chat_type').notNull(),
+  memberNames: text('member_names').notNull().default('[]'),
+  enabled: integer('enabled').notNull().default(1),
+  lastMessageAt: integer('last_message_at'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const teamsMessages = sqliteTable('teams_messages', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').notNull(),
+  fromName: text('from_name').notNull(),
+  fromEmail: text('from_email'),
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(),
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  chatTsIdx: index('idx_teams_messages_chat_ts').on(table.chatId, table.ts),
+}))
+
+export type TeamsChat = typeof teamsChats.$inferSelect
+export type TeamsMessage = typeof teamsMessages.$inferSelect
 
 // ─── Notification preferences (per type × channel routing) ───────────────────
 
@@ -1096,3 +1524,337 @@ export type AgentJob = typeof agentJobs.$inferSelect
 export type NewAgentJob = typeof agentJobs.$inferInsert
 export type AgentCacheEntry = typeof agentCache.$inferSelect
 export type NewAgentCacheEntry = typeof agentCache.$inferInsert
+
+/** 1:1 WhatsApp messages with an allowlisted person (`people.captureWhatsapp`), both directions. */
+export const whatsappDmMessages = sqliteTable('whatsapp_dm_messages', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** The other party's JID */
+  whatsappJid: text('whatsapp_jid').notNull(),
+  waMessageId: text('wa_message_id').notNull(),
+  fromMe: integer('from_me', { mode: 'boolean' }).notNull(),
+  /** `[expired]` after DM retention unless pinned */
+  text: text('text').notNull(),
+  ts: integer('ts').notNull(),
+  /** Meeting with this person within 3 days of the message */
+  meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_dm_messages_person_id').on(table.personId),
+  tsIdx: index('idx_whatsapp_dm_messages_ts').on(table.ts),
+  msgUq: uniqueIndex('uq_whatsapp_dm_messages_msg').on(table.waMessageId, table.whatsappJid),
+}))
+
+/** Nightly summary of one person's 1:1 chat; outlives the raw messages. */
+export const whatsappDmSummaries = sqliteTable('whatsapp_dm_summaries', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  fromTs: integer('from_ts').notNull(),
+  toTs: integer('to_ts').notNull(),
+  messageCount: integer('message_count').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_whatsapp_dm_summaries_person_id').on(table.personId),
+}))
+
+export const COMMITMENT_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
+export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number]
+export const COMMITMENT_SOURCES = ['whatsapp_dm', 'whatsapp_group', 'meeting_analysis', 'email', 'voice', 'slack_channel', 'teams_chat'] as const
+export type CommitmentSource = (typeof COMMITMENT_SOURCES)[number]
+export const COMMITMENT_OWNERS = ['me', 'them'] as const
+export type CommitmentOwner = (typeof COMMITMENT_OWNERS)[number]
+
+/** Something promised in a conversation; becomes a task only when the owner accepts it. */
+export const commitments = sqliteTable('commitments', {
+  id: text('id').primaryKey(),
+  /** Null while a group sender is not a contact yet. */
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** Set only while personId is null. */
+  senderJid: text('sender_jid'),
+  senderName: text('sender_name'),
+  /** me | them */
+  owner: text('owner').notNull(),
+  content: text('content').notNull(),
+  /** ISO date when the conversation named one */
+  dueInferred: text('due_inferred'),
+  /** whatsapp_dm | whatsapp_group | meeting_analysis | email | voice */
+  source: text('source').notNull(),
+  sourceId: text('source_id'),
+  /** A short quote from the source message. */
+  sourceSnippet: text('source_snippet'),
+  /** When the source message was actually sent, not when the scan ran. Null for non-message sources. */
+  sourceTs: integer('source_ts'),
+  /** Group JID, or the other party's JID for a DM. */
+  sourceChatJid: text('source_chat_jid'),
+  /** Group name, or the person's name for a DM. */
+  sourceChatName: text('source_chat_name'),
+  /** One Hebrew sentence from the classifier: why this is still standing. */
+  sourceReason: text('source_reason'),
+  /** proposed | accepted | dismissed */
+  status: text('status').notNull().default('proposed'),
+  taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_commitments_person_id').on(table.personId),
+  statusIdx: index('idx_commitments_status').on(table.status),
+  taskIdIdx: index('idx_commitments_task_id').on(table.taskId),
+  sourceTsIdx: index('idx_commitments_source_ts').on(table.sourceTs),
+}))
+
+export type WhatsappDmMessage = typeof whatsappDmMessages.$inferSelect
+export type WhatsappDmSummary = typeof whatsappDmSummaries.$inferSelect
+export type Commitment = typeof commitments.$inferSelect
+
+/** Latest state of an email thread with a known person, one row per (thread, person). */
+export const personEmailThreads = sqliteTable('person_email_threads', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** `accountEmail::threadId` — Gmail thread ids are only unique per account */
+  gmailThreadId: text('gmail_thread_id').notNull(),
+  accountEmail: text('account_email').notNull(),
+  subject: text('subject').notNull(),
+  from: text('from').notNull(),
+  to: text('to').notNull(),
+  /** ISO timestamp of the latest message */
+  date: text('date').notNull(),
+  snippet: text('snippet'),
+  messageCount: integer('message_count').notNull().default(1),
+  /** needs_reply | fyi | chatter. Null until the reply-need gate classifies the thread. */
+  replyNeed: text('reply_need'),
+  /** ISO timestamp of the classification. Cleared when a newer message moves `date`. */
+  replyNeedAt: text('reply_need_at'),
+  lastSyncedAt: text('last_synced_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_email_threads_person_id').on(table.personId),
+  dateIdx: index('idx_person_email_threads_date').on(table.date),
+  threadPersonUq: uniqueIndex('uq_person_email_threads_thread_person').on(table.gmailThreadId, table.personId),
+}))
+
+export const VOICE_RECORDING_STATUSES = ['uploaded', 'processing', 'completed', 'failed'] as const
+export type VoiceRecordingStatus = (typeof VOICE_RECORDING_STATUSES)[number]
+
+/** A consented recording; its analysis always lives on a meeting (a placeholder one when standalone). */
+export const voiceRecordings = sqliteTable('voice_recordings', {
+  id: text('id').primaryKey(),
+  audioPath: text('audio_path').notNull(),
+  mimeType: text('mime_type').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  transcriptText: text('transcript_text'),
+  analysisId: text('analysis_id').references(() => meetingAnalyses.id, { onDelete: 'set null' }),
+  meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  /** Placeholder meeting created for a standalone recording; removed when attached elsewhere */
+  createdMeetingId: text('created_meeting_id'),
+  /** Seconds */
+  duration: integer('duration').notNull(),
+  /** uploaded | processing | completed | failed */
+  status: text('status').notNull().default('uploaded'),
+  error: text('error'),
+  consentConfirmedAt: text('consent_confirmed_at').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  /** Optional project this conversation is about; copied onto the voice meeting */
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  /** skipped | pending | completed | failed — self-voice diarization pass, independent of transcription status */
+  diarizationStatus: text('diarization_status').notNull().default('skipped'),
+  diarizationError: text('diarization_error'),
+  /** live (recorded in-app) | imported (e.g. a phone call recording picked/shared from device storage) */
+  source: text('source').notNull().default('live'),
+  /** True when `meetingId` was set by automatic calendar-context matching rather than manual attach or placeholder creation */
+  matchedAutomatically: integer('matched_automatically', { mode: 'boolean' }).notNull().default(false),
+  /** Set once the "who is speaking?" notification went out, so it is never sent twice */
+  speakerPromptSentAt: text('speaker_prompt_sent_at'),
+}, (table) => ({
+  meetingIdIdx: index('idx_voice_recordings_meeting_id').on(table.meetingId),
+  analysisIdIdx: index('idx_voice_recordings_analysis_id').on(table.analysisId),
+  createdAtIdx: index('idx_voice_recordings_created_at').on(table.createdAt),
+  projectIdIdx: index('idx_voice_recordings_project_id').on(table.projectId),
+}))
+
+export const voiceRecordingPeople = sqliteTable('voice_recording_people', {
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** True when this person was tagged by automatic self-voice matching rather than a manual "attach person" action */
+  matchedAutomatically: integer('matched_automatically', { mode: 'boolean' }).notNull().default(false),
+  /** Cosine-similarity score (0-1) that produced the automatic match; null for manual tags */
+  confidence: real('confidence'),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_recording_people_recording_id').on(table.recordingId),
+  personIdIdx: index('idx_voice_recording_people_person_id').on(table.personId),
+  pairUq: uniqueIndex('uq_voice_recording_people_pair').on(table.recordingId, table.personId),
+}))
+
+/** One speaker turn from the transcription, with the times needed to play it back as a voice sample. */
+export const voiceTranscriptSegments = sqliteTable('voice_transcript_segments', {
+  id: text('id').primaryKey(),
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  /** The label the model returned, e.g. `דובר 1` — relative to this recording only */
+  speakerLabel: text('speaker_label').notNull(),
+  startMs: integer('start_ms').notNull(),
+  endMs: integer('end_ms').notNull(),
+  text: text('text').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_transcript_segments_recording_id').on(table.recordingId),
+}))
+
+export { VOICE_SPEAKER_STATES, type VoiceSpeakerState } from './schema.pg'
+
+/** Who a speaker label is: answered by the user, skipped by them, or resolved by self-voice matching. */
+export const voiceSpeakerIdentities = sqliteTable('voice_speaker_identities', {
+  id: text('id').primaryKey(),
+  recordingId: text('recording_id').notNull().references(() => voiceRecordings.id, { onDelete: 'cascade' }),
+  speakerLabel: text('speaker_label').notNull(),
+  /** Null when the user skipped this speaker */
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** identified | skipped | auto */
+  state: text('state').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  recordingIdIdx: index('idx_voice_speaker_identities_recording_id').on(table.recordingId),
+  speakerUq: uniqueIndex('uq_voice_speaker_identities_speaker').on(table.recordingId, table.speakerLabel),
+}))
+
+/** A single enrolled voice embedding used for automatic self-voice matching in recordings. MVP: one row (Alpir's own). */
+export const voicePrints = sqliteTable('voice_prints', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  /** JSON-encoded float array */
+  embedding: text('embedding').notNull(),
+  /** Path to the enrollment sample audio, kept for re-enrollment/debugging */
+  sampleAudioPath: text('sample_audio_path'),
+  /** Embedding extraction method + version, so a model upgrade can invalidate old rows */
+  model: text('model').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_voice_prints_person_id').on(table.personId),
+  personIdUq: uniqueIndex('uq_voice_prints_person_id').on(table.personId),
+}))
+
+export const PERSON_TRAIT_STATUSES = ['shown', 'once', 'dismissed'] as const
+export type PersonTraitStatus = (typeof PERSON_TRAIT_STATUSES)[number]
+
+export const PERSON_TRAIT_SOURCE_KINDS = ['meeting_analysis', 'whatsapp_dm_summary', 'email_thread'] as const
+export type PersonTraitSourceKind = (typeof PERSON_TRAIT_SOURCE_KINDS)[number]
+
+/** An artifact already read for character traits, so a re-run does not send it again. */
+export const personSourceScans = sqliteTable('person_source_scans', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  sourceKind: text('source_kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceUpdatedAt: text('source_updated_at').notNull(),
+  scannedAt: text('scanned_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_source_scans_person_id').on(table.personId),
+  sourceUq: uniqueIndex('uq_person_source_scans').on(table.personId, table.sourceKind, table.sourceId),
+}))
+
+/** One observed behaviour from a single conversation artifact. */
+export const personObservations = sqliteTable('person_observations', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  claim: text('claim').notNull(),
+  quote: text('quote'),
+  sourceKind: text('source_kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceDate: text('source_date').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_observations_person_id').on(table.personId),
+}))
+
+/** A character line folded from observations. `shown` needs two sources; `once` is detail-only. */
+export const personTraits = sqliteTable('person_traits', {
+  id: text('id').primaryKey(),
+  personId: text('person_id').notNull().references(() => people.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  line: text('line').notNull(),
+  reasoning: text('reasoning').notNull(),
+  supportCount: integer('support_count').notNull(),
+  latestSourceDate: text('latest_source_date').notNull(),
+  status: text('status').notNull().default('shown'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  personIdIdx: index('idx_person_traits_person_id').on(table.personId),
+}))
+
+export const personTraitEvidence = sqliteTable('person_trait_evidence', {
+  id: text('id').primaryKey(),
+  traitId: text('trait_id').notNull().references(() => personTraits.id, { onDelete: 'cascade' }),
+  observationId: text('observation_id').notNull().references(() => personObservations.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  traitIdIdx: index('idx_person_trait_evidence_trait_id').on(table.traitId),
+  pairUq: uniqueIndex('uq_person_trait_evidence_pair').on(table.traitId, table.observationId),
+}))
+
+/** Harness world model — one row per entity the cross-domain reasoner can reach. */
+export const harnessNodes = sqliteTable('harness_nodes', {
+  /** Deterministic `<kind>:<entityId>` so re-indexing upserts instead of duplicating. */
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  entityId: text('entity_id').notNull(),
+  label: text('label').notNull(),
+  /** One short line; this is what reaches the LLM prompt. */
+  summary: text('summary'),
+  /** JSON bag of kind-specific fields. */
+  attrs: text('attrs'),
+  /** ISO timestamp the underlying event happened; null for timeless nodes like people. */
+  occurredAt: text('occurred_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  kindIdx: index('idx_harness_nodes_kind').on(table.kind),
+  occurredAtIdx: index('idx_harness_nodes_occurred_at').on(table.occurredAt),
+  entityIdIdx: index('idx_harness_nodes_entity_id').on(table.entityId),
+}))
+
+export const harnessEdges = sqliteTable('harness_edges', {
+  /** Deterministic `<kind>:<fromId>:<toId>`. */
+  id: text('id').primaryKey(),
+  fromId: text('from_id').notNull(),
+  toId: text('to_id').notNull(),
+  kind: text('kind').notNull(),
+  weight: real('weight').notNull().default(1),
+  occurredAt: text('occurred_at'),
+  attrs: text('attrs'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  fromIdIdx: index('idx_harness_edges_from_id').on(table.fromId),
+  toIdIdx: index('idx_harness_edges_to_id').on(table.toId),
+  kindIdx: index('idx_harness_edges_kind').on(table.kind),
+}))
+
+export const harnessInsights = sqliteTable('harness_insights', {
+  id: text('id').primaryKey(),
+  /** Detector id, e.g. `silent_before_meeting`. */
+  kind: text('kind').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  severity: text('severity').notNull().default('info'),
+  score: real('score').notNull().default(0),
+  personId: text('person_id').references(() => people.id, { onDelete: 'cascade' }),
+  /** JSON `{ nodeId, kind, label }[]` — what the insight was derived from. */
+  sources: text('sources'),
+  status: text('status').notNull().default('open'),
+  /** A detector re-firing on the same facts updates this row instead of adding one. */
+  dedupeKey: text('dedupe_key').notNull(),
+  generatedAt: text('generated_at').notNull(),
+  expiresAt: text('expires_at'),
+  /** ISO timestamp of the last push notification that included this insight; null = never pushed. */
+  notifiedAt: text('notified_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  statusIdx: index('idx_harness_insights_status').on(table.status),
+  personIdIdx: index('idx_harness_insights_person_id').on(table.personId),
+  dedupeKeyUq: uniqueIndex('uq_harness_insights_dedupe_key').on(table.dedupeKey),
+}))
+
+export type PersonEmailThread = typeof personEmailThreads.$inferSelect
+export type VoiceRecording = typeof voiceRecordings.$inferSelect

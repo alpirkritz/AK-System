@@ -343,6 +343,20 @@ export async function fetchNotifications(
   }
 }
 
+export async function fetchNotificationById(
+  token: string,
+  id: string,
+): Promise<AppNotification | null> {
+  const res = await apiFetch(`/api/notifications?id=${encodeURIComponent(id)}`, { token })
+  const data = (await res.json()) as {
+    notification?: AppNotification
+    error?: string
+  }
+  if (res.status === 404) return null
+  if (!res.ok) throw new ApiError(data.error ?? 'Failed to load notification', res.status)
+  return data.notification ?? null
+}
+
 export async function markNotificationRead(
   token: string,
   options: { id?: string; all?: boolean },

@@ -20,6 +20,7 @@ RUN pnpm build
 
 ENV PORT=3001
 ENV AUTH_STATE_PATH=/data/auth
+ENV BRIDGE_CONFIG_PATH=/data/config
 
 EXPOSE 3001
 

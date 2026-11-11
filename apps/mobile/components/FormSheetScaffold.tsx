@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
+import { useRef } from 'react'
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack, useRouter } from 'expo-router'
+import { KeyboardSafe } from './KeyboardSafe'
 import { colors } from '../lib/theme'
 
 type Props = {
@@ -28,9 +28,7 @@ type Props = {
 
 /**
  * Common scaffold for formSheet screens (the task/[id] pattern): header with
- * save/cancel actions + keyboard-safe scroll. iOS needs explicit keyboard
- * padding; Android relies on softwareKeyboardLayoutMode: 'resize' in
- * app.config.ts, and stacking both causes double-adjustment inside a formSheet.
+ * save/cancel actions + a scroll body that stays above the keyboard.
  */
 export function FormSheetScaffold({
   title,
@@ -45,6 +43,7 @@ export function FormSheetScaffold({
 }: Props) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const scrollRef = useRef<ScrollView>(null)
   const cancel = onCancel ?? (() => router.back())
 
   return (
@@ -84,11 +83,9 @@ export function FormSheetScaffold({
           ),
         }}
       />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardSafe style={styles.flex} scrollRef={scrollRef}>
         <ScrollView
+          ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={[styles.content, { paddingBottom: 32 + insets.bottom }]}
           keyboardShouldPersistTaps="handled"
@@ -97,7 +94,7 @@ export function FormSheetScaffold({
         >
           {children}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafe>
     </>
   )
 }

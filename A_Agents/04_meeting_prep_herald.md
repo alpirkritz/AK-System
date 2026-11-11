@@ -144,9 +144,11 @@ Do NOT guess or rely on memory. Pull real data with the tools below every run:
 ### 🔎 How to pull "open action items"
 
 - Use `get_notion_tasks` — prefer action items not in the Complete/Done group.
-- **Filter hard to this meeting:** only include a task if it clearly relates via person,
-  company, project, topic keywords, or an explicit link to the meeting. Weak/guessy
-  matches → exclude.
+- **Filter hard to this meeting:** only include a task or prior note if it shares a
+  distinctive topic token with this meeting's title, or the same project / series.
+  Shared attendees are not a match — the last meeting those people had may be a
+  different product. Weak/guessy matches → exclude. If no on-topic prior note exists,
+  write `אין סיכום מהפגישה הקודמת` and do not name the other product in שורה תחתונה.
 - If the meeting is about a specific person/company/project, use `get_notion_people` /
   `get_notion_projects` / `get_notion_companies` (or `search_notion`) to find related items.
 - Prefer items assigned to me when an assignee exists.

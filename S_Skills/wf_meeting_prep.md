@@ -74,7 +74,7 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 
 ### Step 2.2 — Pull Recent Meeting Notes
 - **Input:** `get_notion_meeting_notes` (mandatory — for a day pass `prepDate`; for one person pass `query`; also `meetingId` / `notionUrl`; returns local `bodyText` from the **meeting page** AI notes block), `get_next_meeting_brief` for the next event's local notes
-- **Action:** Find what was discussed recently and what was decided / committed — grounded in `bodyText` only. Do not invent from titles.
+- **Action:** Find what was discussed recently and what was decided / committed — grounded in `bodyText` only. For one named meeting, pass `focusTitle` (the calendar title). Keep a note only when it shares that topic, project, or series. The same attendees in a different product are not "the previous meeting". Do not invent from titles.
 - **Output:** Recent context per meeting; if no note / empty body for a meeting, output `לא נמצא בנתונים`
 
 ---

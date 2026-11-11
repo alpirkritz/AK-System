@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildPreMeetingAgentContext,
   collectParticipantLabels,
   extractParticipantsFromDescription,
   findPriorMeetingNotes,
@@ -173,6 +174,29 @@ describe('selectRelatedOpenTasks', () => {
   it('returns empty without link or meaningful title tokens', () => {
     expect(selectRelatedOpenTasks(tasks, null, 'up')).toEqual([])
   })
+
+  it('excludes another product from a DD meeting', () => {
+    const related = selectRelatedOpenTasks(
+      [
+        {
+          id: 'algo',
+          title: 'Ensure QA monitoring is in place and confirm readiness for Algo 4.0',
+          priority: 'high',
+          done: false,
+        },
+        {
+          id: 'jordan',
+          title: 'Provide deliverable to Jordan (with Adam) based on Elad discussion',
+          priority: 'medium',
+          done: false,
+        },
+        { id: 'dd', title: 'Confirm DD release blockers', priority: 'low', done: false },
+      ],
+      null,
+      'Follow up DD release discussion',
+    )
+    expect(related.map((t) => t.id)).toEqual(['dd'])
+  })
 })
 
 describe('findPriorMeetingNotes', () => {
@@ -188,6 +212,27 @@ describe('findPriorMeetingNotes', () => {
       '2026-07-20',
     )
     expect(notes).toBe('recent agenda')
+  })
+
+  it('returns a same-topic note and skips a newer note from another product', () => {
+    const notes = findPriorMeetingNotes(
+      [
+        { title: 'DD sync', date: '2026-10-01', notes: 'dd blockers are open' },
+        { title: 'Algo 4.0 - Sync meeting updates', date: '2026-10-06', notes: 'algo milestones' },
+      ],
+      'Follow up DD release discussion',
+      '2026-10-07',
+    )
+    expect(notes).toBe('dd blockers are open')
+  })
+
+  it('returns null when every past note is another topic', () => {
+    const notes = findPriorMeetingNotes(
+      [{ title: 'Algo 4 Milestones timelines', date: '2026-10-05', notes: 'quarter one target' }],
+      'Follow up DD release discussion',
+      '2026-10-07',
+    )
+    expect(notes).toBeNull()
   })
 })
 
@@ -264,5 +309,41 @@ Download Teams | Join on the web
     expect(text).not.toContain('לא נמצאו')
     expect(text).toContain('ועוד')
     expect(text).not.toMatch(/@yum\.com/)
+  })
+})
+
+describe('relationship context in the brief', () => {
+  const circleEvent = {
+    title: 'Algo 4.0',
+    start: '2026-03-02T10:00:00',
+    description: 'משתתפים: ' + Array.from({ length: 20 }, (_, i) => `Person ${i} <p${i}@dt.com>`).join(', '),
+  }
+  const circle = {
+    kind: 'circle' as const,
+    lines: ['המלצה לחוג: בפגישה האחרונה: להחליט על הרודמפ', 'חסרים היום: Ron'],
+    circleTitle: 'Algo 4.0',
+    rosterCount: 19,
+  }
+
+  it('replaces the participant list with a circle count', () => {
+    const text = formatPreMeetingBrief({ event: circleEvent, relationship: circle })
+    expect(text).toContain('משתתפים: חוג Algo 4.0 · 19 משתתפים')
+    expect(text).not.toContain('Person 3')
+    expect(text).toContain('• חסרים היום: Ron')
+  })
+
+  it('tells the agent not to profile circle participants', () => {
+    const context = buildPreMeetingAgentContext({ event: circleEvent, relationship: circle })
+    expect(context).toContain('Circle context')
+    expect(context).toContain('Participants: חוג Algo 4.0 · 19 משתתפים')
+  })
+
+  it('keeps normal participants when there is no circle', () => {
+    const text = formatPreMeetingBrief({
+      event: { title: '1:1', start: '2026-03-02T10:00:00', attendees: [{ email: 'dana@dt.com', displayName: 'Dana' }] },
+      relationship: { kind: 'people', lines: ['Dana: הקשר משתפר · המשך כך'], circleTitle: null, rosterCount: null },
+    })
+    expect(text).toContain('Dana (dana@dt.com)')
+    expect(text).toContain('הקשר:')
   })
 })

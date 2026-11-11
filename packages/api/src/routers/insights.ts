@@ -1,6 +1,10 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { commitmentsForDate } from '../services/commitments'
+import { pushDmAllowlist } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
 import {
+  getDb,
   people,
   personExternalIds,
   meetings,
@@ -15,9 +19,38 @@ import { eq, desc, inArray, and, or, gte, SQL } from 'drizzle-orm'
 import { localTodayIso, localTomorrowIso, resolveLocalDayArg } from '../lib/calendar-dates'
 import { queryMatchesPersonName, queryMatchesText, titlesShareKnownPerson } from '../lib/person-name-match'
 import { titlesFuzzyMatch } from '../services/notion-graph-sync'
+import { titlesShareTopic } from '../lib/topic-match'
 import { ensureMeetingPageNote, parseNotionIdFromInput } from '../services/notion-meeting-note-body'
 import { resolveDatabases } from '../services/notion-tasks-sync'
 import { syncNotionGraph } from '../services/notion-graph-sync'
+import {
+  buildPersonContext,
+  coolingFlagsForDate,
+  meetingPrepRelationship,
+  linkWhatsappSender,
+  unlinkWhatsappSender,
+  unlinkedWhatsappSenders,
+} from '../services/person-context'
+import { setWarmthNote } from '../services/warmth'
+import {
+  acknowledgeAttention,
+  needs1on1Flags,
+  relationshipBoardWithAttention,
+} from '../services/relationship-attention'
+import { analysisBacklogSummary, runAnalysisBacklog } from '../services/analysis-backlog'
+import {
+  dismissPersonTrait,
+  readPersonTraitDetail,
+  readPersonTraits,
+  restorePersonTrait,
+  writePersonTraits,
+} from '../services/person-portrait'
+
+function traitError(err: unknown): TRPCError {
+  const message = err instanceof Error ? err.message : 'לא הצלחנו לנתח. התכונות הקודמות נשמרו. נסה שוב.'
+  if (message === 'NOT_FOUND') return new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+  return new TRPCError({ code: 'BAD_REQUEST', message })
+}
 
 const meetingNotesInput = z
   .object({
@@ -29,6 +62,8 @@ const meetingNotesInput = z
     notionUrl: z.string().min(1).optional(),
     query: z.string().min(1).optional(),
     prepDate: z.string().min(1).optional(),
+    /** Single-meeting prep: keep notes for this title's topic, project, or series only. */
+    focusTitle: z.string().min(1).optional(),
   })
   .refine(
     (v) => {
@@ -41,6 +76,63 @@ const meetingNotesInput = z
 function isoDaysBefore(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d - days)).toISOString().slice(0, 10)
+}
+
+type FocusNote = {
+  id: string
+  title: string
+  meetingTitle: string | null
+  meetingId: string | null
+}
+
+/** Drop notes that are only related by shared attendees. */
+async function keepNotesForFocusTitle<T extends FocusNote>(
+  db: ReturnType<typeof getDb>,
+  notes: T[],
+  focusTitle: string,
+): Promise<T[]> {
+  const allMeetings = await db
+    .select({
+      id: meetings.id,
+      title: meetings.title,
+      projectId: meetings.projectId,
+      seriesId: meetings.seriesId,
+    })
+    .from(meetings)
+  const anchors = allMeetings.filter((m) => titlesShareTopic(m.title, focusTitle))
+  const projectIds = new Set(
+    anchors.map((m) => m.projectId).filter((id): id is string => Boolean(id)),
+  )
+  const seriesIds = new Set(
+    anchors.map((m) => m.seriesId).filter((id): id is string => Boolean(id)),
+  )
+  const metaById = new Map(allMeetings.map((m) => [m.id, m]))
+
+  const linkedProjects = new Map<string, string[]>()
+  const noteIds = notes.map((n) => n.id)
+  if (noteIds.length > 0) {
+    const links = await db
+      .select({
+        meetingNoteId: meetingNoteProjects.meetingNoteId,
+        projectId: meetingNoteProjects.projectId,
+      })
+      .from(meetingNoteProjects)
+      .where(inArray(meetingNoteProjects.meetingNoteId, noteIds))
+    for (const link of links) {
+      const list = linkedProjects.get(link.meetingNoteId) ?? []
+      list.push(link.projectId)
+      linkedProjects.set(link.meetingNoteId, list)
+    }
+  }
+
+  return notes.filter((n) => {
+    if (titlesShareTopic(n.title, focusTitle)) return true
+    if (n.meetingTitle && titlesShareTopic(n.meetingTitle, focusTitle)) return true
+    const meta = n.meetingId ? metaById.get(n.meetingId) : undefined
+    if (meta?.seriesId && seriesIds.has(meta.seriesId)) return true
+    if (meta?.projectId && projectIds.has(meta.projectId)) return true
+    return (linkedProjects.get(n.id) ?? []).some((id) => projectIds.has(id))
+  })
 }
 
 function noteMatchesPrepMeeting(
@@ -249,6 +341,10 @@ export const insightsRouter = router({
         if (filtered.length > 0 || (!dateFilter && !prepIso)) notes = filtered
       }
 
+      if (filters.focusTitle) {
+        notes = await keepNotesForFocusTitle(ctx.db, notes, filters.focusTitle)
+      }
+
       return notes.slice(0, prepIso ? 20 : 15)
     }
 
@@ -345,11 +441,17 @@ export const insightsRouter = router({
       }))
 
       const lastNoteDate = noteRows[0]?.date ?? null
+      const extras = await buildPersonContext(ctx.db, input.personId)
+      const attention = extras?.attention ?? null
+      const today = new Date().toISOString().slice(0, 10)
       const lastContactAt =
+        attention?.lastContact?.date ??
         [lastMeetingDate, lastNoteDate, person.lastContact]
-          .filter(Boolean)
+          .filter((d): d is string => !!d && d.slice(0, 10) <= today)
           .sort()
-          .reverse()[0] ?? null
+          .reverse()[0] ??
+        null
+      const lastContactChannel = attention?.lastContact?.channel ?? null
 
       const sharedProjects = await ctx.db
         .select({
@@ -371,13 +473,139 @@ export const insightsRouter = router({
         .from(personExternalIds)
         .where(eq(personExternalIds.personId, input.personId))
 
+      const traits = await readPersonTraits(ctx.db, input.personId)
+
       return {
         lastContactAt,
+        lastContactChannel,
         cadence,
         sharedProjects,
         recentMeetingNotes,
         identitySources,
         meetingCount: personMeetings.length,
+        traits,
+        ...extras!,
       }
+    }),
+
+  personTraits: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => readPersonTraits(ctx.db, input.personId)),
+
+  personTraitDetail: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => readPersonTraitDetail(ctx.db, input.personId)),
+
+  writePersonTraits: protectedProcedure
+    .input(z.object({ personId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await writePersonTraits(ctx.db, input.personId)
+      } catch (err) {
+        throw traitError(err)
+      }
+    }),
+
+  dismissPersonTrait: protectedProcedure
+    .input(z.object({ traitId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await dismissPersonTrait(ctx.db, input.traitId)
+      } catch (err) {
+        throw traitError(err)
+      }
+    }),
+
+  restorePersonTrait: protectedProcedure
+    .input(z.object({ traitId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await restorePersonTrait(ctx.db, input.traitId)
+      } catch (err) {
+        throw traitError(err)
+      }
+    }),
+
+  meetingPrepContext: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => meetingPrepRelationship(ctx.db, input.meetingId)),
+
+  coolingForDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => coolingFlagsForDate(ctx.db, input.date)),
+
+  /**
+   * People who need a 1:1, for list pills and the home card. `cooling` / `warming` keep installed
+   * phone builds working: they read a needs-1:1 person as cooling.
+   */
+  relationshipFlags: protectedProcedure.query(async ({ ctx }) => {
+    const needs1on1 = await needs1on1Flags(ctx.db)
+    return {
+      needs1on1,
+      cooling: needs1on1.map((f) => ({ personId: f.personId, name: f.name, trend: 'cooling' as const, recentAvg: null, olderAvg: null, count: 0 })),
+      warming: [] as { personId: string; name: string; trend: 'warming'; recentAvg: null; olderAvg: null; count: number }[],
+    }
+  }),
+
+  relationshipBoard: protectedProcedure.query(async ({ ctx }) => {
+    const [board, backlog] = await Promise.all([relationshipBoardWithAttention(ctx.db), analysisBacklogSummary(ctx.db)])
+    return { ...board, summary: { ...board.summary, pendingBacklog: backlog.pending } }
+  }),
+
+  /** "ראיתי": hide the needs-1:1 flag until a new meeting with this person, or 30 days. */
+  acknowledgeAttention: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), ack: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const saved = await acknowledgeAttention(ctx.db, input.personId, input.ack)
+      if (!saved) throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+      return saved
+    }),
+
+  /** Meetings with a note body that were never analysed, inside the board's 180-day window. */
+  analysisBacklog: protectedProcedure.query(async ({ ctx }) => analysisBacklogSummary(ctx.db)),
+
+  /** Analyse a few backlog meetings now — sequential, no WhatsApp or push. */
+  runAnalysisBacklog: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(5).default(5) }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const r = await runAnalysisBacklog(ctx.db, { limit: input?.limit ?? 5 })
+      return { analysed: r.analysed, failed: r.failed, remaining: r.remaining }
+    }),
+
+  setWarmthNote: protectedProcedure
+    .input(z.object({
+      subject: z.enum(['person', 'circle']),
+      id: z.string().min(1),
+      note: z.string().max(280).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const saved = await setWarmthNote(ctx.db, input.subject, input.id, input.note)
+      if (!saved) throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
+      return saved
+    }),
+
+  /** Morning brief: open commitments of today's attendees, plus my other open ones. */
+  commitmentsForDate: protectedProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => commitmentsForDate(ctx.db, input.date)),
+
+  whatsappSenders: protectedProcedure
+    .input(z.object({ query: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => unlinkedWhatsappSenders(ctx.db, input?.query)),
+
+  linkWhatsappSender: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await linkWhatsappSender(ctx.db, input.personId, input.jid)
+      await pushDmAllowlist(ctx.db)
+      return { ok: true }
+    }),
+
+  unlinkWhatsappSender: protectedProcedure
+    .input(z.object({ personId: z.string().min(1), jid: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await unlinkWhatsappSender(ctx.db, input.personId, input.jid)
+      await pushDmAllowlist(ctx.db)
+      return { ok: true }
     }),
 })

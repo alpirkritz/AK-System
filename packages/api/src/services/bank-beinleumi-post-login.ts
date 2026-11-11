@@ -3,6 +3,7 @@
  * The library races on post-login selectors once; Otsar often shows SMS OTP first.
  */
 
+import { beginPageHandoff } from './bank-captcha-bridge'
 import { getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
 import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
 import { sleep } from './bank-chrome-launch'
@@ -36,6 +37,31 @@ async function racePostLoginSelectors(page: PuppeteerPageLike, timeoutMs: number
 }
 
 /**
+ * Click "שלח קוד אימות" / "Send OTP" button if present (Otsar may require explicit click).
+ */
+async function clickSendOtpButton(page: PuppeteerPageLike): Promise<boolean> {
+  return page.evaluate(() => {
+    const buttons = Array.from(
+      document.querySelectorAll('button, a[role="button"], input[type="submit"]'),
+    ) as HTMLElement[]
+    
+    const sendOtpLabels = ['שלח קוד', 'שלח SMS', 'שלח סיסמה', 'קבל קוד', 'שלח קוד אימות']
+    
+    for (const label of sendOtpLabels) {
+      const btn = buttons.find((b) => {
+        const text = (b.textContent || (b as HTMLInputElement).value || '').trim()
+        return text === label || text.includes(label)
+      })
+      if (btn && !btn.hasAttribute('disabled')) {
+        btn.click()
+        return true
+      }
+    }
+    return false
+  })
+}
+
+/**
  * Poll for OTP or post-login dashboard until deadline.
  * Throws the same `#card-header` message the library uses when nothing matches.
  */
@@ -43,10 +69,15 @@ export async function waitForPostLoginWithOtp(
   page: PuppeteerPageLike,
   opts: BeinleumiPostLoginOpts,
 ): Promise<void> {
+  await beginPageHandoff(opts.connectionId)
   const deadline = Date.now() + getOtpWaitMs() + 60_000
 
   while (Date.now() < deadline) {
     if (await pageLooksLikeOtp(page)) {
+      // Try clicking "send OTP" button first (Otsar may require explicit click before SMS arrives)
+      await clickSendOtpButton(page)
+      await sleep(1000)
+      
       const codePromise = waitForOtp(opts.connectionId)
       await opts.onAwaitingOtp?.()
       const code = await codePromise
@@ -70,8 +101,12 @@ export async function waitForPostLoginWithOtp(
 }
 
 type BeinleumiModule = {
+  default?: { prototype: { getLoginOptions?: (credentials: unknown) => LoginOptions } }
   waitForPostLogin: (page: PuppeteerPageLike) => Promise<void>
-  __akPatchedPostLogin?: boolean
+}
+
+type LoginOptions = {
+  postAction?: () => Promise<void>
 }
 
 function nodeRequire(): NodeRequire {
@@ -89,12 +124,22 @@ export function patchBeinleumiWaitForPostLogin(opts: BeinleumiPostLoginOpts): ()
     const mod = req(
       req.resolve('israeli-bank-scrapers/lib/scrapers/base-beinleumi-group.js'),
     ) as BeinleumiModule
-    const original = mod.waitForPostLogin.bind(mod)
-    mod.waitForPostLogin = async (page) => waitForPostLoginWithOtp(page, opts)
-    mod.__akPatchedPostLogin = true
+    // postAction closes over the library function, so replacing the export does nothing.
+    const proto = mod.default?.prototype
+    const original = proto?.getLoginOptions
+    if (!proto || !original) return () => {}
+    proto.getLoginOptions = function getLoginOptions(
+      this: { page: PuppeteerPageLike },
+      credentials: unknown,
+    ) {
+      const options = original.call(this, credentials)
+      options.postAction = async () => {
+        await waitForPostLoginWithOtp(this.page, opts)
+      }
+      return options
+    }
     return () => {
-      mod.waitForPostLogin = original
-      delete mod.__akPatchedPostLogin
+      proto.getLoginOptions = original
     }
   } catch {
     return () => {}

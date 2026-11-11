@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+const CALENDAR_OPTIMIZER_AGENT_ID = '06_calendar_optimizer'
 
 function Toggle({
   checked,
@@ -81,6 +82,9 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
   const [timeError, setTimeError] = useState<string | null>(null)
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  // Calendar optimizer: per-time day offsets (0=today, 1=tomorrow)
+  const [dayOffsets, setDayOffsets] = useState<Record<string, 0 | 1>>({})
+  const [newTimeOffset, setNewTimeOffset] = useState<0 | 1>(0)
 
   const config = data?.agents.find((a) => a.agentId === agentId)
   const eventCatalog = data?.events ?? []
@@ -100,6 +104,8 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
     setTriggerMessage(config.triggerMessage ?? '')
     setNewTime('')
     setTimeError(null)
+    setDayOffsets((config.scheduleDayOffsets as Record<string, 0 | 1>) ?? {})
+    setNewTimeOffset(0)
   }, [config?.agentId, config?.enabled, config?.scheduleTimes.join(','), config?.subscribedEvents.join(','), config?.triggerMessage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -127,7 +133,9 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
     (enabled !== config.enabled ||
       times.join(',') !== savedTimes.join(',') ||
       events.join(',') !== savedEvents.join(',') ||
-      triggerMessage.trim() !== (config.triggerMessage ?? '').trim())
+      triggerMessage.trim() !== (config.triggerMessage ?? '').trim() ||
+      (agentId === CALENDAR_OPTIMIZER_AGENT_ID &&
+        JSON.stringify(dayOffsets) !== JSON.stringify((config.scheduleDayOffsets ?? {}) as Record<string, 0 | 1>)))
 
   function addTime(raw: string) {
     const value = raw.trim()
@@ -140,6 +148,9 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
       return
     }
     setTimes(sortTimes([...times, value]))
+    if (agentId === CALENDAR_OPTIMIZER_AGENT_ID && newTimeOffset === 1) {
+      setDayOffsets((prev) => ({ ...prev, [value]: 1 }))
+    }
     setNewTime('')
     setTimeError(null)
   }
@@ -154,6 +165,7 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
         enabled,
         scheduleTimes: times,
         triggerMessage: triggerMessage.trim() || null,
+        ...(agentId === CALENDAR_OPTIMIZER_AGENT_ID ? { scheduleDayOffsets: dayOffsets } : {}),
       })
 
       for (const typeId of eventCatalog.map((e) => e.typeId)) {
@@ -218,6 +230,11 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
             <p className="text-[11px] text-[#5a688c] mt-0.5">
               הסוכן ירוץ אוטומטית בשעות שתגדיר, כל יום.
             </p>
+            {agentId === CALENDAR_OPTIMIZER_AGENT_ID && (
+              <p className="text-[11px] text-[#7a89ab] mt-1">
+                בחר ״מחר״ כדי לקבל בערב את התוכנית ליום שאחרי ולהספיק לשנות.
+              </p>
+            )}
           </div>
           <Toggle
             checked={enabled}
@@ -229,29 +246,57 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {times.map((t) => (
-            <span
-              key={t}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#2dd4bf]/12 border border-[#2dd4bf]/30 px-2.5 py-1 text-xs text-[#cdd7ea]"
-            >
-              <span dir="ltr" className="font-mono">
-                {t}
-              </span>
-              <button
-                type="button"
-                aria-label={`הסר את השעה ${t}`}
-                disabled={saving}
-                onClick={() => {
-                  const next = times.filter((x) => x !== t)
-                  setTimes(next)
-                  if (next.length === 0) setEnabled(false)
-                }}
-                className="text-[#5a688c] hover:text-red-400 transition-colors leading-none"
+          {times.map((t) => {
+            const offset = agentId === CALENDAR_OPTIMIZER_AGENT_ID ? (dayOffsets[t] ?? 0) : undefined
+            return (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#2dd4bf]/12 border border-[#2dd4bf]/30 px-2.5 py-1 text-xs text-[#cdd7ea]"
               >
-                ×
-              </button>
-            </span>
-          ))}
+                <span dir="ltr" className="font-mono">
+                  {t}
+                </span>
+                {agentId === CALENDAR_OPTIMIZER_AGENT_ID && (
+                  <>
+                    {offset === 1 && (
+                      <span className="text-[#2dd4bf] text-[10px]">· מחר</span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`החלף ל${offset === 1 ? 'היום' : 'מחר'} עבור שעה ${t}`}
+                      disabled={saving}
+                      onClick={() =>
+                        setDayOffsets((prev) => ({ ...prev, [t]: prev[t] === 1 ? 0 : 1 }))
+                      }
+                      className="text-[#5a688c] hover:text-[#2dd4bf] transition-colors leading-none text-[10px] border border-[#3a507d] rounded px-1"
+                    >
+                      {offset === 1 ? 'היום' : 'מחר'}
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label={`הסר את השעה ${t}`}
+                  disabled={saving}
+                  onClick={() => {
+                    const next = times.filter((x) => x !== t)
+                    setTimes(next)
+                    if (next.length === 0) setEnabled(false)
+                    if (agentId === CALENDAR_OPTIMIZER_AGENT_ID) {
+                      setDayOffsets((prev) => {
+                        const copy = { ...prev }
+                        delete copy[t]
+                        return copy
+                      })
+                    }
+                  }}
+                  className="text-[#5a688c] hover:text-red-400 transition-colors leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            )
+          })}
 
           <input
             type="time"
@@ -271,6 +316,28 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
               }
             }}
           />
+          {agentId === CALENDAR_OPTIMIZER_AGENT_ID && (
+            <div className="inline-flex rounded-md border border-[#3a507d] overflow-hidden text-xs" role="group" aria-label="יום הרצה">
+              {([0, 1] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setNewTimeOffset(v)}
+                  aria-pressed={newTimeOffset === v}
+                  className="px-2.5 py-1 transition-colors"
+                  style={{
+                    background: newTimeOffset === v ? '#2dd4bf22' : 'transparent',
+                    borderColor: newTimeOffset === v ? '#2dd4bf' : 'transparent',
+                    color: newTimeOffset === v ? '#2dd4bf' : '#97a4c2',
+                    borderWidth: newTimeOffset === v ? '1px' : '0',
+                  }}
+                >
+                  {v === 0 ? 'היום' : 'מחר'}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             className="btn btn-ghost text-xs py-1 px-3 border border-[#3a507d]"

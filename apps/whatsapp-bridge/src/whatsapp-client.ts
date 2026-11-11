@@ -5,7 +5,8 @@ import {
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
-  makeInMemoryStore,
+  type BaileysEventEmitter,
+  type GroupMetadata,
   type WASocket,
   type proto,
 } from '@whiskeysockets/baileys'
@@ -13,8 +14,16 @@ import { Boom } from '@hapi/boom'
 import pino from 'pino'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { config, getSelfChatTarget, isSelfChatJid, setSelfJid } from './config.js'
-import { isGroupWatched, getGroupRule } from './group-config.js'
+import {
+  config,
+  getSelfChatTarget,
+  isAllowedGroupJid,
+  isSelfChatJid,
+  routeSelfChatJid,
+  setSelfJid,
+  setSelfLid,
+} from './config.js'
+import { isGroupWatched, getGroupRule, listEnabledGroupJids } from './group-config.js'
 import { onGroupMessage } from './rules-engine.js'
 import {
   bufferGroupMessage,
@@ -26,6 +35,16 @@ import {
   requeuePersistMessages,
   type BufferedGroupMessage,
 } from './group-buffer.js'
+import {
+  dmAllowlistSize,
+  drainDmQueue,
+  enqueueDmMessage,
+  noteLidPhoneFromStanza,
+  requeueDmMessages,
+  resolveCapturedDm,
+} from './dm-capture.js'
+import { ingestHistoryMessages, noteCapturedMessageId } from './history-sync.js'
+import { extractText, messageTimestampMs, senderNameFor } from './message-fields.js'
 
 export interface BridgeStatus {
   connected: boolean
@@ -35,10 +54,65 @@ export interface BridgeStatus {
   akWebhookConfigured: boolean
   akWebhookHost: string
   replyEnabled: boolean
+  dmAllowlist: number
+  watchedGroups: number
 }
 
 let sock: WASocket | null = null
-const chatStore = makeInMemoryStore({ logger: pino({ level: 'silent' }) })
+
+/**
+ * Minimal replacement for Baileys' `makeInMemoryStore`, which was removed in
+ * 6.7.18+. We only ever used two things from it: the contact list (to map an
+ * `@lid` private chat back to its phone JID for DM capture) and each chat's
+ * last-message timestamp (for the group discovery list). Kept deliberately
+ * tiny — no message history, no full chat objects.
+ */
+interface StoredContact {
+  id: string
+  lid?: string
+}
+const chatStore = {
+  contacts: new Map<string, StoredContact>(),
+  chatLastMessageAt: new Map<string, number>(),
+  bind(ev: BaileysEventEmitter): void {
+    const upsertContacts = (list: { id: string; lid?: string | null }[]) => {
+      for (const c of list) {
+        if (!c.id) continue
+        const prev = this.contacts.get(c.id)
+        this.contacts.set(c.id, { id: c.id, lid: c.lid ?? prev?.lid })
+      }
+    }
+    const noteChatTs = (list: { id?: string | null; conversationTimestamp?: unknown; lastMessageRecvTimestamp?: unknown }[]) => {
+      for (const c of list) {
+        if (!c.id) continue
+        const raw = c.lastMessageRecvTimestamp ?? c.conversationTimestamp
+        // Baileys hands these over as number | Long — Number() handles both.
+        const n = raw == null ? NaN : Number(raw)
+        if (!Number.isFinite(n) || n <= 0) continue
+        const ms = n < 1e12 ? n * 1000 : n
+        const prev = this.chatLastMessageAt.get(c.id) ?? 0
+        if (ms > prev) this.chatLastMessageAt.set(c.id, ms)
+      }
+    }
+    ev.on('messaging-history.set', ({ contacts, chats }) => {
+      upsertContacts(contacts)
+      noteChatTs(chats)
+    })
+    ev.on('contacts.upsert', upsertContacts)
+    ev.on('contacts.update', (updates) => upsertContacts(updates as { id: string; lid?: string | null }[]))
+    ev.on('chats.upsert', noteChatTs)
+    ev.on('chats.update', noteChatTs)
+  },
+}
+
+/**
+ * Group metadata cache for outbound group sends. Baileys re-queries the group
+ * (participants + addressing mode) on every send otherwise; a short TTL keeps
+ * the daily Tier 1 post cheap without going stale across membership changes.
+ */
+const groupMetadataCache = new Map<string, { at: number; data: GroupMetadata }>()
+const GROUP_METADATA_TTL_MS = 5 * 60 * 1000
+
 let currentQr: string | null = null
 let connected = false
 let lastError: string | null = null
@@ -83,13 +157,6 @@ function markInboundProcessed(messageId: string): void {
 function wasInboundProcessed(messageId: string): boolean {
   pruneProcessedInboundIds()
   return processedInboundIds.has(messageId)
-}
-
-/** Baileys reports message time in seconds; everything downstream expects ms. */
-function messageTimestampMs(msg: proto.IWebMessageInfo): number | null {
-  const raw = Number(msg.messageTimestamp)
-  if (!Number.isFinite(raw) || raw <= 0) return null
-  return Math.round(raw < 1e12 ? raw * 1000 : raw)
 }
 
 function messageAgeMs(msg: proto.IWebMessageInfo): number | null {
@@ -141,14 +208,6 @@ function shouldSkipInboundEcho(remoteJid: string, text: string, fromMe: boolean)
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
-function extractText(message: proto.IMessage | null | undefined): string {
-  if (!message) return ''
-  if (message.conversation) return message.conversation
-  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text
-  if (message.imageMessage?.caption) return message.imageMessage.caption
-  return ''
-}
-
 async function forwardToAkWebhook(payload: {
   message: string
   from: string
@@ -190,8 +249,57 @@ function resolveMessagesIngestUrl(): string {
   return config.akWebhookUrl.replace(/\/webhook\/?$/, '/messages/ingest')
 }
 
-/** Flush queued watched-group messages to the AK database (batched, per group). */
+function resolveDmIngestUrl(): string {
+  if (!config.akWebhookUrl) return ''
+  return config.akWebhookUrl.replace(/\/webhook\/?$/, '/dm/ingest')
+}
+
+function capturedDmFor(remoteJid: string): { jid: string; altJid: string | null } | null {
+  return resolveCapturedDm(remoteJid, chatStore.contacts.values(), isSelfChatJid)
+}
+
+/** Queue an allowlisted 1:1 message (sent or received) for the AK database. */
+function captureDmMessage(msg: proto.IWebMessageInfo, target: { jid: string; altJid: string | null }): void {
+  const text = extractText(msg.message).trim()
+  const id = msg.key.id
+  if (!text || !id) return
+  enqueueDmMessage({
+    id,
+    jid: target.jid,
+    altJid: target.altJid,
+    fromMe: !!msg.key.fromMe,
+    text,
+    timestamp: messageTimestampMs(msg) ?? Date.now(),
+  })
+  noteCapturedMessageId(id)
+}
+
+async function flushDmQueue(): Promise<void> {
+  const url = resolveDmIngestUrl()
+  if (!url) return
+  const messages = drainDmQueue()
+  if (messages.length === 0) return
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.bridgeSecret}` },
+      body: JSON.stringify({ messages }),
+    })
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'DM ingest failed — requeueing')
+      requeueDmMessages(messages)
+    } else {
+      logger.info({ count: messages.length }, 'Flushed 1:1 messages to AK')
+    }
+  } catch (err) {
+    logger.warn({ err }, 'DM ingest error — requeueing')
+    requeueDmMessages(messages)
+  }
+}
+
+/** Flush queued watched-group and allowlisted 1:1 messages to the AK database. */
 export async function flushPersistQueues(): Promise<void> {
+  await flushDmQueue()
   const ingestUrl = resolveMessagesIngestUrl()
   if (!ingestUrl) return
   const batches = drainPersistQueues()
@@ -240,6 +348,13 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
 
   const remoteJid = msg.key.remoteJid
 
+  const capturedDm = capturedDmFor(remoteJid)
+  if (capturedDm) {
+    captureDmMessage(msg, capturedDm)
+    logger.info({ via: capturedDm.altJid ? 'lid' : 'phone' }, 'Queued private chat')
+    return
+  }
+
   // Never process or reply to anyone except explicit self-chat JIDs
   if (!isSelfChatJid(remoteJid)) {
     if (!remoteJid.endsWith('@g.us')) {
@@ -279,19 +394,18 @@ async function handleInboundMessage(msg: proto.IWebMessageInfo): Promise<void> {
     if (!isGroupWatched(remoteJid)) return
     const sender = msg.key.participant || msg.participant || 'unknown'
     const trimmed = text.trim()
-    // Use pushName if available, otherwise fall back to JID prefix
-    const senderName = msg.pushName?.trim() || sender.split('@')[0] || sender
     const groupMessage: BufferedGroupMessage = {
       id: messageId,
       sender,
-      senderName,
+      senderName: senderNameFor(msg, sender),
       text: trimmed,
       timestamp: messageTimestampMs(msg) ?? Date.now(),
     }
     bufferGroupMessage(remoteJid, groupMessage)
     enqueuePersistMessage(remoteJid, groupMessage)
+    noteCapturedMessageId(messageId)
     onGroupMessage(remoteJid, trimmed)
-    logger.info({ groupJid: remoteJid, messageId, senderName }, 'Buffered group message')
+    logger.info({ groupJid: remoteJid, messageId, senderName: groupMessage.senderName }, 'Buffered group message')
     return
   }
 
@@ -352,10 +466,27 @@ export async function startWhatsAppClient(): Promise<void> {
     browser: [config.deviceName, 'Chrome', '120.0.0'],
     syncFullHistory: false,
     markOnlineOnConnect: false,
+    cachedGroupMetadata: async (jid) => {
+      const hit = groupMetadataCache.get(jid)
+      return hit && Date.now() - hit.at < GROUP_METADATA_TTL_MS ? hit.data : undefined
+    },
   })
 
   sock = socket
   chatStore.bind(socket.ev)
+  socket.ev.on('messaging-history.set', ({ messages }) => {
+    if (!messages?.length) return
+    const result = ingestHistoryMessages(messages, {
+      isGroupWatched,
+      capturedDm: capturedDmFor,
+      queueGroupMessage: enqueuePersistMessage,
+      queueDmMessage: enqueueDmMessage,
+    })
+    logger.info(result, 'Queued WhatsApp history sync')
+  })
+  socket.ws.on('CB:message', (node: { attrs?: Record<string, string> }) => {
+    if (node?.attrs) noteLidPhoneFromStanza(node.attrs)
+  })
 
   socket.ev.on('creds.update', saveCreds)
 
@@ -373,8 +504,10 @@ export async function startWhatsAppClient(): Promise<void> {
       lastError = null
       if (socket.user?.id) {
         const self = jidNormalizedUser(socket.user.id)
-        setSelfJid(config.selfJid || self)
-        logger.info({ selfJid: config.selfJid }, 'WhatsApp connected')
+        const liveLid = socket.user.lid ? jidNormalizedUser(socket.user.lid) : ''
+        if (!process.env.SELF_JID) setSelfJid(self)
+        if (liveLid.endsWith('@lid')) setSelfLid(liveLid)
+        logger.info({ selfJid: config.selfJid, selfLid: config.selfLid }, 'WhatsApp connected')
       }
     }
 
@@ -403,7 +536,8 @@ export async function startWhatsAppClient(): Promise<void> {
     for (const msg of messages) {
       const isGroup = msg.key.remoteJid?.endsWith('@g.us')
       // Self-chat: only live notifications — append replays old bot replies and causes loops.
-      if (!isGroup && type !== 'notify') continue
+      // Allowlisted 1:1 chats take both: messages sent from the phone can arrive as append.
+      if (!isGroup && type !== 'notify' && !capturedDmFor(msg.key.remoteJid ?? '')) continue
       try {
         await handleInboundMessage(msg)
       } catch (err) {
@@ -430,6 +564,8 @@ export function getStatus(): BridgeStatus {
     akWebhookConfigured: !!config.akWebhookUrl,
     akWebhookHost,
     replyEnabled: config.replyEnabled,
+    dmAllowlist: dmAllowlistSize(),
+    watchedGroups: listEnabledGroupJids().length,
   }
 }
 
@@ -441,15 +577,68 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<voi
   if (!sock || !connected) {
     throw new Error('WhatsApp not connected')
   }
-  const jid = to || getSelfChatTarget()
+  const requested = to || getSelfChatTarget()
+  const jid = routeSelfChatJid(requested, config.selfJid, config.selfLid)
   if (!jid) throw new Error('No self-chat JID configured')
-  if (!isSelfChatJid(jid)) {
+  if (!isSelfChatJid(requested) && !isSelfChatJid(jid)) {
     throw new Error(`Blocked: outbound WhatsApp only allowed to self-chat, not ${jid}`)
+  }
+  if (jid !== requested) {
+    logger.info({ requested, jid }, 'Routed self-chat send to LID')
   }
   const result = await sock.sendMessage(jid, { text: text.slice(0, 65000) })
   markRecentOutbound(text)
   lastOutbound = { jid, at: Date.now(), textKey: normalizeTextKey(text) }
   if (result?.key?.id) bridgeSentIds.add(result.key.id)
+}
+
+/**
+ * Send into a specific WhatsApp group — the one narrow exception to the
+ * self-chat-only guard, gated by an explicit allow-list (WHATSAPP_ALLOWED_GROUP_JIDS).
+ * Completely separate from `sendWhatsAppMessage`: does not touch, relax, or
+ * share code with the self-chat guard used by every other outbound path.
+ * See docs/specs/tier1-qa-whatsapp-agent.md §5.
+ */
+export async function sendWhatsAppGroupMessage(groupJid: string, text: string): Promise<void> {
+  if (!sock || !connected) {
+    throw new Error('WhatsApp not connected')
+  }
+  if (!isAllowedGroupJid(groupJid)) {
+    throw new Error(`Blocked: ${groupJid} is not in WHATSAPP_ALLOWED_GROUP_JIDS`)
+  }
+
+  // Preflight: resolve the group first so a bad target fails with a reason a
+  // human can act on, instead of WhatsApp's bare `not-acceptable` from deep
+  // inside the send. Also primes `cachedGroupMetadata` for the send itself.
+  let meta: GroupMetadata
+  try {
+    meta = await sock.groupMetadata(groupJid)
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `Group lookup failed for ${groupJid} (${reason}) — is this account still a member, and is the JID the one from /groups/available?`,
+    )
+  }
+  groupMetadataCache.set(groupJid, { at: Date.now(), data: meta })
+
+  if (meta.isCommunity) {
+    throw new Error(
+      `${groupJid} is a community parent ("${meta.subject}"), not a chat group — use the JID of the group inside the community`,
+    )
+  }
+  if (meta.announce) {
+    const me = jidNormalizedUser(sock.user?.id ?? '')
+    const meLid = sock.user?.lid ? jidNormalizedUser(sock.user.lid) : ''
+    const isAdmin = meta.participants.some(
+      (p) => !!p.admin && [p.id, p.lid].some((j) => j && (j === me || j === meLid)),
+    )
+    if (!isAdmin) {
+      throw new Error(`"${meta.subject}" is admins-only (announcement group) and this account is not an admin`)
+    }
+  }
+
+  await sock.sendMessage(groupJid, { text: text.slice(0, 65000) })
+  logger.info({ groupJid, subject: meta.subject, participants: meta.participants.length }, 'Sent group message')
 }
 
 export function getSelfJid(): string {
@@ -465,15 +654,7 @@ export async function discoverAvailableGroups(): Promise<
   const groups = await sock.groupFetchAllParticipating()
 
   function chatLastMessageMs(jid: string): number | null {
-    const chat = chatStore.chats.get(jid)
-    if (!chat) return null
-    const raw =
-      chat.lastMessageRecvTimestamp ??
-      (chat as { conversationTimestamp?: number | null }).conversationTimestamp
-    if (raw == null) return null
-    const n = Number(raw)
-    if (!Number.isFinite(n) || n <= 0) return null
-    return n < 1e12 ? n * 1000 : n
+    return chatStore.chatLastMessageAt.get(jid) ?? null
   }
 
   return Object.values(groups).map((g) => {

@@ -137,3 +137,18 @@ describe('flatten nested meeting-notes widget', () => {
   })
 })
 
+describe('analysableNoteText', () => {
+  it('prefers a real transcript over the summary', async () => {
+    const { analysableNoteText } = await import('./notion-meeting-note-body')
+    const transcript = '-Hello, Owen.\nHey.\n'.repeat(10)
+    expect(analysableNoteText({ transcriptText: transcript, bodyText: 'summary '.repeat(20) })).toBe(transcript.trim())
+  })
+
+  it('falls back to the summary when the transcript is missing or too short', async () => {
+    const { analysableNoteText } = await import('./notion-meeting-note-body')
+    const summary = 'summary '.repeat(20)
+    expect(analysableNoteText({ transcriptText: 'Hi', bodyText: summary })).toBe(summary.trim())
+    expect(analysableNoteText({ transcriptText: null, bodyText: summary })).toBe(summary.trim())
+    expect(analysableNoteText(undefined)).toBe('')
+  })
+})

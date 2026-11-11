@@ -33,12 +33,14 @@ vi.mock('./notion', () => ({
 }))
 vi.mock('@ak-system/api', () => ({
   getAgentCalendarScopePromptBlock: vi.fn().mockResolvedValue(''),
+  getDefaultTimezone: () => 'Asia/Jerusalem',
   localTodayIso: () => '2026-07-16',
   getAgentCalendarContext: vi.fn().mockResolvedValue({}),
   formatAgentCalendarContextForPrompt: () => '',
+  ownerIdentityPrompt: () => 'The user is Alpir Kritzler (אלפיר קריצלר).',
 }))
 
-import { runGeminiAgentChat } from './gemini-agent-engine'
+import { runGeminiAgentChat, singleMeetingFocusTitle } from './gemini-agent-engine'
 
 const GROUNDING_RETRY = 'STOP — do not invent meeting-prep content'
 
@@ -62,6 +64,16 @@ afterEach(() => {
   process.env = { ...ORIGINAL_ENV }
 })
 
+describe('singleMeetingFocusTitle', () => {
+  it('reads one Meeting line and ignores zero or many', () => {
+    expect(singleMeetingFocusTitle('Meeting: Follow up DD release discussion\nTime: 13:30')).toBe(
+      'Follow up DD release discussion',
+    )
+    expect(singleMeetingFocusTitle('Meeting: Algo 4\nMeeting: DD release')).toBeNull()
+    expect(singleMeetingFocusTitle('תכין אותי למחר')).toBeNull()
+  })
+})
+
 describe('runGeminiAgentChat — meeting prep grounding', () => {
   it('forces a grounding retry when 04 answers without calling any data tool', async () => {
     sendMessage
@@ -80,7 +92,12 @@ describe('runGeminiAgentChat — meeting prep grounding', () => {
     const prompts = sendMessage.mock.calls.map((c) => String(c[0]))
     expect(prompts.some((p) => p.startsWith(GROUNDING_RETRY))).toBe(true)
     expect(prompts.some((p) => p.includes('לא נמצאו משימות קשורות לפגישה זו'))).toBe(true)
-    expect(executeTool).toHaveBeenCalledWith('get_notion_tasks', expect.anything(), expect.anything(), undefined)
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_tasks',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ agentId: '04_meeting_prep_herald' }),
+    )
     expect(result.text).toContain('לא נמצא בנתונים')
   })
 
@@ -99,6 +116,76 @@ describe('runGeminiAgentChat — meeting prep grounding', () => {
     const prompts = sendMessage.mock.calls.map((c) => String(c[0]))
     expect(prompts.some((p) => p.startsWith(GROUNDING_RETRY))).toBe(false)
     expect(result.text).toBe('סיכום מבוסס נתונים.')
+  })
+
+  it('injects focusTitle from the single Meeting line', async () => {
+    sendMessage.mockResolvedValueOnce({
+      response: {
+        functionCalls: () => [
+          { name: 'get_notion_meeting_notes', args: {} },
+          { name: 'get_notion_tasks', args: {} },
+        ],
+        text: () => '',
+      },
+    })
+    sendMessage.mockResolvedValueOnce(textResp('כרטיס DD.'))
+
+    await runGeminiAgentChat({
+      agentId: '04_meeting_prep_herald',
+      message: 'prep\n\nMeeting: Follow up DD release discussion\nTime: 13:30',
+    })
+
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_meeting_notes',
+      expect.objectContaining({ focusTitle: 'Follow up DD release discussion' }),
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_tasks',
+      expect.objectContaining({ focusTitle: 'Follow up DD release discussion' }),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('does not inject focusTitle when the prompt names two meetings', async () => {
+    sendMessage.mockResolvedValueOnce(toolCallResp('get_notion_meeting_notes'))
+    sendMessage.mockResolvedValueOnce(textResp('שני כרטיסים.'))
+
+    await runGeminiAgentChat({
+      agentId: '04_meeting_prep_herald',
+      message: 'Meeting: Follow up DD release discussion\nMeeting: Algo 4.0 Sync',
+    })
+
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_meeting_notes',
+      {},
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('keeps a focusTitle the model already sent', async () => {
+    sendMessage.mockResolvedValueOnce({
+      response: {
+        functionCalls: () => [{ name: 'get_notion_tasks', args: { focusTitle: 'DD sync' } }],
+        text: () => '',
+      },
+    })
+    sendMessage.mockResolvedValueOnce(textResp('כרטיס.'))
+
+    await runGeminiAgentChat({
+      agentId: '04_meeting_prep_herald',
+      message: 'Meeting: Follow up DD release discussion',
+    })
+
+    expect(executeTool).toHaveBeenCalledWith(
+      'get_notion_tasks',
+      { focusTitle: 'DD sync' },
+      expect.anything(),
+      expect.anything(),
+    )
   })
 
   it('does NOT apply the grounding retry to other agents', async () => {

@@ -16,7 +16,7 @@ import {
   type FinanceCategoryRule,
   type FinanceCustomCategory,
 } from '@ak-system/database'
-import { eq, desc, gte, and, like, sql, count, sum, isNull, or } from 'drizzle-orm'
+import { eq, desc, gte, and, like, sql, count, sum, isNull, or, ne } from 'drizzle-orm'
 import { listIBKREmails } from '../services/ibkr-parser'
 import { importIBKREmails } from '../services/ibkr-import-service'
 import { importIBKRFromNotion, isNotionIbkrConfigured } from '../services/notion-ibkr-import'
@@ -26,6 +26,7 @@ import { extractTextFromPdf, parsePdfStatementText } from '../services/pdf-parse
 import { encryptCredentials, isBankCryptoConfigured } from '../lib/bank-credentials-crypto'
 import { syncConnection, syncAllConnections } from '../services/bank-sync-service'
 import { hasPendingOtp, submitOtpCode } from '../services/bank-otp-bridge'
+import { readCaptchaFrame, relayCaptchaClick } from '../services/bank-captcha-bridge'
 import {
   buildMonthlyTrend,
   buildCategoryBreakdown,
@@ -242,6 +243,144 @@ async function loadCategoryRules(ctx: { db: any }): Promise<CategoryRule[]> {
     category: r.category,
     direction: r.direction === 'income' || r.direction === 'expense' ? r.direction : null,
   }))
+}
+
+const EMPTY_NARRATIVE = {
+  available: false as const,
+  headline: null as string | null,
+  body: null as string | null,
+  connections: [] as string[],
+  watchlist: [] as string[],
+  generatedAt: null as string | null,
+  cached: false,
+  stale: false,
+}
+
+type NarrativeQueryInput = {
+  scope: 'cashflow' | 'trading' | 'overview'
+  month?: string
+  period: 'week' | 'month' | 'quarter' | 'all'
+}
+
+/** Facts Gemini would see for this scope. Computing them does not call the model. */
+async function buildNarrativeRequest(
+  ctx: { db: any },
+  input: NarrativeQueryInput,
+): Promise<{ scopeKey: string; narrativeInput: NarrativeInput }> {
+  const month = input.month ?? monthKey(new Date().toISOString())
+
+  if (input.scope === 'trading') {
+    const trades = await loadJournalTrades(ctx)
+    const { metrics, insights, dataQuality } = computeTradingInsights(
+      trades,
+      input.period as TradingPeriod,
+    )
+    return {
+      scopeKey: `trading:${input.period}`,
+      narrativeInput: {
+        scope: 'trading',
+        periodLabel: TRADING_PERIOD_LABELS[input.period],
+        facts: { ...metrics, ...dataQuality, valuation: 'realized_fifo' },
+        insights,
+      },
+    }
+  }
+
+  if (input.scope === 'overview') {
+    const [accounts, trades, txns] = await Promise.all([
+      loadOverviewAccounts(ctx),
+      loadJournalTrades(ctx),
+      loadAnalyticsTxns(ctx, 12),
+    ])
+    const overview = computeFinanceOverview({
+      accounts,
+      trades,
+      txns,
+      usdIls: configuredUsdIls(),
+    })
+    return {
+      scopeKey: `overview:${month}`,
+      narrativeInput: {
+        scope: 'overview',
+        periodLabel: month,
+        facts: { ...overview },
+        insights: [],
+      },
+    }
+  }
+
+  const txns = await loadAnalyticsTxns(ctx, 24)
+  const trend = buildMonthlyTrend(txns, 12)
+  const breakdown = buildCategoryBreakdown(txns, month, 'expense')
+  const recurring = detectRecurring(txns, { lookbackMonths: 12 })
+  const insights = computeInsights({ month, trend, breakdown, recurring, txns })
+  const point = trend.find((p) => p.month === month)
+  return {
+    scopeKey: `cashflow:${month}`,
+    narrativeInput: {
+      scope: 'cashflow',
+      periodLabel: month,
+      facts: {
+        income: point?.income ?? 0,
+        expense: point?.expense ?? 0,
+        net: point?.net ?? 0,
+        monthlyFixedTotal: recurring.monthlyFixedTotal,
+        topCategories: breakdown.items.slice(0, 5).map((i) => ({
+          category: i.category,
+          total: i.total,
+          trailingAvg: i.trailingAvg,
+        })),
+        forecast: forecastNextMonth(txns, { from: month }),
+      },
+      insights,
+    },
+  }
+}
+
+async function loadLatestNarrative(
+  ctx: { db: any },
+  scopeKey: string,
+): Promise<{ content: string; generatedAt: string; inputHash: string } | null> {
+  const [row] = (await queryRows(
+    ctx.db
+      .select({
+        content: financeInsightNarratives.content,
+        generatedAt: financeInsightNarratives.generatedAt,
+        inputHash: financeInsightNarratives.inputHash,
+      })
+      .from(financeInsightNarratives)
+      .where(eq(financeInsightNarratives.scopeKey, scopeKey))
+      .orderBy(desc(financeInsightNarratives.generatedAt))
+      .limit(1),
+  )) as Array<{ content: string; generatedAt: string; inputHash: string }>
+  return row ?? null
+}
+
+function parseStoredNarrative(content: string): {
+  headline: string
+  body: string
+  connections: string[]
+  watchlist: string[]
+} | null {
+  try {
+    const parsed = JSON.parse(content) as {
+      headline?: unknown
+      body?: unknown
+      connections?: unknown
+      watchlist?: unknown
+    }
+    if (typeof parsed.headline !== 'string' || typeof parsed.body !== 'string') return null
+    const strings = (value: unknown) =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+    return {
+      headline: parsed.headline,
+      body: parsed.body,
+      connections: strings(parsed.connections),
+      watchlist: strings(parsed.watchlist),
+    }
+  } catch {
+    return null
+  }
 }
 
 export const financeRouter = router({
@@ -598,6 +737,25 @@ export const financeRouter = router({
         return { ok: true as const }
       }),
 
+    /**
+     * JPEG of the scraper viewport while Radware/hCaptcha is blocking login.
+     * Null once the bank login form is visible or no scrape is waiting.
+     */
+    captchaFrame: protectedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .query(async ({ input }) => readCaptchaFrame(input.id)),
+
+    /** Forward one click onto the bot-check page. Coordinates are viewport pixels. */
+    captchaClick: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          x: z.number(),
+          y: z.number(),
+        }),
+      )
+      .mutation(async ({ input }) => ({ ok: await relayCaptchaClick(input.id, input.x, input.y) })),
+
     syncAll: protectedProcedure.mutation(async ({ ctx }) => {
       const results = await syncAllConnections(ctx.db, ctx.bankScrape ?? undefined)
       return { results }
@@ -724,10 +882,11 @@ export const financeRouter = router({
     }),
 
     /**
-     * Gemini's reading of the deterministic output, cached by the facts that produced it.
+     * Last saved Gemini reading for this scope.
      *
-     * The cache is keyed on a hash of the facts, so the model is asked once per distinct
-     * financial picture — reloading the tab is free, and `force` is the explicit way past it.
+     * Opening the tab never calls the model. `force` is the only path that does,
+     * used by the refresh button and the daily cron. A stored reading is returned
+     * even when today's facts have moved on (`stale: true`).
      */
     narrative: protectedProcedure
       .input(
@@ -739,99 +898,27 @@ export const financeRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
+        const { scopeKey, narrativeInput } = await buildNarrativeRequest(ctx, input)
+        const inputHash = hashNarrativeInput(narrativeInput)
+
+        if (!input.force) {
+          const latest = await loadLatestNarrative(ctx, scopeKey)
+          const parsed = latest ? parseStoredNarrative(latest.content) : null
+          if (!latest || !parsed) return EMPTY_NARRATIVE
+          return {
+            available: true as const,
+            ...parsed,
+            generatedAt: latest.generatedAt,
+            cached: true,
+            stale: latest.inputHash !== inputHash,
+          }
+        }
+
         if (!isNarrativeConfigured()) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: 'GEMINI_API_KEY לא מוגדר — הנרטיב אינו זמין',
           })
-        }
-
-        const month = input.month ?? monthKey(new Date().toISOString())
-        let narrativeInput: NarrativeInput
-        let scopeKey: string
-
-        if (input.scope === 'trading') {
-          const trades = await loadJournalTrades(ctx)
-          const { metrics, insights, dataQuality } = computeTradingInsights(
-            trades,
-            input.period as TradingPeriod
-          )
-          scopeKey = `trading:${input.period}`
-          narrativeInput = {
-            scope: 'trading',
-            periodLabel: TRADING_PERIOD_LABELS[input.period],
-            facts: { ...metrics, ...dataQuality, valuation: 'realized_fifo' },
-            insights,
-          }
-        } else if (input.scope === 'overview') {
-          const [accounts, trades, txns] = await Promise.all([
-            loadOverviewAccounts(ctx),
-            loadJournalTrades(ctx),
-            loadAnalyticsTxns(ctx, 12),
-          ])
-          const overview = computeFinanceOverview({
-            accounts,
-            trades,
-            txns,
-            usdIls: configuredUsdIls(),
-          })
-          scopeKey = `overview:${month}`
-          narrativeInput = {
-            scope: 'overview',
-            periodLabel: month,
-            facts: { ...overview },
-            insights: [],
-          }
-        } else {
-          const txns = await loadAnalyticsTxns(ctx, 24)
-          const trend = buildMonthlyTrend(txns, 12)
-          const breakdown = buildCategoryBreakdown(txns, month, 'expense')
-          const recurring = detectRecurring(txns, { lookbackMonths: 12 })
-          const insights = computeInsights({ month, trend, breakdown, recurring, txns })
-          const point = trend.find((p) => p.month === month)
-          scopeKey = `cashflow:${month}`
-          narrativeInput = {
-            scope: 'cashflow',
-            periodLabel: month,
-            facts: {
-              income: point?.income ?? 0,
-              expense: point?.expense ?? 0,
-              net: point?.net ?? 0,
-              monthlyFixedTotal: recurring.monthlyFixedTotal,
-              topCategories: breakdown.items.slice(0, 5).map((i) => ({
-                category: i.category,
-                total: i.total,
-                trailingAvg: i.trailingAvg,
-              })),
-              forecast: forecastNextMonth(txns, { from: month }),
-            },
-            insights,
-          }
-        }
-
-        const inputHash = hashNarrativeInput(narrativeInput)
-
-        if (!input.force) {
-          const [cached] = (await queryRows(
-            ctx.db
-              .select()
-              .from(financeInsightNarratives)
-              .where(
-                and(
-                  eq(financeInsightNarratives.scopeKey, scopeKey),
-                  eq(financeInsightNarratives.inputHash, inputHash)
-                )
-              )
-              .limit(1)
-          )) as Array<{ content: string; generatedAt: string }>
-
-          if (cached) {
-            return {
-              ...(JSON.parse(cached.content) as Record<string, unknown>),
-              generatedAt: cached.generatedAt,
-              cached: true,
-            }
-          }
         }
 
         const narrative = await generateFinanceNarrative(narrativeInput)
@@ -855,19 +942,31 @@ export const financeRouter = router({
               generatedAt,
               createdAt: generatedAt,
             })
-            .onConflictDoNothing()
+            .onConflictDoUpdate({
+              target: [financeInsightNarratives.scopeKey, financeInsightNarratives.inputHash],
+              set: { model: narrative.model, content, generatedAt },
+            })
+          await ctx.db
+            .delete(financeInsightNarratives)
+            .where(
+              and(
+                eq(financeInsightNarratives.scopeKey, scopeKey),
+                ne(financeInsightNarratives.inputHash, inputHash),
+              ),
+            )
         } catch (err) {
-          // A cache miss on the next call is cheaper than failing a narrative we already have.
           console.warn('[finance.analytics.narrative] cache write failed:', err)
         }
 
         return {
+          available: true as const,
           headline: narrative.headline,
           body: narrative.body,
           connections: narrative.connections,
           watchlist: narrative.watchlist,
           generatedAt,
           cached: false,
+          stale: false,
         }
       }),
 

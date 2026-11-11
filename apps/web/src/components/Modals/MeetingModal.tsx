@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import { DAYS_HE } from '@ak-system/types'
 import type { Person } from '@ak-system/database'
+import { MeetingPeoplePicker } from '@/components/ui/MeetingPeoplePicker'
 
 type MeetingForm = {
   id?: string
@@ -212,35 +213,11 @@ export function MeetingModal({
               </select>
             </div>
           )}
-          <div>
-            <label className="label">משתתפים</label>
-            <div className="flex flex-wrap gap-2">
-              {people.map((p) => {
-                const selected = form.peopleIds.includes(p.id)
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() =>
-                      setForm((f) => ({
-                        ...f,
-                        peopleIds: selected
-                          ? f.peopleIds.filter((id) => id !== p.id)
-                          : [...f.peopleIds, p.id],
-                      }))
-                    }
-                    className="cursor-pointer py-1.5 px-2.5 rounded-[20px] border text-sm transition-all"
-                    style={{
-                      borderColor: selected ? p.color ?? '#2dd4bf' : '#2f4368',
-                      background: selected ? (p.color ?? '#2dd4bf') + '22' : 'transparent',
-                      color: selected ? p.color ?? '#2dd4bf' : '#7a89ab',
-                    }}
-                  >
-                    {p.name}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <MeetingPeoplePicker
+            people={people}
+            selectedIds={form.peopleIds}
+            onChange={(peopleIds) => setForm((f) => ({ ...f, peopleIds }))}
+          />
           <div>
             <label className="label">הערות</label>
             <textarea

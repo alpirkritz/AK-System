@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@ak-system/types'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 
 const STORAGE_KEY = 'ak.quickAdd.workspaceId'
 const PERSONAL_WORKSPACE_ID = 'ws_personal'
@@ -144,19 +145,13 @@ export function QuickAddTaskModal({
           </div>
           <div>
             <label className="label" htmlFor="quick-add-workspace">
-              מקור
+              עולם
             </label>
-            <select
+            <WorkspacePicker
               id="quick-add-workspace"
-              className="select"
               value={workspaceId}
-              onChange={(e) => setWorkspaceId(e.target.value)}
-            >
-              <option value="">ללא מקור</option>
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
+              onChange={setWorkspaceId}
+            />
             {hasNotionLink && (
               <p className="mt-2 text-xs text-[#38bdf8]">
                 המשימה תיווצר גם ב-Notion ({selectedWorkspace?.name})

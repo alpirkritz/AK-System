@@ -3,16 +3,17 @@
 import { PersonCard } from './PersonCard'
 import { PeopleEmptyState } from './PeopleEmptyState'
 import { PeoplePagination } from './PeoplePagination'
-import type { Person } from '@ak-system/database'
+import type { PersonWithAffiliations } from './affiliations'
 
 interface Props {
-  items: Person[]
+  items: PersonWithAffiliations[]
   total: number
   page: number
   pageSize: number
   isLoading: boolean
   isError: boolean
   hasActiveFilters: boolean
+  showUnassignedGroup?: boolean
   onOpenDrawer: (id: string) => void
   onPageChange: (page: number) => void
   onAddPerson: () => void
@@ -54,6 +55,7 @@ export function PeopleCardGrid({
   isLoading,
   isError,
   hasActiveFilters,
+  showUnassignedGroup = false,
   onOpenDrawer,
   onPageChange,
   onAddPerson,
@@ -78,17 +80,36 @@ export function PeopleCardGrid({
     )
   }
 
+  const matched = showUnassignedGroup ? items.filter((p) => (p.affiliations?.length ?? 0) > 0) : items
+  const unassigned = showUnassignedGroup ? items.filter((p) => (p.affiliations?.length ?? 0) === 0) : []
+
   return (
     <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {items.map(person => (
-          <PersonCard
-            key={person.id}
-            person={person}
-            onOpenDrawer={() => onOpenDrawer(person.id)}
-          />
-        ))}
-      </div>
+      {matched.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {matched.map(person => (
+            <PersonCard
+              key={person.id}
+              person={person}
+              onOpenDrawer={() => onOpenDrawer(person.id)}
+            />
+          ))}
+        </div>
+      )}
+      {unassigned.length > 0 && (
+        <>
+          <h2 className="text-xs font-semibold text-[#7a89ab] uppercase tracking-wider mt-8 mb-3">לא משויך ({unassigned.length})</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {unassigned.map(person => (
+              <PersonCard
+                key={person.id}
+                person={person}
+                onOpenDrawer={() => onOpenDrawer(person.id)}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {total > pageSize && (
         <PeoplePagination

@@ -100,6 +100,7 @@ const AGENT_WORKFLOWS: Record<string, string> = {
   '06_calendar_optimizer': 'wf_calendar_optimizer.md',
   '07_email_assistant': 'wf_email_assistant.md',
   '08_startup_coo': 'wf_startup_coo.md',
+  '10_tier1_qa_reporter': 'wf_tier1_qa_reporter.md',
 }
 
 function getAbcRoot(): string {
@@ -185,14 +186,33 @@ export function agentNeedsCalendarContext(agentId: string): boolean {
   return CALENDAR_CONTEXT_AGENTS.has(agentId)
 }
 
+/**
+ * Explicit opt-in on the agent card (the text /agents/manage saves).
+ * A whole line, so "do not list tasks" does not turn the feed back on.
+ */
+export function agentCardRequestsDueTasks(card: string): boolean {
+  return /(?:^|\n)\s*(?:[-*]|\d+[.)])?\s*(?:משימות להיום|include due tasks)\s*(?=$|\n)/i.test(card)
+}
+
 /** All registered ABC agent IDs — used for run_abc_agent tool enum. */
 export function getRunnableAgentIds(): string[] {
   return listAgents().map((a) => a.id)
 }
 
-/** Linked workflow filename for an agent (e.g. `wf_meeting_prep.md`), or null. */
+/**
+ * Linked workflow filename for an agent (e.g. `wf_meeting_prep.md`), or null.
+ * Explicit map first (for agents whose workflow name differs from their id);
+ * otherwise the naming convention `wf_<id without the NN_ prefix>.md`, used
+ * only when that file actually exists — so a new agent card + workflow pair
+ * dropped into A_Agents/S_Skills shows up in /agents/manage with no code change.
+ */
 export function getAgentWorkflowFile(agentId: string): string | null {
-  return AGENT_WORKFLOWS[agentId] ?? null
+  const mapped = AGENT_WORKFLOWS[agentId]
+  if (mapped) return mapped
+  const slug = path.basename(agentId).replace(/^\d+_/, '')
+  if (!slug || slug !== path.basename(slug)) return null
+  const conventional = `wf_${slug}.md`
+  return fs.existsSync(path.join(skillsDir(), conventional)) ? conventional : null
 }
 
 function resolveWorkflowFilePath(agentId: string): string {

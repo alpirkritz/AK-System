@@ -27,6 +27,14 @@ const JOBS = [
   ['notion-sync', 30],
   ['feed-sync', 360],
   ['whatsapp-message-retention', 1440],
+  ['people-duplicates', 1440],
+  ['whatsapp-dm-summary', 1440],
+  ['whatsapp-dm-commitments', 10],
+  ['whatsapp-group-commitments', 10],
+  ['slack-commitments', 10],
+  ['email-sync', 60],
+  ['finance-narrative', 1440],
+  ['harness-insights', 360],
 ]
 
 const headers = SECRET ? { Authorization: `Bearer ${SECRET}` } : {}
@@ -54,4 +62,4 @@ setInterval(() => {
   for (const [route, every] of JOBS) if (minute % every === 0) hit(route)
 }, 60_000)
 // fire the sync-ish jobs once on boot so the day starts consistent
-for (const route of ['calendar-sync', 'morning-briefing', 'pre-meeting-briefing', 'scheduled-agents']) hit(route)
+for (const route of ['calendar-sync', 'morning-briefing', 'pre-meeting-briefing', 'scheduled-agents', 'whatsapp-dm-commitments']) hit(route)

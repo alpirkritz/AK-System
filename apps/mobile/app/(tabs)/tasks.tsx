@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -10,13 +10,14 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterChips, type FilterChipItem } from '../../components/FilterChips'
 import { StatusPill } from '../../components/StatusPill'
 import { useAuth } from '../../lib/auth'
 import {
   fetchNotionConfigured,
+  fetchSelfPerson,
   fetchTasks,
   fetchWorkspaces,
   syncTasksFromNotion,
@@ -25,10 +26,21 @@ import {
   type MobileTask,
   type MobileWorkspace,
 } from '../../lib/data'
+import { isMyTask } from '../../lib/my-tasks'
+import { groupTasksByDueState, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
+import { dueDay, isOverdueOpenTask } from '../../lib/task-due'
 import { colors, PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR } from '../../lib/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-type StatusFilter = 'open' | 'done' | 'cancelled' | 'all'
+type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
+type OwnerFilter = 'me' | 'all'
+
+const STATUS_FILTERS: StatusFilter[] = ['open', 'overdue', 'done', 'cancelled', 'all']
+
+function filterFromParam(value: string | string[] | undefined): StatusFilter | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  return STATUS_FILTERS.find((filter) => filter === raw) ?? null
+}
 
 function effectiveStatus(t: MobileTask): string {
   return t.status ?? (t.done ? 'done' : 'not_started')
@@ -37,13 +49,17 @@ function effectiveStatus(t: MobileTask): string {
 export default function TasksScreen() {
   const { token } = useAuth()
   const router = useRouter()
+  const navigation = useNavigation()
   const insets = useSafeAreaInsets()
+  const { filter: filterParam } = useLocalSearchParams<{ filter?: string | string[] }>()
   const [tasks, setTasks] = useState<MobileTask[]>([])
   const [workspaces, setWorkspaces] = useState<MobileWorkspace[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<StatusFilter>('open')
+  const [filter, setFilter] = useState<StatusFilter>(() => filterFromParam(filterParam) ?? 'open')
+  const [owner, setOwner] = useState<OwnerFilter>('me')
+  const [selfId, setSelfId] = useState<string | null>(null)
   const [workspaceId, setWorkspaceId] = useState<string | 'all'>('all')
   const [notionConfigured, setNotionConfigured] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -51,20 +67,31 @@ export default function TasksScreen() {
   const [search, setSearch] = useState('')
   const hasLoadedOnce = useRef(false)
 
+  useEffect(() => {
+    const next = filterFromParam(filterParam)
+    if (next) setFilter(next)
+  }, [filterParam])
+
+  useEffect(() => {
+    navigation.setOptions({ title: filter === 'overdue' ? 'משימות באיחור' : 'משימות' })
+  }, [navigation, filter])
+
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
       if (!token) return
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [t, w, notion] = await Promise.all([
+        const [t, w, notion, self] = await Promise.all([
           fetchTasks(token),
           fetchWorkspaces(token),
           fetchNotionConfigured(token).catch(() => false),
+          fetchSelfPerson(token),
         ])
         setTasks(t)
         setWorkspaces(w)
         setNotionConfigured(notion)
+        setSelfId(self.id)
         hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת המשימות נכשלה')
@@ -167,19 +194,38 @@ export default function TasksScreen() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return tasks.filter((t) => {
+    const filtered = tasks.filter((t) => {
       const st = effectiveStatus(t)
+      if (filter === 'overdue' && !isOverdueOpenTask(t)) return false
       if (filter === 'open' && (st === 'done' || st === 'cancelled')) return false
       if (filter === 'done' && st !== 'done') return false
       if (filter === 'cancelled' && st !== 'cancelled') return false
       if (workspaceId !== 'all' && t.workspaceId !== workspaceId) return false
+      if (owner === 'me' && !isMyTask(t.assigneeId, selfId)) return false
       if (q && !t.title.toLowerCase().includes(q)) return false
       return true
     })
-  }, [tasks, filter, workspaceId, search])
+    const showHeaders = filter === 'open' || filter === 'all'
+    const groups = groupTasksByDueState(sortTasksByPriorityThenDue(filtered))
+    const rows: Array<
+      | { kind: 'header'; id: string; label: string }
+      | { kind: 'task'; id: string; task: MobileTask }
+    > = []
+    for (const group of groups) {
+      if (showHeaders) rows.push({ kind: 'header', id: `header-${group.key}`, label: group.label })
+      for (const task of group.tasks) rows.push({ kind: 'task', id: task.id, task })
+    }
+    return rows
+  }, [tasks, filter, workspaceId, search, owner, selfId])
+
+  const ownerFilters: FilterChipItem[] = [
+    { key: 'me', label: 'שלי' },
+    { key: 'all', label: 'כולם' },
+  ]
 
   const filters: FilterChipItem[] = [
     { key: 'open', label: 'פתוחות' },
+    { key: 'overdue', label: 'באיחור', color: colors.coral },
     { key: 'done', label: 'הושלמו' },
     { key: 'cancelled', label: 'בוטלו' },
     { key: 'all', label: 'הכל' },
@@ -230,15 +276,29 @@ export default function TasksScreen() {
       </View>
 
       <FilterChips
+        items={ownerFilters}
+        selectedKey={owner}
+        onSelect={(key) => setOwner(key === 'all' ? 'all' : 'me')}
+      />
+
+      {/* Status + workspace chips scroll sideways: on a folded phone the wrapping
+          rows pushed the first task below the fold. */}
+      <FilterChips
         items={filters}
         selectedKey={filter}
-        onSelect={(key) => setFilter(key as StatusFilter)}
+        scrollable
+        onSelect={(key) => {
+          const next = filterFromParam(key) ?? 'open'
+          setFilter(next)
+          router.setParams({ filter: next })
+        }}
       />
 
       {workspaces.length > 0 ? (
         <FilterChips
           items={workspaceFilters}
           selectedKey={workspaceId}
+          scrollable
           onSelect={setWorkspaceId}
         />
       ) : null}
@@ -247,7 +307,7 @@ export default function TasksScreen() {
 
       <FlatList
         data={visible}
-        keyExtractor={(t) => t.id}
+        keyExtractor={(row) => row.id}
         contentContainerStyle={[styles.list, { paddingBottom: 88 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor={colors.accent} />
@@ -256,69 +316,90 @@ export default function TasksScreen() {
           <EmptyState
             icon="✓"
             iconColor={colors.success}
-            text={filter === 'open' ? 'אין משימות פתוחות' : 'אין משימות להצגה'}
+            text={
+              owner === 'me' && filter === 'open'
+                ? 'אין משימות שמוקצות אליך'
+                : filter === 'overdue'
+                  ? 'אין משימות באיחור'
+                  : filter === 'open'
+                    ? 'אין משימות פתוחות'
+                    : 'אין משימות להצגה'
+            }
+            hint={
+              owner === 'me' && filter === 'open'
+                ? 'משימות של אחרים נמצאות תחת ״כולם״.'
+                : filter === 'overdue'
+                  ? 'אין תאריך שעבר. אפשר לעבור ל״פתוחות״.'
+                  : undefined
+            }
           />
         }
         renderItem={({ item }) => {
-          const st = effectiveStatus(item)
+          if (item.kind === 'header') {
+            return <Text style={styles.groupLabel}>{item.label}</Text>
+          }
+          const task = item.task
+          const st = effectiveStatus(task)
           const isCancelled = st === 'cancelled'
-          const workspace = item.workspaceId ? workspaceById.get(item.workspaceId) : null
+          const workspace = task.workspaceId ? workspaceById.get(task.workspaceId) : null
           return (
             <View style={styles.taskRow}>
               <Pressable
                 onPress={() => {
-                  void onToggle(item.id)
+                  void onToggle(task.id)
                 }}
                 hitSlop={8}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: item.done }}
+                accessibilityState={{ checked: task.done }}
                 accessibilityLabel={
                   isCancelled
                     ? 'שחזר משימה שבוטלה'
-                    : item.done
+                    : task.done
                       ? 'סמן כלא בוצע'
                       : 'סמן כבוצע'
                 }
                 style={[
                   styles.checkbox,
-                  item.done && styles.checkboxChecked,
+                  task.done && styles.checkboxChecked,
                   isCancelled && styles.checkboxCancelled,
                 ]}
               >
-                {item.done ? (
+                {task.done ? (
                   <Text style={styles.checkMark}>{isCancelled ? '✕' : '✓'}</Text>
                 ) : null}
               </Pressable>
               <Pressable
                 style={styles.taskBody}
-                onPress={() => router.push(`/task/${item.id}` as Href)}
-                onLongPress={() => onDelete(item)}
+                onPress={() => router.push(`/task/${task.id}` as Href)}
+                onLongPress={() => onDelete(task)}
                 accessibilityRole="button"
-                accessibilityLabel={`פרטי משימה: ${item.title}`}
+                accessibilityLabel={`פרטי משימה: ${task.title}`}
                 accessibilityHint="לחיצה ארוכה למחיקה"
               >
-                <Text style={[styles.taskTitle, item.done && styles.taskTitleDone]}>
-                  {item.title}
+                <Text style={[styles.taskTitle, task.done && styles.taskTitleDone]}>
+                  {task.title}
                 </Text>
                 <View style={styles.metaRow}>
                   <StatusPill status={st} />
                   {workspace ? (
                     <Text style={styles.taskMeta}>{workspace.name}</Text>
                   ) : null}
-                  {item.dueDate ? (
-                    <Text style={styles.taskMeta}>
-                      {new Date(item.dueDate).toLocaleDateString('he-IL')}
+                  {dueDay(task.dueDate) ? (
+                    <Text style={[styles.taskMeta, isOverdueOpenTask(task) && styles.taskMetaOverdue]}>
+                      {isOverdueOpenTask(task) ? 'באיחור · ' : ''}
+                      {new Date(`${dueDay(task.dueDate)}T00:00:00`).toLocaleDateString('he-IL')}
                     </Text>
                   ) : null}
                 </View>
               </Pressable>
+              {/* Priority as a dot only — the text label stole ~56px from every title on the cover screen */}
               <View
+                accessibilityLabel={`עדיפות ${PRIORITY_LABEL[task.priority] ?? ''}`}
                 style={[
                   styles.priorityDot,
-                  { backgroundColor: PRIORITY_COLOR[item.priority] ?? colors.textMuted },
+                  { backgroundColor: PRIORITY_COLOR[task.priority] ?? colors.textMuted },
                 ]}
               />
-              <Text style={styles.priorityLabel}>{PRIORITY_LABEL[item.priority] ?? ''}</Text>
             </View>
           )
         }}
@@ -412,9 +493,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  groupLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 14,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+  },
   taskMeta: { color: colors.textMuted, fontSize: 12, writingDirection: 'rtl' },
+  taskMetaOverdue: { color: colors.coral },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
-  priorityLabel: { color: colors.textMuted, fontSize: 11, minWidth: 44, textAlign: 'left' },
   error: { color: colors.error, textAlign: 'center', padding: 8, writingDirection: 'rtl' },
   fab: {
     position: 'absolute',

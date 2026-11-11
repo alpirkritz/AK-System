@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "grag": {
+      "command": "/Users/alpir/.local/bin/grag",
+      "args": [
+        "--db",
+        "/Users/alpir/.grag/AK_system-a552389e-3d61-44bf-b787-1ea725943732.lbdb",
+        "mcp",
+        "--auto-serve",
+        "--port",
+        "48645"
+      ]
+    }
+  }
+}

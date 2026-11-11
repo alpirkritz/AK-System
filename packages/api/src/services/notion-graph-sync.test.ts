@@ -137,6 +137,46 @@ describe('shouldFetchNoteBody', () => {
   })
 })
 
+describe('shouldFetchNoteBody — late Notion AI notes', () => {
+  const synced = {
+    bodySyncedAt: '2026-11-11T15:44:30.000Z',
+    notionLastEditedAt: '2026-11-11T15:44:00.000Z',
+    pageLastEdited: '2026-11-11T15:44:00.000Z',
+    sourceKind: 'meeting_page_summary',
+  }
+  const titleOnly = 'Daz - Weekly 2026-11-11T17:30:00.000+02:00'
+
+  it('re-fetches a short note for a meeting from today even if the page looks unedited', () => {
+    expect(
+      shouldFetchNoteBody({ ...synced, bodyText: titleOnly, meetingDate: '2026-11-11', now: new Date('2026-11-11T18:00:00Z') }),
+    ).toBe(true)
+  })
+
+  it('still re-fetches a short note up to 3 days later', () => {
+    expect(
+      shouldFetchNoteBody({ ...synced, bodyText: titleOnly, meetingDate: '2026-11-11', now: new Date('2026-11-14T09:00:00Z') }),
+    ).toBe(true)
+  })
+
+  it('stops re-fetching a short note once the meeting is older than 3 days', () => {
+    expect(
+      shouldFetchNoteBody({ ...synced, bodyText: titleOnly, meetingDate: '2026-11-11', now: new Date('2026-11-15T09:00:00Z') }),
+    ).toBe(false)
+  })
+
+  it('does not re-fetch a recent note that already has a full summary', () => {
+    expect(
+      shouldFetchNoteBody({ ...synced, bodyText: 'x'.repeat(150), meetingDate: '2026-11-11', now: new Date('2026-11-11T18:00:00Z') }),
+    ).toBe(false)
+  })
+
+  it('ignores future meetings', () => {
+    expect(
+      shouldFetchNoteBody({ ...synced, bodyText: null, meetingDate: '2026-11-20', now: new Date('2026-11-11T18:00:00Z') }),
+    ).toBe(false)
+  })
+})
+
 describe('flattenNotionBlocksToText', () => {
   it('joins rich_text blocks and skips image/audio/table', () => {
     const text = flattenNotionBlocksToText([

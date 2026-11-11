@@ -10,7 +10,7 @@ test.describe('E2E – פונקציונליות מלאה', () => {
     await page.goto('/')
 
     // —— דשבורד ——
-    await expect(page.getByRole('heading', { name: /שלום/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible()
 
     // —— ניווט: אנשים ——
     await nav(page, '/people')
@@ -108,9 +108,9 @@ test.describe('E2E – פונקציונליות מלאה', () => {
 
     // —— חזרה לדשבורד ——
     await nav(page, '/')
-    await expect(page.getByRole('heading', { name: /שלום/ })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible({ timeout: 10000 })
     await expect(page.getByText('פגישות קרובות').first()).toBeVisible()
-    await expect(page.getByText('משימות פתוחות').first()).toBeVisible()
+    await expect(page.getByText('המשימות שלי').first()).toBeVisible()
   })
 
   test('ניווט לכל הדפים', async ({ page }) => {
@@ -128,6 +128,6 @@ test.describe('E2E – פונקציונליות מלאה', () => {
     await nav(page, '/calendar')
     await expect(page).toHaveURL(/\/calendar/)
     await nav(page, '/')
-    await expect(page.getByRole('heading', { name: /שלום/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב/ })).toBeVisible()
   })
 })

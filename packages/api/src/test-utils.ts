@@ -6,13 +6,46 @@ import {
   meetingNotes,
   meetingNotePeople,
   meetingNoteProjects,
+  projects,
+  projectPeople,
   meetingAnalyses,
+  meetingPreps,
   meetingSeries,
   meetingTypes,
   tasks,
   workspaces,
   workspaceNotionDatabases,
+  peopleNotionSources,
   notionStatusOverrides,
+  notionFieldBaselines,
+  backupRuns,
+  seriesRoster,
+  meetingRosterExceptions,
+  whatsappPersonLinks,
+  duplicateReviews,
+  commitments,
+  personTraitEvidence,
+  personTraits,
+  personObservations,
+  personSourceScans,
+  whatsappDmSummaries,
+  whatsappDmMessages,
+  personEmailThreads,
+  voiceRecordingPeople,
+  voiceSpeakerIdentities,
+  voiceTranscriptSegments,
+  voiceRecordings,
+  voicePrints,
+  harnessNodes,
+  harnessEdges,
+  harnessInsights,
+  slackMessages,
+  slackChannels,
+  slackConnections,
+  personWorkspaces,
+  identityQueue,
+  personAliases,
+  personExternalIds,
 } from '@ak-system/database'
 import { appRouter } from './index'
 import { createContext, createCallerFactory } from './trpc'
@@ -36,17 +69,50 @@ export async function createTestCaller() {
  */
 export async function resetDb() {
   const db = getTestDb()
+  await db.delete(harnessInsights)
+  await db.delete(harnessEdges)
+  await db.delete(harnessNodes)
+  await db.delete(slackMessages)
+  await db.delete(slackChannels)
+  await db.delete(slackConnections)
+  await db.delete(personTraitEvidence)
+  await db.delete(personTraits)
+  await db.delete(personObservations)
+  await db.delete(personSourceScans)
+  await db.delete(commitments)
+  await db.delete(personEmailThreads)
+  await db.delete(voicePrints)
+  await db.delete(voiceSpeakerIdentities)
+  await db.delete(voiceTranscriptSegments)
+  await db.delete(voiceRecordingPeople)
+  await db.delete(voiceRecordings)
+  await db.delete(whatsappDmSummaries)
+  await db.delete(whatsappDmMessages)
+  await db.delete(meetingRosterExceptions)
+  await db.delete(seriesRoster)
+  await db.delete(whatsappPersonLinks)
+  await db.delete(duplicateReviews)
   await db.delete(tasks)
+  await db.delete(meetingPreps)
   await db.delete(meetingAnalyses)
   await db.delete(meetingNotePeople)
   await db.delete(meetingNoteProjects)
+  await db.delete(projectPeople)
+  await db.delete(projects)
   await db.delete(meetingNotes)
   await db.delete(meetingPeople)
   await db.delete(meetings)
   await db.delete(meetingSeries)
   await db.delete(meetingTypes)
+  await db.delete(personWorkspaces)
+  await db.delete(identityQueue)
+  await db.delete(personAliases)
+  await db.delete(personExternalIds)
   await db.delete(people)
   await db.delete(notionStatusOverrides)
+  await db.delete(notionFieldBaselines)
+  await db.delete(backupRuns)
   await db.delete(workspaceNotionDatabases)
+  await db.delete(peopleNotionSources)
   await db.delete(workspaces)
 }

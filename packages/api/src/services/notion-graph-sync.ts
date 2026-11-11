@@ -6,6 +6,7 @@
  * (person_external_ids across every configured people DB).
  */
 
+import { resolveNotionPatch, updateFromNotion } from './notion-local-wins'
 import {
   getDb,
   companies,
@@ -360,10 +361,7 @@ export async function syncNotionGraph(
       let id = companyIdByNotion.get(page.id)
       if (id) {
         if (!dryRun) {
-          await db
-            .update(companies)
-            .set({ name, notionPageId: page.id, updatedAt: now })
-            .where(eq(companies.id, id))
+          await updateFromNotion(db, companies, 'company', id, { name }, { notionPageId: page.id, updatedAt: now })
         }
       } else {
         id = newId('co_notion_')
@@ -411,16 +409,14 @@ export async function syncNotionGraph(
       let id = projectIdByNotion.get(page.id)
       if (id) {
         if (!dryRun) {
-          await db
-            .update(projects)
-            .set({
-              name,
-              notionPageId: page.id,
-              companyId,
-              source: 'notion',
-              updatedAt: now,
-            })
-            .where(eq(projects.id, id))
+          await updateFromNotion(
+            db,
+            projects,
+            'project',
+            id,
+            { name, companyId },
+            { notionPageId: page.id, source: 'notion', updatedAt: now },
+          )
         }
       } else {
         id = newId('proj_notion_')
@@ -556,7 +552,18 @@ export async function syncNotionGraph(
               patch.time = time
             }
           }
-          await db.update(meetings).set(patch).where(eq(meetings.id, id))
+          // Local edits win: split Notion-owned fields from bookkeeping and filter the former.
+          const { notionPageId: patchNotionPageId, updatedAt: patchUpdatedAt, ...notionFields } = patch
+          if (attachingToCalendar) {
+            // First link to a calendar meeting: nothing local has diverged from Notion yet.
+            await db.update(meetings).set(patch).where(eq(meetings.id, id))
+            await resolveNotionPatch(db, 'meeting', id, {}, notionFields)
+          } else {
+            await updateFromNotion(db, meetings, 'meeting', id, notionFields, {
+              notionPageId: patchNotionPageId,
+              updatedAt: patchUpdatedAt,
+            })
+          }
           if (patch.title && existing) existing.title = patch.title
           if (patch.date && existing) existing.date = patch.date
           if (existing) existing.notionPageId = page.id
@@ -628,7 +635,7 @@ export async function syncNotionGraph(
           result.linksRewritten++
         }
         if (projectId) {
-          await db.update(meetings).set({ projectId, updatedAt: now }).where(eq(meetings.id, id))
+          await updateFromNotion(db, meetings, 'meeting', id, { projectId }, { updatedAt: now })
         }
       }
     }
@@ -640,10 +647,7 @@ export async function syncNotionGraph(
       for (const mid of notionMeetingIds) {
         const localMeetingId = meetingIdByNotion.get(mid)
         if (!localMeetingId) continue
-        await db
-          .update(meetings)
-          .set({ projectId, notionPageId: mid, updatedAt: now })
-          .where(eq(meetings.id, localMeetingId))
+        await updateFromNotion(db, meetings, 'meeting', localMeetingId, { projectId }, { notionPageId: mid, updatedAt: now })
         result.linksRewritten++
       }
     }
@@ -713,12 +717,8 @@ export async function syncNotionGraph(
   if (!dryRun) {
     for (const [projectId, notionTaskIds] of projectTaskRels) {
       for (const tid of notionTaskIds) {
-        const updated = await db
-          .update(tasks)
-          .set({ projectId, updatedAt: now })
-          .where(eq(tasks.notionPageId, tid))
-        // drizzle doesn't return count uniformly; count as attempt when page id known
-        void updated
+        const [taskRow] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.notionPageId, tid)).limit(1)
+        if (taskRow) await updateFromNotion(db, tasks, 'task', taskRow.id, { projectId }, { updatedAt: now })
         result.tasksLinked++
         result.linksRewritten++
       }

@@ -20,24 +20,31 @@
 import {
   getDb,
   people,
+  personAliases,
   personExternalIds,
   projects,
+  companies,
   meetings,
   tasks,
   taskPeople,
   workspaces,
   workspaceNotionDatabases,
+  peopleNotionSources,
   notionStatusOverrides,
   eq,
   and,
   inArray,
 } from '@ak-system/database'
-import { ensureSelfPerson, getSelfPersonName } from './self-person'
+import { resolveNotionPatch } from './notion-local-wins'
+import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from './self-person'
 import { upsertPersonExternalId } from './person-external-ids'
 import {
+  bestAssigneePeoplePropertyName,
+  bestAssigneeRelationPropertyName,
   fetchDatabaseProperties,
   fetchPeopleDirectoryIndex,
   findPeopleRelation,
+  listPeopleRelations,
   type PeopleRelationInfo,
 } from './notion-people-directory'
 
@@ -67,6 +74,15 @@ interface NotionDb {
   databaseId: string
   name: string
   accountLabel: string
+  /**
+   * Pinned per-field property names for a self-service source (see notion-people-full-field-sync)
+   * — undefined for env-configured databases, which use type/name heuristics instead. When
+   * present for a given field, that exact name is read directly rather than guessed.
+   */
+  phonePropertyName?: string | null
+  rolePropertyName?: string | null
+  companyPropertyName?: string | null
+  linkedinPropertyName?: string | null
 }
 
 export interface NotionTasksSyncResult {
@@ -98,33 +114,61 @@ export type NotionDbType =
   | 'meeting_notes'
   | 'meetings'
 
+interface ParsedNotionAccount {
+  label: string
+  token: string
+  databases: Array<{ id: string; name?: string; type?: string }>
+}
+
+/** Parses `NOTION_ACCOUNTS` once per call — cheap, and env can change between test cases. */
+function parseNotionAccounts(): ParsedNotionAccount[] {
+  const raw = process.env.NOTION_ACCOUNTS?.trim()
+  if (!raw) return []
+  try {
+    const data = JSON.parse(raw) as unknown
+    if (!Array.isArray(data)) return []
+    const out: ParsedNotionAccount[] = []
+    for (const acc of data as Array<Record<string, unknown>>) {
+      const token = typeof acc?.token === 'string' ? acc.token.trim() : ''
+      if (!token) continue
+      const label = typeof acc?.label === 'string' && acc.label.trim() ? acc.label.trim() : 'Notion'
+      const dbs = Array.isArray(acc?.databases) ? (acc.databases as Array<Record<string, unknown>>) : []
+      out.push({
+        label,
+        token,
+        databases: dbs
+          .filter((db) => typeof db?.id === 'string' && (db.id as string).trim())
+          .map((db) => ({
+            id: (db.id as string).trim(),
+            name: typeof db.name === 'string' ? db.name : undefined,
+            type: typeof db.type === 'string' ? db.type : undefined,
+          })),
+      })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+/** Account labels configured in `NOTION_ACCOUNTS` (for the "which account" picker). */
+export function listNotionAccountLabels(): string[] {
+  return parseNotionAccounts().map((acc) => acc.label)
+}
+
+/** Resolves a configured account's token by label — never exposed to the client. */
+export function findNotionAccountToken(accountLabel: string): string | null {
+  return parseNotionAccounts().find((acc) => acc.label === accountLabel)?.token ?? null
+}
+
 /** Databases of a given Notion type across all configured accounts. */
 export function resolveDatabases(type: NotionDbType): NotionDb[] {
   const out: NotionDb[] = []
-  const raw = process.env.NOTION_ACCOUNTS?.trim()
-  if (raw) {
-    try {
-      const data = JSON.parse(raw) as unknown
-      if (Array.isArray(data)) {
-        for (const acc of data as Array<Record<string, unknown>>) {
-          const token = typeof acc?.token === 'string' ? acc.token.trim() : ''
-          if (!token) continue
-          const label = typeof acc?.label === 'string' && acc.label.trim() ? acc.label.trim() : 'Notion'
-          const dbs = Array.isArray(acc?.databases) ? (acc.databases as Array<Record<string, unknown>>) : []
-          for (const db of dbs) {
-            if (db?.type === type && typeof db?.id === 'string' && db.id.trim()) {
-              out.push({
-                token,
-                databaseId: db.id.trim(),
-                name: typeof db.name === 'string' ? db.name : type,
-                accountLabel: label,
-              })
-            }
-          }
-        }
+  for (const acc of parseNotionAccounts()) {
+    for (const db of acc.databases) {
+      if (db.type === type) {
+        out.push({ token: acc.token, databaseId: db.id, name: db.name ?? type, accountLabel: acc.label })
       }
-    } catch {
-      // fall through to legacy
     }
   }
   if (out.length === 0 && type === 'tasks') {
@@ -139,7 +183,92 @@ export function resolveDatabases(type: NotionDbType): NotionDb[] {
   return out
 }
 
-/** True when at least one Notion `tasks` database is configured. */
+/**
+ * `people`-type databases: env-configured ones plus any self-service `people_notion_sources`
+ * rows added via Settings (see `notion-people-source-manager` spec). A custom row whose
+ * `accountLabel` no longer matches a configured account is skipped and reported in `errors`
+ * rather than silently dropped.
+ */
+export async function resolvePeopleDatabases(db: Db): Promise<{ databases: NotionDb[]; errors: string[] }> {
+  const databases = resolveDatabases('people')
+  const errors: string[] = []
+  const customRows = await db.select().from(peopleNotionSources)
+  for (const row of customRows) {
+    const token = findNotionAccountToken(row.accountLabel)
+    if (!token) {
+      errors.push(`people-source/${row.notionDatabaseName ?? row.notionDatabaseId}: לא נמצא חשבון Notion בשם "${row.accountLabel}"`)
+      continue
+    }
+    databases.push({
+      token,
+      databaseId: row.notionDatabaseId,
+      name: row.notionDatabaseName ?? 'Notion',
+      accountLabel: row.accountLabel,
+      phonePropertyName: row.phonePropertyName,
+      rolePropertyName: row.rolePropertyName,
+      companyPropertyName: row.companyPropertyName,
+      linkedinPropertyName: row.linkedinPropertyName,
+    })
+  }
+  return { databases, errors }
+}
+
+/**
+ * Pulls the 32-char Notion id out of a pasted share link ("Copy link") or a bare id, with or
+ * without dashes. Returns it re-dashed in the canonical 8-4-4-4-12 form Notion's API expects,
+ * or null when nothing 32-hex-long is found.
+ *
+ * Deliberately does NOT strip dashes up front: a real Notion share link looks like
+ * `.../Page-Title-<32hexid>?v=...`, and the hyphen right before the id is the only thing
+ * separating it from a title slug whose last word can itself end in a hex letter (e.g.
+ * "...People-<id>" — the trailing "e" in "People" is hex-valid). Stripping dashes first would
+ * glue that letter onto the id and shift the match. Instead: try the classic dashed-UUID shape
+ * first (a bare id the user pasted already dashed), then fall back to the longest *maximal* run
+ * of exactly 32 hex characters — one not touching another hex character on either side — which
+ * naturally respects the hyphen boundary Notion's own links rely on.
+ */
+export function extractNotionDatabaseId(link: string): string | null {
+  const trimmed = link.trim()
+  const dashed = trimmed.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)
+  if (dashed) return dashed[0].toLowerCase()
+  const bare = trimmed.match(/(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])/)
+  if (!bare) return null
+  const hex = bare[0].toLowerCase()
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+/**
+ * `tasks` databases: env-configured ones plus any paste-a-link rows in
+ * `workspace_notion_databases` (see `notion-task-source-manager`). A custom row whose
+ * `accountLabel` no longer matches a configured account is skipped and reported in `errors`.
+ * Env ids are not duplicated. A link with a null `accountLabel` that is not in the env list
+ * is skipped with the same error — the row exists but the token cannot be resolved.
+ */
+export async function resolveTaskDatabases(db: Db): Promise<{ databases: NotionDb[]; errors: string[] }> {
+  const databases = resolveDatabases('tasks')
+  const errors: string[] = []
+  const known = new Set(databases.map((d) => d.databaseId))
+  const links = await db.select().from(workspaceNotionDatabases)
+  for (const row of links) {
+    if (known.has(row.notionDatabaseId)) continue
+    const name = row.notionDatabaseName ?? row.notionDatabaseId
+    const token = row.accountLabel ? findNotionAccountToken(row.accountLabel) : null
+    if (!token) {
+      errors.push(`task-source/${name}: לא נמצא חשבון Notion בשם "${row.accountLabel ?? ''}"`)
+      continue
+    }
+    databases.push({
+      token,
+      databaseId: row.notionDatabaseId,
+      name: row.notionDatabaseName ?? 'Notion',
+      accountLabel: row.accountLabel!,
+    })
+    known.add(row.notionDatabaseId)
+  }
+  return { databases, errors }
+}
+
+/** True when at least one Notion `tasks` database is configured in env (legacy check). */
 export function isNotionTasksConfigured(): boolean {
   return resolveDatabases('tasks').length > 0
 }
@@ -167,11 +296,12 @@ export function listConfiguredPeopleDatabaseIds(): string[] {
  * account label and database name at sync time; the name narrows it when one account owns
  * several task databases, but the label alone is enough to pick the token.
  */
-export function resolveTaskDatabaseTarget(
+export async function resolveTaskDatabaseTarget(
   accountLabel: string | null | undefined,
   dbName?: string | null,
-): { token: string; databaseId: string } | null {
-  const dbs = resolveDatabases('tasks')
+  db: Db = getDb(),
+): Promise<{ token: string; databaseId: string } | null> {
+  const { databases: dbs } = await resolveTaskDatabases(db)
   if (dbs.length === 0) return null
   const label = (accountLabel ?? '').trim().toLowerCase()
   const name = (dbName ?? '').trim().toLowerCase()
@@ -202,8 +332,16 @@ export async function resolveWorkspaceNotionTarget(
   if (!link) return null
 
   const hit = resolveDatabases('tasks').find((d) => d.databaseId === link.notionDatabaseId)
-  if (!hit) return null
-  return { token: hit.token, databaseId: hit.databaseId, accountLabel: hit.accountLabel, name: hit.name }
+  if (hit) return { token: hit.token, databaseId: hit.databaseId, accountLabel: hit.accountLabel, name: hit.name }
+
+  const token = link.accountLabel ? findNotionAccountToken(link.accountLabel) : null
+  if (!token || !link.accountLabel) return null
+  return {
+    token,
+    databaseId: link.notionDatabaseId,
+    accountLabel: link.accountLabel,
+    name: link.notionDatabaseName ?? 'Notion',
+  }
 }
 
 /**
@@ -372,17 +510,43 @@ function getPriority(props: Record<string, NotionProp>): 'high' | 'medium' | 'lo
   return 'medium'
 }
 
-/** Names from every `people`-type property (Notion users assigned to the page). */
-function getPeopleNames(props: Record<string, NotionProp>): string[] {
+function peopleNamesOn(props: Record<string, NotionProp>, propertyName: string): string[] {
+  const value = props[propertyName]
+  if (value?.type !== 'people') return []
   const names: string[] = []
-  for (const v of Object.values(props)) {
-    if (v?.type === 'people') {
-      for (const p of (v.people as Array<{ name?: string }>) ?? []) {
-        if (p?.name) names.push(p.name.trim())
-      }
-    }
+  for (const person of (value.people as Array<{ name?: string }>) ?? []) {
+    if (person?.name) names.push(person.name.trim())
   }
   return names
+}
+
+/**
+ * Assignee comes only from the property named Assignee/Owner/אחראי when one exists
+ * (a Notion people column, or a relation into a people directory).
+ * Reporter, QA, and similar people fields stay related people — they must not
+ * steal `tasks.assigneeId` (Engineering Tasks lists Dor as Assignee and Alpir as Reporter).
+ * Databases with no such property still read every people field, but a known other
+ * person wins over the current user. The user becomes the assignee only when the
+ * assignee source actually names them and nobody else on it resolved.
+ */
+function splitPeopleNames(props: Record<string, NotionProp>): {
+  assigneeNames: string[]
+  otherNames: string[]
+} {
+  const assigneeProperty = bestAssigneePeoplePropertyName(props)
+  if (!assigneeProperty) {
+    const assigneeNames: string[] = []
+    for (const [name, value] of Object.entries(props)) {
+      if (value?.type === 'people') assigneeNames.push(...peopleNamesOn(props, name))
+    }
+    return { assigneeNames, otherNames: [] }
+  }
+  const otherNames: string[] = []
+  for (const [name, value] of Object.entries(props)) {
+    if (value?.type !== 'people' || name === assigneeProperty) continue
+    otherNames.push(...peopleNamesOn(props, name))
+  }
+  return { assigneeNames: peopleNamesOn(props, assigneeProperty), otherNames }
 }
 
 /** Related page ids from every `relation`-type property (legacy fallback). */
@@ -442,6 +606,133 @@ function getEmail(props: Record<string, NotionProp>): string | null {
   return null
 }
 
+// ─── Full-field people sync (phone / role / company / linkedin) ─────────────
+// See docs/specs/notion-people-full-field-sync.md. Two mechanisms:
+//  - env-configured databases: heuristics only (type match, name-pattern tiebreak when ambiguous)
+//  - self-service sources: a pinned property name chosen once at add-time, read directly
+
+const ROLE_NAME_HINT = /role|position|job|תפקיד/i
+const COMPANY_RELATION_NAME = /company|companies|חברה|לקוח/i
+const LINKEDIN_URL_NAME = /linkedin/i
+
+/** Generic by-type readers — used both by the heuristics below and to read a pinned property. */
+function readPhoneNumber(v: NotionProp): string | null {
+  return v?.type === 'phone_number' && typeof v.phone_number === 'string' && v.phone_number.trim()
+    ? (v.phone_number as string).trim()
+    : null
+}
+function readRichText(v: NotionProp): string | null {
+  if (v?.type !== 'rich_text') return null
+  const text = richTextValue(v).trim()
+  return text || null
+}
+function readRelationId(v: NotionProp): string | null {
+  if (v?.type !== 'relation') return null
+  const ids = (v.relation as Array<{ id?: string }> | undefined) ?? []
+  return ids[0]?.id ?? null
+}
+function readUrl(v: NotionProp): string | null {
+  return v?.type === 'url' && typeof v.url === 'string' && v.url.trim() ? (v.url as string).trim() : null
+}
+
+/** Reads a pinned property by exact name; a missing/renamed property is a silent skip. */
+function readPinned(
+  props: Record<string, NotionProp>,
+  name: string | null | undefined,
+  reader: (v: NotionProp) => string | null,
+): string | null {
+  if (!name) return null
+  const v = props[name]
+  return v ? reader(v) : null
+}
+
+/** Heuristic: exactly one candidate, or exactly one matching `nameHint` among several. */
+function pickHeuristic(
+  props: Record<string, NotionProp>,
+  reader: (v: NotionProp) => string | null,
+  typeOf: (v: NotionProp) => boolean,
+  nameHint?: RegExp,
+): string | null {
+  const candidates = Object.entries(props).filter(([, v]) => typeOf(v))
+  if (candidates.length === 1) return reader(candidates[0][1])
+  if (candidates.length > 1 && nameHint) {
+    const hinted = candidates.filter(([name]) => nameHint.test(name))
+    if (hinted.length === 1) return reader(hinted[0][1])
+  }
+  return null
+}
+
+function getPhoneHeuristic(props: Record<string, NotionProp>): string | null {
+  return pickHeuristic(props, readPhoneNumber, (v) => v?.type === 'phone_number')
+}
+function getRoleHeuristic(props: Record<string, NotionProp>): string | null {
+  return pickHeuristic(props, readRichText, (v) => v?.type === 'rich_text', ROLE_NAME_HINT)
+}
+function getCompanyRelationPageIdHeuristic(props: Record<string, NotionProp>): string | null {
+  return pickHeuristic(props, readRelationId, (v) => v?.type === 'relation', COMPANY_RELATION_NAME)
+}
+function getLinkedinHeuristic(props: Record<string, NotionProp>): string | null {
+  return pickHeuristic(props, readUrl, (v) => v?.type === 'url', LINKEDIN_URL_NAME)
+}
+
+export interface FieldMappingCandidate {
+  candidates: string[]
+  auto: string | null
+}
+
+export interface DatabaseFieldMappings {
+  phone: FieldMappingCandidate
+  role: FieldMappingCandidate
+  company: FieldMappingCandidate
+  linkedin: FieldMappingCandidate
+}
+
+/**
+ * For the add-source modal's "בדוק" preview: which property (if any) would be auto-picked for
+ * each of the four fields, and what else is available to choose from when it's ambiguous.
+ */
+export function resolveDatabaseFieldMappings(
+  properties: Record<string, { type?: string; relation?: { database_id?: string } }>,
+): DatabaseFieldMappings {
+  const props = properties as Record<string, NotionProp>
+  const namesOfType = (typeOf: (v: NotionProp) => boolean) =>
+    Object.entries(props).filter(([, v]) => typeOf(v)).map(([name]) => name)
+
+  return {
+    phone: {
+      candidates: namesOfType((v) => v?.type === 'phone_number'),
+      auto: pickHeuristicName(props, (v) => v?.type === 'phone_number'),
+    },
+    role: {
+      candidates: namesOfType((v) => v?.type === 'rich_text'),
+      auto: pickHeuristicName(props, (v) => v?.type === 'rich_text', ROLE_NAME_HINT),
+    },
+    company: {
+      candidates: namesOfType((v) => v?.type === 'relation'),
+      auto: pickHeuristicName(props, (v) => v?.type === 'relation', COMPANY_RELATION_NAME),
+    },
+    linkedin: {
+      candidates: namesOfType((v) => v?.type === 'url'),
+      auto: pickHeuristicName(props, (v) => v?.type === 'url', LINKEDIN_URL_NAME),
+    },
+  }
+}
+
+/** Same precedence as `pickHeuristic`, but returns the winning property NAME rather than its value. */
+function pickHeuristicName(
+  props: Record<string, NotionProp>,
+  typeOf: (v: NotionProp) => boolean,
+  nameHint?: RegExp,
+): string | null {
+  const candidates = Object.entries(props).filter(([, v]) => typeOf(v))
+  if (candidates.length === 1) return candidates[0][0]
+  if (candidates.length > 1 && nameHint) {
+    const hinted = candidates.filter(([name]) => nameHint.test(name))
+    if (hinted.length === 1) return hinted[0][0]
+  }
+  return null
+}
+
 // ─── People matching helpers ─────────────────────────────────────────────────
 
 interface PersonRow {
@@ -451,6 +742,9 @@ interface PersonRow {
   notionPageId: string | null
   companyId?: string | null
   status?: string | null
+  phone?: string | null
+  role?: string | null
+  linkedin?: string | null
 }
 
 interface PeopleMaps {
@@ -480,6 +774,9 @@ async function loadPeopleMaps(db: Db): Promise<PeopleMaps> {
       notionPageId: people.notionPageId,
       companyId: people.companyId,
       status: people.status,
+      phone: people.phone,
+      role: people.role,
+      linkedin: people.linkedin,
     })
     .from(people)) as PersonRow[]
   const maps = buildPeopleMaps(existingPeople)
@@ -494,6 +791,13 @@ async function loadPeopleMaps(db: Db): Promise<PeopleMaps> {
   for (const row of identities) {
     const person = byId.get(row.personId)
     if (person) maps.byNotionId.set(row.externalId, person)
+  }
+  // Taught aliases resolve like names, so "Jordan Ferenz" lands on ירדן; primary names win.
+  const aliasRows = await db.select({ personId: personAliases.personId, alias: personAliases.alias }).from(personAliases)
+  for (const row of aliasRows) {
+    const person = byId.get(row.personId)
+    const key = row.alias.toLowerCase()
+    if (person && !maps.byName.has(key)) maps.byName.set(key, person)
   }
   return maps
 }
@@ -556,11 +860,15 @@ export async function syncNotionTasks(
     errors: [],
   }
 
-  const taskDbs = resolveDatabases('tasks')
+  const taskResolution = await resolveTaskDatabases(db)
+  const taskDbs = taskResolution.databases
+  result.errors.push(...taskResolution.errors)
   if (taskDbs.length === 0) {
     throw new Error('לא הוגדר בסיס נתונים של משימות ב-Notion — הוסף אותו ל-NOTION_ACCOUNTS')
   }
-  const peopleDbs = resolveDatabases('people')
+  const peopleResolution = await resolvePeopleDatabases(db)
+  const peopleDbs = peopleResolution.databases
+  result.errors.push(...peopleResolution.errors)
   const now = new Date().toISOString()
 
   // Load current people + all Notion external identities into lookup maps.
@@ -575,6 +883,27 @@ export async function syncNotionTasks(
   const accountKeyFor = (database: NotionDb) =>
     `${database.accountLabel}::${database.name}`
 
+  // Notion company relation → local company id, for resolving the `company` field below.
+  // Best-effort: if `notionGraph.sync` (which owns company creation) hasn't run yet this cycle,
+  // a not-yet-existing company simply resolves on a later sync — same as `projectId` below.
+  const companyRows = await db.select({ id: companies.id, notionPageId: companies.notionPageId }).from(companies)
+  const companyIdByNotionPageId = new Map<string, string>()
+  for (const c of companyRows) {
+    if (c.notionPageId) companyIdByNotionPageId.set(c.notionPageId, c.id)
+  }
+
+  /** Pinned name (self-service source) if set, else the heuristic (env source). */
+  function resolveField(
+    database: NotionDb,
+    props: Record<string, NotionProp>,
+    pinnedName: string | null | undefined,
+    reader: (v: NotionProp) => string | null,
+    heuristic: (props: Record<string, NotionProp>) => string | null,
+  ): string | null {
+    if (pinnedName !== undefined) return readPinned(props, pinnedName, reader)
+    return heuristic(props)
+  }
+
   // ── People pass: upsert every configured Notion people directory ──
   for (const database of peopleDbs) {
     let pages: Array<{ id: string; properties: Record<string, NotionProp> }>
@@ -588,6 +917,14 @@ export async function syncNotionTasks(
       const name = getTitle(page.properties)
       if (!name) continue
       const email = getEmail(page.properties)
+      const phone = resolveField(database, page.properties, database.phonePropertyName, readPhoneNumber, getPhoneHeuristic)
+      const role = resolveField(database, page.properties, database.rolePropertyName, readRichText, getRoleHeuristic)
+      const companyNotionPageId = resolveField(
+        database, page.properties, database.companyPropertyName, readRelationId, getCompanyRelationPageIdHeuristic,
+      )
+      const companyId = companyNotionPageId ? companyIdByNotionPageId.get(companyNotionPageId) ?? null : null
+      const linkedin = resolveField(database, page.properties, database.linkedinPropertyName, readUrl, getLinkedinHeuristic)
+
       const byNotion = maps.byNotionId.get(page.id)
       const byEmail = email ? maps.byEmail.get(email.toLowerCase()) : undefined
       const byName = maps.byName.get(name.toLowerCase())
@@ -610,9 +947,22 @@ export async function syncNotionTasks(
 
       if (existing) {
         if (!dryRun) {
-          if (!existing.notionPageId) {
-            await db.update(people).set({ notionPageId: page.id }).where(eq(people.id, existing.id))
-            existing.notionPageId = page.id
+          const fieldUpdates: Partial<{
+            notionPageId: string
+            phone: string
+            role: string
+            companyId: string
+            linkedin: string
+          }> = {}
+          if (!existing.notionPageId) fieldUpdates.notionPageId = page.id
+          if (!existing.phone && phone) fieldUpdates.phone = phone
+          if (!existing.role && role) fieldUpdates.role = role
+          if (!existing.companyId && companyId) fieldUpdates.companyId = companyId
+          if (!existing.linkedin && linkedin) fieldUpdates.linkedin = linkedin
+
+          if (Object.keys(fieldUpdates).length > 0) {
+            await db.update(people).set(fieldUpdates).where(eq(people.id, existing.id))
+            Object.assign(existing, fieldUpdates)
             result.peopleUpdated++
           }
           await upsertPersonExternalId(db, {
@@ -634,13 +984,20 @@ export async function syncNotionTasks(
         email: email ?? null,
         notionPageId: page.id,
         status: 'confirmed',
+        phone: phone ?? null,
+        role: role ?? null,
+        companyId: companyId ?? null,
+        linkedin: linkedin ?? null,
       }
       if (!dryRun) {
         await db.insert(people).values({
           id,
           name,
           email: email ?? null,
-          role: null,
+          role: role ?? null,
+          phone: phone ?? null,
+          companyId: companyId ?? null,
+          linkedin: linkedin ?? null,
           color: '#e8c547',
           status: 'confirmed',
           source: 'notion',
@@ -680,8 +1037,9 @@ export async function syncNotionTasks(
 
   for (const database of taskDbs) {
     let relation: PeopleRelationInfo | null = null
+    let schemaProps: Record<string, { type?: string; relation?: { database_id?: string } }> = {}
     try {
-      const schemaProps = await fetchDatabaseProperties(database.token, database.databaseId)
+      schemaProps = await fetchDatabaseProperties(database.token, database.databaseId)
       relation = findPeopleRelation(schemaProps, database.databaseId, configuredPeopleIds)
     } catch (err) {
       result.errors.push(
@@ -691,30 +1049,32 @@ export async function syncNotionTasks(
       continue
     }
     peopleRelationByTaskDb.set(database.databaseId, relation)
-    if (!relation || indexedDirectoryIds.has(relation.targetDatabaseId)) continue
-
-    try {
-      const index = await fetchPeopleDirectoryIndex(database.token, relation.targetDatabaseId)
-      const accountKey = `${database.accountLabel}::people-dir::${relation.targetDatabaseId}`
-      for (const [pageId, title] of index.byPageId) {
-        const person = maps.byName.get(title.toLowerCase())
-        if (!person) continue
-        maps.byNotionId.set(pageId, person)
-        if (!dryRun) {
-          await upsertPersonExternalId(db, {
-            personId: person.id,
-            provider: 'notion',
-            accountKey,
-            externalId: pageId,
-            displayName: title,
-          })
+    const directories = listPeopleRelations(schemaProps, database.databaseId, configuredPeopleIds)
+    for (const directory of directories) {
+      if (indexedDirectoryIds.has(directory.targetDatabaseId)) continue
+      try {
+        const index = await fetchPeopleDirectoryIndex(database.token, directory.targetDatabaseId)
+        const accountKey = `${database.accountLabel}::people-dir::${directory.targetDatabaseId}`
+        for (const [pageId, title] of index.byPageId) {
+          const person = maps.byName.get(title.toLowerCase())
+          if (!person) continue
+          maps.byNotionId.set(pageId, person)
+          if (!dryRun) {
+            await upsertPersonExternalId(db, {
+              personId: person.id,
+              provider: 'notion',
+              accountKey,
+              externalId: pageId,
+              displayName: title,
+            })
+          }
         }
+        indexedDirectoryIds.add(directory.targetDatabaseId)
+      } catch (err) {
+        result.errors.push(
+          `people-dir/${directory.propertyName}: ${err instanceof Error ? err.message : 'query failed'}`,
+        )
       }
-      indexedDirectoryIds.add(relation.targetDatabaseId)
-    } catch (err) {
-      result.errors.push(
-        `people-dir/${relation.propertyName}: ${err instanceof Error ? err.message : 'query failed'}`,
-      )
     }
   }
 
@@ -801,38 +1161,89 @@ export async function syncNotionTasks(
         continue
       }
 
-      // Resolve assignees + People-relation links → known people.
-      const assigneeNames = getPeopleNames(props)
-      const relationIds = peopleRel
-        ? getNamedRelationPageIds(props, peopleRel.propertyName)
-        : getRelationPageIds(props)
-      const matched = new Map<string, PersonRow>()
-      let userIsAssignee = false
-      for (const n of assigneeNames) {
-        if (n.toLowerCase() === userName.toLowerCase()) {
-          userIsAssignee = true
-          matched.set(userPerson.id, userPerson)
-          continue
+      // Assignee is the Assignee/Owner/אחראי column when the database has one —
+      // either a Notion people property or a relation into a people directory.
+      // Reporter, QA, Team, and any other people link stay related people.
+      // A second database must not make the current user the assignee just because
+      // their name appears on one of those other fields.
+      const assigneePeopleProp = bestAssigneePeoplePropertyName(props)
+      const assigneeRelationProp = assigneePeopleProp ? null : bestAssigneeRelationPropertyName(props)
+      let assigneeNames: string[]
+      let otherNames: string[]
+      if (assigneeRelationProp) {
+        assigneeNames = []
+        otherNames = []
+        for (const [name, value] of Object.entries(props)) {
+          if (value?.type === 'people') otherNames.push(...peopleNamesOn(props, name))
         }
-        const p = maps.byName.get(n.toLowerCase())
-        if (p) matched.set(p.id, p)
+      } else {
+        ;({ assigneeNames, otherNames } = splitPeopleNames(props))
       }
-      for (const relId of relationIds) {
-        const p = maps.byNotionId.get(relId)
-        if (p) {
-          matched.set(p.id, p)
-          if (p.id === userPerson.id) userIsAssignee = true
+      const assigneeRelationIds = assigneeRelationProp
+        ? getNamedRelationPageIds(props, assigneeRelationProp)
+        : []
+      const relatedRelationIds = assigneeRelationProp
+        ? peopleRel && peopleRel.propertyName !== assigneeRelationProp
+          ? getNamedRelationPageIds(props, peopleRel.propertyName)
+          : []
+        : peopleRel
+          ? getNamedRelationPageIds(props, peopleRel.propertyName)
+          : getRelationPageIds(props)
+      const matched = new Map<string, PersonRow>()
+      const assigneeMatched: string[] = []
+      let userIsAssignee = false
+      let foreignAssigneeUnresolved = false
+      const isUserName = (name: string) =>
+        name.toLowerCase() === userName.toLowerCase() || isSelfPersonName(name)
+      const absorbName = (name: string, asAssignee: boolean) => {
+        if (isUserName(name)) {
+          if (asAssignee) userIsAssignee = true
+          return
         }
+        const person = maps.byName.get(name.toLowerCase())
+        if (!person || isSelfPersonName(person.name)) {
+          if (asAssignee) foreignAssigneeUnresolved = true
+          return
+        }
+        matched.set(person.id, person)
+        if (asAssignee && !assigneeMatched.includes(person.id)) assigneeMatched.push(person.id)
+      }
+      for (const name of assigneeNames) absorbName(name, true)
+      for (const name of otherNames) absorbName(name, false)
+      const absorbRelation = (relId: string, asAssignee: boolean, unresolvedCounts: boolean) => {
+        const person = maps.byNotionId.get(relId)
+        if (!person) {
+          // A named Assignee relation that doesn't resolve is someone else's task.
+          // A generic relation dump also includes projects; those must not block the user's own tasks.
+          if (unresolvedCounts) foreignAssigneeUnresolved = true
+          return
+        }
+        if (person.id === userPerson.id || isSelfPersonName(person.name)) {
+          if (asAssignee) userIsAssignee = true
+          return
+        }
+        matched.set(person.id, person)
+        if (asAssignee && !assigneeMatched.includes(person.id)) assigneeMatched.push(person.id)
+      }
+      for (const relId of assigneeRelationIds) absorbRelation(relId, true, true)
+      for (const relId of relatedRelationIds) {
+        absorbRelation(relId, !assigneePeopleProp && !assigneeRelationProp, false)
       }
 
-      // Keep task if it's the user's or belongs to at least one known person.
+      // A named owner we could not resolve (Dor, not in the directory yet) must not
+      // fall through to the current user just because they are Reporter or on Team.
+      if (foreignAssigneeUnresolved && assigneeMatched.length === 0) userIsAssignee = false
+
+      // Keep task if the user owns it or it belongs to at least one known person.
       if (!userIsAssignee && matched.size === 0) {
         result.tasksSkipped++
         continue
       }
 
       const matchedIds = [...matched.keys()]
-      const assigneeId = userIsAssignee ? userPerson.id : (matchedIds[0] ?? null)
+      // Someone else on the assignee source wins. The user is the assignee only
+      // when that source names them and no other known person resolved from it.
+      const assigneeId = assigneeMatched[0] ?? (userIsAssignee ? userPerson.id : null)
       const projectId =
         getProjectRelationPageIds(props)
           .map((rid) => projectByNotionId.get(rid))
@@ -854,19 +1265,31 @@ export async function syncNotionTasks(
         // Non-wipe rule: only set meetingId if Notion has one or if local doesn't have one
         const shouldUpdateMeetingId = meetingId !== null || currentMeetingId === null
         if (!dryRun) {
-          await db
-            .update(tasks)
-            .set({
+          const [currentRow] = await db.select().from(tasks).where(eq(tasks.id, existingTaskId)).limit(1)
+          // Local edits win: only fields the user has not changed locally take Notion's value.
+          const { patch, skipped } = await resolveNotionPatch(
+            db,
+            'task',
+            existingTaskId,
+            (currentRow ?? {}) as Record<string, unknown>,
+            {
               title,
               dueDate,
               priority,
               status,
-              done,
-              notionStatusRaw: notionStatusRaw || null,
               assigneeId,
               projectId,
               ...(shouldUpdateMeetingId ? { meetingId } : {}),
               workspaceId,
+            },
+          )
+          // `done` is derived from `status`; keep them consistent.
+          if (!skipped.includes('status')) patch.done = done
+          await db
+            .update(tasks)
+            .set({
+              ...patch,
+              ...(skipped.includes('status') ? {} : { notionStatusRaw: notionStatusRaw || null }),
               notionAccount: database.accountLabel,
               notionDb: database.name,
               updatedAt: now,

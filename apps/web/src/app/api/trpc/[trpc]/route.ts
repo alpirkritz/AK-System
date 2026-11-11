@@ -7,6 +7,13 @@ import { authOptions } from '@/lib/auth'
 import { sessionFromBearer } from '@/lib/mobile-auth'
 import { runAgentTrigger } from '@/lib/agent-trigger-runner'
 
+// Same ceiling as the cron routes (e.g. api/cron/scheduled-agents). Without this,
+// the platform's default function timeout can kill a heavy agent's manual "הרץ
+// עכשיו" run (Notion fetch + LLM + WhatsApp) mid-request, and the host serves its
+// own HTML error page instead of JSON — which tRPC's client can't parse, surfacing
+// as "Unexpected token '<' ... is not valid JSON" in the UI with no useful message.
+export const maxDuration = 300
+
 function errorBatchBody(message: string): string {
   const payload = [
     {

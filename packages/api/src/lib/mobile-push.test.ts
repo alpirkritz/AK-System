@@ -70,7 +70,7 @@ describe('sendMobilePush', () => {
     expect(sendEachForMulticast).not.toHaveBeenCalled()
   })
 
-  it('sends multicast with title, body, data.url, channel, and high priority', async () => {
+  it('sends data-only multicast with notificationId, title, body, url, categoryId in data', async () => {
     await seedToken('fcm-token-a')
     await seedToken('fcm-token-b')
     sendEachForMulticast.mockResolvedValue({
@@ -82,19 +82,23 @@ describe('sendMobilePush', () => {
       ],
     })
 
-    const sent = await sendMobilePush('Title', 'Body', '/chat')
+    const sent = await sendMobilePush('Title', 'Body', '/chat', { notificationId: 'notif-123' })
 
     expect(sent).toBe(2)
     expect(sendEachForMulticast).toHaveBeenCalledTimes(1)
     const payload = sendEachForMulticast.mock.calls[0]?.[0] as {
       tokens: string[]
-      notification: { title: string; body: string }
-      data: { url: string }
+      data: { notificationId: string; title: string; body: string; url: string; categoryId: string }
       android: { priority: string; notification: { channelId: string; sound: string } }
     }
     expect(payload.tokens).toEqual(['fcm-token-a', 'fcm-token-b'])
-    expect(payload.notification).toEqual({ title: 'Title', body: 'Body' })
-    expect(payload.data).toEqual({ url: '/chat' })
+    expect(payload.data).toEqual({
+      notificationId: 'notif-123',
+      title: 'Title',
+      body: 'Body',
+      url: '/chat',
+      categoryId: 'inbox',
+    })
     expect(payload.android.priority).toBe('high')
     expect(payload.android.notification.channelId).toBe('default')
 
@@ -171,8 +175,22 @@ describe('sendMobilePush', () => {
     const long = 'x'.repeat(300)
     await sendMobilePush('T', long)
     const payload = sendEachForMulticast.mock.calls[0]?.[0] as {
-      notification: { body: string }
+      data: { body: string }
     }
-    expect(payload.notification.body.length).toBe(240)
+    expect(payload.data.body.length).toBe(240)
+  })
+
+  it('includes empty notificationId when not provided', async () => {
+    await seedToken('t1')
+    sendEachForMulticast.mockResolvedValue({
+      successCount: 1,
+      failureCount: 0,
+      responses: [{ success: true, messageId: 'm' }],
+    })
+    await sendMobilePush('Title', 'Body')
+    const payload = sendEachForMulticast.mock.calls[0]?.[0] as {
+      data: { notificationId: string }
+    }
+    expect(payload.data.notificationId).toBe('')
   })
 })

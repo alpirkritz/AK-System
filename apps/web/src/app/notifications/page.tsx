@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseNotificationBody } from '@/lib/notification-format'
+import { staleTrayNotificationIds } from '@/lib/notification-tray'
 import { isNavigableNotificationUrl, notificationPreview } from '@/lib/notification-url'
 import { trpc } from '@/lib/trpc'
 
@@ -182,7 +183,12 @@ function SwipeableRow({
 export default function NotificationsPage() {
   const router = useRouter()
   const utils = trpc.useUtils()
-  const { data: items = [], isLoading } = trpc.notifications.list.useQuery({ limit: 50 })
+  const { data: items = [], isLoading } = trpc.notifications.list.useQuery(
+    { limit: 50 },
+    // The phone and the web read the same rows; poll so an action on one
+    // surface shows up on the other without a manual refresh.
+    { refetchInterval: 30_000, refetchOnWindowFocus: true },
+  )
   const [selected, setSelected] = useState<NotificationRow | null>(null)
   const [undoId, setUndoId] = useState<string | null>(null)
   const [bulkUndo, setBulkUndo] = useState<{ batchAt: string; count: number } | null>(null)
@@ -207,6 +213,38 @@ export default function NotificationsPage() {
     onSuccess: invalidate,
     onError: () => setError('לא ניתן לעדכן את ההתראה. נסה שוב.'),
   })
+
+  // Archiving only clears the row; the notification already sitting in the
+  // browser tray has to be closed explicitly or it looks like it came back.
+  const inboxIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
+
+  const reconcileTray = useCallback(async (ids?: string[]) => {
+    const registration = await navigator.serviceWorker?.getRegistration()
+    if (!registration) return
+
+    if (ids) {
+      registration.active?.postMessage({ type: 'CLOSE_NOTIFICATIONS', notificationIds: ids })
+      return
+    }
+
+    // No explicit ids: anything in the tray that is no longer in the inbox was
+    // handled elsewhere.
+    const tray = (await registration.getNotifications()).map((n) => ({
+      notificationId: (n.data as { notificationId?: string } | undefined)?.notificationId,
+      timestamp: n.timestamp,
+    }))
+    const stale = staleTrayNotificationIds(tray, inboxIds, Date.now())
+
+    if (stale.length > 0) {
+      registration.active?.postMessage({ type: 'CLOSE_NOTIFICATIONS', notificationIds: stale })
+    }
+  }, [inboxIds])
+
+  useEffect(() => {
+    const onFocus = () => void reconcileTray()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [reconcileTray])
 
   useEffect(() => {
     return () => {
@@ -239,18 +277,21 @@ export default function NotificationsPage() {
   async function markAllRead() {
     setError(null)
     await markRead.mutateAsync({ all: true })
+    void reconcileTray(items.map((item) => item.id))
   }
 
   async function handleMarkRead(item: NotificationRow) {
     setError(null)
     if (item.readAt) return
     await markRead.mutateAsync({ id: item.id })
+    void reconcileTray([item.id])
   }
 
   async function handleArchive(item: NotificationRow) {
     setError(null)
     if (selected?.id === item.id) setSelected(null)
     await archiveMut.mutateAsync({ id: item.id })
+    void reconcileTray([item.id])
     setUndoId(item.id)
     if (undoTimer.current) clearTimeout(undoTimer.current)
     undoTimer.current = setTimeout(() => setUndoId(null), 4000)
@@ -268,7 +309,9 @@ export default function NotificationsPage() {
     setError(null)
     const count = items.length
     if (count === 0) return
+    const ids = items.map((item) => item.id)
     const res = await archiveAllMut.mutateAsync({})
+    void reconcileTray(ids)
     if (!res.batchAt) return
     setBulkUndo({ batchAt: res.batchAt, count: res.updated })
     if (bulkUndoTimer.current) clearTimeout(bulkUndoTimer.current)

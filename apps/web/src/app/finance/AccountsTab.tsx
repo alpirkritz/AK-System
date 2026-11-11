@@ -38,6 +38,51 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   error: { label: 'שגיאה', color: '#fb7185' },
   disabled: { label: 'מושבת', color: '#647399' },
   awaiting_otp: { label: 'ממתין לקוד אימות', color: '#fbbf24' },
+  awaiting_captcha: { label: 'נדרש אימות אבטחה', color: '#fbbf24' },
+}
+
+function CaptchaPanel({ connectionId }: { connectionId: string }) {
+  const click = trpc.finance.bankConnections.captchaClick.useMutation()
+  const { data: frame } = trpc.finance.bankConnections.captchaFrame.useQuery(
+    { id: connectionId },
+    { refetchInterval: 1000 },
+  )
+
+  return (
+    <div
+      className="mt-3 px-3 py-3 rounded-lg"
+      style={{ background: '#fbbf2411', border: '1px solid #fbbf2433' }}
+    >
+      <div className="text-sm font-semibold text-[#fbbf24] mb-1">מסך הבנק</div>
+      <div className="text-xs text-[#7a89ab] mb-3">
+        לחץ בתוך החלון על מה שהבנק מציג — אימות אבטחה, כפתור כניסה, או שליחת קוד.
+        הסיסמה לא מופיעה כאן. אם נשלח SMS, שדה הקוד יופיע מתחת.
+      </div>
+      {frame?.image ? (
+        <button
+          type="button"
+          className="block w-full p-0 border-0 bg-transparent cursor-crosshair"
+          aria-label="חלון אימות האבטחה של הבנק"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            if (rect.width < 1 || rect.height < 1) return
+            const x = ((event.clientX - rect.left) / rect.width) * frame.width
+            const y = ((event.clientY - rect.top) / rect.height) * frame.height
+            click.mutate({ id: connectionId, x, y })
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            className="w-full h-auto rounded-md border border-[#fbbf2444] pointer-events-none"
+            src={`data:image/jpeg;base64,${frame.image}`}
+          />
+        </button>
+      ) : (
+        <div className="text-xs text-[#7a89ab]">ממתין לחלון האימות…</div>
+      )}
+    </div>
+  )
 }
 
 export default function AccountsTab() {
@@ -53,7 +98,9 @@ export default function AccountsTab() {
       // TanStack Query v4: refetchInterval fn is (data, query) — not (query) like v5.
       refetchInterval: (data) => {
         if (syncingId) return 2000
-        if (data?.some((c) => c.status === 'awaiting_otp')) return 2000
+        if (data?.some((c) => c.status === 'awaiting_otp' || c.status === 'awaiting_captcha')) {
+          return 2000
+        }
         return false
       },
     })
@@ -223,7 +270,11 @@ export default function AccountsTab() {
                     <button
                       className="btn btn-ghost text-xs"
                       onClick={() => handleSync(c.id)}
-                      disabled={syncingId === c.id || c.status === 'awaiting_otp'}
+                      disabled={
+                        syncingId === c.id ||
+                        c.status === 'awaiting_otp' ||
+                        c.status === 'awaiting_captcha'
+                      }
                     >
                       {syncingId === c.id ? '⏳ מסנכרן...' : '🔄 סנכרן עכשיו'}
                     </button>
@@ -235,6 +286,10 @@ export default function AccountsTab() {
                     </button>
                   </div>
                 </div>
+
+                {(c.status === 'awaiting_captcha' || c.status === 'awaiting_otp') && (
+                  <CaptchaPanel connectionId={c.id} />
+                )}
 
                 {c.status === 'awaiting_otp' && (
                   <div

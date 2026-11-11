@@ -31,7 +31,7 @@ function deriveTitle(text: string): string {
 export async function pushAssistantMessage(
   text: string,
   source: 'cron' | 'whatsapp' = 'cron',
-  options?: { title?: string; url?: string; typeId?: string },
+  options?: { title?: string; url?: string; typeId?: string; whatsapp?: boolean },
 ): Promise<{ telegram: boolean; whatsapp: boolean; webPush: number; fcmPush: number; skipped?: boolean }> {
   const channels = options?.typeId
     ? await resolveNotificationChannels(options.typeId)
@@ -52,21 +52,22 @@ export async function pushAssistantMessage(
   const pushBody = excerpt(text)
   const url = withChatMessageId(options?.url ?? '/chat', messageId)
 
+  let notificationId: string | undefined
   try {
-    await createNotification({ title, body: text, url, type: 'cron' })
+    notificationId = await createNotification({ title, body: text, url, type: 'cron' })
   } catch (err) {
     console.warn('[push-notifications] createNotification failed:', err)
   }
 
   if (channels.push) {
     try {
-      webPush = await sendBrowserPush(title, pushBody, url)
+      webPush = await sendBrowserPush(title, pushBody, url, { notificationId })
     } catch (err) {
       console.warn('[push-notifications] Web push failed:', err)
     }
 
     try {
-      fcmPush = await sendMobilePush(title, pushBody, url)
+      fcmPush = await sendMobilePush(title, pushBody, url, { notificationId })
     } catch (err) {
       console.warn('[push-notifications] FCM push failed:', err)
     }
@@ -78,7 +79,7 @@ export async function pushAssistantMessage(
     telegram = true
   }
 
-  if (channels.whatsapp && isWhatsAppConfigured()) {
+  if (options?.whatsapp !== false && channels.whatsapp && isWhatsAppConfigured()) {
     whatsapp = await sendWhatsAppMessage(text)
   }
 

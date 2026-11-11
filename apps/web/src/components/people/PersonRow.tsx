@@ -1,11 +1,13 @@
 'use client'
 
 import { memo } from 'react'
+import { ATTENTION_STATUS_LABELS } from '@ak-system/types'
 import { Mail, Phone, StickyNote } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { he } from 'date-fns/locale'
 import { cn } from '@/lib/cn'
-import type { Person } from '@ak-system/database'
+import { WorkspaceBadges } from './WorkspaceBadges'
+import type { PersonWithAffiliations } from './affiliations'
 
 const TAG_COLORS: Record<string, string> = {
   business: '#38bdf8',
@@ -30,13 +32,15 @@ function getContactHealth(lastContact: string | null, frequencyDays: number | nu
 }
 
 interface Props {
-  person: Person
+  person: PersonWithAffiliations
   selected: boolean
+  /** Shown as a pill when this person needs a 1:1 */
+  warmth?: 'needs_1on1' | null
   onToggleSelect: () => void
   onOpenDrawer: () => void
 }
 
-export const PersonRow = memo(function PersonRow({ person, selected, onToggleSelect, onOpenDrawer }: Props) {
+export const PersonRow = memo(function PersonRow({ person, selected, warmth, onToggleSelect, onOpenDrawer }: Props) {
   const tags = person.tags ? person.tags.split(',').map(t => t.trim()).filter(Boolean) : []
   const health = getContactHealth(person.lastContact, person.contactFrequencyDays)
 
@@ -78,9 +82,29 @@ export const PersonRow = memo(function PersonRow({ person, selected, onToggleSel
           >
             {person.name[0]}
           </div>
-          <span className="font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
-            {person.name}
-          </span>
+          <div className="min-w-0">
+            <span className="block font-medium text-[#eef3fb] text-sm truncate max-w-[200px]">
+              {person.name}
+            </span>
+            {person.affiliations && person.affiliations.length > 0 && (
+              <div className="mt-0.5">
+                <WorkspaceBadges affiliations={person.affiliations} max={2} />
+              </div>
+            )}
+          </div>
+          {warmth ? (
+            <span
+              className="pill text-[10px] shrink-0"
+              style={{
+                background: 'rgba(234,179,8,0.12)',
+                color: '#facc15',
+                borderColor: 'rgba(234,179,8,0.35)',
+              }}
+              data-testid="person-needs-1on1"
+            >
+              {ATTENTION_STATUS_LABELS[warmth]}
+            </span>
+          ) : null}
         </div>
       </td>
 

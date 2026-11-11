@@ -1,13 +1,13 @@
 /**
- * Extra bottom padding so the chat composer stays above the keyboard.
+ * Pixels to pad a view so its resting bottom edge meets the keyboard.
  *
- * Android may shrink the window (`softwareKeyboardLayoutMode: 'resize'`)
- * and the tab bar also hides (`tabBarHideOnKeyboard`). Those shrinks already
- * lift the composer; only the remaining overlap should be padded.
- * A boolean "shrunk by >80px → pad nothing" is wrong: hiding the tab bar
- * alone is ~50–80px while the keyboard is ~300px.
+ * `restingBottom` is the view's window bottom while it is not padded.
+ * `keyboardTop` is the keyboard frame's `screenY`.
+ *
+ * Keep the resting bottom stable across keyboard frames. Re-measuring a view
+ * that is already padded, then adding that overlap again, stacks the lift.
  */
-export function composerLiftPx(keyboardHeight: number, windowShrinkPx: number): number {
-  if (keyboardHeight <= 0) return 0
-  return Math.max(0, Math.round(keyboardHeight - Math.max(0, windowShrinkPx)))
+export function keyboardLiftPx(restingBottom: number, keyboardTop: number): number {
+  if (!(keyboardTop > 0) || !(restingBottom > 0)) return 0
+  return Math.max(0, Math.round(restingBottom - keyboardTop))
 }

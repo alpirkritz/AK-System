@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { DAYS_HE } from '@ak-system/types'
+import { WorldBadge } from '@/components/WorldBadge'
 import { formatMeetingTitle } from '../lib/format-title'
 
 const SOURCE_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple' }
@@ -32,6 +33,7 @@ export interface MeetingCardData {
   calendarEventId?: string | null
   calendarSource?: string | null
   source?: string | null
+  workspaceId?: string | null
   peopleIds?: string[]
   taskIds?: string[]
 }
@@ -83,7 +85,7 @@ export function MeetingCard({
   } ${importance === 'compact' ? 'meeting-card-compact' : ''}`
 
   return (
-    <div key={m.id} className={`group relative ${past ? 'opacity-50' : ''}`}>
+    <div key={m.id} className={`group relative ${past ? 'opacity-90' : ''}`}>
       <Link href={`/meetings/${m.id}`} className="block">
         <div className={cardClass}>
           <div className="flex justify-between items-center">
@@ -91,7 +93,7 @@ export function MeetingCard({
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span
                   className={`font-semibold ${importance === 'compact' ? 'text-[13px]' : 'text-[15px]'} ${
-                    past ? 'text-[#6f7ea0]' : ''
+                    past ? 'text-[#c5d0e6]' : ''
                   }`}
                 >
                   {formatMeetingTitle(m.title)}
@@ -99,11 +101,20 @@ export function MeetingCard({
                 {past && (
                   <span
                     className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
-                    style={{ background: '#ffffff08', color: '#5a688c', border: '1px solid #2f4368' }}
+                    style={{ background: '#ffffff10', color: '#97a4c2', border: '1px solid #3a4f78' }}
                   >
                     עבר
                   </span>
                 )}
+                {m.source === 'manual' && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                    style={{ background: '#ffffff10', color: '#b8c4dc', border: '1px solid #3a4f78' }}
+                  >
+                    ידני
+                  </span>
+                )}
+                <WorldBadge workspaceId={m.workspaceId} />
                 {importance !== 'compact' && proj && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
@@ -151,7 +162,7 @@ export function MeetingCard({
                 )}
               </div>
               <div className="flex gap-3 items-center flex-wrap">
-                <span className={`${importance === 'compact' ? 'text-[11px]' : 'text-xs'} text-[#647399]`}>
+                <span className={`${importance === 'compact' ? 'text-[11px]' : 'text-xs'} ${past ? 'text-[#97a4c2]' : 'text-[#647399]'}`}>
                   📅 {new Date(m.date + 'T00:00:00').toLocaleDateString('he-IL')}
                   {importance === 'urgent' && (
                     <span className="font-semibold ml-1">· {m.time}</span>
@@ -162,7 +173,7 @@ export function MeetingCard({
                   <span className="pill">↻ {DAYS_HE[m.recurrenceDay ?? ''] ?? 'שבועי'}</span>
                 )}
                 {importance !== 'compact' && (
-                  <span className="text-xs text-[#647399]">◻ {(m.taskIds ?? []).length} משימות</span>
+                  <span className={`text-xs ${past ? 'text-[#97a4c2]' : 'text-[#647399]'}`}>◻ {(m.taskIds ?? []).length} משימות</span>
                 )}
               </div>
             </div>
@@ -190,7 +201,15 @@ export function MeetingCard({
         </div>
       </Link>
       {importance !== 'compact' && (
-        <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-1/2 -translate-y-1/2 left-4 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <Link
+            href={`/voice?meeting=${m.id}`}
+            className="text-[#647399] hover:text-[#2dd4bf] transition-colors p-1.5 rounded-lg hover:bg-[#1e1e1e]"
+            title="הקלט פגישה"
+            aria-label="הקלט פגישה"
+          >
+            🎙
+          </Link>
           {onEdit && (
             <button
               onClick={(e) => {

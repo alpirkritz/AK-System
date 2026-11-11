@@ -10,6 +10,7 @@ export const colors = {
   coral: '#fb7185',
   success: '#34d399',
   info: '#38bdf8',
+  warning: '#fbbf24',
   text: '#eef3fb',
   textMuted: '#97a4c2',
   userBubble: '#14324a',

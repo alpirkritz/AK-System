@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import {
+  formatLocalRange,
   getSchedulablePreference,
   localTodayIso,
   markNotificationSent,
@@ -163,7 +164,7 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
     for (const e of events) {
       const meeting = meetingByCalId.get(e.id) ?? meetingByTitleDate.get(e.title + today)
       const category: MeetingCategory = (meeting?.category as MeetingCategory) ?? 'general'
-      const time = e.start.includes('T') ? e.start.slice(11, 16) : 'כל היום'
+      const time = formatLocalRange(e.start, e.end)
       const tasks = meeting ? openTasksByMeeting.get(meeting.id) ?? [] : []
       const startAt = e.start
       const endAt = e.end ?? new Date(new Date(e.start).getTime() + 3600000).toISOString()

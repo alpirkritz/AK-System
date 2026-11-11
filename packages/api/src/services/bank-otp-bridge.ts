@@ -13,6 +13,18 @@ type Waiter = {
 }
 
 const waiters = new Map<string, Waiter>()
+const prompted = new Set<string>()
+
+/** The scrape actually showed an OTP screen, so a later timeout may mention SMS. */
+export function markOtpPrompted(connectionId: string): void {
+  prompted.add(connectionId)
+}
+
+export function consumeOtpPrompted(connectionId: string): boolean {
+  const seen = prompted.has(connectionId)
+  prompted.delete(connectionId)
+  return seen
+}
 
 export function getOtpWaitMs(): number {
   return OTP_WAIT_MS

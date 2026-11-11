@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { tasks, meetings, taskPeople, people, TASK_STATUSES } from '@ak-system/database'
-import { eq, inArray } from 'drizzle-orm'
+import { tasks, meetings, taskPeople, people, TASK_STATUSES, workspaceNotionDatabases } from '@ak-system/database'
+import { eq, inArray, isNull, or } from 'drizzle-orm'
+import { expandWorkspaceFilter } from '../services/workspace-scope'
 import {
   syncNotionTasks,
   isNotionTasksConfigured,
@@ -19,7 +20,7 @@ import {
   type PeopleRelationResult,
 } from '../services/notion-task-writeback'
 import { pushMeetingTaskLinks } from '../services/notion-meeting-writeback'
-import { ensureSelfPerson } from '../services/self-person'
+import { ensureSelfPerson, isSelfPersonName } from '../services/self-person'
 
 const priorityEnum = z.enum(['high', 'medium', 'low'])
 const statusEnum = z.enum(TASK_STATUSES)
@@ -81,7 +82,12 @@ export const tasksRouter = router({
     .input(z.object({ workspaceId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       if (input?.workspaceId) {
-        return ctx.db.select().from(tasks).where(eq(tasks.workspaceId, input.workspaceId)).orderBy(tasks.createdAt)
+        const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
+        return ctx.db
+          .select()
+          .from(tasks)
+          .where(or(inArray(tasks.workspaceId, ids), isNull(tasks.workspaceId)))
+          .orderBy(tasks.createdAt)
       }
       return ctx.db.select().from(tasks).orderBy(tasks.createdAt)
     }),
@@ -363,10 +369,11 @@ export const tasksRouter = router({
 
   getTaskPeople: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const rows = await ctx.db
-      .select({ personId: taskPeople.personId })
+      .select({ personId: taskPeople.personId, name: people.name })
       .from(taskPeople)
+      .innerJoin(people, eq(taskPeople.personId, people.id))
       .where(eq(taskPeople.taskId, input.id))
-    return rows.map(r => r.personId)
+    return rows.filter((row) => !isSelfPersonName(row.name)).map((row) => row.personId)
   }),
 
   getTaskPeopleWithNames: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
@@ -381,8 +388,16 @@ export const tasksRouter = router({
   setTaskPeople: protectedProcedure
     .input(z.object({ taskId: z.string().min(1), personIds: z.array(z.string().min(1)) }))
     .mutation(async ({ ctx, input }) => {
+      const linked = input.personIds.length
+        ? await ctx.db
+            .select({ id: people.id, name: people.name })
+            .from(people)
+            .where(inArray(people.id, input.personIds))
+        : []
+      const kept = linked.filter((row) => !isSelfPersonName(row.name))
+      const personIds = kept.map((row) => row.id)
       await ctx.db.delete(taskPeople).where(eq(taskPeople.taskId, input.taskId))
-      for (const personId of input.personIds) {
+      for (const personId of personIds) {
         await ctx.db.insert(taskPeople).values({ taskId: input.taskId, personId })
       }
 
@@ -399,14 +414,7 @@ export const tasksRouter = router({
 
       let notionSync: PeopleRelationResult | null = null
       if (task?.notionPageId) {
-        const names = input.personIds.length
-          ? (
-              await ctx.db
-                .select({ name: people.name })
-                .from(people)
-                .where(inArray(people.id, input.personIds))
-            ).map(r => r.name)
-          : []
+        const names = kept.map((row) => row.name)
         notionSync = await pushTaskPeople({
           notionPageId: task.notionPageId,
           notionAccount: task.notionAccount,
@@ -419,8 +427,12 @@ export const tasksRouter = router({
     }),
 
   /** האם מוגדר בסיס נתונים של משימות ב-Notion (לכפתור סנכרון) */
-  notionConfigured: protectedProcedure.query(() => {
-    return { configured: isNotionTasksConfigured() }
+  notionConfigured: protectedProcedure.query(async ({ ctx }) => {
+    if (isNotionTasksConfigured()) return { configured: true }
+    const links = await ctx.db
+      .select({ accountLabel: workspaceNotionDatabases.accountLabel })
+      .from(workspaceNotionDatabases)
+    return { configured: links.some((l) => !!l.accountLabel?.trim()) }
   }),
 
   /** סנכרון משימות + אנשים מ-Notion אל בסיס הנתונים (חלון 60 יום כברירת מחדל) */

@@ -16,6 +16,7 @@ import {
 } from '../services/agent-display-names'
 import { getBusinessProfile, setBusinessProfile } from '../services/business-profile'
 import { getDashboardPrefs, setDashboardPrefs } from '../services/dashboard-prefs'
+import { getLayoutPrefs, resetScreenLayout, setScreenLayout } from '../services/layout-prefs'
 import { getListSortPrefs, setListSortPrefs } from '../services/list-sort-prefs'
 import { SALES_DOCUMENT_TYPES } from '@ak-system/types'
 
@@ -154,6 +155,29 @@ export const settingsRouter = router({
         }),
       )
       .mutation(async ({ input }) => setDashboardPrefs(input)),
+  }),
+
+  /** Order and hidden blocks per screen (dashboard, person, meetings). */
+  layout: router({
+    get: protectedProcedure.query(async () => getLayoutPrefs()),
+
+    set: protectedProcedure
+      .input(
+        z.object({
+          screen: z.enum(['dashboard', 'person', 'meetings']),
+          order: z.array(z.string().max(80)).max(60),
+          hidden: z.array(z.string().max(80)).max(60),
+          collapsed: z.array(z.string().max(80)).max(60).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { screen, ...layout } = input
+        return setScreenLayout(screen, layout)
+      }),
+
+    reset: protectedProcedure
+      .input(z.object({ screen: z.enum(['dashboard', 'person', 'meetings']) }))
+      .mutation(async ({ input }) => resetScreenLayout(input.screen)),
   }),
 
   listSort: router({

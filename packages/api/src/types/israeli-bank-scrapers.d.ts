@@ -40,6 +40,16 @@ declare module 'israeli-bank-scrapers' {
     preparePage?: (page: {
       evaluate: <T>(fn: (...args: unknown[]) => T | Promise<T>, ...args: unknown[]) => Promise<T>
       setUserAgent: (ua: string) => Promise<void>
+      screenshot?: (options: {
+        type: 'jpeg'
+        quality?: number
+        encoding: 'base64'
+      }) => Promise<string | Uint8Array>
+      mouse?: {
+        move: (x: number, y: number) => Promise<void>
+        click: (x: number, y: number) => Promise<void>
+      }
+      viewport?: () => { width: number; height: number } | null
       on?: (event: string, handler: (...args: unknown[]) => void) => void
       once?: (event: string, handler: (...args: unknown[]) => void) => void
     }) => Promise<void>

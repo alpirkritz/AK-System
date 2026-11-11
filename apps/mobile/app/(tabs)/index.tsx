@@ -1,5 +1,6 @@
-import { useRouter, type Href } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect, useRouter, type Href } from 'expo-router'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { API_URL, CLIENT_HEADER } from '../../lib/api'
 import {
   ActivityIndicator,
   Pressable,
@@ -10,6 +11,7 @@ import {
   View,
 } from 'react-native'
 import { Card } from '../../components/Card'
+import { WaitingRow } from '../../components/WaitingList'
 import { EmptyState } from '../../components/EmptyState'
 import { KpiCard } from '../../components/KpiCard'
 import { SectionHeader } from '../../components/SectionHeader'
@@ -17,13 +19,23 @@ import { useAuth } from '../../lib/auth'
 import {
   fetchDashboardPrefs,
   fetchMeetings,
+  fetchRelationshipBoard,
+  fetchSelfPerson,
   fetchTasks,
+  fetchWaiting,
   toggleTaskDone,
   type MobileDashboardPrefs,
   type MobileMeeting,
   type MobileTask,
+  type MobileWaitingBuckets,
 } from '../../lib/data'
+import { isMyTask } from '../../lib/my-tasks'
+import { emptyMeetingsCopy, endDateForWindow } from '../../lib/dashboard-window'
+import { groupTasksByDueState, limitTaskGroups, sortTasksByPriorityThenDue } from '../../lib/sort-tasks'
+import { dueDay, isOverdueOpenTask, todayKey } from '../../lib/task-due'
+import { pickAttentionShift, type AttentionShift } from '../../lib/attention-shift'
 import { colors } from '../../lib/theme'
+import { dueNow } from '../../lib/waiting'
 
 function greeting(hour: number): string {
   if (hour < 5) return 'לילה טוב'
@@ -33,27 +45,6 @@ function greeting(hour: number): string {
   return 'לילה טוב'
 }
 
-function toDateKey(d: Date): string {
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
-}
-
-function todayKey(): string {
-  return toDateKey(new Date())
-}
-
-function endDateForWindow(window: MobileDashboardPrefs['meetingWindow']): string {
-  const d = new Date()
-  if (window === 'today') return todayKey()
-  if (window === '3days') {
-    d.setDate(d.getDate() + 2)
-    return toDateKey(d)
-  }
-  d.setDate(d.getDate() + 6)
-  return toDateKey(d)
-}
-
 function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): string {
   if (window === 'today') return 'פגישות היום'
   if (window === '3days') return 'פגישות 3 ימים'
@@ -61,7 +52,7 @@ function meetingSectionTitle(window: MobileDashboardPrefs['meetingWindow']): str
 }
 
 function taskSectionTitle(window: MobileDashboardPrefs['taskWindow']): string {
-  return window === 'today' ? 'משימות להיום' : 'משימות פתוחות'
+  return window === 'today' ? 'שלי · היום, באיחור, ובלי תאריך' : 'המשימות שלי'
 }
 
 function isPast(date: string, time: string): boolean {
@@ -75,6 +66,7 @@ export default function DashboardScreen() {
   const { token, user } = useAuth()
   const router = useRouter()
   const [tasks, setTasks] = useState<MobileTask[]>([])
+  const [selfId, setSelfId] = useState<string | null>(null)
   const [meetings, setMeetings] = useState<MobileMeeting[]>([])
   const [prefs, setPrefs] = useState<MobileDashboardPrefs>({
     meetingWindow: 'today',
@@ -84,6 +76,10 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [attention, setAttention] = useState<AttentionShift | null>(null)
+  const [waiting, setWaiting] = useState<MobileWaitingBuckets | null>(null)
+  const [digestState, setDigestState] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle')
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -91,14 +87,22 @@ export default function DashboardScreen() {
       mode === 'refresh' ? setRefreshing(true) : setLoading(true)
       setError(null)
       try {
-        const [p, t, m] = await Promise.all([
+        const [p, t, m, relationship, self, owed] = await Promise.all([
           fetchDashboardPrefs(token),
           fetchTasks(token),
           fetchMeetings(token),
+          fetchRelationshipBoard(token).catch(() => ({ people: [], circles: [] })),
+          fetchSelfPerson(token),
+          // The digest enriches the home screen; it never blocks it.
+          fetchWaiting(token).catch(() => null),
         ])
         setPrefs(p)
         setTasks(t)
+        setSelfId(self.id)
         setMeetings(m)
+        setAttention(pickAttentionShift(relationship.people))
+        setWaiting(owed)
+        hasLoadedOnce.current = true
       } catch (err) {
         setError(err instanceof Error ? err.message : 'טעינת הנתונים נכשלה')
       } finally {
@@ -109,15 +113,20 @@ export default function DashboardScreen() {
     [token],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return
+      void load(hasLoadedOnce.current ? 'refresh' : 'initial')
+    }, [token, load]),
+  )
 
-  const openTasks = useMemo(() => tasks.filter((t) => !t.done), [tasks])
+  const openTasks = useMemo(
+    () => tasks.filter((t) => !t.done && isMyTask(t.assigneeId, selfId)),
+    [tasks, selfId],
+  )
 
   const overdueCount = useMemo(
-    () =>
-      openTasks.filter((t) => t.dueDate && t.dueDate < todayKey()).length,
+    () => openTasks.filter((t) => isOverdueOpenTask(t)).length,
     [openTasks],
   )
 
@@ -134,11 +143,11 @@ export default function DashboardScreen() {
   }, [meetings, prefs.meetingWindow])
 
   const windowTasks = useMemo(() => {
-    if (prefs.taskWindow === 'all') return openTasks
-    const today = todayKey()
-    return openTasks.filter(
-      (t) => !t.dueDate || t.dueDate <= today,
-    )
+    const inWindow =
+      prefs.taskWindow === 'all'
+        ? openTasks
+        : openTasks.filter((t) => !t.dueDate || t.dueDate <= todayKey())
+    return limitTaskGroups(groupTasksByDueState(sortTasksByPriorityThenDue(inWindow)), 8)
   }, [openTasks, prefs.taskWindow])
 
   const onToggleTask = async (task: MobileTask) => {
@@ -152,6 +161,44 @@ export default function DashboardScreen() {
     } finally {
       setTogglingId(null)
     }
+  }
+
+  const handleHugoFocus = () => {
+    router.push('/(tabs)/chat?prompt=focus&agent=01_Hugo_orchestrator' as Href)
+  }
+
+  const digestButtonLabel =
+    digestState === 'loading' ? 'מסכם…' :
+    digestState === 'success' ? 'הסיכום נשלח!' :
+    digestState === 'error' ? 'שגיאה. נסה שוב' :
+    digestState === 'empty' ? 'אין קבוצות במעקב' :
+    'סכם וואטסאפ'
+
+  const handleWhatsAppDigest = async () => {
+    if (!token || digestState === 'loading') return
+    setDigestState('loading')
+    try {
+      const res = await fetch(`${API_URL}/api/trpc/whatsapp.digest.run?batch=1`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-AK-Client': CLIENT_HEADER,
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ '0': { json: {} } }),
+      })
+      const data = await res.json() as Array<{ result?: { data?: { json?: { actionCount?: number } } } }>
+      const result = data[0]?.result?.data?.json
+      if (result?.actionCount === 0) {
+        setDigestState('empty')
+      } else {
+        setDigestState('success')
+      }
+    } catch {
+      setDigestState('error')
+    }
+    setTimeout(() => setDigestState('idle'), 4000)
   }
 
   if (loading) {
@@ -175,31 +222,69 @@ export default function DashboardScreen() {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      {attention ? (
+        <Card style={styles.attention} onPress={() => router.push('/relationships' as Href)} accessibilityLabel="כדאי לקבוע 1:1">
+          <Text style={styles.attentionLabel}>כדאי לקבוע 1:1</Text>
+          <Text style={styles.itemTitle}>
+            {attention.name}
+            {attention.rest > 0 ? ` · ועוד ${attention.rest}` : ''}
+          </Text>
+          {attention.dataReason ? (
+            <Text style={styles.itemMeta} numberOfLines={2}>
+              {attention.dataReason}
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <View style={styles.quickActions}>
+        <Pressable onPress={handleHugoFocus} style={styles.quickBtn} accessibilityRole="button">
+          <Text style={styles.quickBtnText}>מה חשוב עכשיו?</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void handleWhatsAppDigest()}
+          style={[styles.quickBtn, digestState === 'loading' && styles.quickBtnDisabled]}
+          disabled={digestState === 'loading'}
+          accessibilityRole="button"
+        >
+          <Text style={styles.quickBtnText}>{digestButtonLabel}</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.kpiRow}>
         <KpiCard
           value={openTasks.length}
-          label="משימות פתוחות"
+          label="המשימות שלי"
           color={colors.coral}
-          onPress={() => router.push('/tasks' as Href)}
+          accessibilityLabel={`המשימות שלי, ${openTasks.length}`}
+          onPress={() =>
+            router.push({ pathname: '/tasks', params: { filter: 'open' } } as Href)
+          }
         />
         <KpiCard
           value={windowMeetings.length}
-          label="פגישות בחלון"
+          label={meetingSectionTitle(prefs.meetingWindow)}
           color={colors.info}
-          onPress={() => router.push('/meetings' as Href)}
+          accessibilityLabel={meetingSectionTitle(prefs.meetingWindow)}
+          onPress={() =>
+            router.push({ pathname: '/meetings', params: { window: prefs.meetingWindow } } as Href)
+          }
         />
         <KpiCard
           value={overdueCount}
           label="באיחור"
           color={colors.accent}
-          onPress={() => router.push('/tasks' as Href)}
+          accessibilityLabel={`משימות באיחור, ${overdueCount}`}
+          onPress={() =>
+            router.push({ pathname: '/tasks', params: { filter: 'overdue' } } as Href)
+          }
         />
       </View>
 
       <View style={styles.section}>
         <SectionHeader title={meetingSectionTitle(prefs.meetingWindow)} style={styles.sectionHeader} />
         {windowMeetings.length === 0 ? (
-          <EmptyState text="אין פגישות בחלון" compact />
+          <EmptyState text={emptyMeetingsCopy(prefs.meetingWindow)} compact />
         ) : (
           windowMeetings.slice(0, 6).map((m) => (
             <Card
@@ -217,38 +302,76 @@ export default function DashboardScreen() {
         )}
       </View>
 
+      {waiting && dueNow(waiting).length > 0 ? (
+        <View style={styles.section}>
+          <SectionHeader
+            title="חייבים לי היום"
+            style={styles.sectionHeader}
+            action={{ label: 'לכל הרשימה', onPress: () => router.push('/waiting' as Href) }}
+          />
+          <Card>
+            {dueNow(waiting).slice(0, 5).map((i) => (
+              <WaitingRow
+                key={`${i.kind}-${i.id}`}
+                item={i}
+                overdue={waiting.overdue.some((o) => o.id === i.id)}
+                onDone={(done) =>
+                  setWaiting((w) =>
+                    w
+                      ? {
+                          ...w,
+                          overdue: w.overdue.filter((x) => x.id !== done.id),
+                          today: w.today.filter((x) => x.id !== done.id),
+                        }
+                      : w,
+                  )
+                }
+              />
+            ))}
+            {dueNow(waiting).length > 5 ? (
+              <Text style={styles.itemMeta}>ועוד {dueNow(waiting).length - 5}</Text>
+            ) : null}
+          </Card>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <SectionHeader title={taskSectionTitle(prefs.taskWindow)} style={styles.sectionHeader} />
         {windowTasks.length === 0 ? (
           <EmptyState text="הכול נקי ✓" compact />
         ) : (
-          windowTasks.slice(0, 8).map((t) => (
-            <Card key={t.id} style={styles.item} accessibilityLabel={`משימה: ${t.title}`}>
-              <View style={styles.taskRow}>
-                <Pressable
-                  onPress={() => router.push(`/task/${t.id}` as Href)}
-                  style={styles.taskBody}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.itemTitle}>{t.title}</Text>
-                  {t.dueDate ? (
-                    <Text style={styles.itemMeta}>
-                      {t.dueDate < todayKey() ? 'באיחור · ' : ''}
-                      {new Date(t.dueDate + 'T00:00:00').toLocaleDateString('he-IL')}
-                    </Text>
-                  ) : null}
-                </Pressable>
-                <Pressable
-                  onPress={() => void onToggleTask(t)}
-                  disabled={togglingId === t.id}
-                  style={styles.checkBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="סמן כהושלם"
-                >
-                  <Text style={styles.checkIcon}>{togglingId === t.id ? '…' : '○'}</Text>
-                </Pressable>
-              </View>
-            </Card>
+          windowTasks.map((group) => (
+            <View key={group.key}>
+              <Text style={styles.groupLabel}>{group.label}</Text>
+              {group.tasks.map((t) => (
+                <Card key={t.id} style={styles.item} accessibilityLabel={`משימה: ${t.title}`}>
+                  <View style={styles.taskRow}>
+                    <Pressable
+                      onPress={() => router.push(`/task/${t.id}` as Href)}
+                      style={styles.taskBody}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.itemTitle}>{t.title}</Text>
+                      {dueDay(t.dueDate) ? (
+                        <Text style={[styles.itemMeta, isOverdueOpenTask(t) && styles.itemMetaOverdue]}>
+                          {isOverdueOpenTask(t) ? 'באיחור · ' : ''}
+                          {new Date(dueDay(t.dueDate) + 'T00:00:00').toLocaleDateString('he-IL')}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => void onToggleTask(t)}
+                      disabled={togglingId === t.id}
+                      style={styles.checkBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel="סמן כהושלם"
+                    >
+                      <Text style={styles.checkIcon}>{togglingId === t.id ? '…' : '○'}</Text>
+                    </Pressable>
+                  </View>
+                </Card>
+              ))}
+            </View>
           ))
         )}
       </View>
@@ -271,9 +394,18 @@ const styles = StyleSheet.create({
   kpiRow: { flexDirection: 'row-reverse', gap: 10, marginTop: 20 },
   section: { marginTop: 12 },
   sectionHeader: { paddingHorizontal: 0, paddingTop: 12, paddingBottom: 10 },
+  groupLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 6,
+  },
   item: { marginBottom: 8 },
   itemTitle: { color: colors.text, fontSize: 15, textAlign: 'right', writingDirection: 'rtl' },
   itemMeta: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: 4 },
+  itemMetaOverdue: { color: colors.coral },
   taskRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   taskBody: { flex: 1 },
   checkBtn: {
@@ -284,4 +416,18 @@ const styles = StyleSheet.create({
   },
   checkIcon: { color: colors.accent, fontSize: 22, fontWeight: '600' },
   error: { color: colors.error, textAlign: 'center', padding: 8, marginTop: 8, writingDirection: 'rtl' },
+  attention: { marginTop: 16 },
+  attentionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl', marginBottom: 4 },
+  quickActions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 12, marginBottom: 4 },
+  quickBtn: {
+    borderWidth: 1,
+    borderColor: colors.accent + '55',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  quickBtnDisabled: { opacity: 0.5 },
+  quickBtnText: { color: colors.accent, fontSize: 13, textAlign: 'right', writingDirection: 'rtl' },
 })

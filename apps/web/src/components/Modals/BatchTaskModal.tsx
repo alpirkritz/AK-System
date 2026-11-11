@@ -5,7 +5,9 @@ import { trpc } from '@/lib/trpc'
 import { PRIORITY_LABELS, PRIORITY_COLORS } from '@ak-system/types'
 import { PersonSelect, type PersonOption } from '@/components/ui/PersonSelect'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
+import { getSelfPersonName, isSelfPersonName, matchTaskAssigneeId } from '@ak-system/api/lib/self-identity'
 import type { Person } from '@ak-system/database'
+import { WorkspacePicker } from '@/components/WorkspacePicker'
 
 type ActionItem = {
   content: string
@@ -66,7 +68,7 @@ export function BatchTaskModal({
         index: item.index,
         title: item.content,
         priority: derivePriorityFromContext(item.content),
-        assigneeId: matchPersonByName(item.owner, people),
+        assigneeId: matchTaskAssigneeId(item.owner, people),
         dueDate: meetingDate ?? '',
         workspaceId: '',
         included: true,
@@ -74,12 +76,10 @@ export function BatchTaskModal({
     )
   }, [open, actionItems, meetingDate, people])
 
-  function matchPersonByName(ownerName: string | undefined, peopleList: Person[]): string {
-    if (!ownerName) return ''
-    const normalized = ownerName.trim().toLowerCase()
-    const match = peopleList.find((p) => p.name.toLowerCase() === normalized)
-    return match?.id ?? ''
-  }
+  const selfId =
+    people.find((person) => person.name.toLowerCase() === getSelfPersonName().toLowerCase())?.id ??
+    people.find((person) => isSelfPersonName(person.name))?.id ??
+    null
 
   const updateItem = (index: number, updates: Partial<BatchTaskItem>) => {
     setItems((prev) =>
@@ -222,7 +222,7 @@ export function BatchTaskModal({
                           labelledBy={`batch-assignee-${idx}-label`}
                           value={item.assigneeId}
                           options={people}
-                          selfId={null}
+                          selfId={selfId}
                           onChange={(personId) => updateItem(idx, { assigneeId: personId })}
                           disabled={!item.included}
                         />
@@ -243,20 +243,14 @@ export function BatchTaskModal({
                       {/* Workspace */}
                       {workspaces.length > 0 && (
                         <div>
-                          <label className="label text-xs mb-1">מקור</label>
-                          <select
+                          <label className="label text-xs mb-1" htmlFor={`batch-world-${idx}`}>עולם</label>
+                          <WorkspacePicker
+                            id={`batch-world-${idx}`}
                             className="select w-full"
                             value={item.workspaceId}
-                            onChange={(e) => updateItem(idx, { workspaceId: e.target.value })}
+                            onChange={(workspaceId) => updateItem(idx, { workspaceId })}
                             disabled={!item.included}
-                          >
-                            <option value="">ללא מקור</option>
-                            {workspaces.map((w) => (
-                              <option key={w.id} value={w.id}>
-                                {w.name}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                       )}
                     </div>

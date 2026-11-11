@@ -8,6 +8,15 @@ test.describe('WhatsApp insights', () => {
     await expect(page.getByRole('button', { name: 'סכם עכשיו את כל הקבוצות במעקב' })).toBeEnabled()
   })
 
+  test('digest prompt editor opens with the friend-style default', async ({ page }) => {
+    await page.goto('/settings/whatsapp')
+    await expect(page.getByRole('heading', { name: 'WhatsApp' })).toBeVisible({ timeout: 20000 })
+    const edit = page.getByTestId('whatsapp-digest-prompt-edit')
+    await expect(edit).toBeEnabled({ timeout: 20000 })
+    await edit.click()
+    await expect(page.getByTestId('whatsapp-digest-prompt-text')).toHaveValue(/חבר שמספר/)
+  })
+
   test('insights tab renders the cross-group briefing and per-group panel', async ({ page }) => {
     await page.goto('/settings/whatsapp')
     await expect(page.getByRole('heading', { name: 'WhatsApp' })).toBeVisible({ timeout: 20000 })

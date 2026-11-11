@@ -226,50 +226,79 @@ describe('finance.analytics.narrative', () => {
     }
   }
 
-  it('generates once and serves the cache afterwards', async () => {
+  it('rejects a month that is not YYYY-MM', async () => {
+    const caller = await createTestCaller()
+    await expect(
+      caller.finance.analytics.narrative({ scope: 'cashflow', month: 'October' }),
+    ).rejects.toThrow()
+    expect(generateFinanceNarrative).not.toHaveBeenCalled()
+  })
+
+  it('reads nothing until asked, then serves the saved narrative without calling Gemini again', async () => {
     generateFinanceNarrative.mockResolvedValue(narrative())
     await insertTxn({ amount: 1000, transactionDate: isoInMonthsAgo(0) })
 
     const caller = await createTestCaller()
-    const first = await caller.finance.analytics.narrative({ scope: 'cashflow' })
+    const empty = await caller.finance.analytics.narrative({ scope: 'cashflow' })
+    expect(empty.available).toBe(false)
+    expect(generateFinanceNarrative).not.toHaveBeenCalled()
+
+    const generated = await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
     const second = await caller.finance.analytics.narrative({ scope: 'cashflow' })
 
-    expect(first.cached).toBe(false)
+    expect(generated.cached).toBe(false)
+    expect(generated.stale).toBe(false)
     expect(second.cached).toBe(true)
+    expect(second.stale).toBe(false)
     expect(second.headline).toBe('כותרת')
+    expect(second.available).toBe(true)
     expect(generateFinanceNarrative).toHaveBeenCalledTimes(1)
 
     const rows = await queryRows(getTestDb().select().from(financeInsightNarratives))
     expect(rows).toHaveLength(1)
   })
 
-  it('regenerates when the underlying facts change', async () => {
+  it('keeps the previous narrative when the facts change and marks it stale', async () => {
     generateFinanceNarrative.mockResolvedValue(narrative())
     await insertTxn({ amount: 1000, transactionDate: isoInMonthsAgo(0) })
 
     const caller = await createTestCaller()
-    await caller.finance.analytics.narrative({ scope: 'cashflow' })
+    await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
     await insertTxn({ amount: 7500, transactionDate: isoInMonthsAgo(0) })
     const second = await caller.finance.analytics.narrative({ scope: 'cashflow' })
 
-    expect(second.cached).toBe(false)
-    expect(generateFinanceNarrative).toHaveBeenCalledTimes(2)
+    expect(second.available).toBe(true)
+    expect(second.cached).toBe(true)
+    expect(second.stale).toBe(true)
+    expect(second.headline).toBe('כותרת')
+    expect(generateFinanceNarrative).toHaveBeenCalledTimes(1)
   })
 
-  it('force bypasses the cache', async () => {
-    generateFinanceNarrative.mockResolvedValue(narrative())
+  it('force writes a new reading and drops the older one for that scope', async () => {
+    generateFinanceNarrative
+      .mockResolvedValueOnce(narrative('ראשון'))
+      .mockResolvedValueOnce(narrative('שני'))
+    await insertTxn({ amount: 1000, transactionDate: isoInMonthsAgo(0) })
+
     const caller = await createTestCaller()
-    await caller.finance.analytics.narrative({ scope: 'overview' })
-    const forced = await caller.finance.analytics.narrative({ scope: 'overview', force: true })
+    await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
+    await insertTxn({ amount: 7500, transactionDate: isoInMonthsAgo(0) })
+    const forced = await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
+
     expect(forced.cached).toBe(false)
+    expect(forced.stale).toBe(false)
+    expect(forced.headline).toBe('שני')
     expect(generateFinanceNarrative).toHaveBeenCalledTimes(2)
+
+    const rows = await queryRows(getTestDb().select().from(financeInsightNarratives))
+    expect(rows).toHaveLength(1)
   })
 
   it('keys the cache per scope, so trading and cash flow do not overwrite each other', async () => {
     generateFinanceNarrative.mockResolvedValue(narrative())
     const caller = await createTestCaller()
-    await caller.finance.analytics.narrative({ scope: 'cashflow' })
-    await caller.finance.analytics.narrative({ scope: 'trading', period: 'month' })
+    await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
+    await caller.finance.analytics.narrative({ scope: 'trading', period: 'month', force: true })
 
     const rows = (await queryRows(
       getTestDb().select().from(financeInsightNarratives)
@@ -279,21 +308,36 @@ describe('finance.analytics.narrative', () => {
     expect(rows.some((r) => r.scopeKey.startsWith('cashflow:'))).toBe(true)
   })
 
-  it('refuses politely when Gemini is not configured', async () => {
+  it('serves a saved narrative without a Gemini key, and refuses a forced refresh', async () => {
+    generateFinanceNarrative.mockResolvedValue(narrative())
+    const caller = await createTestCaller()
+    await caller.finance.analytics.narrative({ scope: 'cashflow', force: true })
+
+    delete process.env.GEMINI_API_KEY
+    const saved = await caller.finance.analytics.narrative({ scope: 'cashflow' })
+    expect(saved.available).toBe(true)
+    expect(saved.headline).toBe('כותרת')
+
+    await expect(
+      caller.finance.analytics.narrative({ scope: 'cashflow', force: true }),
+    ).rejects.toThrow(/GEMINI_API_KEY/)
+    expect(generateFinanceNarrative).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns an empty narrative when nothing is saved and Gemini is not configured', async () => {
     delete process.env.GEMINI_API_KEY
     const caller = await createTestCaller()
-    await expect(caller.finance.analytics.narrative({ scope: 'cashflow' })).rejects.toThrow(
-      /GEMINI_API_KEY/
-    )
+    const empty = await caller.finance.analytics.narrative({ scope: 'cashflow' })
+    expect(empty.available).toBe(false)
     expect(generateFinanceNarrative).not.toHaveBeenCalled()
   })
 
   it('surfaces a generation failure instead of caching a broken narrative', async () => {
     generateFinanceNarrative.mockRejectedValue(new Error('Gemini overloaded'))
     const caller = await createTestCaller()
-    await expect(caller.finance.analytics.narrative({ scope: 'cashflow' })).rejects.toThrow(
-      /Gemini overloaded/
-    )
+    await expect(
+      caller.finance.analytics.narrative({ scope: 'cashflow', force: true }),
+    ).rejects.toThrow(/Gemini overloaded/)
     expect(await queryRows(getTestDb().select().from(financeInsightNarratives))).toHaveLength(0)
   })
 })

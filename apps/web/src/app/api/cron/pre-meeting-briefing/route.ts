@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { getNotificationRouting, localTodayIso, resolveNotificationChannels } from '@ak-system/api'
+import { getNotificationRouting, localTodayIso, resolveNotificationChannels, saveMeetingPrep } from '@ak-system/api'
+import { getDb } from '@ak-system/database'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
 import { runEventAgentIfRouted } from '@/lib/notification-event-runner'
@@ -13,6 +14,24 @@ import {
 
 const WINDOW_START_MIN = 14
 const WINDOW_END_MIN = 16
+
+/**
+ * Keeps the brief on the meeting page (docs/specs/meeting-prep-on-meeting-page.md). Never throws:
+ * the push already went out by the time this runs, so a storage failure must not surface as one.
+ */
+async function storeMeetingPrep(
+  meetingId: string | undefined,
+  bodyText: string,
+  source: 'agent' | 'template',
+  agentId?: string | null,
+): Promise<void> {
+  if (!meetingId) return
+  try {
+    await saveMeetingPrep(getDb(), { meetingId, bodyText, source, agentId })
+  } catch (err) {
+    console.error('[cron/pre-meeting-briefing] failed to store prep', meetingId, err)
+  }
+}
 
 /**
  * Cron: Pre-meeting briefing (run every 5 min). Finds meetings starting in ~15 min,
@@ -102,6 +121,9 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         calEvent.title,
       )
       const priorNotes = findPriorMeetingNotes(allMeetings, calEvent.title, today)
+      const relationship = linkedMeeting
+        ? await caller.insights.meetingPrepContext({ meetingId: linkedMeeting.id }).catch(() => null)
+        : null
 
       const briefInput = {
         event: eventShape,
@@ -113,9 +135,10 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
               projectName,
             }
           : null,
-        crmPeople,
+        crmPeople: relationship?.kind === 'circle' ? [] : crmPeople,
         relatedTasks,
         priorNotes,
+        relationship,
       }
 
       // Agent path (Notion-parity Meeting Prep) — skip gated noise silently
@@ -129,6 +152,9 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         // are expected when meetings are back to back.
         const routed = await runEventAgentIfRouted('pre_meeting_briefing', { context })
         if (routed.status !== 'not_routed') {
+          if (routed.status === 'ran') {
+            await storeMeetingPrep(linkedMeeting?.id, routed.text, 'agent', routed.agentId)
+          }
           sent++
           continue
         }
@@ -137,6 +163,7 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
       // Template fallback when not routed to an agent
       const text = formatPreMeetingBrief(briefInput)
       const pushed = await pushAssistantMessage(text, 'cron', { typeId: 'pre_meeting_briefing' })
+      await storeMeetingPrep(linkedMeeting?.id, text, 'template')
       if (pushed.telegram || pushed.whatsapp) sent++
     }
     return NextResponse.json({

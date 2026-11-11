@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import pino from 'pino'
 import { config } from './config.js'
+import { configFilePath, resolveConfigFileForRead } from './config-store.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
@@ -21,9 +22,11 @@ export interface GroupRule {
 let dynamicGroups = new Map<string, GroupRule>()
 let useDynamicConfig = false
 
-/** Persist watch config next to the auth state so it survives bridge restarts. */
+const GROUP_CONFIG_FILE = 'group-config.json'
+
+/** Persist watch config outside the auth state so it survives restarts and session resets. */
 function persistPath(): string {
-  return join(config.authStatePath, 'group-config.json')
+  return configFilePath(GROUP_CONFIG_FILE)
 }
 
 function persistGroupConfig(): void {
@@ -39,14 +42,25 @@ function persistGroupConfig(): void {
 /** Restore watch config on startup so groups keep working after a restart/redeploy. */
 export function loadPersistedGroupConfig(): void {
   try {
-    const file = persistPath()
-    if (!existsSync(file)) return
+    const file = resolveConfigFileForRead(GROUP_CONFIG_FILE)
+    if (!existsSync(file)) {
+      logger.warn(
+        { file, envWatchList: config.watchGroupJids.size },
+        'No group watch config on disk — only WATCH_GROUP_JIDS groups will be captured',
+      )
+      return
+    }
     const raw = readFileSync(file, 'utf8')
     const groups = JSON.parse(raw) as GroupRule[]
     if (!Array.isArray(groups)) return
     dynamicGroups = new Map(groups.map((g) => [g.jid, g]))
     useDynamicConfig = true
-    logger.info({ count: groups.length }, 'Restored persisted group config')
+    const enabled = groups.filter((g) => g.enabled).length
+    if (enabled === 0) {
+      logger.warn({ file, count: groups.length }, 'No enabled watched groups — no group message will be captured')
+    } else {
+      logger.info({ count: groups.length, enabled }, 'Restored persisted group config')
+    }
   } catch (err) {
     logger.error({ err }, 'Failed to load persisted group config')
   }

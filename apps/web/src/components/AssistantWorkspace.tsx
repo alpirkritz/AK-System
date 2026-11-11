@@ -29,11 +29,12 @@ const ENGINE_LABELS: Record<string, string> = {
 }
 
 const GENERAL = '__general__'
+const HUGO_ID = '01_Hugo_orchestrator'
 
 export function AssistantWorkspace() {
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [engine, setEngine] = useState<string>('gemini')
-  // Default mode is the general assistant.
+  // Default mode is Hugo, who answers this chat.
   const [selectedId, setSelectedId] = useState<string>(GENERAL)
   const [loading, setLoading] = useState(true)
 
@@ -62,6 +63,10 @@ export function AssistantWorkspace() {
 
   const isGeneral = selectedId === GENERAL
   const selected = agents.find((a) => a.id === selectedId)
+  // This chat IS Hugo, so he is the default option rather than a separate specialist —
+  // two entries that route to the same agent would just be confusing.
+  const hugoName = agents.find((a) => a.id === HUGO_ID)?.name ?? 'הוגו'
+  const specialists = agents.filter((a) => a.id !== HUGO_ID)
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full">
@@ -82,10 +87,10 @@ export function AssistantWorkspace() {
             onChange={(e) => setSelectedId(e.target.value)}
             disabled={loading}
           >
-            <option value={GENERAL}>עוזר כללי</option>
-            {agents.length > 0 && (
+            <option value={GENERAL}>{hugoName}</option>
+            {specialists.length > 0 && (
               <optgroup label="סוכנים מומחים">
-                {agents.map((a) => (
+                {specialists.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
@@ -106,8 +111,14 @@ export function AssistantWorkspace() {
       </div>
 
       {isGeneral ? (
-        <div className="flex-1 min-h-0 border border-[#2f4368] rounded-xl overflow-hidden">
-          <ChatPanel />
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="mb-2 text-xs text-[#647399] shrink-0">
+            מדבר עם <span className="text-[#2dd4bf]">{hugoName}</span> ·{' '}
+            {ENGINE_LABELS[engine] ?? engine}
+          </div>
+          <div className="flex-1 min-h-0 border border-[#2f4368] rounded-xl overflow-hidden">
+            <ChatPanel />
+          </div>
         </div>
       ) : selected ? (
         <div className="flex-1 flex flex-col min-h-0">

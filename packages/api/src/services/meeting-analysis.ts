@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
+import { omitSelfParticipants, ownerIdentityPrompt } from './self-person'
 
 function geminiModelId(): string {
   return process.env.GEMINI_MODEL || 'gemini-2.5-flash'
@@ -28,16 +29,40 @@ export interface AnalyzeTranscriptOptions {
   meetingTitle: string
   meetingDate: string
   participantNames?: string[]
+  /** Project name to give Gemini business context for action-item attribution. */
+  projectName?: string
+  /** CRM profiles of confirmed attendees. Gemini uses these as reference — it will not
+   *  hard-map speaker labels to names without voice-diarization confirmation. */
+  knownPeople?: { name: string; role?: string; company?: string }[]
+  /** The People records this conversation is about (owner + chosen participants). When given, the
+   *  model writes their canonical name and fills `personId` (docs/specs/recording-uses-chosen-people.md). */
+  candidates?: AnalysisCandidate[]
+}
+
+export interface AnalysisCandidate {
+  id: string
+  name: string
+  aliases?: string[]
+  role?: string | null
+  company?: string | null
 }
 
 export interface AnalysisParticipant {
   name: string
   confirmed: boolean
+  /** A candidate id, or null for someone not on the candidate list. */
+  personId?: string | null
+  /** How the conversation referred to them, when it differs from `name`. Not stored. */
+  spokenAs?: string
 }
 
 export interface AnalysisActionItem {
   content: string
   owner?: string
+  /** The owner's candidate id, or null. */
+  personId?: string | null
+  /** How the conversation referred to the owner, when it differs from `owner`. Not stored. */
+  ownerSpokenAs?: string
 }
 
 export interface AnalysisResult {
@@ -55,7 +80,7 @@ export interface AnalysisResult {
   actionItems: AnalysisActionItem[]
 }
 
-const GEMINI_JSON_SCHEMA = {
+const GEMINI_JSON_SCHEMA_BASE = {
   type: 'object' as const,
   properties: {
     hatName: {
@@ -137,17 +162,96 @@ const GEMINI_JSON_SCHEMA = {
   ],
 }
 
+/** `personId` restricted to the candidate ids (or null) — Gemini can't name an id that isn't there. */
+function personIdSchema(candidateIds: string[]) {
+  return candidateIds.length
+    ? { type: 'string' as const, format: 'enum' as const, enum: candidateIds, nullable: true }
+    : { type: 'string' as const, nullable: true }
+}
+
+export function analysisResponseSchema(candidates: AnalysisCandidate[] = []) {
+  if (candidates.length === 0) return GEMINI_JSON_SCHEMA_BASE
+  const personId = personIdSchema(candidates.map((c) => c.id))
+  const spoken = { type: 'string' as const, description: 'How the conversation referred to this person, if different from the canonical name' }
+  return {
+    ...GEMINI_JSON_SCHEMA_BASE,
+    properties: {
+      ...GEMINI_JSON_SCHEMA_BASE.properties,
+      participants: {
+        type: 'array' as const,
+        items: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string' as const },
+            confirmed: { type: 'boolean' as const },
+            personId,
+            spokenAs: spoken,
+          },
+          required: ['name', 'confirmed'],
+        },
+      },
+      actionItems: {
+        type: 'array' as const,
+        items: {
+          type: 'object' as const,
+          properties: {
+            content: { type: 'string' as const },
+            owner: { type: 'string' as const },
+            personId,
+            ownerSpokenAs: spoken,
+          },
+          required: ['content'],
+        },
+      },
+    },
+  }
+}
+
+function candidatesBlock(candidates: AnalysisCandidate[] | undefined): string {
+  if (!candidates?.length) return ''
+  const lines = candidates.map((c) => {
+    const parts = [`id=${c.id}`, `name="${c.name}"`]
+    if (c.aliases?.length) parts.push(`also known as: ${c.aliases.map((a) => `"${a}"`).join(', ')}`)
+    if (c.role) parts.push(`role: ${c.role}`)
+    if (c.company) parts.push(`company: ${c.company}`)
+    return `  - ${parts.join('; ')}`
+  })
+  return `\n\nPEOPLE IN THIS CONVERSATION (People records chosen before the recording):\n${lines.join('\n')}\n\nNAME RULE: whenever the conversation refers to one of these people in any form — first name only, nickname, the other script (e.g. "עומרי" means "Omri Ben Simon"), or a speaker line already carrying their name — write their exact canonical "name" from this list in participants[].name / actionItems[].owner, and fill personId with their id. Put the form the conversation used in spokenAs / ownerSpokenAs when it differs. Never invent people who are not on this list. Someone who is not on the list keeps the name as spoken, with personId null.`
+}
+
 function buildAnalysisPrompt(options: AnalyzeTranscriptOptions): string {
-  const { transcriptText, meetingTitle, meetingDate, participantNames } = options
+  const { transcriptText, meetingTitle, meetingDate, participantNames, projectName, knownPeople, candidates } = options
 
   const participantsNote = participantNames?.length
     ? `\n\nKnown participants from the meeting record: ${participantNames.join(', ')}`
     : ''
 
-  return `You are a conversation analyst. Analyze the following meeting transcript and provide deep qualitative insights.
+  // Build an enriched context block when CRM data is available.
+  const contextLines: string[] = []
+  if (projectName) {
+    contextLines.push(`Project: ${projectName}`)
+  }
+  if (knownPeople?.length) {
+    const profiles = knownPeople
+      .map((p) => {
+        const parts = [p.name]
+        if (p.role) parts.push(p.role)
+        if (p.company) parts.push(p.company)
+        return parts.join(', ')
+      })
+      .join('\n  - ')
+    contextLines.push(`Confirmed attendees from CRM:\n  - ${profiles}`)
+  }
+  const contextBlock = contextLines.length
+    ? `\n\nCONTEXT (confirmed before recording started):\n${contextLines.join('\n')}\n\nUse this context to enrich attribution and action-item ownership. Do NOT hard-assign speaker labels to names — speaker identification is handled separately.`
+    : ''
+
+  return `${ownerIdentityPrompt()}
+
+You are a conversation analyst. Analyze the following meeting transcript and provide deep qualitative insights.
 
 Meeting: ${meetingTitle}
-Date: ${meetingDate}${participantsNote}
+Date: ${meetingDate}${participantsNote}${contextBlock}${candidatesBlock(candidates)}
 
 ANALYTICAL HATS CATALOG:
 1. McKinsey + Tech Innovation — Strategy, digital transformation, organizational change
@@ -174,9 +278,9 @@ INSTRUCTIONS:
    - kaizenKeep: 1-2 specific practices that worked well
    - kaizenImprove: 1-2 actionable improvements for next time
 
-5. PARTICIPANTS: List all speakers identified in the transcript. Mark confirmed: true if name is explicitly stated, false if inferred.
+5. PARTICIPANTS: List the other people only. The owner recorded this conversation and is already in it — never include Alpir, אלפיר, Alpir Kritzler, or אלפיר קריצלר. Mark confirmed: true if that other person's name is explicitly stated, false if inferred.
 
-6. ACTION ITEMS: Extract explicit commitments and next steps. Include owner name if mentioned in transcript.
+6. ACTION ITEMS: Extract explicit commitments and next steps. Include the owner when the transcript makes it clear${candidates?.length ? ' — as the canonical name from PEOPLE IN THIS CONVERSATION when the owner is one of them' : ''}.
 
 7. OPEN QUESTION: Formulate one strategic, open-ended question for the user to reflect on.
 
@@ -218,7 +322,7 @@ export async function analyzeTranscript(options: AnalyzeTranscriptOptions): Prom
     model: modelId,
     generationConfig: {
       responseMimeType: 'application/json',
-      responseSchema: GEMINI_JSON_SCHEMA,
+      responseSchema: analysisResponseSchema(options.candidates) as never,
       ...geminiGenerationConfig(),
     },
   })
@@ -246,6 +350,7 @@ export async function analyzeTranscript(options: AnalyzeTranscriptOptions): Prom
       analysis.score = Math.max(1, Math.min(10, analysis.score))
     }
 
+    analysis.participants = omitSelfParticipants(analysis.participants ?? [])
     return analysis
   } catch (error) {
     if (error instanceof Error) {

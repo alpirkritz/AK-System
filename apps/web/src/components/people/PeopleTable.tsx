@@ -1,15 +1,16 @@
 'use client'
 
+import { Fragment } from 'react'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { PersonRow } from './PersonRow'
 import { PeopleEmptyState } from './PeopleEmptyState'
 import { PeoplePagination } from './PeoplePagination'
-import type { Person } from '@ak-system/database'
+import type { PersonWithAffiliations } from './affiliations'
 import type { SortField, SortDir } from './usePeopleState'
 
 interface Props {
-  items: Person[]
+  items: PersonWithAffiliations[]
   total: number
   page: number
   pageSize: number
@@ -19,10 +20,12 @@ interface Props {
   sortDir: SortDir
   selectedIds: Set<string>
   hasActiveFilters: boolean
+  showUnassignedGroup?: boolean
   onToggleSort: (field: SortField) => void
   onToggleSelect: (id: string) => void
   onSelectAll: (ids: string[]) => void
   onDeselectAll: () => void
+  warmthById?: Record<string, 'needs_1on1'>
   onOpenDrawer: (id: string) => void
   onPageChange: (page: number) => void
   onAddPerson: () => void
@@ -88,10 +91,12 @@ export function PeopleTable({
   sortDir,
   selectedIds,
   hasActiveFilters,
+  showUnassignedGroup = false,
   onToggleSort,
   onToggleSelect,
   onSelectAll,
   onDeselectAll,
+  warmthById,
   onOpenDrawer,
   onPageChange,
   onAddPerson,
@@ -164,15 +169,30 @@ export function PeopleTable({
             {isLoading ? (
               <SkeletonRows />
             ) : (
-              items.map(person => (
-                <PersonRow
-                  key={person.id}
-                  person={person}
-                  selected={selectedIds.has(person.id)}
-                  onToggleSelect={() => onToggleSelect(person.id)}
-                  onOpenDrawer={() => onOpenDrawer(person.id)}
-                />
-              ))
+              items.map((person, index) => {
+                const showHeading = showUnassignedGroup
+                  && (person.affiliations?.length ?? 0) === 0
+                  && (index === 0 || (items[index - 1].affiliations?.length ?? 0) > 0)
+                return (
+                  <Fragment key={person.id}>
+                    {showHeading && (
+                      <tr>
+                        <td colSpan={COLUMNS.length} className="px-4 pt-4 pb-2 text-xs font-semibold text-[#7a89ab] uppercase tracking-wider">
+                          לא משויך
+                        </td>
+                      </tr>
+                    )}
+                    <PersonRow
+                      key={person.id}
+                      person={person}
+                      selected={selectedIds.has(person.id)}
+                      onToggleSelect={() => onToggleSelect(person.id)}
+                      warmth={warmthById?.[person.id] ?? null}
+                      onOpenDrawer={() => onOpenDrawer(person.id)}
+                    />
+                  </Fragment>
+                )
+              })
             )}
           </tbody>
         </table>

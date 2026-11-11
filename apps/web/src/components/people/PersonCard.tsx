@@ -4,7 +4,8 @@ import { memo } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { he } from 'date-fns/locale'
 import { cn } from '@/lib/cn'
-import type { Person } from '@ak-system/database'
+import { WorkspaceBadges } from './WorkspaceBadges'
+import type { PersonWithAffiliations } from './affiliations'
 
 const TAG_COLORS: Record<string, string> = {
   business: '#38bdf8',
@@ -29,7 +30,7 @@ function getContactHealth(lastContact: string | null, frequencyDays: number | nu
 }
 
 interface Props {
-  person: Person
+  person: PersonWithAffiliations
   onOpenDrawer: () => void
 }
 
@@ -79,6 +80,12 @@ export const PersonCard = memo(function PersonCard({ person, onOpenDrawer }: Pro
 
       {person.company && (
         <div className="text-xs text-[#7a89ab] mb-2 truncate">{person.company}</div>
+      )}
+
+      {person.affiliations && person.affiliations.length > 0 && (
+        <div className="mb-2.5">
+          <WorkspaceBadges affiliations={person.affiliations} />
+        </div>
       )}
 
       {tags.length > 0 && (

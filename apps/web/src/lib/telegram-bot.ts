@@ -1,7 +1,7 @@
 import { formatAgentList, parseAgentCommand } from './abc-agents'
 import { buildCustomAgentAliases, getAgentDisplayNamesRaw } from '@ak-system/api'
-import { runAgentForUser } from './agent-runner'
-import { resolveIntent, saveChatMessage } from './conversation-engine'
+import { runAgentForUser, runHugoConversation } from './agent-runner'
+import { saveChatMessage } from './conversation-engine'
 import { getAgentHistory, saveAgentMessage } from './agent-chat-store'
 
 // ─── Telegram types ───────────────────────────────────────────────────────────
@@ -94,9 +94,14 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       return
     }
 
-    const response = await resolveIntent(userText, { channel: 'telegram' })
-    await saveChatMessage('assistant', response || '', 'telegram')
-    await sendTelegramMessage(chatId, response || 'לא הצלחתי לקבל תשובה.')
+    // Telegram delivers the text itself below, so no push.
+    const response = await runHugoConversation({
+      message: userText,
+      channel: 'telegram',
+      notifyOnComplete: false,
+    })
+    await saveChatMessage('assistant', response.text || '', 'telegram')
+    await sendTelegramMessage(chatId, response.text || 'לא הצלחתי לקבל תשובה.')
   } catch (err) {
     console.error('[TelegramBot] Error:', err)
     const msg = err instanceof Error ? err.message : 'Unknown error'

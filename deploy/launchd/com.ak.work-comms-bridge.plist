@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the local work-comms bridge (Outlook mail / Slack / Teams).
+  Template: __RUN_SCRIPT__, __WORKDIR__, __LOG__ are substituted by
+  scripts/install-work-comms-bridge.sh. Runner and log live under ~/.ak-system/
+  (launchd cannot execute scripts inside Google Drive). Runs every 900s while the
+  Mac is awake; skipped runs coalesce rather than queue. osascript runs it in the
+  logged-in user session so it inherits the same TCC / Playwright-profile context.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ak.work-comms-bridge</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/osascript</string>
+    <string>-e</string>
+    <string>do shell script "bash __RUN_SCRIPT__"</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKDIR__</string>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__LOG__</string>
+
+  <key>StandardErrorPath</key>
+  <string>__LOG__</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

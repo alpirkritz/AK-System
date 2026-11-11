@@ -1,18 +1,25 @@
 'use client'
 
+import { formatAppVersion } from '@/lib/app-version'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { isPublicPagePath } from '@/lib/public-paths'
 import {
   LayoutDashboard,
   CalendarCheck,
   Users,
   ListChecks,
+  Handshake,
+  HandCoins,
+  Mic,
   FolderKanban,
   CalendarDays,
   Sparkles,
+  Bot,
+  Brain,
   Wallet,
   Newspaper,
   BookMarked,
@@ -26,6 +33,8 @@ import {
 import { isKeyboardOpen, mobileAssistantShellStyle } from '@/lib/chat-layout'
 import { useIsNarrowPhone, useVisualViewportFrame } from '@/lib/use-keyboard-overlap'
 import { NotificationBell } from './NotificationBell'
+import { WorldFilterProvider } from '@/lib/world-filter'
+import { WorldSwitcher } from './WorldSwitcher'
 
 const QuickAddTaskModal = dynamic(
   () => import('./QuickAddTaskModal').then((m) => m.QuickAddTaskModal),
@@ -44,17 +53,24 @@ const navSections: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/meetings', label: 'פגישות', icon: CalendarCheck },
       { href: '/people', label: 'אנשים', icon: Users },
+      { href: '/relationships', label: 'קשרים', icon: Users },
       { href: '/tasks', label: 'משימות', icon: ListChecks },
+      { href: '/commitments', label: 'התחייבויות', icon: Handshake },
+      { href: '/waiting', label: 'חייבים לי', icon: HandCoins },
+      { href: '/voice', label: 'הקלטות', icon: Mic },
       { href: '/projects', label: 'פרויקטים', icon: FolderKanban },
     ],
   },
   {
     title: 'יומן',
-    items: [{ href: '/calendar', label: 'יומן גוגל', icon: CalendarDays }],
+    items: [{ href: '/calendar', label: 'יומן', icon: CalendarDays }],
   },
   {
     title: 'עוזר חכם',
-    items: [{ href: '/chat', label: 'עוזר', icon: Sparkles }],
+    items: [
+      { href: '/chat', label: 'עוזר', icon: Sparkles },
+      { href: '/agents', label: 'סוכנים', icon: Bot },
+    ],
   },
   {
     title: 'מידע',
@@ -62,6 +78,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
       { href: '/finance', label: 'פיננסים', icon: Wallet },
       { href: '/updates', label: 'עדכונים', icon: Newspaper },
       { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
+      { href: '/memory', label: 'זיכרון', icon: Brain },
     ],
   },
   {
@@ -77,16 +94,22 @@ const PRIMARY_TABS: NavItem[] = [
   { href: '/', label: 'דשבורד', icon: LayoutDashboard },
   { href: '/meetings', label: 'פגישות', icon: CalendarCheck },
   { href: '/tasks', label: 'משימות', icon: ListChecks },
-  { href: '/people', label: 'אנשים', icon: Users },
   { href: '/chat', label: 'עוזר', icon: Sparkles },
 ]
 
 const MORE_ITEMS: NavItem[] = [
+  { href: '/people', label: 'אנשים', icon: Users },
+  { href: '/relationships', label: 'קשרים', icon: Users },
+  { href: '/commitments', label: 'התחייבויות', icon: Handshake },
+  { href: '/waiting', label: 'חייבים לי', icon: HandCoins },
+  { href: '/voice', label: 'הקלטות', icon: Mic },
   { href: '/projects', label: 'פרויקטים', icon: FolderKanban },
-  { href: '/calendar', label: 'יומן גוגל', icon: CalendarDays },
+  { href: '/calendar', label: 'יומן', icon: CalendarDays },
   { href: '/finance', label: 'פיננסים', icon: Wallet },
   { href: '/updates', label: 'עדכונים', icon: Newspaper },
   { href: '/reading-list', label: 'רשימת קריאה', icon: BookMarked },
+  { href: '/agents', label: 'סוכנים', icon: Bot },
+  { href: '/memory', label: 'זיכרון', icon: Brain },
   { href: '/notifications', label: 'התראות', icon: Bell },
   { href: '/settings', label: 'הגדרות', icon: Settings },
 ]
@@ -128,19 +151,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, [isAssistant, isNarrow])
 
   // Auth screen and printable documents: render bare, no app chrome.
-  if (pathname === '/login' || pathname.endsWith('/print')) {
+  if (pathname === '/login' || pathname.endsWith('/print') || isPublicPagePath(pathname)) {
     return <>{children}</>
   }
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
-    if (href === '/chat') return pathname.startsWith('/chat') || pathname.startsWith('/agents')
+    if (href === '/chat') return pathname.startsWith('/chat')
     return pathname.startsWith(href)
   }
 
   const isMoreActive = MORE_ITEMS.some((item) => isActive(item.href))
 
   return (
+    <WorldFilterProvider>
     <div
       className={`flex overflow-x-hidden ${
         isAssistant ? 'overflow-hidden max-md:h-dvh md:h-dvh' : 'min-h-screen'
@@ -148,18 +172,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       style={mobileChatShell}
     >
       {/* Desktop / tablet sidebar */}
-      <aside className="w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-6 gap-1 sticky top-0 h-screen hidden md:flex">
-        <div className="px-3 pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
+      {/* Tablet / unfolded phone (md) gets a slimmer rail so content keeps its width;
+          the full 220px sidebar only from lg. */}
+      <aside className="w-[176px] lg:w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-3 lg:p-6 gap-1 sticky top-0 h-screen hidden md:flex">
+        <div className="px-3 pb-4 lg:pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
           <img
             src="/icons/aro-logo.png"
             alt="ARO"
             width={40}
             height={40}
-            className="h-10 w-10 rounded-lg flex-shrink-0"
+            className="h-9 w-9 lg:h-10 lg:w-10 rounded-lg flex-shrink-0"
           />
-          <div>
-            <div className="text-lg font-bold tracking-tight">ARO</div>
-            <div className="text-[11px] text-[#647399] mt-0.5">סביבת עבודה אישית</div>
+          <div className="min-w-0">
+            <div className="text-lg font-bold tracking-tight leading-tight">ARO</div>
+            <div className="text-[11px] text-[#647399] mt-0.5 truncate">סביבת עבודה אישית</div>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto space-y-4">
@@ -196,6 +222,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <LogOut size={18} className="opacity-90" strokeWidth={2} />
             התנתק
           </button>
+          <div className="px-3 pt-2 pb-1 text-[11px] text-[#4d5b7d] tabular-nums" data-testid="app-version">
+            {formatAppVersion(process.env.NEXT_PUBLIC_APP_RELEASE, process.env.NEXT_PUBLIC_APP_COMMIT)}
+          </div>
         </div>
       </aside>
 
@@ -218,7 +247,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             : undefined
         }
       >
-        <div className={`flex justify-end shrink-0 ${isAssistant ? 'mb-2' : 'mb-4 md:mb-6'}`}>
+        <div className={`flex items-center justify-between gap-3 shrink-0 ${isAssistant ? 'mb-2' : 'mb-4 md:mb-6'}`}>
+          <WorldSwitcher />
           <NotificationBell />
         </div>
         <div className={isAssistant ? 'flex-1 min-h-0 flex flex-col' : undefined}>
@@ -309,6 +339,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <LogOut size={18} strokeWidth={2} />
                 התנתק
               </button>
+              <div className="col-span-3 text-center text-[11px] text-[#4d5b7d] tabular-nums">
+                {formatAppVersion(process.env.NEXT_PUBLIC_APP_RELEASE, process.env.NEXT_PUBLIC_APP_COMMIT)}
+              </div>
             </div>
           </div>
         </>
@@ -345,5 +378,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
     </div>
+    </WorldFilterProvider>
   )
 }

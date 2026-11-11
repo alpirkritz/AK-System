@@ -23,13 +23,23 @@ import {
   CHROMIUM_LAUNCH_ARGS,
   humanizeScrapeError,
   isBrowserLaunchFailure,
+  isLoginFormTimeout,
   isOtpTimeoutError,
   isPostLoginSelectorTimeout,
   killStrayPuppeteerChrome,
+  OTP_TIMEOUT_HEBREW_ERROR,
+  POST_LOGIN_STUCK_HEBREW_ERROR,
+  POST_LOGIN_TIMEOUT_HEBREW_ERROR,
   scrapeWithBrowserLaunchRetry,
   withScrapeLock,
 } from './bank-chrome-launch'
-import { cancelOtpWait, getOtpWaitMs, waitForOtp } from './bank-otp-bridge'
+import { cancelOtpWait, consumeOtpPrompted, getOtpWaitMs, markOtpPrompted, waitForOtp } from './bank-otp-bridge'
+import {
+  CAPTCHA_TIMEOUT_HEBREW,
+  consumeCaptchaShown,
+  finishCaptchaSession,
+  startCaptchaWatch,
+} from './bank-captcha-bridge'
 import { fillOtpAndSubmit, pageLooksLikeOtp } from './bank-otp-page'
 import {
   findFuzzyDuplicateTxn,
@@ -93,6 +103,10 @@ export interface ScrapeOptions {
   connectionId: string
   /** Called once when an OTP screen is detected (set DB status awaiting_otp). */
   onAwaitingOtp?: () => Promise<void>
+  /** Called once when a Radware/hCaptcha interstitial is detected. */
+  onAwaitingCaptcha?: () => Promise<void>
+  /** Called once the bank login form replaces the interstitial. */
+  onCaptchaCleared?: () => Promise<void>
 }
 
 export type ScrapeFn = (
@@ -177,6 +191,13 @@ function createPreparePage(opts?: ScrapeOptions): PreparePage {
     await maskHeadlessUserAgent(page)
     if (!opts?.connectionId) return
 
+    startCaptchaWatch({
+      connectionId: opts.connectionId,
+      page,
+      onAwaitingCaptcha: opts.onAwaitingCaptcha,
+      onCaptchaCleared: opts.onCaptchaCleared,
+    })
+
     let otpStarted = false
     const tick = async () => {
       if (otpStarted) return
@@ -245,6 +266,7 @@ export const realScrape: ScrapeFn = async (provider, credentials, startDate, opt
           return result as unknown as ScrapeOutcome
         } finally {
           restorePostLogin()
+          if (options?.connectionId) finishCaptchaSession(options.connectionId)
         }
       }),
     (outcome) => isBrowserLaunchFailure(outcome.errorMessage ?? ''),
@@ -268,8 +290,31 @@ export function computeStartDate(hasExistingAccounts: boolean, now = new Date())
 
 function scrapeErrorType(raw: string, fallback?: string): string {
   if (isBrowserLaunchFailure(raw)) return 'GENERIC'
+  if (isLoginFormTimeout(raw)) return 'CAPTCHA_REQUIRED'
   if (isOtpTimeoutError(raw) || isPostLoginSelectorTimeout(raw)) return 'OTP_REQUIRED'
   return fallback ?? 'GENERIC'
+}
+
+function presentScrapeError(
+  connectionId: string,
+  raw: string,
+  fallbackType?: string,
+): { message: string; errorType: string } {
+  const sawCaptcha = consumeCaptchaShown(connectionId)
+  const sawOtp = consumeOtpPrompted(connectionId)
+  if (isOtpTimeoutError(raw) || (sawOtp && isPostLoginSelectorTimeout(raw))) {
+    return {
+      message: isOtpTimeoutError(raw) ? OTP_TIMEOUT_HEBREW_ERROR : POST_LOGIN_TIMEOUT_HEBREW_ERROR,
+      errorType: 'OTP_REQUIRED',
+    }
+  }
+  if (sawCaptcha && isLoginFormTimeout(raw)) {
+    return { message: CAPTCHA_TIMEOUT_HEBREW, errorType: 'CAPTCHA_REQUIRED' }
+  }
+  if (isPostLoginSelectorTimeout(raw)) {
+    return { message: POST_LOGIN_STUCK_HEBREW_ERROR, errorType: 'CAPTCHA_REQUIRED' }
+  }
+  return { message: humanizeScrapeError(raw), errorType: scrapeErrorType(raw, fallbackType) }
 }
 
 export async function syncConnection(
@@ -297,6 +342,9 @@ export async function syncConnection(
   const startDate = computeStartDate(existingAccounts.length > 0)
 
   cancelOtpWait(connection.id, 'סנכרון חדש התחיל')
+  finishCaptchaSession(connection.id)
+  consumeCaptchaShown(connection.id)
+  consumeOtpPrompted(connection.id)
 
   let outcome: ScrapeOutcome
   try {
@@ -305,6 +353,7 @@ export async function syncConnection(
       return scrape(connection.provider as BankProvider, credentials, startDate, {
         connectionId: connection.id,
         onAwaitingOtp: async () => {
+          markOtpPrompted(connection.id)
           await db
             .update(bankConnections)
             .set({
@@ -315,40 +364,73 @@ export async function syncConnection(
             })
             .where(eq(bankConnections.id, connection.id))
         },
+        onAwaitingCaptcha: async () => {
+          await db
+            .update(bankConnections)
+            .set({
+              status: 'awaiting_captcha',
+              lastError: 'נדרש אימות אבטחה בדפדפן',
+              lastErrorType: 'CAPTCHA_REQUIRED',
+              updatedAt: nowIso(),
+            })
+            .where(eq(bankConnections.id, connection.id))
+        },
+        onCaptchaCleared: async () => {
+          await db
+            .update(bankConnections)
+            .set({
+              status: 'pending',
+              lastError: null,
+              lastErrorType: null,
+              updatedAt: nowIso(),
+            })
+            .where(
+              and(
+                eq(bankConnections.id, connection.id),
+                eq(bankConnections.status, 'awaiting_captcha'),
+              ),
+            )
+        },
       })
     })
   } catch (err) {
     cancelOtpWait(connection.id)
     const raw = err instanceof Error ? err.message : 'Scrape failed'
-    const msg = humanizeScrapeError(raw)
+    const presented = presentScrapeError(connection.id, raw)
     await db
       .update(bankConnections)
       .set({
         status: 'error',
-        lastError: msg,
-        lastErrorType: scrapeErrorType(raw),
+        lastError: presented.message,
+        lastErrorType: presented.errorType,
         updatedAt: nowIso(),
       })
       .where(eq(bankConnections.id, connection.id))
-    return { success: false, accountsSynced: 0, transactionsInserted: 0, error: msg }
+    return { success: false, accountsSynced: 0, transactionsInserted: 0, error: presented.message }
   }
 
   cancelOtpWait(connection.id)
 
   if (!outcome.success) {
     const raw = outcome.errorMessage || outcome.errorType || 'Scrape failed'
-    const msg = humanizeScrapeError(raw)
+    const presented = presentScrapeError(connection.id, raw, outcome.errorType)
     await db
       .update(bankConnections)
       .set({
         status: 'error',
-        lastError: msg,
-        lastErrorType: scrapeErrorType(raw, outcome.errorType),
+        lastError: presented.message,
+        lastErrorType: presented.errorType,
         updatedAt: nowIso(),
       })
       .where(eq(bankConnections.id, connection.id))
-    return { success: false, accountsSynced: 0, transactionsInserted: 0, error: msg }
+    return {
+      success: false,
+      accountsSynced: 0,
+      transactionsInserted: 0,
+      error: presented.message,
+    }
   }
+  consumeCaptchaShown(connection.id)
 
   const accounts = outcome.accounts ?? []
   const accountType = accountTypeForProvider(connection.provider as BankProvider)

@@ -3,9 +3,10 @@ import QRCode from 'qrcode'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { config, isSelfChatJid } from './config.js'
+import { config, isAllowedGroupJid, isSelfChatJid } from './config.js'
 import { listEnabledGroupJids, reloadGroupConfig, type GroupRule } from './group-config.js'
 import { listWatchedGroupsWithCounts } from './group-buffer.js'
+import { dmAllowlistSize, reloadDmConfig } from './dm-capture.js'
 import {
   discoverAvailableGroups,
   getCurrentQr,
@@ -13,6 +14,7 @@ import {
   getStatus,
   requestClusterSummary,
   requestGroupSummary,
+  sendWhatsAppGroupMessage,
   sendWhatsAppMessage,
 } from './whatsapp-client.js'
 
@@ -78,6 +80,32 @@ export function createServer(): express.Application {
     }
   })
 
+  /**
+   * Narrowly-scoped exception to the self-chat-only guard above: sends only
+   * to a JID in WHATSAPP_ALLOWED_GROUP_JIDS. Does not touch `/send`'s guard
+   * or `isSelfChatJid` — a completely separate route and allow-list.
+   * See docs/specs/tier1-qa-whatsapp-agent.md §5.
+   */
+  app.post('/send-group', requireAuth, async (req, res) => {
+    try {
+      const text = String(req.body?.text ?? '').trim()
+      const to = String(req.body?.to ?? '').trim()
+      if (!text || !to) {
+        res.status(400).json({ error: 'to and text are required' })
+        return
+      }
+      if (!isAllowedGroupJid(to)) {
+        res.status(403).json({ error: `Outbound send blocked — ${to} is not in WHATSAPP_ALLOWED_GROUP_JIDS` })
+        return
+      }
+      await sendWhatsAppGroupMessage(to, text)
+      res.json({ ok: true, to })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Send failed'
+      res.status(503).json({ error: msg })
+    }
+  })
+
   app.get('/groups', requireAuth, (_req, res) => {
     const jids = new Set(listEnabledGroupJids())
     res.json({
@@ -116,6 +144,21 @@ export function createServer(): express.Application {
     }))
     reloadGroupConfig(groups.filter((g) => g.jid))
     res.json({ ok: true, enabled: groups.filter((g) => g.enabled).length })
+  })
+
+  /** Allowlisted 1:1 chats to capture (sent by AK after a person's capture setting changes). */
+  app.post('/config/dm', requireAuth, (req, res) => {
+    const raw = req.body?.jids
+    if (!Array.isArray(raw)) {
+      res.status(400).json({ error: 'jids array is required' })
+      return
+    }
+    const count = reloadDmConfig(raw.map((j: unknown) => String(j)))
+    res.json({ ok: true, count })
+  })
+
+  app.get('/config/dm', requireAuth, (_req, res) => {
+    res.json({ count: dmAllowlistSize() })
   })
 
   app.post('/groups/summarize', requireAuth, async (req, res) => {
