@@ -21,6 +21,7 @@ import {
   enrollVoicePrint,
   getVoicePrintStatus,
   identifySpeaker,
+  identifySpeakers,
   listRecordingSpeakers,
   VoiceEnrollmentError,
 } from '../services/voice-diarization'
@@ -172,6 +173,33 @@ export const voiceRouter = router({
       const identified = await identifySpeaker(ctx.db, input)
       const analysisRefreshed = await refreshVoiceAnalysisAfterSpeakerResolution(ctx.db, input.recordingId)
       return { ...identified, analysisRefreshed }
+    }),
+
+  // All speakers matched first, saved with one press (docs/specs/batch-speaker-identification.md).
+  // The analysis re-runs once, with whatever names are known; a Gemini failure keeps the answers.
+  identifySpeakers: protectedProcedure
+    .input(z.object({
+      recordingId: z.string().min(1),
+      answers: z
+        .array(z.object({ speakerLabel: z.string().min(1), personId: z.string().min(1).nullable() }))
+        .min(1)
+        .max(20),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const saved = await identifySpeakers(ctx.db, input)
+      let analysisRefreshed = false
+      let analysisError: string | null = null
+      if (saved.length > 0) {
+        try {
+          analysisRefreshed = await refreshVoiceAnalysisAfterSpeakerResolution(ctx.db, input.recordingId, {
+            requireAllResolved: false,
+          })
+        } catch (err) {
+          analysisError = err instanceof Error ? err.message : 'Analysis failed'
+          console.warn('[voice.identifySpeakers] analysis refresh failed:', analysisError)
+        }
+      }
+      return { saved, analysisRefreshed, analysisError }
     }),
 
   // Self-voice enrollment (see docs/specs/recording-background-and-speaker-id.md). MVP: a single

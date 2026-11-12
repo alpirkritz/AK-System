@@ -1020,13 +1020,15 @@ export async function processVoiceRecording(
 }
 
 /**
- * Re-runs only the text analysis once every transcript speaker has been answered. The recording is
+ * Re-runs only the text analysis from the speaker-attributed transcript. By default it waits until
+ * every transcript speaker has been answered; a batch save passes `requireAllResolved: false` so the
+ * names given so far are used and unanswered speakers keep their "דובר N" label. The recording is
  * never read or transcribed here. Existing analysis data remains untouched if Gemini fails.
  */
 export async function refreshVoiceAnalysisAfterSpeakerResolution(
   db: Db,
   recordingId: string,
-  options: { analyze?: VoiceAnalyzer; now?: number } = {},
+  options: { analyze?: VoiceAnalyzer; now?: number; requireAllResolved?: boolean } = {},
 ): Promise<boolean> {
   const [rec] = await db
     .select({
@@ -1040,7 +1042,8 @@ export async function refreshVoiceAnalysisAfterSpeakerResolution(
   if (!rec?.analysisId || !rec.meetingId || !rec.transcriptText) return false
 
   const attributed = await attributedTranscript(db, recordingId, rec.transcriptText)
-  if (!attributed.allResolved || attributed.text === rec.transcriptText) return false
+  if (options.requireAllResolved !== false && !attributed.allResolved) return false
+  if (attributed.text === rec.transcriptText) return false
 
   const [analysis] = await db
     .select({ id: meetingAnalyses.id })

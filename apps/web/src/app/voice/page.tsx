@@ -187,12 +187,15 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const stopAtRef = useRef<number | null>(null)
   const [playing, setPlaying] = useState<string | null>(null)
+  // Answers stay local until the one "שמור זיהוי" press: a picked person, or "לא מזהה" (skips).
   const [picks, setPicks] = useState<Record<string, PersonOption[]>>({})
-  const [correcting, setCorrecting] = useState<string | null>(null)
-  const identify = trpc.voice.identifySpeaker.useMutation({
-    onSuccess: (_result, variables) => {
-      setCorrecting(null)
-      setPicks((previous) => ({ ...previous, [variables.speakerLabel]: [] }))
+  const [skips, setSkips] = useState<Set<string>>(new Set())
+  const [correcting, setCorrecting] = useState<Set<string>>(new Set())
+  const identify = trpc.voice.identifySpeakers.useMutation({
+    onSuccess: () => {
+      setCorrecting(new Set())
+      setPicks({})
+      setSkips(new Set())
       utils.voice.speakers.invalidate({ recordingId })
       utils.voice.get.invalidate({ recordingId })
       utils.voice.getAnalysis.invalidate({ recordingId })
@@ -204,7 +207,32 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
   // People chosen for this recording who no speaker has yet — the likeliest answers, offered first.
   const assignedIds = new Set(speakers.map((speaker) => speaker.personId).filter(Boolean))
   const unassignedChosen = (rec?.people ?? []).filter((person) => !assignedIds.has(person.id))
-  if (visibleSpeakers.length === 0) return null
+  const answers = visibleSpeakers.flatMap((speaker) => {
+    const person = picks[speaker.speakerLabel]?.[0]
+    if (person) return [{ speakerLabel: speaker.speakerLabel, personId: person.id }]
+    if (skips.has(speaker.speakerLabel)) return [{ speakerLabel: speaker.speakerLabel, personId: null }]
+    return []
+  })
+  const toggle = (set: Set<string>, label: string, on: boolean) => {
+    const next = new Set(set)
+    if (on) next.add(label)
+    else next.delete(label)
+    return next
+  }
+  const pickPerson = (label: string, next: PersonOption[]) => {
+    setPicks((prev) => ({ ...prev, [label]: next.slice(-1) }))
+    if (next.length > 0) setSkips((prev) => toggle(prev, label, false))
+  }
+  const markSkip = (label: string, on: boolean) => {
+    setSkips((prev) => toggle(prev, label, on))
+    if (on) setPicks((prev) => ({ ...prev, [label]: [] }))
+  }
+  if (visibleSpeakers.length === 0) {
+    // Every speaker is answered; only a failed summary refresh is still worth saying.
+    return identify.data?.analysisError ? (
+      <p className="pt-3 text-xs text-amber-300" role="alert">הזיהוי נשמר, אבל עדכון הסיכום נכשל</p>
+    ) : null
+  }
 
   const stopSample = () => {
     audioRef.current?.pause()
@@ -259,7 +287,8 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
       {visibleSpeakers.map((speaker) => {
         const selected = picks[speaker.speakerLabel] ?? []
         const isAuto = speaker.state === 'auto'
-        const isEditing = !isAuto || correcting === speaker.speakerLabel
+        const isEditing = !isAuto || correcting.has(speaker.speakerLabel)
+        const skipped = skips.has(speaker.speakerLabel)
         return (
           <div
             key={speaker.speakerLabel}
@@ -293,38 +322,35 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
               <button
                 type="button"
                 className="btn-ghost text-[11px]"
-                onClick={() => setCorrecting(speaker.speakerLabel)}
+                onClick={() => setCorrecting((prev) => toggle(prev, speaker.speakerLabel, true))}
               >
                 לא נכון? תקן
               </button>
             )}
             {isEditing && (
               <>
-                <PeoplePicker
-                  inputId={`speaker-${speaker.speakerLabel.replace(/\s+/g, '-')}`}
-                  suggested={unassignedChosen}
-                  selected={selected}
-                  onChange={(next) => setPicks((prev) => ({ ...prev, [speaker.speakerLabel]: next.slice(-1) }))}
-                />
+                {skipped ? (
+                  <p className="text-xs text-[#97a4c2]" data-testid="voice-speaker-skip-marked">
+                    יסומן כ&quot;לא מזהה&quot;
+                  </p>
+                ) : (
+                  <PeoplePicker
+                    inputId={`speaker-${speaker.speakerLabel.replace(/\s+/g, '-')}`}
+                    suggested={unassignedChosen}
+                    selected={selected}
+                    onChange={(next) => pickPerson(speaker.speakerLabel, next)}
+                  />
+                )}
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-primary text-xs py-1 px-3"
-                    disabled={selected.length === 0 || identify.isPending}
-                    onClick={() =>
-                      identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: selected[0].id })
-                    }
-                  >
-                    {isAuto ? 'שמור תיקון' : 'זה הוא'}
-                  </button>
                   {!isAuto && (
                     <button
                       type="button"
                       className="btn btn-ghost text-xs py-1 px-3"
+                      aria-pressed={skipped}
                       disabled={identify.isPending}
-                      onClick={() => identify.mutate({ recordingId, speakerLabel: speaker.speakerLabel, personId: null })}
+                      onClick={() => markSkip(speaker.speakerLabel, !skipped)}
                     >
-                      לא מזהה
+                      {skipped ? 'בחר אדם' : 'לא מזהה'}
                     </button>
                   )}
                   {isAuto && (
@@ -333,7 +359,7 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
                       className="btn btn-ghost text-xs py-1 px-3"
                       disabled={identify.isPending}
                       onClick={() => {
-                        setCorrecting(null)
+                        setCorrecting((prev) => toggle(prev, speaker.speakerLabel, false))
                         setPicks((previous) => ({ ...previous, [speaker.speakerLabel]: [] }))
                       }}
                     >
@@ -346,7 +372,21 @@ function SpeakerPrompt({ recordingId }: { recordingId: string }) {
           </div>
         )
       })}
-      {identify.isPending && <p className="text-xs text-[#97a4c2]" role="status">שומר ומעדכן את הניתוח…</p>}
+      {visibleSpeakers.length > 0 && (
+        <button
+          type="button"
+          className="btn btn-primary text-sm w-full sm:w-auto"
+          data-testid="voice-speakers-save"
+          disabled={answers.length === 0 || identify.isPending}
+          onClick={() => identify.mutate({ recordingId, answers })}
+        >
+          {answers.length > 1 ? `שמור זיהוי (${answers.length})` : 'שמור זיהוי'}
+        </button>
+      )}
+      {identify.isPending && <p className="text-xs text-[#97a4c2]" role="status">שומר ומעדכן את הסיכום…</p>}
+      {identify.data?.analysisError && (
+        <p className="text-xs text-amber-300" role="alert">הזיהוי נשמר, אבל עדכון הסיכום נכשל</p>
+      )}
       {identify.error && <p className="text-xs text-red-400" role="alert">{identify.error.message}</p>}
     </div>
   )
