@@ -476,6 +476,27 @@ export async function identifySpeaker(
 }
 
 /**
+ * Saves several speaker answers at once (one "שמור זיהוי" press). Labels that are not speakers of
+ * this recording are ignored; a repeated label keeps its last answer.
+ */
+export async function identifySpeakers(
+  db: Db,
+  input: { recordingId: string; answers: Array<{ speakerLabel: string; personId: string | null }> },
+): Promise<Array<{ speakerLabel: string; state: Extract<VoiceSpeakerState, 'identified' | 'skipped'> }>> {
+  const labels = new Set((await listRecordingSpeakers(db, input.recordingId)).map((speaker) => speaker.speakerLabel))
+  const lastAnswer = new Map<string, string | null>()
+  for (const answer of input.answers) {
+    if (labels.has(answer.speakerLabel)) lastAnswer.set(answer.speakerLabel, answer.personId)
+  }
+  const saved: Array<{ speakerLabel: string; state: Extract<VoiceSpeakerState, 'identified' | 'skipped'> }> = []
+  for (const [speakerLabel, personId] of lastAnswer) {
+    const { state } = await identifySpeaker(db, { recordingId: input.recordingId, speakerLabel, personId })
+    saved.push({ speakerLabel, state })
+  }
+  return saved
+}
+
+/**
  * Asks the user to name the speakers the system could not. Stamped on the recording so a retry or a
  * second pass never asks twice.
  */

@@ -222,7 +222,10 @@ test.describe('Email, voice and the shared commitment queue', () => {
     await automatic.getByRole('button', { name: 'לא נכון? תקן' }).click()
     await automatic.getByPlaceholder('הוסף אדם לפי שם').fill(other)
     await automatic.getByRole('option', { name: other }).click()
-    await automatic.getByRole('button', { name: 'שמור תיקון' }).click()
+    // Picking only marks the row; nothing is saved until the one save button.
+    await expect(automatic).toHaveCount(1)
+    await expect(automatic.getByRole('button', { name: /שמור תיקון|זה הוא/ })).toHaveCount(0)
+    await page.getByTestId('voice-speakers-save').click()
 
     await expect(automatic).toHaveCount(0)
     await expect(page.getByTestId('voice-unknown-speaker')).toContainText('דובר 1')
