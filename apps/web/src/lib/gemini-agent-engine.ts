@@ -191,12 +191,26 @@ function buildDegradedWhatsAppBrief(toolResults: Map<string, unknown>): string |
   return null
 }
 
+/** Recent turns scanned for memory anchors, besides the current message. */
+const MEMORY_HISTORY_TURNS = 6
+
+export interface MemoryAnchorInput {
+  message: string
+  history?: ChatTurn[]
+}
+
 async function buildSystemInstruction(
   agentId: string,
   channel?: AgentNotifyChannel,
   /** ISO date to fetch for the calendar context. Defaults to today. Only used for 06_calendar_optimizer. */
   calendarPlanDate?: string,
+  /** The run's message + recent turns — anchors for entity-scoped memory (hugo-entity-memory). */
+  memoryContext?: MemoryAnchorInput,
 ): Promise<string> {
+  // Text the memory block scans for people / projects / topics: message, recent turns, calendar.
+  const memoryTexts: string[] = memoryContext
+    ? [memoryContext.message, ...(memoryContext.history ?? []).slice(-MEMORY_HISTORY_TURNS).map((t) => t.content)]
+    : []
   const instructions = getAgentInstructions(agentId)
   const workflow = getAgentWorkflowContent(agentId)
   const channelLabel =
@@ -297,6 +311,7 @@ async function buildSystemInstruction(
       '### Multi-source scan (vague asks)',
       'On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar vague intent: call at least TWO of YOUR OWN tools from DIFFERENT domains before answering. Do NOT call run_abc_agent as the first action.',
       'One of those MUST be get_harness_insights — it is the only source for links that span domains (a person going quiet while a commitment to them is open, a stale commitment, spend clustered around meetings, an unanswered thread). Each insight carries `basedOn`; cite it when you raise one, and do not restate an insight as a fact you verified yourself. For a named person, also call get_harness_insights with that personId.',
+      'On a named-person or named-project ask, also call recall_memories for that name as part of the depth pass — the injected memory block is capped per entity, recall_memories is not. When you save a memory with remember, pass aboutPeople / aboutProjects / topics whenever it is about someone or something specific.',
       'MANDATORY when get_harness_insights returned one or more insights: the reply must contain a `קישורים בין תחומים:` section naming at least one of them with what it was based on. These links are invisible to every other tool — a calendar-and-tasks answer that silently drops them is a failed reply. If you judge that none of them deserve action right now, keep the section and write one line saying so and why. If the tool returned no insights, omit the section entirely — absence is not a finding.',
       '### Date grounding (CRITICAL — מחר / tomorrow)',
       'If the user asks about מחר / tomorrow / a specific date: you MUST call get_day_schedule with date "tomorrow" (or that YYYY-MM-DD) AND get_notion_meetings with range "tomorrow" (and get_notion_tasks filter "tomorrow" when tasks matter) BEFORE answering.',
@@ -344,7 +359,9 @@ async function buildSystemInstruction(
         forCalendarOptimizer: agentId === CALENDAR_OPTIMIZER_AGENT_ID,
         planDate: agentId === CALENDAR_OPTIMIZER_AGENT_ID ? calendarPlanDate : undefined,
       })
-      parts.push('', formatAgentCalendarContextForPrompt(calCtx), '', '---')
+      const calendarText = formatAgentCalendarContextForPrompt(calCtx)
+      memoryTexts.push(calendarText)
+      parts.push('', calendarText, '', '---')
     } catch (err) {
       parts.push(
         '',
@@ -382,7 +399,7 @@ async function buildSystemInstruction(
   // User memory goes LAST so it is closest to the generation point and cannot be
   // buried under card/workflow/context blocks. Explicit precedence resolves the
   // old conflict between "MANDATORY overrides" above and "user instructions win".
-  const memoryBlock = await getMemoryPromptBlock()
+  const memoryBlock = await getMemoryPromptBlock({ texts: memoryTexts })
   if (memoryBlock) {
     parts.push(
       '',
@@ -406,8 +423,9 @@ export async function buildAgentSystemInstruction(
   agentId: string,
   channel?: AgentNotifyChannel,
   calendarPlanDate?: string,
+  memoryContext?: MemoryAnchorInput,
 ): Promise<string> {
-  return buildSystemInstruction(agentId, channel, calendarPlanDate)
+  return buildSystemInstruction(agentId, channel, calendarPlanDate, memoryContext)
 }
 
 function buildHistoryContents(history: ChatTurn[]): Array<{ role: 'user' | 'model'; parts: [{ text: string }] }> {
@@ -921,8 +939,11 @@ export async function runGeminiAgentChat(options: {
     channel: options.channel,
     agentId: options.agentId,
   }
-  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel, options.calendarPlanDate)
   const history = options.history ?? []
+  const systemInstruction = await buildSystemInstruction(options.agentId, options.channel, options.calendarPlanDate, {
+    message: options.message,
+    history,
+  })
 
   const buildModel = (modelOpts: ReturnType<typeof getGeminiModelOptions>) =>
     genAI.getGenerativeModel({

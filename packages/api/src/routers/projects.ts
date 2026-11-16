@@ -17,6 +17,7 @@ import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { pushProjectPeople } from '../services/notion-task-writeback'
 import { projectWarmth } from '../services/warmth'
 import { readProjectStanding, writeProjectStanding } from '../services/project-standing'
+import { deleteLinksForEntity } from '../services/memory-relevance'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -254,6 +255,7 @@ export const projectsRouter = router({
     await ctx.db.update(meetings).set({ projectId: null }).where(eq(meetings.projectId, input.id))
     await ctx.db.update(tasks).set({ projectId: null }).where(eq(tasks.projectId, input.id))
     await ctx.db.delete(projectPeople).where(eq(projectPeople.projectId, input.id))
+    await deleteLinksForEntity(ctx.db, 'project', input.id)
     await ctx.db.delete(projects).where(eq(projects.id, input.id))
     return { ok: true }
   }),

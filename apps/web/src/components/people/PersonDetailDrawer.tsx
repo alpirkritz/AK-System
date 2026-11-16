@@ -6,6 +6,7 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { he } from 'date-fns/locale'
 import dynamic from 'next/dynamic'
 import { trpc } from '@/lib/trpc'
+import { EntityMemories } from '@/components/memory/EntityMemories'
 import { cn } from '@/lib/cn'
 import { WorkspacePill } from '@/components/WorkspacePill'
 import { CreatableSelect } from '@/components/ui/CreatableSelect'
@@ -617,6 +618,12 @@ export function PersonDetailDrawer({ personId, onClose }: Props) {
                   )}
                 </section>
                 </>
+              ) },
+              { id: 'memories', label: 'זיכרונות', node: (
+                <section className="mb-6">
+                  <h3 className="text-[11px] font-semibold text-[#5a688c] uppercase tracking-wider mb-3">מה הוגו זוכר</h3>
+                  <EntityMemories kind="person" entityId={personId} />
+                </section>
               ) },
               { id: 'aliases', label: 'שמות נוספים', node: (
                 <>

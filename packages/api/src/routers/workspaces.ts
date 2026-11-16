@@ -11,6 +11,7 @@ import {
 } from '../services/notion-tasks-sync'
 import { fetchDatabaseInfo } from '../services/notion-people-directory'
 import { assertValidParent, mergePreview, mergeWorkspaces } from '../services/workspace-scope'
+import { deleteLinksForEntity } from '../services/memory-relevance'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -271,6 +272,7 @@ export const workspacesRouter = router({
     await ctx.db.update(tasks).set({ workspaceId: null }).where(eq(tasks.workspaceId, input.id))
     await ctx.db.delete(workspaceNotionDatabases).where(eq(workspaceNotionDatabases.workspaceId, input.id))
     await ctx.db.delete(personWorkspaces).where(eq(personWorkspaces.workspaceId, input.id))
+    await deleteLinksForEntity(ctx.db, 'workspace', input.id)
     await ctx.db.delete(workspaces).where(eq(workspaces.id, input.id))
     return { ok: true }
   }),

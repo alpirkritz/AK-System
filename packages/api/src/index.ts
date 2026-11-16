@@ -229,6 +229,17 @@ export {
   type SaveMeetingPrepInput,
 } from './services/meeting-preps'
 export {
+  buildRelevantMemoryBlock,
+  renderMemoryBlock,
+  extractAnchors,
+  ensureMemoryLinksBackfilled,
+  MEMORY_CHAR_CAP,
+  MEMORY_TRUNCATION_MARKER,
+  type EntityRef,
+  type MemoryRowLite,
+  type RelevantMemoryResult,
+} from './services/memory-relevance'
+export {
   indexHarnessWorld,
   worldStateSummary,
   personSignals,

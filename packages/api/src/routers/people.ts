@@ -30,6 +30,7 @@ import { ensureSelfPerson, getSelfPersonName, isSelfPersonName } from '../servic
 import { repointPersonExternalIds, upsertPersonExternalId } from '../services/person-external-ids'
 import { compareDuplicatePair, findDuplicatePairs, markNotDuplicate, notifyNewDuplicates } from '../services/people-duplicates'
 import { AliasConflictError, addAlias, listAliases, moveAliasesOnMerge, removeAlias } from '../services/person-resolution'
+import { deleteLinksForEntity, moveEntityMemoryLinks } from '../services/memory-relevance'
 import { createNotification } from '../lib/notification-store'
 import { pushDmAllowlist, setCaptureWhatsapp } from '../services/whatsapp-dm'
 import { EmailOwnedElsewhereError, addPersonEmail, listPersonEmails, removePersonEmail } from '../services/person-emails'
@@ -558,6 +559,7 @@ export const peopleRouter = router({
       }
 
       await moveAliasesOnMerge(ctx.db, input.fromId, input.toId)
+      await moveEntityMemoryLinks(ctx.db, 'person', input.fromId, input.toId)
 
       // Remove the source person (cascades remove its now-duplicate links)
       await ctx.db.delete(people).where(eq(people.id, input.fromId))
@@ -934,6 +936,7 @@ export const peopleRouter = router({
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     await clearPersonWorkspaces(ctx.db, [input.id])
+    await deleteLinksForEntity(ctx.db, 'person', input.id)
     await ctx.db.delete(people).where(eq(people.id, input.id))
     return { ok: true }
   }),
@@ -997,6 +1000,7 @@ export const peopleRouter = router({
     .input(z.object({ ids: z.array(z.string().min(1)).min(1) }))
     .mutation(async ({ ctx, input }) => {
       await clearPersonWorkspaces(ctx.db, input.ids)
+      for (const id of input.ids) await deleteLinksForEntity(ctx.db, 'person', id)
       await ctx.db.delete(people).where(inArray(people.id, input.ids))
       return { ok: true, deleted: input.ids.length }
     }),

@@ -1044,6 +1044,23 @@ export const memories = pgTable('memories', {
   pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
 }))
 
+/** What a memory is about. A memory with no links is global (injected into every run). */
+export const memoryLinks = pgTable('memory_links', {
+  id: text('id').primaryKey(),
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  /** person | project | workspace | topic */
+  entityKind: text('entity_kind').notNull(),
+  /** Row id, or the normalized topic token for kind=topic. Polymorphic, so no FK. */
+  entityId: text('entity_id').notNull(),
+  /** manual | tool | auto | backfill */
+  origin: text('origin').notNull().default('manual'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  entityIdx: index('idx_memory_links_entity').on(table.entityKind, table.entityId),
+  memoryIdx: index('idx_memory_links_memory').on(table.memoryId),
+  uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
+}))
+
 export const userSettings = pgTable('user_settings', {
   id: text('id').primaryKey(),
   agentCalendarIds: text('agent_calendar_ids'),
@@ -1052,6 +1069,8 @@ export const userSettings = pgTable('user_settings', {
   businessProfile: text('business_profile'),
   /** One-shot guard for the agent_triggers → agent_schedules migration */
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
+  /** One-shot guard for the memory_links backfill (hugo-entity-memory) */
+  memoryLinksBackfilledAt: text('memory_links_backfilled_at'),
   /** JSON DashboardPrefs — meetingWindow / taskWindow for mobile (and future web) */
   dashboardPrefs: text('dashboard_prefs'),
   /** JSON ListSortPrefs — multi-level sort defaults for dashboard, /tasks, meetings past */

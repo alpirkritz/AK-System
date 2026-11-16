@@ -828,6 +828,25 @@ export const memories = sqliteTable('memories', {
   pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
 }))
 
+export const MEMORY_LINK_KINDS = ['person', 'project', 'workspace', 'topic'] as const
+export type MemoryLinkKind = (typeof MEMORY_LINK_KINDS)[number]
+export const MEMORY_LINK_ORIGINS = ['manual', 'tool', 'auto', 'backfill'] as const
+export type MemoryLinkOrigin = (typeof MEMORY_LINK_ORIGINS)[number]
+
+/** What a memory is about. A memory with no links is global (injected into every run). */
+export const memoryLinks = sqliteTable('memory_links', {
+  id: text('id').primaryKey(),
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  entityKind: text('entity_kind').notNull(), // person | project | workspace | topic
+  entityId: text('entity_id').notNull(), // row id, or normalized topic token
+  origin: text('origin').notNull().default('manual'), // manual | tool | auto | backfill
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  entityIdx: index('idx_memory_links_entity').on(table.entityKind, table.entityId),
+  memoryIdx: index('idx_memory_links_memory').on(table.memoryId),
+  uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
+}))
+
 export type HugoInstruction = typeof hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof hugoInstructions.$inferInsert
 export type Memory = typeof memories.$inferSelect
@@ -842,6 +861,7 @@ export const userSettings = sqliteTable('user_settings', {
   agentDisplayNames: text('agent_display_names'), // JSON Record<agentId, displayName>
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
+  memoryLinksBackfilledAt: text('memory_links_backfilled_at'), // one-shot guard: memory_links backfill
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
   layoutPrefs: text('layout_prefs'), // JSON LayoutPrefs — block order per screen

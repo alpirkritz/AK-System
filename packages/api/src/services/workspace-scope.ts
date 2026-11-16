@@ -14,6 +14,7 @@ import {
   workspaces,
 } from '@ak-system/database'
 import { eq, inArray } from 'drizzle-orm'
+import { moveEntityMemoryLinks } from './memory-relevance'
 
 type Db = ReturnType<typeof getDb>
 
@@ -106,6 +107,7 @@ export async function mergeWorkspaces(db: Db, fromId: string, intoId: string): P
     }
   }
 
+  await moveEntityMemoryLinks(db, 'workspace', fromId, intoId)
   await db.delete(workspaces).where(eq(workspaces.id, fromId))
   return counts
 }

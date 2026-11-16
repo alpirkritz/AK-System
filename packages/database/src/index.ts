@@ -830,6 +830,17 @@ const MEMORY_TABLES = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind)`,
   `CREATE INDEX IF NOT EXISTS idx_memories_pinned ON memories(pinned, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS memory_links (
+    id TEXT PRIMARY KEY,
+    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    entity_kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_links_entity ON memory_links(entity_kind, entity_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_links_memory ON memory_links(memory_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_links_triple ON memory_links(memory_id, entity_kind, entity_id)`,
   `CREATE TABLE IF NOT EXISTS user_settings (
     id TEXT PRIMARY KEY,
     agent_calendar_ids TEXT,
@@ -1205,6 +1216,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN agent_display_names TEXT',
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
   'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN memory_links_backfilled_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN layout_prefs TEXT',
@@ -1895,6 +1907,7 @@ export const teamsMessages = schema.teamsMessages
 export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
+export const memoryLinks = schema.memoryLinks
 export const userSettings = schema.userSettings
 export const companies = schema.companies
 export const serviceItems = schema.serviceItems
@@ -2058,13 +2071,16 @@ export type HugoInstruction = typeof schemaPg.hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof schemaPg.hugoInstructions.$inferInsert
 export type Memory = typeof schemaPg.memories.$inferSelect
 export type NewMemory = typeof schemaPg.memories.$inferInsert
+export type MemoryLink = typeof schemaPg.memoryLinks.$inferSelect
+export type NewMemoryLink = typeof schemaPg.memoryLinks.$inferInsert
 export type AgentRunLog = typeof schemaPg.agentRunLogs.$inferSelect
 export type NewAgentRunLog = typeof schemaPg.agentRunLogs.$inferInsert
 export type AgentJob = typeof schemaPg.agentJobs.$inferSelect
 export type NewAgentJob = typeof schemaPg.agentJobs.$inferInsert
 export type AgentCacheEntry = typeof schemaPg.agentCache.$inferSelect
 export type NewAgentCacheEntry = typeof schemaPg.agentCache.$inferInsert
-export { MEMORY_KINDS, MEMORY_SOURCES, READING_LIST_STATUSES } from './schema'
+export { MEMORY_KINDS, MEMORY_SOURCES, MEMORY_LINK_KINDS, MEMORY_LINK_ORIGINS, READING_LIST_STATUSES } from './schema'
+export type { MemoryLinkKind, MemoryLinkOrigin } from './schema'
 export type { MemoryKind, MemorySource, ReadingListStatus } from './schema'
 
 /** Normalize select result to array (works with both SQLite .all() and Postgres Promise) */

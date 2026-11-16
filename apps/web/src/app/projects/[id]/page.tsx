@@ -15,6 +15,7 @@ import { notionPageUrl } from '@/lib/notion-url'
 import { NotionSummaryCard } from '@/app/meetings/components/NotionSummaryCard'
 import { ProjectWarmthCard } from '@/app/projects/components/ProjectWarmthCard'
 import { CollapsibleSection } from '@/app/projects/components/CollapsibleSection'
+import { EntityMemories } from '@/components/memory/EntityMemories'
 import dynamic from 'next/dynamic'
 const ProjectModal = dynamic(() => import('@/components/Modals/ProjectModal').then((m) => m.ProjectModal), { ssr: false })
 const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m) => m.TaskModal), { ssr: false })
@@ -191,6 +192,10 @@ export default function ProjectDetailPage() {
           ))}
         </div>
       </div>
+
+      <CollapsibleSection title="מה הוגו זוכר" defaultOpen={false}>
+        <EntityMemories kind="project" entityId={id} />
+      </CollapsibleSection>
 
       {meetingNotes.length > 0 && (
         <CollapsibleSection title="סיכומי ישיבות" count={meetingNotes.length} defaultOpen={false}>

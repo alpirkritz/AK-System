@@ -209,7 +209,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'save_fact',
     description:
-      "Save a fact or note to memory for later. Use for: 'שמור ש...', 'remember that', 'תזכור'.",
+      "Save a short-lived note or report line (not recalled automatically). Use only for 'רשום לדוח' / 'save to reports'. For anything the user wants remembered ('תזכור', 'remember that', 'שמור ש...'), use `remember` instead.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -243,8 +243,39 @@ const baseToolDeclarations: FunctionDeclaration[] = [
           description: "'memory' for short preferences/facts, 'knowledge' for longer pasted content (default: memory)",
           enum: ['memory', 'knowledge'],
         },
+        aboutPeople: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: 'Names of the people this memory is about, as the user wrote them. Fill whenever it is about someone specific.',
+        },
+        aboutProjects: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: 'Project names this memory is about.',
+        },
+        aboutWorkspace: { type: SchemaType.STRING, description: 'Workspace / world name this memory is about, if any.' },
+        topics: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Short topic names this memory is about (e.g. 'DD', 'Algo 4').",
+        },
       },
       required: ['content'],
+    },
+  },
+  {
+    name: 'recall_memories',
+    description:
+      "Every saved memory about a person, project, workspace or topic (not capped like the auto-injected block), plus general memories containing `query`. Use on a named-person or named-project ask, or 'מה אתה זוכר על X'.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        person: { type: SchemaType.STRING, description: 'Person name' },
+        project: { type: SchemaType.STRING, description: 'Project name' },
+        workspace: { type: SchemaType.STRING, description: 'Workspace name' },
+        topic: { type: SchemaType.STRING, description: 'Topic name' },
+        query: { type: SchemaType.STRING, description: 'Free text to search in general (unlinked) memories' },
+      },
     },
   },
   {
@@ -709,7 +740,7 @@ const HARNESS_TOOL_AGENT_IDS = new Set([
 export function getToolDeclarations(agentId?: string): FunctionDeclaration[] {
   let decls = [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
   if (agentId && !HARNESS_TOOL_AGENT_IDS.has(agentId)) {
-    decls = decls.filter((d) => d.name !== 'get_harness_insights')
+    decls = decls.filter((d) => d.name !== 'get_harness_insights' && d.name !== 'recall_memories')
   }
   if (!calendarOptimizerHidesTasks(agentId)) return decls
   return decls
@@ -920,8 +951,59 @@ export async function executeTool(
       const content = (args.content as string)?.trim()
       if (!content) return { error: 'content is required' }
       const kind = (args.kind as 'memory' | 'knowledge' | undefined) ?? 'memory'
-      const memory = await caller.memory.memories.create({ content, kind, source: 'chat' })
-      return { memory, saved: true, note: 'Stored to persistent memory — will be recalled in future conversations.' }
+      const strings = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+      const named = {
+        people: strings(args.aboutPeople),
+        projects: strings(args.aboutProjects),
+        workspace: typeof args.aboutWorkspace === 'string' && args.aboutWorkspace.trim() ? args.aboutWorkspace : undefined,
+        topics: strings(args.topics),
+      }
+      const hasNamed = named.people.length + named.projects.length + named.topics.length > 0 || Boolean(named.workspace)
+      // Named entities win; with none named, link by what the content itself mentions.
+      const resolved = hasNamed
+        ? await caller.memory.resolveNames(named)
+        : { links: (await caller.memory.memories.suggestLinks({ content })).links, unresolved: [] as string[] }
+      const memory = await caller.memory.memories.create({
+        content,
+        kind,
+        source: 'chat',
+        links: resolved.links.map((l) => ({ kind: l.kind, entityId: l.entityId })),
+      })
+      const linkedTo = resolved.links.map((l) => l.label)
+      return {
+        memory,
+        saved: true,
+        linkedTo,
+        unresolved: resolved.unresolved,
+        note:
+          (linkedTo.length > 0
+            ? `Stored and linked to: ${linkedTo.join(', ')}. Tell the user who/what it was linked to.`
+            : 'Stored as a general memory (recalled in every conversation).') +
+          (resolved.unresolved.length > 0
+            ? ` Not found in the system (not linked, nothing created): ${resolved.unresolved.join(', ')}.`
+            : ''),
+      }
+    }
+
+    case 'recall_memories': {
+      const pick = (k: string) => (typeof args[k] === 'string' && (args[k] as string).trim() ? (args[k] as string) : undefined)
+      const result = await caller.memory.recall({
+        person: pick('person'),
+        project: pick('project'),
+        workspace: pick('workspace'),
+        topic: pick('topic'),
+        query: pick('query'),
+      })
+      return {
+        byEntity: result.scoped.map((g) => ({
+          about: g.anchor.label,
+          kind: g.anchor.kind,
+          memories: g.memories.map((m) => m.content),
+        })),
+        general: result.matchingGlobal.map((m) => m.content),
+        unresolved: result.unresolved,
+      }
     }
 
     case 'log_agent_feedback': {
