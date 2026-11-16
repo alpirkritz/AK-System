@@ -22,6 +22,7 @@ import {
   isNavigableNotificationUrl,
   markNotificationRead,
   mobileRouteForNotificationUrl,
+  notificationHref,
   notificationPreview,
 } from '../../lib/api'
 import { dismissTrayNotifications } from '../../lib/notifications'
@@ -490,15 +491,13 @@ export default function NotificationsScreen() {
                     <Pressable
                       style={styles.primaryBtn}
                       onPress={() => {
-                        const target = mobileRouteForNotificationUrl(selected.url)
+                        const href = notificationHref(mobileRouteForNotificationUrl(selected.url))
                         setSelected(null)
-                        // `as Href` matches the app's convention for routes the
-                        // stale generated router.d.ts does not list yet.
-                        router.push(
-                          (target.message
-                            ? { pathname: target.pathname, params: { message: target.message } }
-                            : target.pathname) as Href,
-                        )
+                        // Push only after the native Modal has gone: a push fired while it is
+                        // still dismissing gets swallowed, which read as "the button does nothing".
+                        // `as Href` matches the app's convention for routes the stale generated
+                        // router.d.ts does not list yet.
+                        setTimeout(() => router.push(href as Href), 250)
                       }}
                     >
                       <Text style={styles.primaryBtnText}>עבור ליעד</Text>

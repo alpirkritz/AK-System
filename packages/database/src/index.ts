@@ -929,6 +929,18 @@ const TIER1_QA_TABLES = [
     created_at TEXT NOT NULL
   )`,
 ]
+const NOTION_RELEASE_TABLES = [
+  `CREATE TABLE IF NOT EXISTS notion_release_seen (
+    page_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
+  )`,
+]
 const FINANCE_TABLES = [
   `CREATE TABLE IF NOT EXISTS finance_trades (
     id TEXT PRIMARY KEY,
@@ -1629,6 +1641,9 @@ function applySqliteMigrations(sqlite: Database) {
   for (const sql of HEALTH_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of NOTION_RELEASE_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of TIER1_QA_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1936,6 +1951,7 @@ export const agentMessages = schema.agentMessages
 export const agentTriggers = schema.agentTriggers
 export const agentSchedules = schema.agentSchedules
 export const tier1QaSnapshots = schema.tier1QaSnapshots
+export const notionReleaseSeen = schema.notionReleaseSeen
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
@@ -1987,6 +2003,7 @@ export type AgentSchedule = typeof schemaPg.agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof schemaPg.agentSchedules.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
+export type NotionReleaseSeen = typeof schemaPg.notionReleaseSeen.$inferSelect
 export type Tier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferSelect
 export type NewTier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect

@@ -4,7 +4,19 @@
  * is the real one. Computed on read; no LLM. Spec: docs/specs/relationship-needs-1on1.md
  */
 import { and, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
-import { meetingAnalyses, meetingPeople, meetings, people, personEmailThreads, whatsappDmMessages, type getDb } from '@ak-system/database'
+import {
+  meetingAnalyses,
+  meetingPeople,
+  meetings,
+  people,
+  personEmailThreads,
+  voiceRecordingPeople,
+  voiceRecordings,
+  whatsappDmMessages,
+  whatsappMessages,
+  whatsappPersonLinks,
+  type getDb,
+} from '@ak-system/database'
 import { normalizeParticipantName, parseStoredParticipants } from '../lib/calendar-participants'
 import { isSelfPersonName } from '../lib/self-identity'
 import { analysisSentiment, relationshipBoard, type RelationshipCard } from './warmth'
@@ -13,7 +25,7 @@ type Db = ReturnType<typeof getDb>
 
 export type AttentionStatus = 'needs_1on1' | 'steady' | 'good'
 export type AttentionReason = 'tone_drop' | 'low_1on1' | 'quiet'
-export type ContactChannel = 'meeting' | 'whatsapp' | 'email' | 'manual'
+export type ContactChannel = 'meeting' | 'whatsapp' | 'whatsapp_group' | 'recording' | 'email' | 'manual'
 export type InteractionKind = 'one_on_one' | 'group' | 'direct'
 
 export interface Interaction {
@@ -164,8 +176,9 @@ export function evaluateAttention(input: {
   const last1on1Score = last1on1?.score ?? null
 
   const personal = past.filter((i) => i.kind !== 'group')
-  const lastPersonal = personal[0] ?? null
-  const quietDays = lastPersonal ? daysBetween(lastPersonal.date, today) : null
+  // Any contact breaks a silence — a group meeting, a recording, a word in a shared WhatsApp
+  // group. "Quiet" means we have not talked at all, not that we have not had a 1:1.
+  const quietDays = last ? daysBetween(last.date, today) : null
   const personalDays = [...new Set(personal.filter((i) => i.date >= windowStart).map((i) => i.date))].sort()
   const gaps = personalDays.slice(1).map((d, idx) => daysBetween(personalDays[idx]!, d))
   const learnedGap = personalDays.length >= 3 ? median(gaps) : null
@@ -200,9 +213,10 @@ export function evaluateAttention(input: {
     severity += 1
   }
   // Nobody I only ever meet in groups is "quiet" unless I asked for a rhythm with them.
+  const wantsRhythm = contactFrequencyDays != null && contactFrequencyDays > 0
   const quiet = quietDays != null
-    ? quietDays > QUIET_FACTOR * expectedGapDays
-    : contactFrequencyDays != null && contactFrequencyDays > 0
+    ? (personal.length > 0 || wantsRhythm) && quietDays > QUIET_FACTOR * expectedGapDays
+    : wantsRhythm
   if (quiet) {
     reasons.push('quiet')
     severity += quietDays != null ? quietDays / expectedGapDays - 1 : QUIET_FACTOR
@@ -215,7 +229,7 @@ export function evaluateAttention(input: {
     } else if (ackAt) {
       const ackDay = ackAt.slice(0, 10)
       // New evidence is a meeting after the ack; a chat message alone doesn't re-open it.
-      const newMeeting = past.some((i) => i.kind !== 'direct' && i.date > ackDay)
+      const newMeeting = past.some((i) => i.channel === 'meeting' && i.date > ackDay)
       if (!newMeeting && daysBetween(ackDay, today) < ACK_EXPIRY_DAYS) suppressed = 'acknowledged'
     }
     return { ...base, status: 'needs_1on1', reasons, severity: round(severity), suppressed }
@@ -311,6 +325,25 @@ export async function loadAttention(
     .from(personEmailThreads)
     .where(and(gte(personEmailThreads.date, from), ...(scoped ? [inArray(personEmailThreads.personId, scoped)] : [])))
 
+  // Messages they wrote in a shared WhatsApp group, through their linked JIDs.
+  const jidLinks = await db
+    .select({ personId: whatsappPersonLinks.personId, jid: whatsappPersonLinks.whatsappJid })
+    .from(whatsappPersonLinks)
+    .where(scoped ? inArray(whatsappPersonLinks.personId, scoped) : undefined)
+  const personByJid = new Map(jidLinks.map((l) => [l.jid, l.personId]))
+  const groupMsgs = personByJid.size === 0
+    ? []
+    : await db
+      .select({ sender: whatsappMessages.sender, ts: whatsappMessages.ts })
+      .from(whatsappMessages)
+      .where(and(gte(whatsappMessages.ts, fromMs), inArray(whatsappMessages.sender, [...personByJid.keys()])))
+  // Recorded conversations tagged with the person (some have no meeting row of their own).
+  const recordings = await db
+    .select({ personId: voiceRecordingPeople.personId, createdAt: voiceRecordings.createdAt })
+    .from(voiceRecordingPeople)
+    .innerJoin(voiceRecordings, eq(voiceRecordings.id, voiceRecordingPeople.recordingId))
+    .where(and(gte(voiceRecordings.createdAt, from), ...(scoped ? [inArray(voiceRecordingPeople.personId, scoped)] : [])))
+
   const byPerson = new Map<string, Interaction[]>(ids.map((id) => [id, []]))
   const next1on1 = new Map<string, string>()
   const seenMeeting = new Set<string>()
@@ -341,6 +374,21 @@ export async function loadAttention(
   for (const e of emails) {
     const date = e.date.slice(0, 10)
     if (date <= today) byPerson.get(e.personId)?.push({ date, kind: 'direct', channel: 'email' })
+  }
+  for (const m of groupMsgs) {
+    const personId = personByJid.get(m.sender)
+    if (!personId) continue
+    const date = new Date(m.ts).toISOString().slice(0, 10)
+    const key = `${personId}:g:${date}`
+    if (seenDay.has(key) || date > today) continue
+    seenDay.add(key)
+    // A group thread is contact, not a personal conversation — it breaks silence but does not
+    // teach the personal rhythm.
+    byPerson.get(personId)?.push({ date, kind: 'group', channel: 'whatsapp_group' })
+  }
+  for (const r of recordings) {
+    const date = r.createdAt.slice(0, 10)
+    if (date <= today) byPerson.get(r.personId)?.push({ date, kind: 'direct', channel: 'recording' })
   }
 
   for (const p of personRows) {
@@ -382,7 +430,7 @@ export function attentionReasonText(a: PersonAttention): string[] {
   if (a.reasons.includes('tone_drop')) out.push('הטון בשיחות האחרונות ירד')
   if (a.reasons.includes('low_1on1') && a.last1on1Date) out.push(`ה-1:1 האחרון (${day(a.last1on1Date)}) קיבל ${a.last1on1Score}/10`)
   if (a.reasons.includes('quiet')) {
-    out.push(a.quietDays != null ? `אין שיחה אישית ${a.quietDays} ימים (בדרך כלל כל ${a.expectedGapDays})` : 'אין שיחה אישית בשנה האחרונה')
+    out.push(a.quietDays != null ? `אין שום קשר ${a.quietDays} ימים (בדרך כלל כל ${a.expectedGapDays})` : 'אין שום קשר בשנה האחרונה')
   }
   return out
 }

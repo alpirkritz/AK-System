@@ -31,14 +31,28 @@ describe('evaluateAttention', () => {
     expect(after.status).not.toBe('needs_1on1')
   })
 
-  it('does not let good group meetings hide a missing 1:1', () => {
+  it('counts a recent group meeting as contact — no "quiet" flag', () => {
     const groups = [2, 9, 16, 23, 30].map((d) => meet(d, 'group', 8))
     const a = evaluate([...groups, dm(60), dm(67), dm(74)])
+    expect(a.reasons).not.toContain('quiet')
+    expect(a.status).not.toBe('needs_1on1')
+    expect(a.quietDays).toBe(2)
+    expect(a.lastContact).toEqual({ date: addDays(TODAY, -2), channel: 'meeting' })
+  })
+
+  it('still flags quiet when there was no contact on any channel', () => {
+    const a = evaluate([dm(60), dm(67), dm(74), meet(81, 'group', 8)])
     expect(a.status).toBe('needs_1on1')
     expect(a.reasons).toEqual(['quiet'])
     expect(a.quietDays).toBe(60)
-    expect(a.expectedGapDays).toBe(7)
-    expect(a.lastContact).toEqual({ date: addDays(TODAY, -2), channel: 'meeting' })
+  })
+
+  it('counts a WhatsApp group message or a recording as contact', () => {
+    const base = [dm(60), dm(67), dm(74)]
+    const viaGroup = evaluate([...base, { date: addDays(TODAY, -3), kind: 'group', channel: 'whatsapp_group' }])
+    expect(viaGroup.reasons).not.toContain('quiet')
+    const viaRecording = evaluate([...base, { date: addDays(TODAY, -3), kind: 'direct', channel: 'recording' }])
+    expect(viaRecording.reasons).not.toContain('quiet')
   })
 
   it('takes the last contact from any channel', () => {
@@ -48,10 +62,13 @@ describe('evaluateAttention', () => {
   })
 
   it('never calls a group-only contact quiet unless a rhythm was set', () => {
-    const groups = [5, 20, 40, 60].map((d) => meet(d, 'group', 7))
+    const groups = [40, 60, 80, 100].map((d) => meet(d, 'group', 7))
     expect(evaluate(groups).status).toBe('steady')
     const withRhythm = evaluate(groups, { contactFrequencyDays: 14 })
     expect(withRhythm.reasons).toEqual(['quiet'])
+    // …and a rhythm is met by any contact, a group meeting included.
+    const recent = evaluate([meet(5, 'group', 7), ...groups], { contactFrequencyDays: 14 })
+    expect(recent.reasons).not.toContain('quiet')
   })
 
   it('leaves thin relationships without a status', () => {

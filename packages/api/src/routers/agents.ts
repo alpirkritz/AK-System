@@ -57,7 +57,7 @@ export const agentsRouter = router({
       const current = before[0]!
       const nextEnabled = input.enabled ?? current.enabled
       const nextTimes = input.scheduleTimes ?? current.scheduleTimes
-      if (nextEnabled && nextTimes.length === 0) {
+      if (nextEnabled && nextTimes.length === 0 && !current.continuous) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'יש להגדיר לפחות שעה אחת כדי להפעיל לוח זמנים',

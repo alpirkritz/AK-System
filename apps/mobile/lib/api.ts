@@ -228,6 +228,8 @@ export type MobileNotificationRoute =
   | '/settings/notifications'
   | '/settings/dashboard'
   | '/settings/developer'
+  | '/meeting/[id]'
+  | '/task/[id]'
 
 export type MobileNotificationTarget = {
   pathname: MobileNotificationRoute
@@ -235,8 +237,27 @@ export type MobileNotificationTarget = {
   message?: string
   /** Specialist agent id from `/chat?agent=<id>`. */
   agent?: string
-  /** Meeting id from `/meetings?focus=<id>` or `/meeting/<id>`. */
+  /** Meeting id from `/meetings?focus=<id>`. */
   focus?: string
+  /** Record id for detail routes (`/meeting/[id]`, `/task/[id]`). */
+  id?: string
+}
+
+/**
+ * Router-ready href for a mapped target: pathname plus every param it carries.
+ * The "עבור ליעד" button used to forward only `message`, so agent/meeting
+ * links landed on generic lists.
+ */
+export function notificationHref(target: MobileNotificationTarget): {
+  pathname: MobileNotificationRoute
+  params: Record<string, string>
+} {
+  const params: Record<string, string> = {}
+  if (target.message) params.message = target.message
+  if (target.agent) params.agent = target.agent
+  if (target.focus) params.focus = target.focus
+  if (target.id) params.id = target.id
+  return { pathname: target.pathname, params }
 }
 
 /**
@@ -254,12 +275,21 @@ export function mobileRouteForNotificationUrl(url: string): MobileNotificationTa
   if (path === '/chat' || path.startsWith('/agents/chat')) {
     return { pathname: '/chat', message, agent }
   }
-  if (path.startsWith('/agents')) return { pathname: '/agents' }
-  if (path.startsWith('/people')) return { pathname: '/people' }
-  if (path.startsWith('/tasks')) return { pathname: '/tasks' }
-  if (path.match(/^\/meeting\/[^/]+/)) {
-    return { pathname: '/meetings', focus: path.split('/')[2] }
+  // Web `/agents?agent=<id>` opens that agent's conversation; on mobile that's the chat tab.
+  if (path.startsWith('/agents')) {
+    return agent ? { pathname: '/chat', agent } : { pathname: '/agents' }
   }
+  if (path.startsWith('/people')) return { pathname: '/people' }
+  // Ids keep their original case — only the path prefix is matched lower-cased.
+  const idAfter = (prefix: string) => {
+    const m = new RegExp(`^${prefix}/([^/]+)`, 'i').exec(rawPath.trim())
+    return m?.[1] ? decodeURIComponent(m[1]) : undefined
+  }
+  const taskId = idAfter('/tasks')
+  if (taskId) return { pathname: '/task/[id]', id: taskId }
+  if (path.startsWith('/tasks')) return { pathname: '/tasks' }
+  const meetingId = idAfter('/meetings?')
+  if (meetingId) return { pathname: '/meeting/[id]', id: meetingId }
   if (path.startsWith('/meetings')) return { pathname: '/meetings', focus }
   if (path.startsWith('/reading-list')) return { pathname: '/reading-list' }
   if (path.startsWith('/projects')) return { pathname: '/projects' }

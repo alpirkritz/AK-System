@@ -12,6 +12,7 @@ import {
   getBridgeWatchedGroups,
   pushConfigToBridge,
   isBridgeConfigured,
+  bridgeFetch,
   summarizeGroup,
   type GroupRulePayload,
 } from '../services/whatsapp-bridge-client'
@@ -335,6 +336,21 @@ export const whatsappRouter = router({
           bridgeUrl: process.env.WHATSAPP_BRIDGE_URL ?? '',
         }
       }
+    }),
+
+    /** Restart the bridge socket and return a fresh QR (or connected=true). */
+    pair: protectedProcedure.mutation(async () => {
+      if (!isBridgeConfigured()) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'WhatsApp bridge not configured' })
+      const { ok, data } = await bridgeFetch<{ connected?: boolean; qr?: string | null; error?: string }>('/pair', { method: 'POST' })
+      if (!ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: data.error || 'Pairing failed' })
+      return { connected: !!data.connected, qr: data.qr ?? null }
+    }),
+
+    /** Current QR (rotates ~every 20s) for the pairing dialog. */
+    qr: protectedProcedure.query(async () => {
+      if (!isBridgeConfigured()) return { connected: false, qr: null as string | null }
+      const { data } = await bridgeFetch<{ connected?: boolean; qr?: string | null }>('/qr')
+      return { connected: !!data.connected, qr: data.qr ?? null }
     }),
   }),
 

@@ -22,6 +22,13 @@ Spec: `docs/specs/task-open-and-create-defaults.md`
 - "משימות" header folds the block (default open); "סיכומי ישיבות" folds (default closed). Both via `BlockState.open/onToggle`, shared by all people.
 - Lint clean, no new `tsc` errors in the file, build compiles.
 
+## e2e triage (deploy:ec2 CI gate, 2026-11-03)
+The full run failed on tests outside this change; none traced to it:
+- `dashboard-task-open-sort` — failed in the full run, passes alone (twice). Order-dependent.
+- `task-assignee` (3) — fail with the pre-commit `TaskModal.tsx` too. The owner is assigned; the picker shows "אני" while the test expects "Alpir Kritzler". Stale test.
+- `task-related-people` — flaky: the people picker is empty when no contacts exist yet in `e2e.sqlite`; untouched code.
+- `calendar-link-and-commitment-task-modal` (2), `full-flow` (2), `person-context-circles` merge — selectors that no longer match the UI (modal title is not a heading, no "תפקיד" field, "פגישות חוזרות" heading, sidebar h2s).
+
 ## Nits
 - Project-wide `tsc` currently reports ~2.7k implicit-any errors from unresolved tRPC types; none on the changed lines. The build skips type validation, so this is not caught in CI.
 - Every new task from `TaskModal` now defaults to today, including the dashboard "+". The header quick-add keeps no date (out of scope).

@@ -9,6 +9,7 @@ import {
   digestTitle,
   effectiveDigestPrompt,
   getDailyDigestPrompt,
+  isIngestStalled,
   NARRATIVE_CAP,
   normalizeDigestPrompt,
   renderDailyDigestMarkdown,
@@ -18,6 +19,7 @@ import {
   shouldSkipScheduledGroupSummaries,
   type FollowedDigestGroup,
 } from './whatsapp-daily-digest'
+import { QUIET_DAY_BODY } from './whatsapp-summary-clusters'
 import { buildDailyDigestPrompt, DIGEST_NARRATIVE_FALLBACK, parseFreeformDigestText, type DailyDigestModel } from './whatsapp-insights'
 
 function group(partial: Partial<FollowedDigestGroup> & Pick<FollowedDigestGroup, 'jid' | 'name'>): FollowedDigestGroup {
@@ -284,3 +286,26 @@ describe('digest story length and prompt', () => {
     })
   })
 })
+
+describe('ingest stall — an empty day is not "nothing happened" when nothing arrived', () => {
+  const now = Date.UTC(2026, 10, 14, 18, 30)
+  it('detects a stalled feed from the last message age or a disconnected bridge', () => {
+    expect(isIngestStalled({ lastMessageTs: now - 2 * 3_600_000, bridgeConnected: true, bridgeError: null }, now)).toBe(false)
+    expect(isIngestStalled({ lastMessageTs: now - 30 * 3_600_000, bridgeConnected: null, bridgeError: null }, now)).toBe(true)
+    expect(isIngestStalled({ lastMessageTs: now - 3_600_000, bridgeConnected: false, bridgeError: 'Logged out' }, now)).toBe(true)
+    expect(isIngestStalled({ lastMessageTs: null, bridgeConnected: true, bridgeError: null }, now)).toBe(true)
+  })
+
+  it('renders a warning instead of the quiet-day line', () => {
+    const digest = { dateLabel: 'שבת, 14.11', actions: [], narrative: '', emptyDay: true,
+      stalled: { lastMessageTs: Date.now() - 72 * 3_600_000, bridgeConnected: false, bridgeError: 'Logged out' } }
+    const plain = renderDailyDigestPlain(digest)
+    expect(plain).toContain('⚠️')
+    expect(plain).toContain('3 ימים')
+    expect(plain).toContain('Logged out')
+    expect(plain).not.toContain(QUIET_DAY_BODY)
+    expect(renderDailyDigestMarkdown(digest)).not.toContain(QUIET_DAY_BODY)
+    expect(digestTitle(digest)).toContain('אין הודעות נכנסות')
+  })
+})
+

@@ -88,6 +88,26 @@ export default ({ config }: ConfigContext): ExpoConfig =>
       'expo-web-browser',
       'expo-document-picker',
       '@react-native-community/datetimepicker',
+      [
+        // Android home-screen widget: one tap opens helm://record?quick=1 and starts recording
+        // (docs/specs/mobile-quick-record-widget-and-nav-fixes.md). Rendered by widgets/widget-task-handler.tsx.
+        'react-native-android-widget',
+        {
+          widgets: [
+            {
+              name: 'QuickRecord',
+              label: 'הקלטה מהירה',
+              description: 'לחיצה אחת מתחילה הקלטה — השאלות אחרי',
+              minWidth: '70dp',
+              minHeight: '70dp',
+              targetCellWidth: 1,
+              targetCellHeight: 1,
+              resizeMode: 'horizontal|vertical',
+              updatePeriodMillis: 0,
+            },
+          ],
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,

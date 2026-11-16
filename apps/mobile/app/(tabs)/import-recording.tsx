@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import { fetchPeople, fetchProjects, type MobileProject } from '../../lib/data'
 import { colors } from '../../lib/theme'
@@ -37,6 +37,30 @@ export default function ImportRecordingScreen() {
   const [people, setPeople] = useState<Named[]>([])
   const [project, setProject] = useState<Named | null>(null)
   const [directory, setDirectory] = useState<{ people: Named[]; projects: MobileProject[] } | null>(null)
+
+  /** Back to an empty file-pick screen, ready for the next import. */
+  const reset = useCallback(() => {
+    setFile(null)
+    setConsent(false)
+    setProgress(0)
+    setMessage(null)
+    setPeople([])
+    setProject(null)
+    setPhase('pick')
+  }, [])
+
+  // Tab screens stay mounted, so a finished import used to stay on "done" forever and the
+  // only way to import another file was to kill the app. Leaving the screen after a
+  // successful upload now resets it.
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (phaseRef.current === 'done') reset()
+      }
+    }, [reset]),
+  )
 
   // Load people + projects for the context editor as soon as we have a token.
   useEffect(() => {
@@ -182,8 +206,11 @@ export default function ImportRecordingScreen() {
       {phase === 'done' ? (
         <View style={styles.card}>
           <Text style={styles.body}>ההקלטה עלתה ונמצאת בתהליך תמלול וניתוח — היא תופיע ברשימת ההקלטות בקרוב.</Text>
-          <Pressable style={styles.primaryBtn} onPress={() => router.push('/meetings')} accessibilityRole="button">
-            <Text style={styles.primaryBtnText}>לרשימת הפגישות</Text>
+          <Pressable style={styles.primaryBtn} onPress={reset} accessibilityRole="button">
+            <Text style={styles.primaryBtnText}>ייבא הקלטה נוספת</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push('/meetings')} accessibilityRole="button">
+            <Text style={styles.link}>לרשימת הפגישות</Text>
           </Pressable>
         </View>
       ) : null}

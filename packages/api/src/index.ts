@@ -103,6 +103,13 @@ export {
   type GroupRulePayload,
 } from './services/whatsapp-bridge-client'
 export {
+  runReleaseNotesListener,
+  createLiveReleaseNotesDeps,
+  composeReleaseMessage,
+  RELEASE_NOTES_NOTIFICATION_TYPE_ID,
+  type ReleaseNotesResult,
+} from './services/notion-release-notes'
+export {
   runTier1QaScan,
   formatIncompleteMessage,
   formatGroundingMessage,
@@ -172,6 +179,13 @@ export {
   type DigestRunResult,
 } from './services/whatsapp-daily-digest'
 export {
+  runWhatsappHealthCheck,
+  evaluateWhatsappHealth,
+  decideHealthAction,
+  WHATSAPP_HEALTH_TYPE,
+  type HealthRunResult,
+} from './services/whatsapp-health'
+export {
   NOTIFICATION_TYPES,
   resolveNotificationChannels,
   getSchedulablePreference,
@@ -188,6 +202,7 @@ export {
   listAgentConfigs,
   listAgentsDueAtTime,
   markAgentRan,
+  isAgentEnabled,
   migrateAgentSchedulesOnce,
   setAgentSchedule,
   setEventSubscription,

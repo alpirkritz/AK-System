@@ -20,6 +20,16 @@ export const DEFAULT_SCHEDULE_TIMES: Record<string, string[]> = {
   '07_email_assistant': ['09:00'],
 }
 
+/**
+ * Agents driven by their own polling cron (not by clock times): the on/off
+ * switch alone enables them, no schedule needed.
+ */
+export const CONTINUOUS_AGENT_IDS: ReadonlySet<string> = new Set(['11_release_notes_listener'])
+
+export function isContinuousAgent(agentId: string): boolean {
+  return CONTINUOUS_AGENT_IDS.has(agentId)
+}
+
 export const DEFAULT_TRIGGER_MESSAGES: Record<string, string> = {
   '03_morning_briefing': 'הרץ תדריך בוקר יומי לפי ה-workflow',
   '04_meeting_prep_herald':

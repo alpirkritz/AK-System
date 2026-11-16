@@ -147,6 +147,14 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     schedulable: false,
   },
   {
+    id: 'whatsapp_bridge_health',
+    category: 'whatsapp',
+    label: 'הגשר לוואטסאפ לא עובד',
+    description: 'התראה כשהודעות מוואטסאפ מפסיקות להגיע למערכת או שהגשר מנותק, והודעה כשהוא חוזר',
+    availableChannels: ['push', 'telegram'],
+    schedulable: false,
+  },
+  {
     id: 'whatsapp_daily_digest',
     category: 'whatsapp',
     label: 'סיכום קבוצות יומי',
@@ -176,6 +184,16 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     // Draft-mode rollout (docs/specs/tier1-qa-whatsapp-agent.md): visible via
     // push/in-app only until Alpir reviews a few clean runs and flips this on
     // in Settings — never auto-enabled just because a preference row is saved.
+    defaultChannels: { whatsapp: false },
+  },
+  {
+    id: 'notion_release_notes',
+    category: 'agent',
+    label: 'Release notes — קבוצת טכני',
+    description: 'הודעת release notes לקבוצת "טכני" על כל רשומה חדשה בטבלת הדיפלוי ב-Notion',
+    availableChannels: ALL_CHANNELS,
+    schedulable: false,
+    // Draft-mode rollout: in-app/push only until WhatsApp is switched on in Settings.
     defaultChannels: { whatsapp: false },
   },
   {

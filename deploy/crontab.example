@@ -23,6 +23,9 @@ SHELL=/bin/bash
 # (was 30 min; shortened so post-meeting analysis lands closer to real time)
 2-59/10 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/notion-sync >/dev/null 2>&1
 
+# Notion release notes → WhatsApp "טכני" (every 5 min; draft mode until WhatsApp channel enabled)
+*/5 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/notion-release-notes >/dev/null 2>&1
+
 # Transcript analysis safety net — catches meetings that ended in the last 30 min
 # with a transcript already synced but no analysis yet (belt-and-suspenders for
 # the notion-sync auto-trigger above) — every 10 min
@@ -42,6 +45,8 @@ SHELL=/bin/bash
 
 # WhatsApp daily digest of every followed group — every 15 min, fires at the configured HH:MM (default 20:30)
 */15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-daily-digest >/dev/null 2>&1
+# WhatsApp bridge watchdog — alerts (push/Telegram) when messages stop arriving or the bridge disconnects
+2-59/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-health >/dev/null 2>&1
 
 # WhatsApp group summary — every 15 min. Skipped for the rest of the local day after the daily digest sends.
 9-59/15 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/whatsapp-group-summary >/dev/null 2>&1

@@ -12,6 +12,7 @@ import {
   DEFAULT_SCHEDULE_TIMES,
   getDefaultScheduleTimes,
   getDefaultTriggerMessage,
+  isContinuousAgent,
   parseJsonTimes,
   stringifyJsonTimes,
 } from '../agents-meta'
@@ -35,6 +36,8 @@ export interface AgentScheduleConfig {
   name: string
   role: string
   enabled: boolean
+  /** True for polling agents: the switch alone enables them, no clock times needed. */
+  continuous: boolean
   scheduleTimes: string[]
   /** Map of HH:MM → 0 (today) | 1 (tomorrow). Only populated for 06_calendar_optimizer. */
   scheduleDayOffsets: Record<string, 0 | 1>
@@ -75,6 +78,12 @@ async function getScheduleRow(db: Db, agentId: string): Promise<ScheduleRow | nu
   return rows[0] ?? null
 }
 
+/** Whether the agent's on/off switch (agents manage page) is on. Missing row = off. */
+export async function isAgentEnabled(agentId: string, db: Db = getDb()): Promise<boolean> {
+  const row = await getScheduleRow(db, agentId)
+  return Boolean(row?.enabled)
+}
+
 async function listScheduleRows(db: Db): Promise<ScheduleRow[]> {
   return queryRows<ScheduleRow>(db.select().from(agentSchedules))
 }
@@ -104,6 +113,7 @@ function rowToConfig(
     name: agent.name,
     role: agent.role,
     enabled: Boolean(row?.enabled),
+    continuous: isContinuousAgent(agent.id),
     scheduleTimes: row ? parseJsonTimes(row.scheduleTimes) : [],
     scheduleDayOffsets: parseDayOffsets(row?.scheduleDayOffsets),
     triggerMessage: row?.triggerMessage ?? null,

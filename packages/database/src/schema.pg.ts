@@ -835,6 +835,18 @@ export const tier1QaSnapshots = pgTable('tier1_qa_snapshots', {
   createdAt: text('created_at').notNull(),
 })
 
+export const notionReleaseSeen = pgTable('notion_release_seen', {
+  pageId: text('page_id').primaryKey(),
+  /** 'seen' (baseline, never announced) | 'pending' | 'sent' | 'drafted' | 'failed' */
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  title: text('title').notNull().default(''),
+  message: text('message'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  sentAt: text('sent_at'),
+})
+
 export const healthMetrics = pgTable('health_metrics', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),

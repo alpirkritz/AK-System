@@ -69,7 +69,7 @@ export interface ReasonResult {
   model: string | null
 }
 
-/** No WhatsApp for this long before a meeting counts as silence. */
+/** No contact on any channel (meeting, recording, WhatsApp DM or group, email) for this long counts as silence. */
 const SILENCE_DAYS = 14
 /** An open commitment older than this is stale regardless of other signals. */
 const STALE_COMMITMENT_DAYS = 21
@@ -188,7 +188,9 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
     commitmentsByPerson.set(c.personId, list)
   }
 
-  const silenceCutoffMs = Date.now() - SILENCE_DAYS * 86400000
+  // Last contact across every channel, not just WhatsApp DMs — a meeting, a recording or a
+  // word in a shared group all count as talking.
+  const attention = await loadAttention(db, { personIds: [...commitmentsByPerson.keys()], now: ctx.now })
   const out: HarnessInsightDraft[] = []
   const seen = new Set<string>()
 
@@ -203,24 +205,19 @@ async function detectSilentBeforeMeeting(ctx: DetectorContext): Promise<HarnessI
     if (seen.has(key)) continue
     seen.add(key)
 
-    const [latest] = await db
-      .select({ ts: whatsappDmMessages.ts })
-      .from(whatsappDmMessages)
-      .where(eq(whatsappDmMessages.personId, link.personId))
-      .orderBy(desc(whatsappDmMessages.ts))
-      .limit(1)
-    if (latest && latest.ts >= silenceCutoffMs) continue
+    const lastContact = attention.get(link.personId)?.lastContact?.date ?? null
+    const silentDays = lastContact ? daysBetween(lastContact, today) : null
+    if (silentDays != null && silentDays < SILENCE_DAYS) continue
 
     const meeting = upcoming.find((m) => m.id === link.meetingId)
     if (!meeting) continue
-    const silentDays = latest ? Math.round((Date.now() - latest.ts) / 86400000) : null
     const owed = personCommitments.filter((c) => c.owner === 'me').length
 
     out.push({
       kind: 'silent_before_meeting',
       title: `${name} — פגישה ב-${shortDate(meeting.date)} אחרי שתיקה`,
       body: [
-        silentDays ? `אין התכתבות ${silentDays} ימים` : 'אין התכתבות מתועדת כלל',
+        silentDays ? `אין שום קשר ${silentDays} ימים` : 'אין קשר מתועד כלל',
         `${personCommitments.length} התחייבויות פתוחות${owed > 0 ? ` (${owed} שלך)` : ''}`,
         `פגישה: ${meeting.title}`,
       ].join(' · '),

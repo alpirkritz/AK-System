@@ -204,7 +204,8 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
     return <div className="p-6 text-sm text-[#5a688c]">לא נמצאו הגדרות לסוכן הזה</div>
   }
 
-  const canEnable = times.length > 0
+  const continuous = config.continuous
+  const canEnable = continuous || times.length > 0
   const showDedupeNote = enabled && times.length > 0 && events.length > 0
 
   return (
@@ -226,9 +227,13 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
       <section className="card p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-medium text-[#eef3fb]">הרצה לפי שעה</h3>
+            <h3 className="text-sm font-medium text-[#eef3fb]">
+              {continuous ? 'האזנה אוטומטית' : 'הרצה לפי שעה'}
+            </h3>
             <p className="text-[11px] text-[#5a688c] mt-0.5">
-              הסוכן ירוץ אוטומטית בשעות שתגדיר, כל יום.
+              {continuous
+                ? 'הסוכן בודק באופן רציף (כל כמה דקות) אם יש רשומה חדשה ופועל מיד — ללא שעה קבועה.'
+                : 'הסוכן ירוץ אוטומטית בשעות שתגדיר, כל יום.'}
             </p>
             {agentId === CALENDAR_OPTIMIZER_AGENT_ID && (
               <p className="text-[11px] text-[#7a89ab] mt-1">
@@ -238,13 +243,14 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
           </div>
           <Toggle
             checked={enabled}
-            // Turning off must always be possible; turning on needs a time.
+            // Turning off must always be possible; turning on needs a time (unless it polls).
             disabled={saving || (!enabled && !canEnable)}
-            label="הרצה לפי שעה"
+            label={continuous ? 'האזנה אוטומטית' : 'הרצה לפי שעה'}
             onChange={setEnabled}
           />
         </div>
 
+        {!continuous && (
         <div className="flex flex-wrap items-center gap-2">
           {times.map((t) => {
             const offset = agentId === CALENDAR_OPTIMIZER_AGENT_ID ? (dayOffsets[t] ?? 0) : undefined
@@ -347,10 +353,11 @@ export function AgentConfigPanel({ agentId }: AgentConfigPanelProps) {
             הוסף שעה
           </button>
         </div>
+        )}
 
         {timeError && <p className="text-[11px] text-red-400">{timeError}</p>}
 
-        {times.length === 0 && (
+        {!continuous && times.length === 0 && (
           <p className="text-[11px] text-[#5a688c]">
             אין שעות מוגדרות — הוסף שעה כדי לאפשר הרצה אוטומטית.
             {config.suggestedScheduleTimes.length > 0 && (

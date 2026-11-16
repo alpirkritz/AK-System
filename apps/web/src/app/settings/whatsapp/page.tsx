@@ -238,6 +238,7 @@ function parseTimes(raw: string): string[] {
 export default function WhatsAppSettingsPage() {
   const [tab, setTab] = useState<Tab>('groups')
   const [message, setMessage] = useState<string | null>(null)
+  const [pairing, setPairing] = useState(false)
   const [nameFilter, setNameFilter] = useState('')
   const [togglingJid, setTogglingJid] = useState<string | null>(null)
 
@@ -339,6 +340,32 @@ export default function WhatsAppSettingsPage() {
     onError: (e) => setMessage(`שגיאה: ${e.message}`),
     onSettled: () => setTriggeringLabelId(null),
   })
+
+  const pairBridge = trpc.whatsapp.connection.pair.useMutation({
+    onSuccess: (res) => {
+      if (res.connected) {
+        setPairing(false)
+        void refetchConnection()
+        setMessage('WhatsApp מחובר')
+      }
+    },
+    onError: (e) => {
+      setPairing(false)
+      setMessage(`החיבור נכשל: ${e.message}`)
+    },
+  })
+  const pairQr = trpc.whatsapp.connection.qr.useQuery(undefined, {
+    enabled: pairing && !pairBridge.isPending,
+    refetchInterval: 2500,
+  })
+  useEffect(() => {
+    if (pairing && pairQr.data?.connected) {
+      setPairing(false)
+      void refetchConnection()
+      setMessage('WhatsApp מחובר')
+    }
+  }, [pairing, pairQr.data?.connected, refetchConnection])
+  const pairQrSrc = pairBridge.data?.qr && !pairQr.data?.qr ? pairBridge.data.qr : pairQr.data?.qr ?? null
 
   const syncBridge = trpc.whatsapp.sync.pushToBridge.useMutation({
     onSuccess: (res) => {
@@ -1044,6 +1071,46 @@ export default function WhatsAppSettingsPage() {
               )}
               {connection.lastError && (
                 <div className="text-xs text-red-400">{connection.lastError}</div>
+              )}
+              {!connection.connected && (
+                <div className="space-y-3">
+                  {!pairing ? (
+                    <button
+                      onClick={() => {
+                        setPairing(true)
+                        pairBridge.mutate()
+                      }}
+                      className="btn btn-primary text-[12px] py-2 px-4"
+                    >
+                      התחבר ל-WhatsApp
+                    </button>
+                  ) : (
+                    <div className="rounded-lg border border-[#25D366]/30 p-4 space-y-3 text-center">
+                      {pairQrSrc ? (
+                        <>
+                          <img
+                            src={pairQrSrc}
+                            alt="QR לחיבור WhatsApp"
+                            width={260}
+                            height={260}
+                            className="mx-auto rounded-lg bg-white"
+                          />
+                          <div className="text-[12px] text-[#97a4c2]">
+                            בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר, וסרוק את הקוד
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-sm text-[#97a4c2]">מכין קוד QR…</div>
+                      )}
+                      <button
+                        onClick={() => setPairing(false)}
+                        className="btn btn-ghost text-[12px] py-1.5 px-3"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {'bridgeUrl' in connection && connection.bridgeUrl && (
                 <a

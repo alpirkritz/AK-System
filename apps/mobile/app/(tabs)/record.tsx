@@ -341,7 +341,13 @@ export default function RecordScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams<{ personId?: string; personName?: string; meetingId?: string }>()
+  const params = useLocalSearchParams<{
+    personId?: string
+    personName?: string
+    meetingId?: string
+    /** `1` from the home-screen widget (helm://record?quick=1): start recording at once. */
+    quick?: string
+  }>()
   const recorder = useAudioRecorder(RECORDING_OPTIONS)
   const state = useAudioRecorderState(recorder, 200)
   const [phase, setPhase] = useState<Phase>('consent')
@@ -526,6 +532,24 @@ export default function RecordScreen() {
       setMessage(err instanceof Error ? err.message : 'לא ניתן להתחיל הקלטה')
     }
   }
+
+  // Quick record (home-screen widget): skip the pre-recording screen and record now — the
+  // review step after stopping asks who/what. Only from an idle screen, never over a live
+  // recording or review. The param is cleared so returning to the tab doesn't re-trigger.
+  const quickStarting = useRef(false)
+  useEffect(() => {
+    if (params.quick !== '1' || !token || quickStarting.current) return
+    if (phase !== 'consent' && phase !== 'result') {
+      router.setParams({ quick: undefined })
+      return
+    }
+    quickStarting.current = true
+    router.setParams({ quick: undefined })
+    void start(null).finally(() => {
+      quickStarting.current = false
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `start` is recreated every render
+  }, [params.quick, token, phase])
 
   const pause = () => {
     recorder.pause()

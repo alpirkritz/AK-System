@@ -1032,6 +1032,18 @@ export const tier1QaSnapshots = sqliteTable('tier1_qa_snapshots', {
   createdAt: text('created_at').notNull(),
 })
 
+export const notionReleaseSeen = sqliteTable('notion_release_seen', {
+  pageId: text('page_id').primaryKey(),
+  // 'seen' (baseline, never announced) | 'pending' | 'sent' | 'drafted' | 'failed'
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  title: text('title').notNull().default(''),
+  message: text('message'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  sentAt: text('sent_at'),
+})
+
 export type Tier1QaSnapshot = typeof tier1QaSnapshots.$inferSelect
 export type NewTier1QaSnapshot = typeof tier1QaSnapshots.$inferInsert
 

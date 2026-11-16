@@ -2,7 +2,7 @@
  * One evening briefing of every followed WhatsApp group.
  * The renderer owns order: actions, then one spoken story. Quiet groups are omitted.
  */
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { chatMessages, getDb, userSettings, whatsappGroups, whatsappLabels, whatsappMessages } from '@ak-system/database'
 import { resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import { createNotification } from '../lib/notification-store'
@@ -10,7 +10,7 @@ import { sendMobilePush } from '../lib/mobile-push'
 import { getDefaultTimezone } from '../lib/calendar-dates'
 import { QUIET_DAY_BODY } from './whatsapp-summary-clusters'
 import { wasNotificationSentToday, resolveNotificationChannels } from './notification-preferences'
-import { isBridgeConfigured, sendBridgeText } from './whatsapp-bridge-client'
+import { getBridgeStatus, isBridgeConfigured, sendBridgeText } from './whatsapp-bridge-client'
 import {
   DIGEST_NARRATIVE_FALLBACK,
   generateDailyDigestModel,
@@ -61,6 +61,11 @@ export interface ArrangedDigest {
   actions: DigestAction[]
   narrative: string
   emptyDay: boolean
+  /**
+   * Set on an empty day when messages stopped arriving at all — the bridge is disconnected or
+   * the webhook is not landing. Rendered as a warning, never as "nothing happened".
+   */
+  stalled?: IngestHealth
   /** Saved prompt owns the body; do not rebuild 📌 לטפל or clip to 900 chars. */
   passthrough?: boolean
 }
@@ -76,6 +81,61 @@ export interface DigestRunResult {
   title?: string
   pushBody?: string
   markdown?: string
+}
+
+/** No message from any group for this long means ingestion stopped, not a quiet day. */
+export const INGEST_STALL_HOURS = 24
+
+export interface IngestHealth {
+  /** Newest stored group message (ms), any group; null when there are none. */
+  lastMessageTs: number | null
+  /** From the bridge `/status`; null when the bridge is not configured or unreachable. */
+  bridgeConnected: boolean | null
+  bridgeError: string | null
+}
+
+/** True when an empty digest would be lying: the bridge is down or nothing has arrived for a day. */
+export function isIngestStalled(health: IngestHealth, now = Date.now()): boolean {
+  if (health.bridgeConnected === false) return true
+  if (health.lastMessageTs == null) return true
+  return now - health.lastMessageTs > INGEST_STALL_HOURS * 3_600_000
+}
+
+function hoursAgoLabel(ts: number, now = Date.now()): string {
+  const hours = Math.round((now - ts) / 3_600_000)
+  if (hours < 48) return `לפני ${hours} שעות`
+  return `לפני ${Math.round(hours / 24)} ימים`
+}
+
+export function stalledBody(health: IngestHealth, now = Date.now()): string {
+  const since = health.lastMessageTs != null
+    ? `ההודעה האחרונה שנקלטה מקבוצה הייתה ${hoursAgoLabel(health.lastMessageTs, now)}.`
+    : 'לא נקלטה אף הודעה מקבוצה.'
+  const bridge = health.bridgeConnected === false
+    ? ` הגשר מדווח שהוא מנותק${health.bridgeError ? ` (${health.bridgeError})` : ''}.`
+    : ''
+  return `⚠️ לא הגיעו הודעות מוואטסאפ, אז אין לי מה לסכם — זה לא אומר שלא קרה כלום. ${since}${bridge} כדאי לבדוק את החיבור בהגדרות ▸ וואטסאפ.`
+}
+
+export async function loadIngestHealth(db: Db): Promise<IngestHealth> {
+  const [latest] = await db
+    .select({ ts: whatsappMessages.ts })
+    .from(whatsappMessages)
+    .orderBy(desc(whatsappMessages.ts))
+    .limit(1)
+  let bridgeConnected: boolean | null = null
+  let bridgeError: string | null = null
+  if (isBridgeConfigured()) {
+    try {
+      const status = await getBridgeStatus()
+      bridgeConnected = !!status.connected
+      bridgeError = status.lastError ?? null
+    } catch (err) {
+      bridgeConnected = false
+      bridgeError = err instanceof Error ? err.message : 'הגשר לא עונה'
+    }
+  }
+  return { lastMessageTs: latest?.ts ?? null, bridgeConnected, bridgeError }
 }
 
 export function formatDigestDateLabel(timeZone: string, now = new Date()): string {
@@ -192,7 +252,7 @@ function headerLine(dateLabel: string): string {
 
 export function renderDailyDigestPlain(digest: ArrangedDigest): string {
   if (digest.emptyDay) {
-    return `${headerLine(digest.dateLabel)}\n\n${QUIET_DAY_BODY}`
+    return `${headerLine(digest.dateLabel)}\n\n${digest.stalled ? stalledBody(digest.stalled) : QUIET_DAY_BODY}`
   }
 
   const lines: string[] = [headerLine(digest.dateLabel), '']
@@ -218,7 +278,7 @@ export function renderDailyDigestPlain(digest: ArrangedDigest): string {
 /** Markdown twin for the in-app notification. Headings and bullets match parseNotificationBody. */
 export function renderDailyDigestMarkdown(digest: ArrangedDigest): string {
   if (digest.emptyDay) {
-    return `# ${headerLine(digest.dateLabel)}\n\n${QUIET_DAY_BODY}`
+    return `# ${headerLine(digest.dateLabel)}\n\n${digest.stalled ? stalledBody(digest.stalled) : QUIET_DAY_BODY}`
   }
 
   const lines: string[] = [`# ${headerLine(digest.dateLabel)}`, '']
@@ -233,8 +293,8 @@ export function renderDailyDigestMarkdown(digest: ArrangedDigest): string {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-export function digestTitle(_digest: ArrangedDigest): string {
-  return DIGEST_TITLE
+export function digestTitle(digest: ArrangedDigest): string {
+  return digest.stalled ? `⚠️ ${DIGEST_DISPLAY_NAME} — אין הודעות נכנסות` : DIGEST_TITLE
 }
 
 export function digestPushBody(plain: string): string {
@@ -430,6 +490,10 @@ export async function runFollowedDailyDigest(db: Db): Promise<DigestRunResult> {
   }
 
   const arranged = arrangeDailyDigest({ dateLabel, groups, model })
+  if (arranged.emptyDay) {
+    const health = await loadIngestHealth(db)
+    if (isIngestStalled(health)) arranged.stalled = health
+  }
   const plain = renderDailyDigestPlain(arranged)
   const markdown = renderDailyDigestMarkdown(arranged)
   const title = digestTitle(arranged)

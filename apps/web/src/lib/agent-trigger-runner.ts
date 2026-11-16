@@ -33,6 +33,8 @@ async function resolveTriggerMessage(agentId: string): Promise<string> {
   return getDefaultTriggerMessage(agentId)
 }
 
+import { RELEASE_NOTES_AGENT_ID, runReleaseNotesAgent } from '@/lib/release-notes-runner'
+
 const IBKR_AGENT_ID = '05_ibkr_daily_import'
 
 /**
@@ -198,6 +200,14 @@ export async function runAgentTrigger(agentId: string, opts?: {
 }> {
   if (agentId === IBKR_AGENT_ID) {
     return runIbkrImportTrigger(agentId)
+  }
+
+  // Deterministic poller (no LLM): "run now" works even while the switch is off.
+  if (agentId === RELEASE_NOTES_AGENT_ID) {
+    const res = await runReleaseNotesAgent({ force: true })
+    return res.ok
+      ? { ok: true, text: `נבדקו רשומות חדשות: ${res.announced?.length ?? 0} הודעות, ${res.baselined ?? 0} תועדו כקיימות` }
+      : { ok: false, error: res.error }
   }
 
   if (getAgentEngine() !== 'gemini') {
