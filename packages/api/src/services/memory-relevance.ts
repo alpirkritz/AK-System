@@ -30,6 +30,8 @@ type Db = ReturnType<typeof getDb>
 export const MEMORY_CHAR_CAP = 12000
 /** Scoped memories injected per anchored entity; `recall_memories` has no cap. */
 export const PER_ENTITY_CAP = 8
+/** Standing rules linked to one agent (agent-feedback-loop). */
+export const AGENT_RULE_CAP = 20
 /** Global memories considered per run (the pre-scoping behaviour read 60). */
 const GLOBAL_LIMIT = 60
 const DIRECTORY_TTL_MS = 5 * 60 * 1000
@@ -420,7 +422,7 @@ export async function selectMemoriesForRun(db: Db, anchors: EntityRef[]): Promis
       db
         .select(MEMORY_COLS)
         .from(memories)
-        .where(notInArray(memories.id, linkedIds))
+        .where(and(eq(memories.status, 'active'), notInArray(memories.id, linkedIds)))
         .orderBy(desc(memories.pinned), desc(memories.updatedAt))
         .limit(GLOBAL_LIMIT),
     ),
@@ -440,7 +442,9 @@ export async function selectMemoriesForRun(db: Db, anchors: EntityRef[]): Promis
     )
     const ids = [...new Set(links.map((l) => l.memoryId))]
     const rows = ids.length
-      ? await queryRows<MemoryRowLite>(db.select(MEMORY_COLS).from(memories).where(inArray(memories.id, ids)))
+      ? await queryRows<MemoryRowLite>(
+          db.select(MEMORY_COLS).from(memories).where(and(eq(memories.status, 'active'), inArray(memories.id, ids))),
+        )
       : []
     const byId = new Map(rows.map((r) => [r.id, r]))
     const hits = new Map<string, number>()
@@ -452,6 +456,7 @@ export async function selectMemoriesForRun(db: Db, anchors: EntityRef[]): Promis
 
     const placed = new Set<string>()
     for (const anchor of anchors) {
+      const cap = anchor.kind === 'agent' ? AGENT_RULE_CAP : PER_ENTITY_CAP
       const mine = links
         .filter((l) => l.entityKind === anchor.kind && l.entityId === anchor.entityId && !placed.has(l.memoryId))
         .map((l) => byId.get(l.memoryId))
@@ -460,8 +465,8 @@ export async function selectMemoriesForRun(db: Db, anchors: EntityRef[]): Promis
       const unique = mine.filter((m, i) => mine.findIndex((x) => x.id === m.id) === i)
       unique.forEach((m) => placed.add(m.id))
       if (unique.length === 0) continue
-      scoped.push({ anchor, memories: unique.slice(0, PER_ENTITY_CAP) })
-      overCap.push(...unique.slice(PER_ENTITY_CAP))
+      scoped.push({ anchor, memories: unique.slice(0, cap) })
+      overCap.push(...unique.slice(cap))
     }
   }
   return { instructions, global, scoped, overCap }
@@ -478,6 +483,7 @@ const SCOPED_KIND_LABEL: Record<MemoryLinkKind, string> = {
   project: 'פרויקט ',
   workspace: 'workspace ',
   topic: 'נושא ',
+  agent: '',
 }
 
 /**
@@ -522,9 +528,15 @@ export function renderMemoryBlock(
     return lines
   }
 
+  const agentSections: string[] = []
+  for (const group of scoped.filter((g) => g.anchor.kind === 'agent')) {
+    const lines = take(group.memories)
+    if (lines.length === 0) continue
+    agentSections.push('', '### כללים לסוכן הזה (agent rules — follow them in this run)', ...lines)
+  }
   const pinnedGlobal = take(global.filter(isPinned))
   const scopedSections: string[] = []
-  for (const group of scoped) {
+  for (const group of scoped.filter((g) => g.anchor.kind !== 'agent')) {
     const lines = take(group.memories)
     if (lines.length === 0) continue
     const heading = `### זיכרון — ${SCOPED_KIND_LABEL[group.anchor.kind]}${group.anchor.label}`
@@ -533,6 +545,7 @@ export function renderMemoryBlock(
   }
   const restGlobal = take(global.filter((m) => !isPinned(m)))
 
+  parts.push(...agentSections)
   const globalLines = [...pinnedGlobal, ...restGlobal]
   if (globalLines.length > 0) parts.push('', '### זיכרון וידע (memories & knowledge)', ...globalLines)
   parts.push(...scopedSections)
@@ -548,10 +561,14 @@ export interface RelevantMemoryResult {
 /** Full pipeline used by the agent engine and by `memory.relevant`. */
 export async function buildRelevantMemoryBlock(
   db: Db,
-  input: { texts: string[]; charCap?: number },
+  input: { texts: string[]; charCap?: number; agentId?: string | null },
 ): Promise<RelevantMemoryResult> {
   await ensureMemoryLinksBackfilled(db)
-  const anchors = await extractAnchors(db, input.texts)
+  const found = await extractAnchors(db, input.texts)
+  // The running agent is always an anchor, so its own rules are injected and nobody else's.
+  const anchors: EntityRef[] = input.agentId
+    ? [{ kind: 'agent', entityId: input.agentId, label: input.agentId }, ...found]
+    : found
   const selection = await selectMemoriesForRun(db, anchors)
   const { block, dropped } = renderMemoryBlock(selection, input.charCap)
   return { block, anchors, dropped: [...dropped, ...selection.overCap.map((m) => m.content)] }
@@ -569,7 +586,13 @@ export async function recallMemories(
         .select(MEMORY_COLS)
         .from(memories)
         .innerJoin(memoryLinks, eq(memoryLinks.memoryId, memories.id))
-        .where(and(eq(memoryLinks.entityKind, anchor.kind), eq(memoryLinks.entityId, anchor.entityId)))
+        .where(
+          and(
+            eq(memoryLinks.entityKind, anchor.kind),
+            eq(memoryLinks.entityId, anchor.entityId),
+            eq(memories.status, 'active'),
+          ),
+        )
         .orderBy(desc(memories.pinned), desc(memories.updatedAt)),
     )
     scoped.push({ anchor, memories: rows })
@@ -582,7 +605,13 @@ export async function recallMemories(
       db
         .select(MEMORY_COLS)
         .from(memories)
-        .where(and(notInArray(memories.id, linkedIds), sql`lower(${memories.content}) like ${`%${q}%`}`))
+        .where(
+          and(
+            eq(memories.status, 'active'),
+            notInArray(memories.id, linkedIds),
+            sql`lower(${memories.content}) like ${`%${q}%`}`,
+          ),
+        )
         .orderBy(desc(memories.updatedAt))
         .limit(50),
     )

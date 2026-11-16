@@ -1037,10 +1037,15 @@ export const memories = pgTable('memories', {
   kind: text('kind').notNull().default('memory'),
   source: text('source').notNull().default('manual'),
   pinned: boolean('pinned').notNull().default(false),
+  /** active | proposed | rejected | superseded | disabled — only active is injected */
+  status: text('status').notNull().default('active'),
+  evidence: text('evidence'),
+  replacesMemoryId: text('replaces_memory_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   kindIdx: index('idx_memories_kind').on(table.kind),
+  statusIdx: index('idx_memories_status').on(table.status),
   pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
 }))
 
@@ -1061,6 +1066,41 @@ export const memoryLinks = pgTable('memory_links', {
   uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
 }))
 
+export const agentFeedback = pgTable('agent_feedback', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  feedback: text('feedback').notNull(),
+  channel: text('channel'),
+  suggestedRule: text('suggested_rule'),
+  status: text('status').notNull().default('pending'),
+  memoryId: text('memory_id'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  agentIdx: index('idx_agent_feedback_agent').on(table.agentId, table.status),
+}))
+
+export const agentEpisodes = pgTable('agent_episodes', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  channel: text('channel').notNull(),
+  trigger: text('trigger').notNull(),
+  summary: text('summary').notNull(),
+  anchors: text('anchors'),
+  insightIds: text('insight_ids'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  createdIdx: index('idx_agent_episodes_created').on(table.createdAt),
+}))
+
+export const ownerProfile = pgTable('owner_profile', {
+  id: text('id').primaryKey(),
+  roles: text('roles'),
+  priorities: text('priorities'),
+  principles: text('principles'),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const userSettings = pgTable('user_settings', {
   id: text('id').primaryKey(),
   agentCalendarIds: text('agent_calendar_ids'),
@@ -1071,6 +1111,9 @@ export const userSettings = pgTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
   /** One-shot guard for the memory_links backfill (hugo-entity-memory) */
   memoryLinksBackfilledAt: text('memory_links_backfilled_at'),
+  memoryDistilledAt: text('memory_distilled_at'),
+  harnessIndexedAt: text('harness_indexed_at'),
+  harnessReasonedAt: text('harness_reasoned_at'),
   /** JSON DashboardPrefs — meetingWindow / taskWindow for mobile (and future web) */
   dashboardPrefs: text('dashboard_prefs'),
   /** JSON ListSortPrefs — multi-level sort defaults for dashboard, /tasks, meetings past */
@@ -1741,6 +1784,7 @@ export const harnessInsights = pgTable('harness_insights', {
   expiresAt: text('expires_at'),
   /** ISO timestamp of the last push notification that included this insight; null = never pushed. */
   notifiedAt: text('notified_at'),
+  factsHash: text('facts_hash'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

@@ -23,7 +23,7 @@
 | New tests | `memory-relevance.test.ts` (13), `conversation-engine.memory-tools.test.ts` (5), `gemini-agent-engine.entity-memory.test.ts` (2), `e2e/hugo-entity-memory.spec.ts` (1, passes) |
 | `pnpm -r run lint` | no new findings; 4 pre-existing `react/no-unescaped-entities` warnings on `apps/web/src/app/memory/page.tsx:160` (unchanged line) |
 | `pnpm --filter @ak-system/web build` | passes |
-| Full `pnpm e2e` | still running when this was committed; the result will be recorded here in a follow-up |
+| Full `pnpm e2e` | 115 passed, 42 failed, 2 skipped. None of the failures touch memory, the person drawer's פרטים tab or the project page memories. They are stale selectors and e2e seed SQL with outdated columns |
 
 ## Deviations from spec
 

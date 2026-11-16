@@ -34,6 +34,8 @@ export function composeMemoryPromptBlock(
 export interface MemoryRunContext {
   /** The run's message, recent turns and prefetched calendar text — the anchor sources. */
   texts: string[]
+  /** The running agent — its own rules (agent-feedback-loop) are injected, nobody else's. */
+  agentId?: string
 }
 
 /**
@@ -45,7 +47,10 @@ export interface MemoryRunContext {
 export async function getMemoryPromptBlock(context?: MemoryRunContext): Promise<string> {
   const db = getDb()
   try {
-    const { block } = await buildRelevantMemoryBlock(db, { texts: context?.texts ?? [] })
+    const { block } = await buildRelevantMemoryBlock(db, {
+      texts: context?.texts ?? [],
+      agentId: context?.agentId ?? null,
+    })
     return block
   } catch (err) {
     console.warn('[agent-memory] scoped memory failed, falling back to newest memories:', err)
@@ -58,7 +63,12 @@ export async function getMemoryPromptBlock(context?: MemoryRunContext): Promise<
     const instructionsText =
       instr && (instr.enabled === true || instr.enabled === 1) ? (instr.content || '').trim() : ''
     const memRows = await queryRows<MemoryRow>(
-      db.select().from(memories).orderBy(desc(memories.pinned), desc(memories.updatedAt)).limit(60),
+      db
+        .select()
+        .from(memories)
+        .where(eq(memories.status, 'active'))
+        .orderBy(desc(memories.pinned), desc(memories.updatedAt))
+        .limit(60),
     )
     return composeMemoryPromptBlock(instructionsText, memRows)
   } catch (err) {

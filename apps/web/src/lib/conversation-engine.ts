@@ -264,6 +264,61 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'get_project_context',
+    description:
+      "Full picture of ONE project in one call: standing brief (+ whether it is stale), warmth, the 10 soonest open tasks, last 5 meetings with their analysis line, people, open cross-domain insights, and every saved memory about it. Use on 'מה המצב עם <פרויקט>' or any named-project ask.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: { project: { type: SchemaType.STRING, description: 'Project name as the user wrote it' } },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'get_topic_context',
+    description:
+      "Everything carrying ONE topic that may span projects (e.g. 'DD', 'Algo 4', 'גיוס'): meetings of the last 60 days with their analysis line, open tasks, WhatsApp groups, and saved memories. Use on 'מה קורה עם <נושא>' when it is not a project name.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: { topic: { type: SchemaType.STRING, description: 'Topic as the user wrote it' } },
+      required: ['topic'],
+    },
+  },
+  {
+    name: 'propose_priorities_update',
+    description:
+      "Propose a new ordered list of the owner's priorities (max 7). Returns a diff and a token — it does NOT save. Show the diff and ask for confirmation; only after a clear yes call apply_priorities_update.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        priorities: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: 'The full new list, most important first' },
+        reason: { type: SchemaType.STRING, description: 'Why, in the user\'s words' },
+      },
+      required: ['priorities'],
+    },
+  },
+  {
+    name: 'apply_priorities_update',
+    description: 'Save the priorities proposed by propose_priorities_update. Call ONLY after the user clearly confirmed that exact diff in this conversation.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: { token: { type: SchemaType.STRING, description: 'Token returned by propose_priorities_update' } },
+      required: ['token'],
+    },
+  },
+  {
+    name: 'review_memory_proposals',
+    description:
+      "List, accept or reject memories the nightly distiller proposed ('מה למדת אתמול?'). Accept/reject ONLY ids the user explicitly approved or rejected in this conversation.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        action: { type: SchemaType.STRING, format: 'enum', enum: ['list', 'accept', 'reject'], description: 'list | accept | reject' },
+        ids: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: 'Proposal ids for accept/reject' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'recall_memories',
     description:
       "Every saved memory about a person, project, workspace or topic (not capped like the auto-injected block), plus general memories containing `query`. Use on a named-person or named-project ask, or 'מה אתה זוכר על X'.",
@@ -731,6 +786,17 @@ function buildLogAgentFeedbackTool(): FunctionDeclaration {
  * else stays single-domain, and the tool costs them no prompt budget. A call with no agentId
  * keeps the full set, so nothing is narrowed by omission.
  */
+/** Cross-domain tools: only the Chief-of-Staff agents get them (prompt budget, no off-domain drift). */
+const CROSS_DOMAIN_TOOLS = new Set([
+  'get_harness_insights',
+  'recall_memories',
+  'get_project_context',
+  'get_topic_context',
+  'propose_priorities_update',
+  'apply_priorities_update',
+  'review_memory_proposals',
+])
+
 const HARNESS_TOOL_AGENT_IDS = new Set([
   '01_Hugo_orchestrator',
   '03_morning_briefing',
@@ -740,7 +806,7 @@ const HARNESS_TOOL_AGENT_IDS = new Set([
 export function getToolDeclarations(agentId?: string): FunctionDeclaration[] {
   let decls = [...baseToolDeclarations, buildRunAbcAgentTool(), buildLogAgentFeedbackTool()]
   if (agentId && !HARNESS_TOOL_AGENT_IDS.has(agentId)) {
-    decls = decls.filter((d) => d.name !== 'get_harness_insights' && d.name !== 'recall_memories')
+    decls = decls.filter((d) => !CROSS_DOMAIN_TOOLS.has(d.name))
   }
   if (!calendarOptimizerHidesTasks(agentId)) return decls
   return decls
@@ -986,6 +1052,62 @@ export async function executeTool(
       }
     }
 
+    case 'propose_priorities_update': {
+      const priorities = Array.isArray(args.priorities)
+        ? (args.priorities as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+        : []
+      if (priorities.length === 0) return { error: 'priorities is required' }
+      const res = await caller.ownerProfile.proposeUpdate({
+        priorities,
+        reason: typeof args.reason === 'string' ? args.reason : undefined,
+      })
+      return { ...res, note: 'NOT saved yet. Show the diff (added / removed / reordered) and ask the user to confirm.' }
+    }
+
+    case 'apply_priorities_update': {
+      const token = typeof args.token === 'string' ? args.token.trim() : ''
+      if (!token) return { error: 'token is required' }
+      const saved = await caller.ownerProfile.applyUpdate({ token })
+      return { saved: true, priorities: saved.priorities.map((p: { title: string }) => p.title) }
+    }
+
+    case 'review_memory_proposals': {
+      const action = args.action as 'list' | 'accept' | 'reject'
+      const ids = Array.isArray(args.ids) ? (args.ids as unknown[]).filter((x): x is string => typeof x === 'string') : []
+      if (action === 'list') {
+        const rows = await caller.memory.memories.list({ status: 'proposed', limit: 50 })
+        return {
+          proposals: rows.map((m: { id: string; content: string; links?: Array<{ label: string }> }) => ({
+            id: m.id,
+            content: m.content,
+            about: (m.links ?? []).map((l) => l.label),
+          })),
+        }
+      }
+      if (ids.length === 0) return { error: 'ids are required for accept/reject' }
+      if (action === 'accept') {
+        for (const id of ids) await caller.memory.proposals.accept({ id })
+        return { accepted: ids.length }
+      }
+      if (action === 'reject') {
+        const res = await caller.memory.proposals.reject({ ids })
+        return { rejected: res.count }
+      }
+      return { error: 'unknown action' }
+    }
+
+    case 'get_project_context': {
+      const project = typeof args.project === 'string' ? args.project.trim() : ''
+      if (!project) return { error: 'project is required' }
+      return caller.harness.projectContext({ name: project })
+    }
+
+    case 'get_topic_context': {
+      const topic = typeof args.topic === 'string' ? args.topic.trim() : ''
+      if (!topic) return { error: 'topic is required' }
+      return caller.harness.topicContext({ topic })
+    }
+
     case 'recall_memories': {
       const pick = (k: string) => (typeof args[k] === 'string' && (args[k] as string).trim() ? (args[k] as string) : undefined)
       const result = await caller.memory.recall({
@@ -1013,9 +1135,20 @@ export async function executeTool(
       if (!feedback) return { error: 'feedback is required' }
       try {
         const result = appendAgentFeedback({ agentId, feedback, channel: ctx?.channel })
+        // The journal stays the audit trail; the DB row is what the agents screen acts on.
+        let suggestedRule: string | null = null
+        try {
+          const row = await caller.agentFeedback.record({ agentId, feedback, channel: ctx?.channel })
+          suggestedRule = row.suggestedRule
+        } catch (err) {
+          console.warn('[log_agent_feedback] DB record failed:', err)
+        }
         return {
           ...result,
-          note: `Correction queued for ${agentId} in M_Memory for human review. Tell the user it was recorded and will be reviewed manually — do NOT claim the behavior already changed.`,
+          suggestedRule,
+          note: suggestedRule
+            ? `Correction recorded for ${agentId} with a suggested rule. Reply exactly: "נרשם ל-${agentId}. הצעה לכלל: «${suggestedRule}» — אפשר לאשר במסך הסוכנים". Do NOT claim the behavior already changed.`
+            : `Correction recorded for ${agentId}. Reply: "נרשם ל-${agentId}, אפשר לאשר כלל במסך הסוכנים". Do NOT claim the behavior already changed.`,
         }
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'Failed to log feedback' }

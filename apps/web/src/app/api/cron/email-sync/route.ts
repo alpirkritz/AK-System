@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
 import { syncEmailThreads } from '@ak-system/api'
 import { createNotification } from '@/lib/notification-store'
+import { hasPositiveCount, reindexHarnessScopes } from '@/lib/harness-incremental'
 
 /**
  * Cron: hourly archive of the last 30 days of Gmail threads with known people (metadata and
@@ -35,6 +36,7 @@ async function run(request: NextRequest): Promise<NextResponse> {
         type: 'system',
       })
     }
+    await reindexHarnessScopes(['email'], hasPositiveCount(result))
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {
     console.error('[cron/email-sync]', err)

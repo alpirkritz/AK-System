@@ -69,7 +69,7 @@ describe('executeTool — log_agent_feedback', () => {
     })
     expect(result.logged).toBe(true)
     expect(result.agentId).toBe('06_calendar_optimizer')
-    expect(result.note).toContain('human review')
+    expect(result.note).toContain('Do NOT claim the behavior already changed')
   })
 
   it('passes the channel through when the chat came from another surface', async () => {

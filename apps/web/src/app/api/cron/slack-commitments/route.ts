@@ -3,6 +3,7 @@ import { getDb } from '@ak-system/database'
 import { buildCommitmentNotification, freshCommitments } from '@ak-system/api'
 import { scanSlackCommitments } from '@ak-system/api/services/slack'
 import { createNotification } from '@/lib/notification-store'
+import { hasPositiveCount, reindexHarnessScopes } from '@/lib/harness-incremental'
 
 /**
  * Cron: every 10 minutes, propose commitments from new messages in enabled Slack channels.
@@ -32,6 +33,7 @@ async function run(request: NextRequest): Promise<NextResponse> {
       const { title, body } = buildCommitmentNotification(fresh)
       await createNotification({ title, body, url: '/commitments', type: 'system' })
     }
+    await reindexHarnessScopes(['commitments'], hasPositiveCount(result))
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {
     console.error('[cron/slack-commitments]', err)

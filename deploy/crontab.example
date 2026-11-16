@@ -71,6 +71,10 @@ SHELL=/bin/bash
 # Cross-domain harness — every 6 hours. Re-indexes the world model and runs the
 # reasoner. Only urgent insights are pushed, at most once a day.
 10 */6 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/harness-insights >/dev/null 2>&1
+# Hourly: detectors over the incrementally indexed world model; re-phrases only changed insights.
+25 * * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/harness-reason >/dev/null 2>&1
+# Nightly: propose durable memories from the day (accepted on /memory).
+40 2 * * * curl -sf -X POST -H "Authorization: Bearer __CRON_SECRET__" __APP_URL__/api/cron/memory-distiller >/dev/null 2>&1
 
 # Scheduled ABC agents — every 15 min. Runs agents whose clock schedule (set in
 # /agents/manage ▸ הגדרות והרצה) matches the current HH:MM.

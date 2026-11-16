@@ -821,14 +821,23 @@ export const memories = sqliteTable('memories', {
   kind: text('kind').notNull().default('memory'), // instruction | memory | knowledge
   source: text('source').notNull().default('manual'), // manual | auto | chat
   pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  /** active | proposed | rejected | superseded | disabled — only active is injected */
+  status: text('status').notNull().default('active'),
+  /** JSON { sourceKind, sourceId, sourceDate, label }[] — where a distilled memory came from */
+  evidence: text('evidence'),
+  /** A distilled proposal that updates an older memory */
+  replacesMemoryId: text('replaces_memory_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   kindIdx: index('idx_memories_kind').on(table.kind),
+  statusIdx: index('idx_memories_status').on(table.status),
   pinnedIdx: index('idx_memories_pinned').on(table.pinned, table.updatedAt),
 }))
 
-export const MEMORY_LINK_KINDS = ['person', 'project', 'workspace', 'topic'] as const
+export const MEMORY_LINK_KINDS = ['person', 'project', 'workspace', 'topic', 'agent'] as const
+export const MEMORY_STATUSES = ['active', 'proposed', 'rejected', 'superseded', 'disabled'] as const
+export type MemoryStatus = (typeof MEMORY_STATUSES)[number]
 export type MemoryLinkKind = (typeof MEMORY_LINK_KINDS)[number]
 export const MEMORY_LINK_ORIGINS = ['manual', 'tool', 'auto', 'backfill'] as const
 export type MemoryLinkOrigin = (typeof MEMORY_LINK_ORIGINS)[number]
@@ -847,6 +856,44 @@ export const memoryLinks = sqliteTable('memory_links', {
   uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
 }))
 
+/** A correction the user gave about an agent, and what was done with it (agent-feedback-loop). */
+export const agentFeedback = sqliteTable('agent_feedback', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  feedback: text('feedback').notNull(),
+  channel: text('channel'),
+  suggestedRule: text('suggested_rule'),
+  status: text('status').notNull().default('pending'), // pending | applied | rejected
+  memoryId: text('memory_id'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  agentIdx: index('idx_agent_feedback_agent').on(table.agentId, table.status),
+}))
+
+/** What an agent delivered, reduced to a few lines (agent-episodes). */
+export const agentEpisodes = sqliteTable('agent_episodes', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  channel: text('channel').notNull(),
+  trigger: text('trigger').notNull(), // chat | schedule | event
+  summary: text('summary').notNull(),
+  anchors: text('anchors'), // JSON EntityRef[]
+  insightIds: text('insight_ids'), // JSON string[]
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  createdIdx: index('idx_agent_episodes_created').on(table.createdAt),
+}))
+
+/** The principal's roles, current priorities and principles. Single row id='default'. */
+export const ownerProfile = sqliteTable('owner_profile', {
+  id: text('id').primaryKey(),
+  roles: text('roles'),
+  priorities: text('priorities'), // JSON OwnerPriority[]
+  principles: text('principles'),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export type HugoInstruction = typeof hugoInstructions.$inferSelect
 export type NewHugoInstruction = typeof hugoInstructions.$inferInsert
 export type Memory = typeof memories.$inferSelect
@@ -862,6 +909,9 @@ export const userSettings = sqliteTable('user_settings', {
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   memoryLinksBackfilledAt: text('memory_links_backfilled_at'), // one-shot guard: memory_links backfill
+  memoryDistilledAt: text('memory_distilled_at'), // memory-distiller cursor
+  harnessIndexedAt: text('harness_indexed_at'), // last harness index (any scope)
+  harnessReasonedAt: text('harness_reasoned_at'), // last harness reasoner run
   dashboardPrefs: text('dashboard_prefs'), // JSON DashboardPrefs — meetingWindow / taskWindow
   listSortPrefs: text('list_sort_prefs'), // JSON ListSortPrefs — multi-level sort defaults
   layoutPrefs: text('layout_prefs'), // JSON LayoutPrefs — block order per screen
@@ -1868,6 +1918,8 @@ export const harnessInsights = sqliteTable('harness_insights', {
   expiresAt: text('expires_at'),
   /** ISO timestamp of the last push notification that included this insight; null = never pushed. */
   notifiedAt: text('notified_at'),
+  /** Hash of sources + severity when last phrased; unchanged facts skip re-phrasing */
+  factsHash: text('facts_hash'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({

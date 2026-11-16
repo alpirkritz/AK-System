@@ -20,6 +20,9 @@ import { vatRouter } from './routers/vat'
 import { whatsappRouter } from './routers/whatsapp'
 import { agentsRouter } from './routers/agents'
 import { memoryRouter } from './routers/memory'
+import { agentFeedbackRouter } from './routers/agent-feedback'
+import { ownerProfileRouter } from './routers/owner-profile'
+import { episodesRouter } from './routers/episodes'
 import { settingsRouter } from './routers/settings'
 import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
 import { notionOverridesRouter } from './routers/notion-overrides'
@@ -228,6 +231,11 @@ export {
   type MeetingPrepRecord,
   type SaveMeetingPrepInput,
 } from './services/meeting-preps'
+export { buildHarnessHeader, renderHarnessHeader } from './services/harness-header'
+export { refreshStaleProjectStandings } from './services/project-standing'
+export { runMemoryDistiller } from './services/memory-distiller'
+export { buildEpisodesBlock, recordEpisode, pruneEpisodes } from './services/agent-episodes'
+export { buildOwnerProfileBlock, getOwnerProfile, prioritiesAgeDays, PRIORITIES_STALE_DAYS } from './services/owner-profile'
 export {
   buildRelevantMemoryBlock,
   renderMemoryBlock,
@@ -316,6 +324,9 @@ export const appRouter = router({
   whatsapp: whatsappRouter,
   agents: agentsRouter,
   memory: memoryRouter,
+  agentFeedback: agentFeedbackRouter,
+  ownerProfile: ownerProfileRouter,
+  episodes: episodesRouter,
   settings: settingsRouter,
   notionStatusOverrides: notionStatusOverridesRouter,
   notionOverrides: notionOverridesRouter,

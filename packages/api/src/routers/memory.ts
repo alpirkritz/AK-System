@@ -12,6 +12,7 @@ import {
   recallMemories,
   suggestMemoryLinks,
 } from '../services/memory-relevance'
+import { acceptProposal, countPendingProposals, rejectProposals, runMemoryDistiller } from '../services/memory-distiller'
 
 const INSTRUCTIONS_ID = 'default'
 
@@ -77,12 +78,16 @@ export const memoryRouter = router({
             workspaceId: z.string().optional(),
             topic: z.string().optional(),
             scope: z.enum(['global', 'scoped']).optional(),
+            agentId: z.string().optional(),
+            status: z.enum(['active', 'proposed', 'rejected', 'superseded', 'disabled']).default('active'),
           })
           .optional(),
       )
       .query(async ({ ctx, input }) => {
         const limit = input?.limit ?? 200
-        const entity = input?.personId
+        const entity = input?.agentId
+          ? { kind: 'agent', id: input.agentId }
+          : input?.personId
           ? { kind: 'person', id: input.personId }
           : input?.projectId
             ? { kind: 'project', id: input.projectId }
@@ -108,7 +113,7 @@ export const memoryRouter = router({
         const rows = await ctx.db
           .select()
           .from(memories)
-          .where(where)
+          .where(and(eq(memories.status, input?.status ?? 'active'), where))
           .orderBy(desc(memories.pinned), desc(memories.updatedAt))
           .limit(limit)
         const filtered = input?.kind ? rows.filter((r) => r.kind === input.kind) : rows
@@ -202,10 +207,31 @@ export const memoryRouter = router({
       }),
   }),
 
+  /** Memories the nightly distiller proposed (spec: memory-distiller). */
+  proposals: router({
+    count: protectedProcedure.query(async ({ ctx }) => ({ pending: await countPendingProposals(ctx.db) })),
+    accept: protectedProcedure
+      .input(z.object({ id: z.string(), content: z.string().min(1).max(20000).optional(), links: z.array(linkSchema).max(50).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await acceptProposal(ctx.db, input.id, { content: input.content, links: input.links ? normalizeLinks(input.links) : undefined })
+        return { ok: true }
+      }),
+    reject: protectedProcedure
+      .input(z.object({ ids: z.array(z.string()).min(1).max(200) }))
+      .mutation(async ({ ctx, input }) => ({ ok: true, count: await rejectProposals(ctx.db, input.ids) })),
+  }),
+
+  /** Manual distiller run (testing / catch-up). */
+  distill: protectedProcedure
+    .input(z.object({ sinceHours: z.number().int().min(1).max(24 * 30).optional() }).optional())
+    .mutation(async ({ ctx, input }) => runMemoryDistiller(ctx.db, { sinceHours: input?.sinceHours })),
+
   /** The exact memory block a run with this message would get, plus the anchors found. */
   relevant: protectedProcedure
     .input(z.object({ message: z.string().max(20000), agentId: z.string().optional() }))
-    .query(async ({ ctx, input }) => buildRelevantMemoryBlock(ctx.db, { texts: [input.message] })),
+    .query(async ({ ctx, input }) =>
+      buildRelevantMemoryBlock(ctx.db, { texts: [input.message], agentId: input.agentId ?? null }),
+    ),
 
   /** Every memory about a named entity (no per-entity cap), plus global memories matching `query`. */
   recall: protectedProcedure

@@ -100,6 +100,8 @@ export function formatMorningBriefingContext(
     harnessLines?: string[]
     /** Open items others owe me that are due today or late. */
     waiting?: MorningWaiting
+    /** One-line housekeeping nudges: stale priorities, memory proposals waiting for review. */
+    reminderLines?: string[]
   },
 ): string {
   const includeDueTasks = options?.includeDueTasks !== false
@@ -109,6 +111,7 @@ export function formatMorningBriefingContext(
   const tasks = includeDueTasks ? dueTasks : []
   const extra = [...commitmentLines(options?.commitments), ...waitingLines(options?.waiting)]
   const harnessLines = options?.harnessLines ?? []
+  const reminderLines = options?.reminderLines ?? []
   const lines: string[] = ['📅 סיכום הבוקר – ' + today]
   if (
     events.length === 0 &&
@@ -139,5 +142,28 @@ export function formatMorningBriefingContext(
       lines.push('', 'קישורים בין תחומים:', ...harnessLines)
     }
   }
+  if (reminderLines.length > 0) lines.push('', ...reminderLines)
   return lines.join('\n').slice(0, 4000)
+}
+
+/** Housekeeping nudges for the morning brief (owner-priorities-profile, memory-distiller). */
+export function morningReminderLines(input: {
+  /** 0 = Sunday, local time. */
+  weekday: number
+  prioritiesAgeDays: number | null
+  staleAfterDays: number
+  pendingMemoryProposals: number
+}): string[] {
+  const lines: string[] = []
+  if (input.weekday === 0) {
+    if (input.prioritiesAgeDays === null) {
+      lines.push('🎯 עוד לא הגדרת עדיפויות לתקופה — /memory')
+    } else if (input.prioritiesAgeDays > input.staleAfterDays) {
+      lines.push(`🎯 העדיפויות לא עודכנו ${input.prioritiesAgeDays} ימים — עדיין נכונות?`)
+    }
+  }
+  if (input.pendingMemoryProposals > 0) {
+    lines.push(`🧠 ${input.pendingMemoryProposals} זיכרונות חדשים מחכים לאישור — /memory`)
+  }
+  return lines
 }

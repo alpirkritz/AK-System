@@ -12,6 +12,11 @@ import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import {
   commitments,
   financeTransactions,
+  meetingAnalyses,
+  memoryLinks,
+  projectPeople,
+  projects,
+  tasks,
   harnessEdges,
   harnessNodes,
   meetingPeople,
@@ -27,6 +32,8 @@ import {
   type getDb,
 } from '@ak-system/database'
 import { gmailThreadUrl } from './commitments'
+import { topicTokens } from '../lib/topic-match'
+import { writeHarnessStamp } from './harness-stamps'
 import { mirrorToGrag } from './harness-grag'
 import { listAffiliations, type PersonAffiliation } from './person-workspaces'
 
@@ -41,6 +48,8 @@ export type HarnessScope =
   | 'finance'
   | 'voice'
   | 'email'
+  | 'projects'
+  | 'topics'
 
 export const HARNESS_SCOPES: HarnessScope[] = [
   'people',
@@ -51,6 +60,8 @@ export const HARNESS_SCOPES: HarnessScope[] = [
   'finance',
   'voice',
   'email',
+  'projects',
+  'topics',
 ]
 
 export interface IndexOptions {
@@ -253,7 +264,8 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
   const byScope: Record<string, number> = {}
 
   /** Meetings are needed as edge targets even when only another scope was requested. */
-  const needMeetings = scopes.has('meetings') || scopes.has('finance') || scopes.has('voice')
+  const needMeetings =
+    scopes.has('meetings') || scopes.has('finance') || scopes.has('voice') || scopes.has('projects') || scopes.has('topics')
   const meetingRows = needMeetings
     ? await db
         .select({
@@ -647,8 +659,68 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
     byScope.voice = rows.length
   }
 
+  const projectRows =
+    scopes.has('projects') || scopes.has('topics')
+      ? await db.select({ id: projects.id, name: projects.name, brief: projects.standingBrief, workspaceId: projects.workspaceId }).from(projects)
+      : []
+
+  if (scopes.has('projects')) {
+    const openTasks = await db
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(eq(tasks.done, false))
+    const openByProject = new Map<string, number>()
+    for (const t of openTasks) if (t.projectId) openByProject.set(t.projectId, (openByProject.get(t.projectId) ?? 0) + 1)
+    const lastMeeting = new Map<string, string>()
+    for (const m of meetingRows) {
+      if (m.projectId && (!lastMeeting.has(m.projectId) || m.date > (lastMeeting.get(m.projectId) as string))) {
+        lastMeeting.set(m.projectId, m.date)
+      }
+    }
+    for (const pr of projectRows) {
+      nodes.push({
+        id: nodeId('project', pr.id),
+        kind: 'project',
+        entityId: pr.id,
+        label: pr.name,
+        summary: truncate(pr.brief, 180) ?? pr.name,
+        attrs: { workspaceId: pr.workspaceId, openTasks: openByProject.get(pr.id) ?? 0, lastMeetingAt: lastMeeting.get(pr.id) ?? null },
+        occurredAt: lastMeeting.get(pr.id) ? `${lastMeeting.get(pr.id)}T00:00:00` : null,
+      })
+    }
+    for (const m of meetingRows) {
+      if (!m.projectId) continue
+      edges.push({ fromId: nodeId('meeting', m.id), toId: nodeId('project', m.projectId), kind: 'BELONGS_TO', occurredAt: m.date })
+    }
+    const members = await db.select({ projectId: projectPeople.projectId, personId: projectPeople.personId }).from(projectPeople)
+    for (const link of members) {
+      edges.push({ fromId: nodeId('person', link.personId), toId: nodeId('project', link.projectId), kind: 'MEMBER_OF' })
+    }
+    byScope.projects = projectRows.length
+  }
+
+  if (scopes.has('topics')) {
+    const topics = await collectTopics(db, meetingRows, projectRows.map((p) => p.name), windowStartDate)
+    for (const t of topics) {
+      nodes.push({
+        id: nodeId('topic', t.token),
+        kind: 'topic',
+        entityId: t.token,
+        label: t.token,
+        summary: `${t.sourceCount} מקורות`,
+        attrs: { meetings: t.meetingIds.length, tasks: t.taskIds.length, groups: t.groupNames },
+        occurredAt: null,
+      })
+      for (const meetingId of t.meetingIds) {
+        edges.push({ fromId: nodeId('meeting', meetingId), toId: nodeId('topic', t.token), kind: 'ABOUT' })
+      }
+    }
+    byScope.topics = topics.length
+  }
+
   const nodeCount = await writeNodes(db, nodes, nowIso)
   const edgeCount = await writeEdges(db, edges, nowIso)
+  await writeHarnessStamp(db, 'harnessIndexedAt', nowIso)
 
   await mirrorToGrag(
     nodes
@@ -811,4 +883,88 @@ export async function nodesInWindow(
     .from(harnessNodes)
     .where(and(...conditions))
     .orderBy(desc(harnessNodes.occurredAt))
+}
+
+
+// ─── Topics (spec: harness-project-topic-nodes) ─────────────────────────────
+
+/** A topic needs this many distinct sources (meetings, tasks, groups, memories) to become a node. */
+export const TOPIC_MIN_SOURCES = 2
+
+export interface TopicDraft {
+  token: string
+  sourceCount: number
+  meetingIds: string[]
+  taskIds: string[]
+  groupNames: string[]
+}
+
+/**
+ * Pure counting step — exported for tests. Tokens that are part of a project name are skipped:
+ * the project node already covers them.
+ */
+export function countTopicSources(
+  sources: Array<{ key: string; kind: 'meeting' | 'task' | 'group' | 'memory'; id: string; text: string }>,
+  projectNames: string[],
+  minSources = TOPIC_MIN_SOURCES,
+): TopicDraft[] {
+  const projectTokens = new Set(projectNames.flatMap((n) => topicTokens(n)))
+  const byToken = new Map<string, { keys: Set<string>; meetingIds: Set<string>; taskIds: Set<string>; groups: Set<string> }>()
+  for (const src of sources) {
+    for (const token of topicTokens(src.text)) {
+      if (projectTokens.has(token)) continue
+      const entry = byToken.get(token) ?? { keys: new Set(), meetingIds: new Set(), taskIds: new Set(), groups: new Set() }
+      entry.keys.add(src.key)
+      if (src.kind === 'meeting') entry.meetingIds.add(src.id)
+      if (src.kind === 'task') entry.taskIds.add(src.id)
+      if (src.kind === 'group') entry.groups.add(src.text)
+      byToken.set(token, entry)
+    }
+  }
+  return [...byToken.entries()]
+    .filter(([, e]) => e.keys.size >= minSources)
+    .map(([token, e]) => ({
+      token,
+      sourceCount: e.keys.size,
+      meetingIds: [...e.meetingIds],
+      taskIds: [...e.taskIds],
+      groupNames: [...e.groups],
+    }))
+    .sort((a, b) => b.sourceCount - a.sourceCount)
+    .slice(0, SCOPE_LIMIT)
+}
+
+async function collectTopics(
+  db: Db,
+  meetingRows: Array<{ id: string; title: string }>,
+  projectNames: string[],
+  windowStartDate: string,
+): Promise<TopicDraft[]> {
+  const sources: Parameters<typeof countTopicSources>[0] = []
+  for (const m of meetingRows) sources.push({ key: `meeting:${m.id}`, kind: 'meeting', id: m.id, text: m.title })
+  const meetingIds = meetingRows.map((m) => m.id)
+  for (let i = 0; i < meetingIds.length; i += 200) {
+    const chunk = meetingIds.slice(i, i + 200)
+    const analyses = await db
+      .select({ meetingId: meetingAnalyses.meetingId, topic: meetingAnalyses.topic })
+      .from(meetingAnalyses)
+      .where(inArray(meetingAnalyses.meetingId, chunk))
+    for (const a of analyses) {
+      if (a.topic && a.meetingId) sources.push({ key: `meeting:${a.meetingId}`, kind: 'meeting', id: a.meetingId, text: a.topic })
+    }
+  }
+  const openTasks = await db
+    .select({ id: tasks.id, title: tasks.title })
+    .from(tasks)
+    .where(and(eq(tasks.done, false), gte(tasks.updatedAt, windowStartDate)))
+    .limit(SCOPE_LIMIT)
+  for (const t of openTasks) sources.push({ key: `task:${t.id}`, kind: 'task', id: t.id, text: t.title })
+  const groups = await db.select({ jid: whatsappGroups.jid, name: whatsappGroups.name }).from(whatsappGroups)
+  for (const g of groups) if (g.name) sources.push({ key: `group:${g.jid}`, kind: 'group', id: g.jid, text: g.name })
+  const memoryTopics = await db
+    .select({ memoryId: memoryLinks.memoryId, token: memoryLinks.entityId })
+    .from(memoryLinks)
+    .where(eq(memoryLinks.entityKind, 'topic'))
+  for (const mt of memoryTopics) sources.push({ key: `memory:${mt.memoryId}`, kind: 'memory', id: mt.memoryId, text: mt.token.toUpperCase().length <= 3 ? mt.token.toUpperCase() : mt.token })
+  return countTopicSources(sources, projectNames)
 }

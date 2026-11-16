@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { AgentConfigPanel } from '@/components/AgentConfigPanel'
+import { AgentRulesPanel } from '@/components/memory/AgentRulesPanel'
+import { EpisodesPanel } from '@/components/memory/EpisodesPanel'
 
 interface AgentSummary {
   id: string
@@ -406,7 +408,13 @@ export default function AgentsManagePage() {
                 בחר סוכן לעריכה
               </div>
             ) : tab === 'config' ? (
-              <AgentConfigPanel agentId={selectedId} />
+              <div className="flex-1 overflow-y-auto flex flex-col">
+                <AgentConfigPanel agentId={selectedId} />
+                <div className="px-4 pb-6 space-y-6">
+                  <AgentRulesPanel agentId={selectedId} />
+                  <EpisodesPanel />
+                </div>
+              </div>
             ) : loadingContent ? (
               <div className="flex-1 flex items-center justify-center text-[#5a688c] text-sm">
                 טוען...

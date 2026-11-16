@@ -7,11 +7,12 @@ import {
   getSchedulablePreference,
   localTodayIso,
   markNotificationSent,
+  PRIORITIES_STALE_DAYS,
   wasNotificationSentInSlot,
 } from '@ak-system/api'
 import { agentCardRequestsDueTasks, getAgentInstructions } from '@/lib/abc-agents'
 import { createServiceCaller } from '@/lib/api-caller'
-import { formatMorningBriefingContext } from '@/lib/morning-briefing-context'
+import { formatMorningBriefingContext, morningReminderLines } from '@/lib/morning-briefing-context'
 import {
   formatFinanceBriefLines,
   maybePushFinanceAlert,
@@ -121,12 +122,28 @@ async function runMorningBriefing(request: NextRequest): Promise<NextResponse> {
         return []
       })
 
+    // Housekeeping nudges never block the brief.
+    const [profile, proposals] = await Promise.all([
+      caller.ownerProfile.get().catch(() => null),
+      caller.memory.proposals.count().catch(() => ({ pending: 0 })),
+    ])
+    const weekday = new Date(`${today}T12:00:00Z`).getUTCDay()
+    const ageDays = profile?.updatedAt
+      ? Math.floor((Date.now() - new Date(profile.updatedAt).getTime()) / 86400000)
+      : null
+    const reminderLines = morningReminderLines({
+      weekday,
+      prioritiesAgeDays: ageDays,
+      staleAfterDays: PRIORITIES_STALE_DAYS,
+      pendingMemoryProposals: proposals.pending,
+    })
+
     const text = formatMorningBriefingContext(
       today,
       scopedEvents,
       dueTasks,
       formatFinanceBriefLines(financeInsights),
-      { includeDueTasks, coolingFlags, commitments, waiting, harnessLines: formatInsightLines(harnessInsights) },
+      { includeDueTasks, coolingFlags, commitments, waiting, harnessLines: formatInsightLines(harnessInsights), reminderLines },
     )
 
     const routed = await runEventAgentIfRouted('morning_briefing', {

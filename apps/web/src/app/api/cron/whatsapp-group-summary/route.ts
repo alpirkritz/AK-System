@@ -9,6 +9,7 @@ import {
   summarizeGroup,
   WHATSAPP_DAILY_DIGEST_TYPE,
 } from '@ak-system/api'
+import { reindexHarnessScopes } from '@/lib/harness-incremental'
 
 function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return []
@@ -108,6 +109,7 @@ async function runScheduledSummary(request: NextRequest): Promise<NextResponse> 
   }
 
   const okCount = Object.values(results).filter((r) => r.ok).length
+  await reindexHarnessScopes(['whatsapp'], okCount > 0)
   return NextResponse.json({
     ok: true,
     slot,

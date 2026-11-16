@@ -27,12 +27,18 @@ const create = vi.fn()
 const suggestLinks = vi.fn()
 const resolveNames = vi.fn()
 const recall = vi.fn()
+const projectContext = vi.fn()
+const topicContext = vi.fn()
+const proposeUpdate = vi.fn()
+const applyUpdate = vi.fn()
 const caller = {
   memory: { memories: { create, suggestLinks }, resolveNames, recall },
+  harness: { projectContext, topicContext },
+  ownerProfile: { proposeUpdate, applyUpdate },
 } as unknown as AnyCaller
 
 beforeEach(() => {
-  for (const f of [create, suggestLinks, resolveNames, recall]) f.mockReset()
+  for (const f of [create, suggestLinks, resolveNames, recall, projectContext, topicContext, proposeUpdate, applyUpdate]) f.mockReset()
   create.mockResolvedValue({ id: 'mem_1' })
 })
 
@@ -90,5 +96,33 @@ describe('recall_memories', () => {
     const saveFact = getToolDeclarations().find((d) => d.name === 'save_fact')!
     expect(saveFact.description).not.toMatch(/Use for: 'שמור ש/)
     expect(saveFact.description).toContain('use `remember` instead')
+  })
+})
+
+describe('context tools', () => {
+  it('dispatches project and topic context by name', async () => {
+    projectContext.mockResolvedValue({ notFound: false, name: 'Algo 4' })
+    topicContext.mockResolvedValue({ notFound: true })
+    await executeTool('get_project_context', { project: 'Algo 4' }, caller)
+    await executeTool('get_topic_context', { topic: 'DD' }, caller)
+    expect(projectContext).toHaveBeenCalledWith({ name: 'Algo 4' })
+    expect(topicContext).toHaveBeenCalledWith({ topic: 'DD' })
+  })
+
+  it('propose returns a token without saving; apply needs the token', async () => {
+    proposeUpdate.mockResolvedValue({ token: 'tok', diff: { added: ['גיוס'], removed: [], reordered: false, next: ['גיוס'] } })
+    const res = (await executeTool('propose_priorities_update', { priorities: ['גיוס'] }, caller)) as { token: string; note: string }
+    expect(res.token).toBe('tok')
+    expect(res.note).toContain('NOT saved')
+    expect(applyUpdate).not.toHaveBeenCalled()
+    expect(await executeTool('apply_priorities_update', {}, caller)).toEqual({ error: 'token is required' })
+  })
+
+  it('cross-domain tools are hidden from specialists', () => {
+    const names = getToolDeclarations('07_email_assistant').map((d) => d.name)
+    for (const n of ['get_project_context', 'get_topic_context', 'propose_priorities_update', 'review_memory_proposals']) {
+      expect(names).not.toContain(n)
+    }
+    expect(getToolDeclarations('01_Hugo_orchestrator').map((d) => d.name)).toContain('get_project_context')
   })
 })

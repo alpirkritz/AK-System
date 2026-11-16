@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServiceCaller } from '@/lib/api-caller'
+import { hasPositiveCount, reindexHarnessScopes } from '@/lib/harness-incremental'
 
 /**
  * Cron: sync Google/Apple calendar events into meetings table.
@@ -33,6 +34,7 @@ async function runCalendarSync(request: NextRequest): Promise<NextResponse> {
       endDate: end,
       calendarIds: null,
     })
+    await reindexHarnessScopes(['meetings', 'people'], hasPositiveCount(result))
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {
     console.error('[cron/calendar-sync]', err)

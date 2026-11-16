@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServiceCaller } from '@/lib/api-caller'
+import { hasPositiveCount, reindexHarnessScopes } from '@/lib/harness-incremental'
 
 /**
  * Cron: sync Notion tasks + people + relationship graph into the app database.
@@ -36,6 +37,7 @@ async function runNotionSync(request: NextRequest): Promise<NextResponse> {
         error: err instanceof Error ? err.message : 'graph sync failed',
       }),
     )
+    await reindexHarnessScopes(['meetings'], hasPositiveCount({ tasksResult, graphResult }))
     return NextResponse.json({ ok: true, tasks: tasksResult, graph: graphResult })
   } catch (err) {
     console.error('[cron/notion-sync]', err)

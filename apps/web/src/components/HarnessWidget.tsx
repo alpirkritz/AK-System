@@ -49,6 +49,16 @@ const SOURCE_KIND_LABEL: Record<string, string> = {
   vat_period: 'מע״מ',
   calendar_day: 'יום ביומן',
   reply_queue: 'תור תשובות',
+  topic: 'נושא',
+}
+
+function agoLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (!Number.isFinite(mins)) return null
+  if (mins < 60) return `עודכן לפני ${mins} דק׳`
+  const hours = Math.round(mins / 60)
+  return hours < 48 ? `עודכן לפני ${hours} שעות` : `עודכן לפני ${Math.round(hours / 24)} ימים`
 }
 
 function severityOf(raw: string): Severity {
@@ -69,13 +79,19 @@ const SVG_LINK = (
 const InsightCard = memo(function InsightCard({
   insight,
   onDismiss,
+  onActed,
   dismissing,
+  downgraded,
 }: {
   insight: Insight
   onDismiss: () => void
+  onActed: () => void
   dismissing: boolean
+  downgraded: boolean
 }) {
   const severity = severityOf(insight.severity)
+  const projectSource = insight.sources.find((s) => s.kind === 'project')
+  const projectId = projectSource?.nodeId.startsWith('project:') ? projectSource.nodeId.slice('project:'.length) : null
   const color = SEVERITY_COLOR[severity]
 
   return (
@@ -91,6 +107,14 @@ const InsightCard = memo(function InsightCard({
         >
           {SEVERITY_LABEL[severity]}
         </span>
+        {downgraded && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 text-[#7a89ab] border border-[#29395d]"
+            title="סוג תובנה שנדחה ברוב הפעמים — הוחלש אוטומטית"
+          >
+            הוחלש
+          </span>
+        )}
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-[#cdd7ea]">{insight.title}</h3>
           <p className="text-[12px] text-[#8593b3] mt-1 leading-relaxed">{insight.body}</p>
@@ -122,6 +146,20 @@ const InsightCard = memo(function InsightCard({
             פתח כרטיס
           </Link>
         )}
+        {projectId && (
+          <Link href={`/projects/${projectId}`} className="btn btn-ghost text-[12px] py-1 px-3 no-underline">
+            פתח פרויקט
+          </Link>
+        )}
+        <button
+          type="button"
+          className="btn btn-ghost text-[12px] py-1 px-3"
+          onClick={onActed}
+          disabled={dismissing}
+          aria-label={`סמן שטיפלת בתובנה "${insight.title}"`}
+        >
+          טיפלתי
+        </button>
         <button
           type="button"
           className="btn btn-ghost text-[12px] py-1 px-3"
@@ -147,6 +185,18 @@ export function HarnessWidget() {
   const [dismissingId, setDismissingId] = useState<string | null>(null)
 
   const { data: insights = [], isLoading, refetch } = trpc.harness.insights.useQuery({ limit: 12 })
+  const { data: world } = trpc.harness.worldState.useQuery({ insightLimit: 1 })
+  const downgradedKinds = new Set(
+    ((world?.kindStats ?? []) as Array<{ kind: string; downgraded: boolean }>).filter((k) => k.downgraded).map((k) => k.kind),
+  )
+  const freshness = agoLabel(world?.reasonedAt as string | null | undefined)
+  const acted = trpc.harness.markActed.useMutation({
+    onSuccess: () => {
+      refetch()
+      setDismissingId(null)
+    },
+    onError: () => setDismissingId(null),
+  })
   const dismiss = trpc.harness.dismissInsight.useMutation({
     onSuccess: () => {
       refetch()
@@ -166,6 +216,7 @@ export function HarnessWidget() {
       <div className="flex items-center gap-3 mb-3">
         <span className="text-[#4d9cf0]">{SVG_LINK}</span>
         <h2 className="text-base font-semibold text-[#eef3fb]">תובנות חוצות-תחומים</h2>
+        {freshness && <span className="text-[11px] text-[#5a688c]">{freshness}</span>}
         {urgentCount > 0 && (
           <span
             className="text-[11px] font-bold px-2 py-0.5 rounded-full"
@@ -192,9 +243,14 @@ export function HarnessWidget() {
           key={insight.id}
           insight={insight}
           dismissing={dismissingId === insight.id}
+          downgraded={downgradedKinds.has(insight.kind)}
           onDismiss={() => {
             setDismissingId(insight.id)
             dismiss.mutate({ id: insight.id })
+          }}
+          onActed={() => {
+            setDismissingId(insight.id)
+            acted.mutate({ id: insight.id })
           }}
         />
       ))}

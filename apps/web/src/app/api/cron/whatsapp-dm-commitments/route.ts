@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@ak-system/database'
 import { buildCommitmentNotification, freshCommitments, scanDmCommitments } from '@ak-system/api'
 import { createNotification } from '@/lib/notification-store'
+import { hasPositiveCount, reindexHarnessScopes } from '@/lib/harness-incremental'
 
 /**
  * Cron: every 10 minutes, propose commitments from new allowlisted 1:1 chats.
@@ -32,6 +33,7 @@ async function run(request: NextRequest): Promise<NextResponse> {
       const { title, body } = buildCommitmentNotification(fresh)
       await createNotification({ title, body, url: '/commitments', type: 'system' })
     }
+    await reindexHarnessScopes(['commitments'], hasPositiveCount(result))
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {
     console.error('[cron/whatsapp-dm-commitments]', err)

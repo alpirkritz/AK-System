@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getDb, whatsappMessages, lt, and, eq } from '@ak-system/database'
-import { runDmRetention } from '@ak-system/api'
+import { pruneEpisodes, runDmRetention } from '@ak-system/api'
 
 const DEFAULT_RETENTION_DAYS = 30
 const DEFAULT_DM_RETENTION_DAYS = 90
@@ -42,6 +42,8 @@ async function runRetention(request: NextRequest): Promise<NextResponse> {
     const db = getDb()
     await db.delete(whatsappMessages).where(and(lt(whatsappMessages.ts, cutoffMs), eq(whatsappMessages.pinned, false)))
     const dmExpired = await runDmRetention(db, dmRetentionDays)
+    // Agent episodes share this daily housekeeping run (agent-episodes: 14-day retention).
+    await pruneEpisodes(db).catch((err) => console.warn('[cron/whatsapp-message-retention] episode prune failed', err))
     return NextResponse.json({ ok: true, retentionDays, cutoffMs, dmRetentionDays, dmExpired })
   } catch (err) {
     console.error('[cron/whatsapp-message-retention]', err)

@@ -10,6 +10,8 @@ import {
   linkKey,
   type MemoryLinkChip,
 } from '@/components/memory/MemoryLinkEditor'
+import { OwnerProfileCard } from '@/components/memory/OwnerProfileCard'
+import { MemoryProposals } from '@/components/memory/MemoryProposals'
 
 type KindFilter = 'all' | 'memory' | 'knowledge' | 'instruction'
 type NewKind = 'memory' | 'knowledge'
@@ -29,7 +31,7 @@ function listFilter(kind: KindFilter, scope: ScopeFilter, entity: MemoryLinkChip
   const f: Record<string, string> = {}
   if (kind !== 'all') f.kind = kind
   if (entity) {
-    const key = { person: 'personId', project: 'projectId', workspace: 'workspaceId', topic: 'topic' }[entity.kind]
+    const key = { person: 'personId', project: 'projectId', workspace: 'workspaceId', topic: 'topic', agent: 'agentId' }[entity.kind]
     f[key] = entity.entityId
   } else if (scope !== 'all') {
     f.scope = scope
@@ -72,6 +74,8 @@ export default function MemoryPage() {
 
   // ── Memories ────────────────────────────────────────────────────────────────
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
+  const [showProposals, setShowProposals] = useState(false)
+  const { data: proposalCount } = trpc.memory.proposals.count.useQuery()
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all')
   const [entityFilter, setEntityFilter] = useState<MemoryLinkChip | null>(null)
   const { data: memories = [], isLoading } = trpc.memory.memories.list.useQuery(
@@ -151,6 +155,8 @@ export default function MemoryPage() {
           {message}
         </div>
       )}
+
+      <OwnerProfileCard />
 
       {/* Standing instructions */}
       <div className="card p-5 mb-6 space-y-3">
@@ -352,20 +358,37 @@ export default function MemoryPage() {
         {kindTabs.map((t) => (
           <button
             key={t.id}
-            onClick={() => setKindFilter(t.id)}
+            onClick={() => {
+              setKindFilter(t.id)
+              setShowProposals(false)
+            }}
             className="text-sm px-3 py-1.5 rounded-lg transition-all cursor-pointer"
             style={{
-              background: kindFilter === t.id ? '#2dd4bf22' : 'transparent',
-              color: kindFilter === t.id ? '#2dd4bf' : '#647399',
-              border: `1px solid ${kindFilter === t.id ? '#2dd4bf44' : 'transparent'}`,
+              background: !showProposals && kindFilter === t.id ? '#2dd4bf22' : 'transparent',
+              color: !showProposals && kindFilter === t.id ? '#2dd4bf' : '#647399',
+              border: `1px solid ${!showProposals && kindFilter === t.id ? '#2dd4bf44' : 'transparent'}`,
             }}
           >
             {t.label}
           </button>
         ))}
+        <button
+          onClick={() => setShowProposals(true)}
+          className="text-sm px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+          style={{
+            background: showProposals ? '#2dd4bf22' : 'transparent',
+            color: showProposals ? '#2dd4bf' : '#647399',
+            border: `1px solid ${showProposals ? '#2dd4bf44' : 'transparent'}`,
+          }}
+          data-testid="memory-proposals-tab"
+        >
+          הצעות{proposalCount?.pending ? ` (${proposalCount.pending})` : ''}
+        </button>
       </div>
 
-      {isLoading ? (
+      {showProposals ? (
+        <MemoryProposals />
+      ) : isLoading ? (
         <div className="text-xs text-[#4d659c]">טוען…</div>
       ) : memories.length === 0 ? (
         <div className="card p-6 text-center text-sm text-[#5a688c]">אין פריטים עדיין.</div>

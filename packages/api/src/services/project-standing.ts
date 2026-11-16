@@ -98,3 +98,37 @@ export async function writeProjectStanding(db: Db, projectId: string) {
   await db.update(projects).set({ standingBrief: text, standingBriefAt: now, updatedAt: now }).where(eq(projects.id, projectId))
   return { brief: text, briefAt: now, stale: false }
 }
+
+/** Projects refreshed per harness run — each one is a Gemini call. */
+export const STANDING_REFRESH_LIMIT = 3
+
+/**
+ * Rewrite up to `limit` stale project briefs, most recently updated projects first
+ * (spec: harness-project-topic-nodes). One failure never stops the others.
+ */
+export async function refreshStaleProjectStandings(
+  db: Db,
+  limit = STANDING_REFRESH_LIMIT,
+  write: (db: Db, projectId: string) => Promise<unknown> = writeProjectStanding,
+): Promise<{ refreshed: string[]; failed: string[] }> {
+  const rows = await db
+    .select({ id: projects.id, briefAt: projects.standingBriefAt })
+    .from(projects)
+    .orderBy(desc(projects.updatedAt))
+  const refreshed: string[] = []
+  const failed: string[] = []
+  for (const row of rows) {
+    if (refreshed.length + failed.length >= limit) break
+    if (!row.briefAt) continue
+    try {
+      const standing = await readProjectStanding(db, row.id)
+      if (!standing.stale) continue
+      await write(db, row.id)
+      refreshed.push(row.id)
+    } catch (err) {
+      console.warn('[project-standing] refresh failed for', row.id, err instanceof Error ? err.message : err)
+      failed.push(row.id)
+    }
+  }
+  return { refreshed, failed }
+}

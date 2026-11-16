@@ -19,7 +19,7 @@ import {
 import { formatNotionContextForPrompt, getNotionContext } from './notion'
 import { getMemoryPromptBlock } from './agent-memory'
 import type { AgentNotifyChannel } from './agent-notifications'
-import { getAgentCalendarScopePromptBlock, getDefaultTimezone, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt, ownerIdentityPrompt } from '@ak-system/api'
+import { getAgentCalendarScopePromptBlock, getDefaultTimezone, localTodayIso, getAgentCalendarContext, formatAgentCalendarContextForPrompt, ownerIdentityPrompt, buildHarnessHeader, buildOwnerProfileBlock, buildEpisodesBlock, recordEpisode } from '@ak-system/api'
 import { createRunLogger, type AgentRunLogData } from './agent-run-log'
 import { randomBytes } from 'node:crypto'
 
@@ -191,6 +191,29 @@ function buildDegradedWhatsAppBrief(toolResults: Map<string, unknown>): string |
   return null
 }
 
+/** Record what this run delivered (agent-episodes). Never fails a run. */
+async function recordRunEpisode(agentId: string, channel: string, text: string): Promise<void> {
+  if (!text.trim()) return
+  try {
+    await recordEpisode({ agentId, channel, trigger: channel === 'cron' ? 'schedule' : 'chat', reply: text })
+  } catch (err) {
+    console.warn('[gemini-agent] episode not recorded', err)
+  }
+}
+
+/** Owner roles/priorities block (owner-priorities-profile). Never fails a run. */
+async function safeOwnerProfileBlock(): Promise<string> {
+  try {
+    return await buildOwnerProfileBlock()
+  } catch (err) {
+    console.warn('[gemini-agent] owner profile unavailable', err)
+    return ''
+  }
+}
+
+/** Agents that start every run with the harness world-state header (harness-world-state-header). */
+const HARNESS_HEADER_AGENT_IDS = new Set(['01_Hugo_orchestrator', '03_morning_briefing', '04_meeting_prep_herald'])
+
 /** Recent turns scanned for memory anchors, besides the current message. */
 const MEMORY_HISTORY_TURNS = 6
 
@@ -222,6 +245,7 @@ async function buildSystemInstruction(
           ? 'ARO — ממשק הסוכנים (Web)'
           : 'ARO chat'
 
+  const ownerBlock = await safeOwnerProfileBlock()
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\` inside ARO.`,
     ownerIdentityPrompt(),
@@ -258,7 +282,7 @@ async function buildSystemInstruction(
     'Time-anchored WhatsApp questions MUST carry time arguments: "היום"/"today" → window="today"; "אתמול"/"yesterday" → window="yesterday"; "בין 14 ל-16" → sinceHour=14, untilHour=16 (24h, Israel time); "מהבוקר" → window="today", sinceHour=6.',
     '',
     '## Agent feedback',
-    'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm in exactly this shape: "נרשם לטיפול ב-<agentId>, ייבדק ידנית" (Hebrew) or "Logged for <agentId>, pending manual review" (English). Never imply the behavior already changed.',
+    'When the user describes a correction or complaint about how an automated agent behaved (not a one-off request), call log_agent_feedback with the matching agentId and their verbatim wording. Then confirm using the `note` the tool returns (it names the suggested rule; the user applies it on the agents screen). In English: "Logged for <agentId> — suggested rule: …, apply it on the agents screen". Never imply the behavior already changed.',
     '',
   ]
 
@@ -307,12 +331,14 @@ async function buildSystemInstruction(
       '### Judgment contract (mandatory)',
       'Every reply you deliver must include: (1) מה חשוב עכשיו — 1–3 grounded bullets, (2) למה — one short line each, (3) המלצה — one primary next step, (4) מה לא לטפל עכשיו — optional. Decision-needed: Context / Impact / recommended path + 1–2 alternatives. Zero filler.',
       'Never ship a specialist dump as the whole reply. Keep specialist facts; CoS judgment is mandatory (at least 2–4 judgment lines after any run_abc_agent).',
+      'Rank מה חשוב עכשיו against the numbered priorities in "על אלפיר — תפקידים ועדיפויות" first, and say which priority each item serves; when an item serves none, say so. To change priorities use propose_priorities_update, show the diff, and only after a clear yes call apply_priorities_update with the token.',
       '',
       '### Multi-source scan (vague asks)',
       'On מה חשוב / מה המצב / תעזור לי / תכין אותי / similar vague intent: call at least TWO of YOUR OWN tools from DIFFERENT domains before answering. Do NOT call run_abc_agent as the first action.',
       'One of those MUST be get_harness_insights — it is the only source for links that span domains (a person going quiet while a commitment to them is open, a stale commitment, spend clustered around meetings, an unanswered thread). Each insight carries `basedOn`; cite it when you raise one, and do not restate an insight as a fact you verified yourself. For a named person, also call get_harness_insights with that personId.',
-      'On a named-person or named-project ask, also call recall_memories for that name as part of the depth pass — the injected memory block is capped per entity, recall_memories is not. When you save a memory with remember, pass aboutPeople / aboutProjects / topics whenever it is about someone or something specific.',
-      'MANDATORY when get_harness_insights returned one or more insights: the reply must contain a `קישורים בין תחומים:` section naming at least one of them with what it was based on. These links are invisible to every other tool — a calendar-and-tasks answer that silently drops them is a failed reply. If you judge that none of them deserve action right now, keep the section and write one line saying so and why. If the tool returned no insights, omit the section entirely — absence is not a finding.',
+      'On a named project call get_project_context; on a named topic that is not a project (DD, Algo 4, גיוס) call get_topic_context — both as part of the depth pass. ' +
+        'On a named-person or named-project ask, also call recall_memories for that name as part of the depth pass — the injected memory block is capped per entity, recall_memories is not. When you save a memory with remember, pass aboutPeople / aboutProjects / topics whenever it is about someone or something specific.',
+      'MANDATORY when get_harness_insights — or the `תמונת מצב (harness)` header in this prompt — holds one or more insights relevant to the ask: the reply must contain a `קישורים בין תחומים:` section naming at least one of them with what it was based on. These links are invisible to every other tool — a calendar-and-tasks answer that silently drops them is a failed reply. If you judge that none of them deserve action right now, keep the section and write one line saying so and why. If the tool returned no insights, omit the section entirely — absence is not a finding.',
       '### Date grounding (CRITICAL — מחר / tomorrow)',
       'If the user asks about מחר / tomorrow / a specific date: you MUST call get_day_schedule with date "tomorrow" (or that YYYY-MM-DD) AND get_notion_meetings with range "tomorrow" (and get_notion_tasks filter "tomorrow" when tasks matter) BEFORE answering.',
       'NEVER use get_today_schedule or Notion range "today" for a tomorrow question. NEVER claim "אין פגישות מחר" / empty day unless those tool results for THAT date returned empty events/meetings AND calendarErrors is empty. If calendarErrors is present, say which calendars failed — do not invent an empty day.',
@@ -342,6 +368,27 @@ async function buildSystemInstruction(
       'Never tell the user to open another app or Notion to get the answer — deliver everything here.',
       '',
     )
+  }
+
+  // Roles and priorities sit right after the identity line. Inserted after the CoS splice above,
+  // which relies on fixed indexes in `parts`.
+  if (ownerBlock) parts.splice(2, 0, ownerBlock)
+
+  // Harness picture up front, so cross-domain links do not depend on a tool call.
+  if (HARNESS_HEADER_AGENT_IDS.has(agentId)) {
+    try {
+      const header = await buildHarnessHeader()
+      if (header) parts.push('', header, '', '---')
+    } catch (err) {
+      console.warn('[gemini-agent] harness header unavailable', err)
+    }
+    // What the other agents already told the owner today (agent-episodes).
+    try {
+      const episodes = await buildEpisodesBlock({ texts: memoryTexts })
+      if (episodes) parts.push('', episodes, '', '---')
+    } catch (err) {
+      console.warn('[gemini-agent] episodes unavailable', err)
+    }
   }
 
   if (workflow) {
@@ -399,7 +446,7 @@ async function buildSystemInstruction(
   // User memory goes LAST so it is closest to the generation point and cannot be
   // buried under card/workflow/context blocks. Explicit precedence resolves the
   // old conflict between "MANDATORY overrides" above and "user instructions win".
-  const memoryBlock = await getMemoryPromptBlock({ texts: memoryTexts })
+  const memoryBlock = await getMemoryPromptBlock({ texts: memoryTexts, agentId })
   if (memoryBlock) {
     parts.push(
       '',
@@ -1002,6 +1049,7 @@ export async function runGeminiAgentChat(options: {
       errorMessage,
     })
 
+    await recordRunEpisode(options.agentId, channel, result.text)
     return { text: result.text }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error'
@@ -1095,6 +1143,7 @@ export async function runGeminiAgentChat(options: {
         errorMessage,
       })
 
+      await recordRunEpisode(options.agentId, channel, result.text)
       return { text: result.text }
     } catch (retryErr) {
       // Fallback failed too

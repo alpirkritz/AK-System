@@ -841,6 +841,36 @@ const MEMORY_TABLES = [
   `CREATE INDEX IF NOT EXISTS idx_memory_links_entity ON memory_links(entity_kind, entity_id)`,
   `CREATE INDEX IF NOT EXISTS idx_memory_links_memory ON memory_links(memory_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_links_triple ON memory_links(memory_id, entity_kind, entity_id)`,
+  `CREATE TABLE IF NOT EXISTS agent_feedback (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    feedback TEXT NOT NULL,
+    channel TEXT,
+    suggested_rule TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    memory_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent ON agent_feedback(agent_id, status)`,
+  `CREATE TABLE IF NOT EXISTS agent_episodes (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    anchors TEXT,
+    insight_ids TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_episodes_created ON agent_episodes(created_at)`,
+  `CREATE TABLE IF NOT EXISTS owner_profile (
+    id TEXT PRIMARY KEY,
+    roles TEXT,
+    priorities TEXT,
+    principles TEXT,
+    updated_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS user_settings (
     id TEXT PRIMARY KEY,
     agent_calendar_ids TEXT,
@@ -1217,6 +1247,9 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN business_profile TEXT',
   'ALTER TABLE user_settings ADD COLUMN agent_schedules_migrated_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN memory_links_backfilled_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN memory_distilled_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN harness_indexed_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN harness_reasoned_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN layout_prefs TEXT',
@@ -1719,6 +1752,11 @@ function applySqliteMigrations(sqlite: Database) {
     'ALTER TABLE meeting_analyses ADD COLUMN whatsapp_notified_at TEXT',
     'ALTER TABLE people ADD COLUMN traits_at TEXT',
     'ALTER TABLE harness_insights ADD COLUMN notified_at TEXT',
+    'ALTER TABLE harness_insights ADD COLUMN facts_hash TEXT',
+    "ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+    'ALTER TABLE memories ADD COLUMN evidence TEXT',
+    'ALTER TABLE memories ADD COLUMN replaces_memory_id TEXT',
+    'CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status)',
     'ALTER TABLE person_email_threads ADD COLUMN reply_need TEXT',
     'ALTER TABLE person_email_threads ADD COLUMN reply_need_at TEXT',
     'ALTER TABLE user_settings ADD COLUMN slack_commitment_scan_cursor TEXT',
@@ -1908,6 +1946,9 @@ export const notificationPreferences = schema.notificationPreferences
 export const hugoInstructions = schema.hugoInstructions
 export const memories = schema.memories
 export const memoryLinks = schema.memoryLinks
+export const agentFeedback = schema.agentFeedback
+export const agentEpisodes = schema.agentEpisodes
+export const ownerProfile = schema.ownerProfile
 export const userSettings = schema.userSettings
 export const companies = schema.companies
 export const serviceItems = schema.serviceItems
@@ -2073,14 +2114,17 @@ export type Memory = typeof schemaPg.memories.$inferSelect
 export type NewMemory = typeof schemaPg.memories.$inferInsert
 export type MemoryLink = typeof schemaPg.memoryLinks.$inferSelect
 export type NewMemoryLink = typeof schemaPg.memoryLinks.$inferInsert
+export type AgentFeedback = typeof schemaPg.agentFeedback.$inferSelect
+export type AgentEpisode = typeof schemaPg.agentEpisodes.$inferSelect
+export type OwnerProfile = typeof schemaPg.ownerProfile.$inferSelect
 export type AgentRunLog = typeof schemaPg.agentRunLogs.$inferSelect
 export type NewAgentRunLog = typeof schemaPg.agentRunLogs.$inferInsert
 export type AgentJob = typeof schemaPg.agentJobs.$inferSelect
 export type NewAgentJob = typeof schemaPg.agentJobs.$inferInsert
 export type AgentCacheEntry = typeof schemaPg.agentCache.$inferSelect
 export type NewAgentCacheEntry = typeof schemaPg.agentCache.$inferInsert
-export { MEMORY_KINDS, MEMORY_SOURCES, MEMORY_LINK_KINDS, MEMORY_LINK_ORIGINS, READING_LIST_STATUSES } from './schema'
-export type { MemoryLinkKind, MemoryLinkOrigin } from './schema'
+export { MEMORY_KINDS, MEMORY_SOURCES, MEMORY_LINK_KINDS, MEMORY_LINK_ORIGINS, MEMORY_STATUSES, READING_LIST_STATUSES } from './schema'
+export type { MemoryLinkKind, MemoryLinkOrigin, MemoryStatus } from './schema'
 export type { MemoryKind, MemorySource, ReadingListStatus } from './schema'
 
 /** Normalize select result to array (works with both SQLite .all() and Postgres Promise) */

@@ -33,6 +33,9 @@ import {
 import { attentionReasonText, isInterrupting, loadAttention } from './relationship-attention'
 import { isSelfPersonName } from '../lib/self-identity'
 import { nodeId } from './harness-context'
+import { writeHarnessStamp } from './harness-stamps'
+import { getOwnerProfile } from './owner-profile'
+import { createHash } from 'node:crypto'
 import { classifyAmbiguousReplyNeed, deterministicReplyNeed, type ReplyNeed } from './email-reply-need'
 
 type Db = ReturnType<typeof getDb>
@@ -785,6 +788,52 @@ async function detectVatFilingWindow(ctx: DetectorContext): Promise<HarnessInsig
   }]
 }
 
+export const PRIORITY_QUIET_DAYS = 7
+
+function isoWeek(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  const dayNum = (d.getUTCDay() + 6) % 7
+  d.setUTCDate(d.getUTCDate() - dayNum + 3)
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4))
+  const week = 1 + Math.round(((d.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7)
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+/** A stated priority whose project had no meeting or task change for a week (spec: owner-priorities-profile). */
+async function detectPriorityNeglected(ctx: DetectorContext): Promise<HarnessInsightDraft[]> {
+  const { db, today } = ctx
+  const profile = await getOwnerProfile(db)
+  const linked = profile.priorities.filter((p) => p.projectId && (!p.until || p.until >= today))
+  if (linked.length === 0) return []
+  const cut = addDays(today, -PRIORITY_QUIET_DAYS)
+  const ids = linked.map((p) => p.projectId as string)
+  const [meetingRows, taskRows, projectRows] = await Promise.all([
+    db.select({ projectId: meetings.projectId }).from(meetings).where(and(inArray(meetings.projectId, ids), gte(meetings.date, cut), lte(meetings.date, today))),
+    db.select({ projectId: tasks.projectId }).from(tasks).where(and(inArray(tasks.projectId, ids), gte(tasks.updatedAt, `${cut}T00:00:00.000Z`))),
+    db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, ids)),
+  ])
+  const active = new Set([...meetingRows, ...taskRows].map((r) => r.projectId))
+  const names = new Map(projectRows.map((p) => [p.id, p.name]))
+  const week = isoWeek(today)
+  return linked
+    .filter((p) => names.has(p.projectId as string) && !active.has(p.projectId as string))
+    .map((p) => {
+      const rank = profile.priorities.findIndex((x) => x.id === p.id) + 1
+      const name = names.get(p.projectId as string) as string
+      return {
+        kind: 'priority_neglected',
+        title: `עדיפות ${rank} בלי תנועה: ${p.title}`,
+        body: `${name} — אין פגישה או שינוי במשימות ${PRIORITY_QUIET_DAYS} ימים.`,
+        severity: 'attention' as const,
+        score: Math.max(0.4, 0.8 - rank * 0.05),
+        personId: null,
+        sources: [{ nodeId: nodeId('project', p.projectId as string), kind: 'project', label: name }],
+        dedupeKey: `priority_neglected:${p.id}:${week}`,
+        ttlDays: 7,
+      }
+    })
+}
+
 const DETECTORS = [
   detectSilentBeforeMeeting,
   detectCoolingWithOpenLoop,
@@ -799,6 +848,7 @@ const DETECTORS = [
   detectProjectGoneQuiet,
   detectReplyBacklog,
   detectVatFilingWindow,
+  detectPriorityNeglected,
 ]
 
 async function loadReplyNeededThreadIds(db: Db, today: string, now: Date): Promise<Set<string>> {
@@ -1039,6 +1089,7 @@ export async function persistInsights(
     const expiresAt = new Date(now.getTime() + d.ttlDays * 86400000).toISOString()
     const fields = {
       kind: d.kind,
+      factsHash: insightFactsHash(d),
       title: d.title,
       body: d.body,
       severity: d.severity,
@@ -1091,13 +1142,124 @@ async function retireStaleInsights(db: Db, activeKeys: string[], now: Date): Pro
   return rows.length
 }
 
+/** What a draft asserts, independent of wording: same hash → no need to re-phrase. */
+export function insightFactsHash(d: Pick<HarnessInsightDraft, 'kind' | 'severity' | 'sources'>): string {
+  const ids = d.sources.map((s) => s.nodeId).sort()
+  return createHash('sha1').update(JSON.stringify([d.kind, d.severity, ids])).digest('hex').slice(0, 16)
+}
+
+// ─── Feedback-driven downgrade (spec: agent-episodes) ──────────────────────
+
+export const DOWNGRADE_WINDOW_DAYS = 30
+export const DOWNGRADE_MIN_RESOLVED = 6
+export const DOWNGRADE_DISMISS_RATE = 0.75
+
+export interface KindStat {
+  kind: string
+  dismissed: number
+  acted: number
+  downgraded: boolean
+}
+
+/** Per detector kind: how often the owner dismissed vs acted on it in the last 30 days. */
+export async function insightKindStats(db: Db, now = new Date()): Promise<KindStat[]> {
+  const since = new Date(now.getTime() - DOWNGRADE_WINDOW_DAYS * 86400000).toISOString()
+  const rows = await db
+    .select({ kind: harnessInsights.kind, status: harnessInsights.status })
+    .from(harnessInsights)
+    .where(and(inArray(harnessInsights.status, ['dismissed', 'acted']), gte(harnessInsights.updatedAt, since)))
+  const byKind = new Map<string, { dismissed: number; acted: number }>()
+  for (const r of rows) {
+    const s = byKind.get(r.kind) ?? { dismissed: 0, acted: 0 }
+    if (r.status === 'dismissed') s.dismissed++
+    else s.acted++
+    byKind.set(r.kind, s)
+  }
+  return [...byKind.entries()].map(([kind, s]) => {
+    const total = s.dismissed + s.acted
+    return {
+      kind,
+      ...s,
+      downgraded: total >= DOWNGRADE_MIN_RESOLVED && s.dismissed / total >= DOWNGRADE_DISMISS_RATE,
+    }
+  })
+}
+
+const SEVERITY_DOWN: Record<InsightSeverity, InsightSeverity> = { urgent: 'attention', attention: 'info', info: 'info' }
+
+export function applyDowngrades(drafts: HarnessInsightDraft[], stats: KindStat[]): HarnessInsightDraft[] {
+  const down = new Set(stats.filter((s) => s.downgraded).map((s) => s.kind))
+  return drafts.map((d) => (down.has(d.kind) ? { ...d, severity: SEVERITY_DOWN[d.severity] } : d))
+}
+
+/**
+ * Keep stored wording for drafts whose facts did not change; return only the changed ones for
+ * Gemini. Unchanged drafts get their stored title/body so persist does not overwrite good text.
+ */
+async function splitByChangedFacts(
+  db: Db,
+  drafts: HarnessInsightDraft[],
+): Promise<{ changed: HarnessInsightDraft[]; unchanged: HarnessInsightDraft[] }> {
+  if (drafts.length === 0) return { changed: [], unchanged: [] }
+  const stored = new Map(
+    (
+      await db
+        .select({
+          dedupeKey: harnessInsights.dedupeKey,
+          factsHash: harnessInsights.factsHash,
+          title: harnessInsights.title,
+          body: harnessInsights.body,
+          score: harnessInsights.score,
+        })
+        .from(harnessInsights)
+        .where(inArray(harnessInsights.dedupeKey, drafts.map((d) => d.dedupeKey)))
+    ).map((r) => [r.dedupeKey, r] as const),
+  )
+  const changed: HarnessInsightDraft[] = []
+  const unchanged: HarnessInsightDraft[] = []
+  for (const d of drafts) {
+    const prev = stored.get(d.dedupeKey)
+    if (prev && prev.factsHash && prev.factsHash === insightFactsHash(d)) {
+      unchanged.push({ ...d, title: prev.title, body: prev.body, score: prev.score })
+    } else {
+      changed.push(d)
+    }
+  }
+  return { changed, unchanged }
+}
+
 /** Detect, phrase, persist, and retire stale insights. */
-export async function reasonAndPersist(db: Db, now = new Date()): Promise<ReasonResult> {
-  const drafts = await runDetectors(db, now)
-  const { insights, model } = await phraseInsights(drafts)
+export async function reasonAndPersist(
+  db: Db,
+  now = new Date(),
+  options: { phraseChangedOnly?: boolean } = {},
+): Promise<ReasonResult> {
+  const stats = await insightKindStats(db, now)
+  const drafts = applyDowngrades(await runDetectors(db, now), stats)
+  let insights: HarnessInsightDraft[]
+  let model: string | null
+  if (options.phraseChangedOnly) {
+    const { changed, unchanged } = await splitByChangedFacts(db, drafts)
+    const phrased = await phraseInsights(changed)
+    insights = [...phrased.insights, ...unchanged].sort((a, b) => b.score - a.score)
+    model = phrased.model
+  } else {
+    ;({ insights, model } = await phraseInsights(drafts))
+  }
   const { created, updated } = await persistInsights(db, insights, now)
   await retireStaleInsights(db, insights.map((i) => i.dedupeKey), now)
+  await writeHarnessStamp(db, 'harnessReasonedAt', now.toISOString())
   return { insights, created, updated, model }
+}
+
+export async function markInsightActed(db: Db, id: string): Promise<boolean> {
+  const [row] = await db.select({ id: harnessInsights.id }).from(harnessInsights).where(eq(harnessInsights.id, id))
+  if (!row) return false
+  await db
+    .update(harnessInsights)
+    .set({ status: 'acted', updatedAt: new Date().toISOString() })
+    .where(eq(harnessInsights.id, id))
+  return true
 }
 
 export interface StoredInsight {

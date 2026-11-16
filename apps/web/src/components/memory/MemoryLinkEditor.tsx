@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { SearchableAddSelect } from '@/components/ui/SearchableAddSelect'
 
-export type MemoryLinkKind = 'person' | 'project' | 'workspace' | 'topic'
+export type MemoryLinkKind = 'person' | 'project' | 'workspace' | 'topic' | 'agent'
 
 export interface MemoryLinkChip {
   kind: MemoryLinkKind
@@ -18,6 +18,7 @@ const KIND_PREFIX: Record<MemoryLinkKind, string> = {
   project: '📁',
   workspace: '🌐',
   topic: '#',
+  agent: '🤖',
 }
 
 const KIND_NAME: Record<MemoryLinkKind, string> = {
@@ -25,6 +26,7 @@ const KIND_NAME: Record<MemoryLinkKind, string> = {
   project: 'פרויקט',
   workspace: 'סביבת עבודה',
   topic: 'נושא',
+  agent: 'סוכן',
 }
 
 export function linkKey(l: { kind: string; entityId: string }): string {
@@ -85,12 +87,17 @@ export function MemoryLinkAdder({ onAdd }: { onAdd: (link: MemoryLinkChip) => vo
   const { data: people = [] } = trpc.people.list.useQuery(undefined, { enabled: kind === 'person' })
   const { data: projects = [] } = trpc.projects.list.useQuery(undefined, { enabled: kind === 'project' })
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery(undefined, { enabled: kind === 'workspace' })
+  const { data: agentsData } = trpc.agents.list.useQuery(undefined, { enabled: kind === 'agent' })
 
   const options = useMemo(() => {
+    if (kind === 'agent') {
+      const agents = ((agentsData as { agents?: Array<{ agentId: string; name: string }> } | undefined)?.agents ?? [])
+      return agents.map((a) => ({ id: a.agentId, name: a.name }))
+    }
     const rows: Array<{ id: string; name: string }> =
       kind === 'person' ? people : kind === 'project' ? projects : kind === 'workspace' ? workspaces : []
     return rows.map((r) => ({ id: r.id, name: r.name }))
-  }, [kind, people, projects, workspaces])
+  }, [kind, people, projects, workspaces, agentsData])
 
   return (
     <div className="flex flex-wrap items-center gap-2">
