@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { WorldProjectOptions } from '@/components/ui/WorldProjectOptions'
 import { trpc } from '@/lib/trpc'
 import { DAYS_HE } from '@ak-system/types'
 import type { Person } from '@ak-system/database'
@@ -44,7 +45,7 @@ export function MeetingModal({
   editingId: string | null
   initialValues?: Partial<MeetingForm>
   people: Person[]
-  projects: { id: string; name: string }[]
+  projects: { id: string; name: string; workspaceId?: string | null; worldId?: string | null }[]
 }) {
   const [form, setForm] = useState<MeetingForm>(EMPTY_FORM)
   const { data: meeting, isLoading } = trpc.meetings.getById.useQuery({ id: editingId! }, { enabled: !!editingId && open })
@@ -181,9 +182,11 @@ export function MeetingModal({
               onChange={(e) => setForm((f) => ({ ...f, projectId: e.target.value }))}
             >
               <option value="">ללא פרויקט</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
+              <WorldProjectOptions
+                projects={projects}
+                itemWorkspaceId={(meeting as { workspaceId?: string | null } | undefined)?.workspaceId}
+                selectedId={form.projectId}
+              />
             </select>
           </div>
           <div>

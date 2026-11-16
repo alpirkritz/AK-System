@@ -2,6 +2,7 @@
  * Consented voice recordings: stored on disk next to the database, transcribed by Gemini, and
  * analyzed into a meeting (the one it belongs to, or a placeholder `source='voice'` meeting).
  */
+import { assertSameWorld, sameWorldOrSkip } from './world-scope'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -883,7 +884,9 @@ export async function processVoiceRecording(
       if (auto) {
         meetingId = auto.id
         matchedAutomatically = true
-        if (projectId) await db.update(meetings).set({ projectId, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
+        if (projectId && (await sameWorldOrSkip(db, { projectId, meetingId }, 'voice auto-match'))) {
+          await db.update(meetings).set({ projectId, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
+        }
       } else {
         const startMs = Date.parse(rec.createdAt) - rec.duration * 1000
         const start = localDateTime(startMs)
@@ -902,7 +905,7 @@ export async function processVoiceRecording(
           updatedAt: stamp(),
         })
       }
-    } else if (projectId) {
+    } else if (projectId && (await sameWorldOrSkip(db, { projectId, meetingId }, 'voice attach'))) {
       await db.update(meetings).set({ projectId, updatedAt: stamp() }).where(eq(meetings.id, meetingId))
     }
     await linkMeetingPeople(db, meetingId, attendees.map((a) => a.id))
@@ -1156,6 +1159,10 @@ export async function attachVoiceRecording(
       await db.delete(meetingPeople).where(eq(meetingPeople.meetingId, meetingId))
     }
     await linkMeetingPeople(db, meetingId, personIds)
+  }
+  if (meetingId && input.projectId) {
+    // The owner picked this project by hand — refuse it rather than silently drop it.
+    await assertSameWorld(db, { projectId: input.projectId, meetingId })
   }
   await db
     .update(voiceRecordings)

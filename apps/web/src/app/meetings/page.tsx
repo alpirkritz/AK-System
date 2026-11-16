@@ -791,7 +791,7 @@ export default function MeetingsPage() {
         onClose={() => { setModalOpen(false); setEditingId(null) }}
         editingId={editingId}
         people={people}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
       />
     </div>
   )

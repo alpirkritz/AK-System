@@ -111,6 +111,7 @@ export const projects = pgTable('projects', {
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
   /** The one world or workspace this project belongs to. Null until assigned. */
   workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+  workspaceSource: text('workspace_source'),
   source: text('source').notNull().default('manual'),
   standingBrief: text('standing_brief'),
   standingBriefAt: text('standing_brief_at'),
@@ -1066,6 +1067,16 @@ export const memoryLinks = pgTable('memory_links', {
   uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
 }))
 
+/** Which world a calendar's events belong to (project-world-scoping). */
+export const workspaceCalendars = pgTable('workspace_calendars', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  calendarId: text('calendar_id').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  calendarUq: uniqueIndex('uq_workspace_calendars_calendar').on(table.calendarId),
+}))
+
 export const agentFeedback = pgTable('agent_feedback', {
   id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
@@ -1111,6 +1122,7 @@ export const userSettings = pgTable('user_settings', {
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'),
   /** One-shot guard for the memory_links backfill (hugo-entity-memory) */
   memoryLinksBackfilledAt: text('memory_links_backfilled_at'),
+  worldScopeBackfilledAt: text('world_scope_backfilled_at'),
   memoryDistilledAt: text('memory_distilled_at'),
   harnessIndexedAt: text('harness_indexed_at'),
   harnessReasonedAt: text('harness_reasoned_at'),

@@ -1,3 +1,4 @@
+import { loadWorldMap, worldOf } from '../services/world-scope'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { commitmentsForDate } from '../services/commitments'
@@ -97,8 +98,18 @@ async function keepNotesForFocusTitle<T extends FocusNote>(
       title: meetings.title,
       projectId: meetings.projectId,
       seriesId: meetings.seriesId,
+      workspaceId: meetings.workspaceId,
     })
     .from(meetings)
+  // The focus meeting's world, when its same-titled meetings agree on one (project-world-scoping).
+  const worldMap = await loadWorldMap(db)
+  const focusWorlds = new Set(
+    allMeetings
+      .filter((m) => m.title.trim() === focusTitle.trim())
+      .map((m) => worldOf(worldMap, m.workspaceId))
+      .filter((w): w is string => Boolean(w)),
+  )
+  const focusWorld = focusWorlds.size === 1 ? [...focusWorlds][0] : null
   const anchors = allMeetings.filter((m) => titlesShareTopic(m.title, focusTitle))
   const projectIds = new Set(
     anchors.map((m) => m.projectId).filter((id): id is string => Boolean(id)),
@@ -126,6 +137,9 @@ async function keepNotesForFocusTitle<T extends FocusNote>(
   }
 
   return notes.filter((n) => {
+    const noteMeta = n.meetingId ? metaById.get(n.meetingId) : undefined
+    const noteWorld = worldOf(worldMap, noteMeta?.workspaceId)
+    if (focusWorld && noteWorld && noteWorld !== focusWorld) return false
     if (titlesShareTopic(n.title, focusTitle)) return true
     if (n.meetingTitle && titlesShareTopic(n.meetingTitle, focusTitle)) return true
     const meta = n.meetingId ? metaById.get(n.meetingId) : undefined

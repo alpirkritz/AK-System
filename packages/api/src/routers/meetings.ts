@@ -12,6 +12,7 @@ import {
 } from '@ak-system/database'
 import { eq, inArray, and, isNotNull, isNull, desc, or } from 'drizzle-orm'
 import { expandWorkspaceFilter } from '../services/workspace-scope'
+import { assertSameWorld, resolveMeetingWorlds } from '../services/world-scope'
 import { upsertPersonExternalId } from '../services/person-external-ids'
 import { resolvePerson } from '../services/person-resolution'
 import {
@@ -249,6 +250,8 @@ export const meetingsRouter = router({
       if (input.workspaceId) {
         const [world] = await ctx.db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, input.workspaceId))
         if (!world) throw new TRPCError({ code: 'BAD_REQUEST', message: 'העולם לא נמצא' })
+        // A meeting cannot move into a world its project does not belong to.
+        await assertSameWorld(ctx.db, { projectId: meeting.projectId, workspaceId: input.workspaceId })
       }
       await ctx.db
         .update(meetings)
@@ -258,6 +261,8 @@ export const meetingsRouter = router({
           updatedAt: new Date().toISOString(),
         })
         .where(eq(meetings.id, input.meetingId))
+      // Cleared by hand → fall back to the automatic signals.
+      if (!input.workspaceId) await resolveMeetingWorlds(ctx.db, [input.meetingId])
       const [row] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
       return row!
     }),
@@ -329,6 +334,7 @@ export const meetingsRouter = router({
 
   create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
     const id = 'm' + Date.now() + Math.random().toString(36).slice(2, 7)
+    // New meetings have no world yet; their attendees' world is the only signal here.
     const now = new Date().toISOString()
     const seriesId = await ensureManualSeries(ctx, {
       title: input.title,
@@ -355,6 +361,18 @@ export const meetingsRouter = router({
         input.peopleIds.map((personId) => ({ meetingId: id, personId }))
       )
     }
+    if (input.projectId) {
+      // Resolve the world from series/attendees first, then refuse a project from another world.
+      await resolveMeetingWorlds(ctx.db, [id])
+      try {
+        await assertSameWorld(ctx.db, { projectId: input.projectId, meetingId: id })
+      } catch (err) {
+        await ctx.db.delete(meetingPeople).where(eq(meetingPeople.meetingId, id))
+        await ctx.db.delete(meetings).where(eq(meetings.id, id))
+        throw err
+      }
+    }
+    await resolveMeetingWorlds(ctx.db, [id])
     const [row] = await ctx.db.select().from(meetings).where(eq(meetings.id, id))
     return { ...row!, peopleIds: input.peopleIds ?? [], taskIds: [] }
   }),
@@ -367,6 +385,9 @@ export const meetingsRouter = router({
       .select()
       .from(meetings)
       .where(eq(meetings.id, input.id))
+    if (input.projectId && input.projectId !== oldRow?.projectId) {
+      await assertSameWorld(ctx.db, { projectId: input.projectId, meetingId: input.id })
+    }
     
     // Calendar-synced meetings keep the series assigned by sync; only manual meetings
     // (re)compute their series from the recurring flag.

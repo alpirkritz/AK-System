@@ -21,6 +21,8 @@ async function runHarnessInsights(request: NextRequest): Promise<NextResponse> {
   if (!cronAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const caller = await createServiceCaller()
+    // Worlds first: project worlds are inferred from tasks/meetings, and the graph respects them.
+    await caller.worlds.reresolve().catch((err) => console.warn('[cron/harness-insights] world resolve failed', err))
     const indexed = await caller.harness.syncToGraph({})
     const standings = await refreshStaleProjectStandingsSafe()
     const reasoned = await caller.harness.runReasoner()

@@ -6,6 +6,7 @@
  * (person_external_ids across every configured people DB).
  */
 
+import { notionDbWorld, sameWorldOrSkip } from './world-scope'
 import { resolveNotionPatch, updateFromNotion } from './notion-local-wins'
 import {
   getDb,
@@ -533,7 +534,7 @@ export async function syncNotionGraph(
             notionPageId: page.id,
             updatedAt: now,
           }
-          if (projectId) patch.projectId = projectId
+          if (projectId && (await sameWorldOrSkip(db, { projectId, meetingId: id }, 'notion meeting'))) patch.projectId = projectId
           if (attachingToCalendar) {
             // Keep calendar title/date; only scrub if the calendar title itself has ISO junk.
             if (existing && /\d{4}-\d{2}-\d{2}T/.test(existing.title)) {
@@ -634,7 +635,7 @@ export async function syncNotionGraph(
           have.add(personId)
           result.linksRewritten++
         }
-        if (projectId) {
+        if (projectId && (await sameWorldOrSkip(db, { projectId, meetingId: id }, 'notion meeting relation'))) {
           await updateFromNotion(db, meetings, 'meeting', id, { projectId }, { updatedAt: now })
         }
       }
@@ -647,6 +648,7 @@ export async function syncNotionGraph(
       for (const mid of notionMeetingIds) {
         const localMeetingId = meetingIdByNotion.get(mid)
         if (!localMeetingId) continue
+        if (!(await sameWorldOrSkip(db, { projectId, meetingId: localMeetingId }, 'notion project→meetings'))) continue
         await updateFromNotion(db, meetings, 'meeting', localMeetingId, { projectId }, { notionPageId: mid, updatedAt: now })
         result.linksRewritten++
       }
@@ -718,7 +720,9 @@ export async function syncNotionGraph(
     for (const [projectId, notionTaskIds] of projectTaskRels) {
       for (const tid of notionTaskIds) {
         const [taskRow] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.notionPageId, tid)).limit(1)
-        if (taskRow) await updateFromNotion(db, tasks, 'task', taskRow.id, { projectId }, { updatedAt: now })
+        if (taskRow && (await sameWorldOrSkip(db, { projectId, taskId: taskRow.id }, 'notion project→tasks'))) {
+          await updateFromNotion(db, tasks, 'task', taskRow.id, { projectId }, { updatedAt: now })
+        }
         result.tasksLinked++
         result.linksRewritten++
       }
@@ -918,6 +922,8 @@ export async function syncNotionGraph(
         for (const rid of projectRels) {
           const projectId = projectIdByNotion.get(rid)
           if (!projectId) continue
+          const noteWorld = await notionDbWorld(db, database.name, database.accountLabel)
+          if (!(await sameWorldOrSkip(db, { projectId, workspaceId: noteWorld }, 'notion note→project'))) continue
           await db.insert(meetingNoteProjects).values({ meetingNoteId: id, projectId })
           result.linksRewritten++
         }

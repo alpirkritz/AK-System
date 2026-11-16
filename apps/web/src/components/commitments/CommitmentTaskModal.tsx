@@ -46,7 +46,7 @@ export function CommitmentTaskModal({
       projectId={prefill?.projectId ?? null}
       people={people}
       meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
-      projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+      projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
       workspaces={workspaces.map((w) => ({
         id: w.id,
         name: w.name,

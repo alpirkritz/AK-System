@@ -18,6 +18,7 @@ import { pushProjectPeople } from '../services/notion-task-writeback'
 import { projectWarmth } from '../services/warmth'
 import { readProjectStanding, writeProjectStanding } from '../services/project-standing'
 import { deleteLinksForEntity } from '../services/memory-relevance'
+import { clearWorldCache, listWorldConflicts, loadWorldMap, resolveMeetingWorlds, worldOf } from '../services/world-scope'
 
 const createInput = z.object({
   name: z.string().min(1),
@@ -68,17 +69,26 @@ async function replaceProjectPeople(
 
 export const projectsRouter = router({
   list: protectedProcedure
-    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .input(z.object({ workspaceId: z.string().optional(), worldId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
-      if (!input?.workspaceId) {
-        return ctx.db.select().from(projects).orderBy(projects.name)
+      const map = await loadWorldMap(ctx.db)
+      const withWorld = <T extends { workspaceId: string | null }>(rows: T[]) =>
+        rows.map((r) => {
+          const worldId = worldOf(map, r.workspaceId)
+          return { ...r, worldId, worldName: worldId ? map.names.get(worldId) ?? null : null }
+        })
+      const filterId = input?.worldId ?? input?.workspaceId
+      if (!filterId) {
+        return withWorld(await ctx.db.select().from(projects).orderBy(projects.name))
       }
-      const ids = await expandWorkspaceFilter(ctx.db, input.workspaceId)
-      return ctx.db
+      // A world's projects plus projects with no world yet — never another world's.
+      const ids = await expandWorkspaceFilter(ctx.db, filterId)
+      const rows = await ctx.db
         .select()
         .from(projects)
         .where(or(inArray(projects.workspaceId, ids), isNull(projects.workspaceId)))
         .orderBy(projects.name)
+      return withWorld(rows)
     }),
 
   getById: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
@@ -88,6 +98,7 @@ export const projectsRouter = router({
         name: projects.name,
         color: projects.color,
         workspaceId: projects.workspaceId,
+        workspaceSource: projects.workspaceSource,
         notionPageId: projects.notionPageId,
         companyId: projects.companyId,
         companyName: companies.name,
@@ -229,6 +240,7 @@ export const projectsRouter = router({
       color: input.color ?? '#47b8e8',
       source: 'manual',
       workspaceId: input.workspaceId ?? null,
+      workspaceSource: input.workspaceId ? 'manual' : null,
       createdAt: now,
       updatedAt: now,
     })
@@ -243,12 +255,20 @@ export const projectsRouter = router({
       .set({
         name: input.name,
         color: input.color ?? undefined,
-        ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+        ...(input.workspaceId !== undefined
+          ? { workspaceId: input.workspaceId, workspaceSource: input.workspaceId ? 'manual' : null }
+          : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(projects.id, input.id))
     const [row] = await ctx.db.select().from(projects).where(eq(projects.id, input.id))
-    return row ?? null
+    if (input.workspaceId === undefined) return row ?? null
+    // Meetings that took their world from this project follow it; conflicts are reported, not undone.
+    clearWorldCache(ctx.db)
+    const linked = await ctx.db.select({ id: meetings.id }).from(meetings).where(eq(meetings.projectId, input.id))
+    await resolveMeetingWorlds(ctx.db, linked.map((m) => m.id))
+    const conflicts = (await listWorldConflicts(ctx.db)).filter((c) => c.projectId === input.id).length
+    return row ? { ...row, conflicts } : null
   }),
 
   delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {

@@ -34,6 +34,7 @@ import {
 import { gmailThreadUrl } from './commitments'
 import { topicTokens } from '../lib/topic-match'
 import { writeHarnessStamp } from './harness-stamps'
+import { loadWorldMap, worldOf } from './world-scope'
 import { mirrorToGrag } from './harness-grag'
 import { listAffiliations, type PersonAffiliation } from './person-workspaces'
 
@@ -277,6 +278,7 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
           location: meetings.location,
           seriesId: meetings.seriesId,
           projectId: meetings.projectId,
+          workspaceId: meetings.workspaceId,
         })
         .from(meetings)
         .where(gte(meetings.date, windowStartDate))
@@ -677,6 +679,7 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
         lastMeeting.set(m.projectId, m.date)
       }
     }
+    const worldMap = await loadWorldMap(db)
     for (const pr of projectRows) {
       nodes.push({
         id: nodeId('project', pr.id),
@@ -684,12 +687,16 @@ export async function indexHarnessWorld(db: Db, options: IndexOptions = {}): Pro
         entityId: pr.id,
         label: pr.name,
         summary: truncate(pr.brief, 180) ?? pr.name,
-        attrs: { workspaceId: pr.workspaceId, openTasks: openByProject.get(pr.id) ?? 0, lastMeetingAt: lastMeeting.get(pr.id) ?? null },
+        attrs: { workspaceId: pr.workspaceId, worldId: worldOf(worldMap, pr.workspaceId), openTasks: openByProject.get(pr.id) ?? 0, lastMeetingAt: lastMeeting.get(pr.id) ?? null },
         occurredAt: lastMeeting.get(pr.id) ? `${lastMeeting.get(pr.id)}T00:00:00` : null,
       })
     }
+    const projectWorld = new Map(projectRows.map((pr) => [pr.id, worldOf(worldMap, pr.workspaceId)]))
     for (const m of meetingRows) {
       if (!m.projectId) continue
+      const mw = worldOf(worldMap, m.workspaceId)
+      const pw = projectWorld.get(m.projectId) ?? null
+      if (mw && pw && mw !== pw) continue // a cross-world link is a conflict, not a relationship
       edges.push({ fromId: nodeId('meeting', m.id), toId: nodeId('project', m.projectId), kind: 'BELONGS_TO', occurredAt: m.date })
     }
     const members = await db.select({ projectId: projectPeople.projectId, personId: projectPeople.personId }).from(projectPeople)

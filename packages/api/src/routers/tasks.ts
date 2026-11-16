@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc'
 import { tasks, meetings, taskPeople, people, TASK_STATUSES, workspaceNotionDatabases } from '@ak-system/database'
 import { eq, inArray, isNull, or } from 'drizzle-orm'
 import { expandWorkspaceFilter } from '../services/workspace-scope'
+import { assertSameWorld } from '../services/world-scope'
 import {
   syncNotionTasks,
   isNotionTasksConfigured,
@@ -118,6 +119,7 @@ export const tasksRouter = router({
       const [meeting] = await ctx.db.select().from(meetings).where(eq(meetings.id, input.meetingId))
       if (meeting?.projectId) projectId = meeting.projectId
     }
+    await assertSameWorld(ctx.db, { projectId, workspaceId: input.workspaceId ?? null, meetingId: input.meetingId ?? null }, 'המשימה')
     const status = input.status ?? (input.done ? 'done' : 'not_started')
     // Tasks opened through the app belong to the owner unless he says otherwise.
     // An omitted key means "not specified" and gets the default; an explicit
@@ -221,6 +223,11 @@ export const tasksRouter = router({
     // Read old row for change detection
     const [oldRow] = await ctx.db.select().from(tasks).where(eq(tasks.id, id))
     
+    const nextProject = rest.projectId !== undefined ? rest.projectId : oldRow?.projectId
+    const nextWorkspace = rest.workspaceId !== undefined ? rest.workspaceId : oldRow?.workspaceId
+    if (nextProject && (rest.projectId !== undefined || rest.workspaceId !== undefined)) {
+      await assertSameWorld(ctx.db, { projectId: nextProject, workspaceId: nextWorkspace ?? null, taskId: nextWorkspace ? null : id }, 'המשימה')
+    }
     const updates: Partial<typeof tasks.$inferInsert> = { updatedAt: new Date().toISOString() }
     if (rest.title !== undefined) updates.title = rest.title
     if (rest.meetingId !== undefined) updates.meetingId = rest.meetingId

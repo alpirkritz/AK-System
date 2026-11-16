@@ -114,7 +114,17 @@ export default function ProjectDetailPage() {
           📁
         </div>
         <div>
-          <h1 className="text-xl font-bold tracking-tight">{project.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight">{project.name}</h1>
+            <WorldBadge workspaceId={project.workspaceId} />
+            {(project as { workspaceSource?: string | null }).workspaceSource && (
+              <span className="text-[10px] text-[#5a688c]" data-testid="project-world-source">
+                {{ manual: 'ידני', tasks: 'לפי משימות', meetings: 'לפי פגישות' }[
+                  (project as { workspaceSource: string }).workspaceSource
+                ] ?? ''}
+              </span>
+            )}
+          </div>
           {(project.companyName || project.notionPageId) && (
             <div className="flex items-center gap-2 mt-0.5 text-xs text-[#7a89ab]">
               {project.companyName && <span>{project.companyName}</span>}
@@ -305,7 +315,7 @@ export default function ProjectDetailPage() {
         editingId={null}
         initialValues={{ projectId: id }}
         people={people}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
       />
       <TaskModal
         open={taskModalOpen}
@@ -317,7 +327,7 @@ export default function ProjectDetailPage() {
         projectId={id}
         people={people}
         meetings={meetings.map((m) => ({ id: m.id, title: m.title }))}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
         workspaces={workspaces.map((w) => ({
           id: w.id,
           name: w.name,

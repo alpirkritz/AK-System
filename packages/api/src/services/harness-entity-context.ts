@@ -2,6 +2,7 @@
  * One-call depth for a project or a topic (spec: harness-project-topic-nodes).
  * Reads live tables plus the harness insights and linked memories — never transcript text.
  */
+import { loadWorldMap, worldOf } from './world-scope'
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import {
   meetingAnalyses,
@@ -30,8 +31,12 @@ function insightLite(i: { title: string; body: string; severity: string; kind: s
 }
 
 export async function projectContext(db: Db, projectId: string) {
-  const [project] = await queryRows<{ id: string; name: string; brief: string | null }>(
-    db.select({ id: projects.id, name: projects.name, brief: projects.standingBrief }).from(projects).where(eq(projects.id, projectId)).limit(1),
+  const [project] = await queryRows<{ id: string; name: string; brief: string | null; workspaceId: string | null; workspaceSource: string | null }>(
+    db
+      .select({ id: projects.id, name: projects.name, brief: projects.standingBrief, workspaceId: projects.workspaceId, workspaceSource: projects.workspaceSource })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1),
   )
   if (!project) return { notFound: true as const }
 
@@ -73,6 +78,11 @@ export async function projectContext(db: Db, projectId: string) {
   return {
     notFound: false as const,
     name: project.name,
+    world: await (async () => {
+      const map = await loadWorldMap(db)
+      const w = worldOf(map, project.workspaceId)
+      return w ? { name: map.names.get(w) ?? w, source: project.workspaceSource } : null
+    })(),
     brief: standing.brief ?? project.brief,
     briefStale: standing.stale,
     warmth: warmth ? { trend: warmth.trend, recentAvg: warmth.recentAvg, text: warmth.scoreText } : null,

@@ -9,6 +9,8 @@ export async function reindexHarnessScopes(scopes: HarnessScope[], changed: bool
   if (!changed || scopes.length === 0) return
   try {
     const caller = await createServiceCaller()
+    // New or changed meetings get their world before the graph reads it (project-world-scoping).
+    if (scopes.includes('meetings')) await caller.worlds.reresolve().catch((err) => console.warn('[harness-incremental] world resolve failed', err))
     await caller.harness.syncToGraph({ scopes })
   } catch (err) {
     console.warn('[harness-incremental] re-index failed for', scopes.join(','), err)

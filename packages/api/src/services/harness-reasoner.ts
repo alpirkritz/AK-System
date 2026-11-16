@@ -35,6 +35,7 @@ import { isSelfPersonName } from '../lib/self-identity'
 import { nodeId } from './harness-context'
 import { writeHarnessStamp } from './harness-stamps'
 import { getOwnerProfile } from './owner-profile'
+import { listWorldConflicts } from './world-scope'
 import { createHash } from 'node:crypto'
 import { classifyAmbiguousReplyNeed, deterministicReplyNeed, type ReplyNeed } from './email-reply-need'
 
@@ -834,6 +835,33 @@ async function detectPriorityNeglected(ctx: DetectorContext): Promise<HarnessIns
     })
 }
 
+/** Meetings/tasks linked to a project of another world (spec: project-world-scoping). One per world pair. */
+async function detectProjectWorldConflict(ctx: DetectorContext): Promise<HarnessInsightDraft[]> {
+  const conflicts = await listWorldConflicts(ctx.db)
+  const byPair = new Map<string, typeof conflicts>()
+  for (const c of conflicts) {
+    const key = [c.itemWorld, c.projectWorld].sort().join(':')
+    byPair.set(key, [...(byPair.get(key) ?? []), c])
+  }
+  return [...byPair.entries()].map(([pair, list]) => {
+    const first = list[0]
+    return {
+      kind: 'project_world_conflict',
+      title: `${list.length} קישורים בין ${first.itemWorldName} ל-${first.projectWorldName}`,
+      body: list.slice(0, 5).map((c) => `${c.title} ← ${c.projectName}`).join(' · '),
+      severity: 'attention' as const,
+      score: 0.45,
+      personId: null,
+      sources: list.slice(0, 5).flatMap((c) => [
+        { nodeId: nodeId('project', c.projectId), kind: 'project', label: c.projectName },
+        ...(c.kind === 'meeting' ? [{ nodeId: nodeId('meeting', c.id), kind: 'meeting', label: c.title }] : []),
+      ]),
+      dedupeKey: `project_world_conflict:${pair}`,
+      ttlDays: 7,
+    }
+  })
+}
+
 const DETECTORS = [
   detectSilentBeforeMeeting,
   detectCoolingWithOpenLoop,
@@ -849,6 +877,7 @@ const DETECTORS = [
   detectReplyBacklog,
   detectVatFilingWindow,
   detectPriorityNeglected,
+  detectProjectWorldConflict,
 ]
 
 async function loadReplyNeededThreadIds(db: Db, today: string, now: Date): Promise<Set<string>> {

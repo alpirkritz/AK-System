@@ -23,6 +23,7 @@ import { memoryRouter } from './routers/memory'
 import { agentFeedbackRouter } from './routers/agent-feedback'
 import { ownerProfileRouter } from './routers/owner-profile'
 import { episodesRouter } from './routers/episodes'
+import { worldsRouter } from './routers/worlds'
 import { settingsRouter } from './routers/settings'
 import { notionStatusOverridesRouter } from './routers/notion-status-overrides'
 import { notionOverridesRouter } from './routers/notion-overrides'
@@ -235,6 +236,7 @@ export { buildHarnessHeader, renderHarnessHeader } from './services/harness-head
 export { refreshStaleProjectStandings } from './services/project-standing'
 export { runMemoryDistiller } from './services/memory-distiller'
 export { buildEpisodesBlock, recordEpisode, pruneEpisodes } from './services/agent-episodes'
+export { ensureWorldScopeBackfilled, resolveAllWorlds } from './services/world-scope'
 export { buildOwnerProfileBlock, getOwnerProfile, prioritiesAgeDays, PRIORITIES_STALE_DAYS } from './services/owner-profile'
 export {
   buildRelevantMemoryBlock,
@@ -327,6 +329,7 @@ export const appRouter = router({
   agentFeedback: agentFeedbackRouter,
   ownerProfile: ownerProfileRouter,
   episodes: episodesRouter,
+  worlds: worldsRouter,
   settings: settingsRouter,
   notionStatusOverrides: notionStatusOverridesRouter,
   notionOverrides: notionOverridesRouter,

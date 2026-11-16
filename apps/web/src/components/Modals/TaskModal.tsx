@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { WorldProjectOptions } from '@/components/ui/WorldProjectOptions'
 import { trpc } from '@/lib/trpc'
 import { PRIORITY_LABELS, PRIORITY_COLORS, type TaskStatus } from '@ak-system/types'
 import { StatusChips } from '@/components/StatusChips'
@@ -12,7 +13,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { shiftDayKey, todayKey } from '@/lib/task-due'
 
 type MeetingOption = { id: string; title: string }
-type ProjectOption = { id: string; name: string }
+type ProjectOption = { id: string; name: string; workspaceId?: string | null; worldId?: string | null }
 type WorkspaceOption = { id: string; name: string; hasNotionLink?: boolean }
 
 const OVERRIDE_FIELD_LABELS: Record<string, string> = {
@@ -360,9 +361,7 @@ export function TaskModal({
                   onChange={(e) => setForm((f) => ({ ...f, projectId: e.target.value }))}
                 >
                   <option value="">ללא פרויקט</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  <WorldProjectOptions projects={projects} itemWorkspaceId={form.workspaceId || null} selectedId={form.projectId} />
                 </select>
                 {!isEdit && explanations?.projectId && (
                   <p className="mt-1 text-[11px] text-[#647399]">💡 {explanations.projectId}</p>

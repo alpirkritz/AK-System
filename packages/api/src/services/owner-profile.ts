@@ -3,8 +3,8 @@
  * Injected into every agent prompt right after the identity block.
  */
 import { createHash, randomBytes } from 'node:crypto'
-import { eq, isNull } from 'drizzle-orm'
-import { getDb, ownerProfile, projects, queryRows, runMutation, workspaces } from '@ak-system/database'
+import { eq, isNotNull, isNull } from 'drizzle-orm'
+import { getDb, meetings, ownerProfile, projects, queryRows, runMutation, workspaces } from '@ak-system/database'
 
 type Db = ReturnType<typeof getDb>
 
@@ -85,12 +85,22 @@ export interface WorldLine {
   name: string
   kind: string | null
   description: string | null
+  /** Project names in this world, most recently active first (project-world-scoping). */
+  projects?: string[]
 }
+
+export const WORLD_PROJECTS_SHOWN = 12
 
 /** Pure renderer — exported for tests. '' when nothing is filled in. */
 export function renderOwnerProfileBlock(
   profile: OwnerProfileData,
-  context: { worlds: WorldLine[]; projectNames: Map<string, string>; workspaceNames: Map<string, string> },
+  context: {
+    worlds: WorldLine[]
+    projectNames: Map<string, string>
+    workspaceNames: Map<string, string>
+    /** Projects whose world is not known yet. */
+    unassignedProjects?: string[]
+  },
   today = new Date().toISOString().slice(0, 10),
 ): string {
   const active = profile.priorities.filter((p) => !p.until || p.until >= today)
@@ -116,7 +126,18 @@ export function renderOwnerProfileBlock(
     lines.push('', '### עולמות')
     for (const w of context.worlds) {
       lines.push(`- ${w.name}${w.kind ? ` (${w.kind})` : ''}${w.description ? ` — ${w.description}` : ''}`)
+      const names = w.projects ?? []
+      if (names.length > 0) {
+        const more = names.length > WORLD_PROJECTS_SHOWN ? ` +${names.length - WORLD_PROJECTS_SHOWN}` : ''
+        lines.push(`  פרויקטים: ${names.slice(0, WORLD_PROJECTS_SHOWN).join(', ')}${more}`)
+      }
     }
+    const unassigned = context.unassignedProjects ?? []
+    if (unassigned.length > 0) {
+      const more = unassigned.length > WORLD_PROJECTS_SHOWN ? ` +${unassigned.length - WORLD_PROJECTS_SHOWN}` : ''
+      lines.push(`- ללא עולם: ${unassigned.slice(0, WORLD_PROJECTS_SHOWN).join(', ')}${more}`)
+    }
+    lines.push('A project belongs to exactly one world. Never attach, suggest or brief a project inside a meeting or task of another world; if a meeting\'s world is unknown, say so instead of guessing.')
   }
   let text = lines.join('\n')
   if (text.length > PROFILE_CHAR_CAP) text = text.slice(0, text.lastIndexOf('\n', PROFILE_CHAR_CAP))
@@ -125,20 +146,33 @@ export function renderOwnerProfileBlock(
 
 export async function buildOwnerProfileBlock(db?: Db, today?: string): Promise<string> {
   db = db ?? getDb()
-  const [profile, worldRows, projectRows, workspaceRows] = await Promise.all([
+  const [profile, worldRows, projectRows, workspaceRows, lastMeetings] = await Promise.all([
     getOwnerProfile(db),
-    queryRows<WorldLine>(
-      db.select({ name: workspaces.name, kind: workspaces.kind, description: workspaces.description }).from(workspaces).where(isNull(workspaces.parentId)),
+    queryRows<WorldLine & { id: string }>(
+      db.select({ id: workspaces.id, name: workspaces.name, kind: workspaces.kind, description: workspaces.description }).from(workspaces).where(isNull(workspaces.parentId)),
     ),
-    queryRows<{ id: string; name: string }>(db.select({ id: projects.id, name: projects.name }).from(projects)),
-    queryRows<{ id: string; name: string }>(db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces)),
+    queryRows<{ id: string; name: string; workspaceId: string | null }>(db.select({ id: projects.id, name: projects.name, workspaceId: projects.workspaceId }).from(projects)),
+    queryRows<{ id: string; name: string; parentId: string | null }>(db.select({ id: workspaces.id, name: workspaces.name, parentId: workspaces.parentId }).from(workspaces)),
+    queryRows<{ projectId: string | null; date: string }>(db.select({ projectId: meetings.projectId, date: meetings.date }).from(meetings).where(isNotNull(meetings.projectId))),
   ])
+  const worldOfWs = new Map(workspaceRows.map((w) => [w.id, w.parentId ?? w.id]))
+  const lastByProject = new Map<string, string>()
+  for (const m of lastMeetings) {
+    if (m.projectId && (!lastByProject.has(m.projectId) || m.date > (lastByProject.get(m.projectId) as string))) lastByProject.set(m.projectId, m.date)
+  }
+  const byRecency = (a: { id: string }, b: { id: string }) => (lastByProject.get(b.id) ?? '').localeCompare(lastByProject.get(a.id) ?? '')
+  const projectsInWorld = (worldId: string | null) =>
+    projectRows
+      .filter((p) => (p.workspaceId ? worldOfWs.get(p.workspaceId) ?? null : null) === worldId)
+      .sort(byRecency)
+      .map((p) => p.name)
   return renderOwnerProfileBlock(
     profile,
     {
-      worlds: worldRows,
+      worlds: worldRows.map((w) => ({ ...w, projects: projectsInWorld(w.id) })),
       projectNames: new Map(projectRows.map((p) => [p.id, p.name])),
       workspaceNames: new Map(workspaceRows.map((w) => [w.id, w.name])),
+      unassignedProjects: projectsInWorld(null),
     },
     today,
   )

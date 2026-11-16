@@ -711,7 +711,7 @@ onClick={() => {
         onClose={() => setMeetingModalOpen(false)}
         editingId={id}
         people={people}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
       />
       <MeetingModal
         open={followUpOpen}
@@ -719,7 +719,7 @@ onClick={() => {
         editingId={null}
         initialValues={followUpInitialValues}
         people={people}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
       />
       <TaskModal
         open={taskModalOpen}
@@ -732,7 +732,7 @@ onClick={() => {
         projectId={mx?.projectId ?? null}
         people={people}
         meetings={meetingsList.map((m) => ({ id: m.id, title: m.title }))}
-        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, workspaceId: (p as { workspaceId?: string | null }).workspaceId ?? null }))}
         workspaces={workspaces.map((w) => ({
           id: w.id,
           name: w.name,

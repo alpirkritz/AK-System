@@ -719,6 +719,7 @@ const WORKSPACES_COLUMNS = [
 
 const WORLD_SCOPE_COLUMNS = [
   'ALTER TABLE projects ADD COLUMN workspace_id TEXT',
+  'ALTER TABLE projects ADD COLUMN workspace_source TEXT',
   'ALTER TABLE meetings ADD COLUMN workspace_id TEXT',
   'ALTER TABLE meetings ADD COLUMN workspace_source TEXT',
   'ALTER TABLE meeting_series ADD COLUMN workspace_id TEXT',
@@ -853,6 +854,13 @@ const MEMORY_TABLES = [
     updated_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent ON agent_feedback(agent_id, status)`,
+  `CREATE TABLE IF NOT EXISTS workspace_calendars (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    calendar_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_calendars_calendar ON workspace_calendars(calendar_id)`,
   `CREATE TABLE IF NOT EXISTS agent_episodes (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,
@@ -1250,6 +1258,7 @@ const USER_SETTINGS_COLUMNS = [
   'ALTER TABLE user_settings ADD COLUMN memory_distilled_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN harness_indexed_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN harness_reasoned_at TEXT',
+  'ALTER TABLE user_settings ADD COLUMN world_scope_backfilled_at TEXT',
   'ALTER TABLE user_settings ADD COLUMN dashboard_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN list_sort_prefs TEXT',
   'ALTER TABLE user_settings ADD COLUMN layout_prefs TEXT',
@@ -1949,6 +1958,7 @@ export const memoryLinks = schema.memoryLinks
 export const agentFeedback = schema.agentFeedback
 export const agentEpisodes = schema.agentEpisodes
 export const ownerProfile = schema.ownerProfile
+export const workspaceCalendars = schema.workspaceCalendars
 export const userSettings = schema.userSettings
 export const companies = schema.companies
 export const serviceItems = schema.serviceItems

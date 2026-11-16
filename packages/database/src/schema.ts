@@ -118,6 +118,8 @@ export const projects = sqliteTable('projects', {
   companyId: text('company_id').references(() => companies.id, { onDelete: 'set null' }),
   /** The one world or workspace this project belongs to. Null until assigned. */
   workspaceId: text('workspace_id'),
+  /** manual | tasks | meetings — how workspaceId was set (project-world-scoping) */
+  workspaceSource: text('workspace_source'),
   /** manual | notion */
   source: text('source').notNull().default('manual'),
   standingBrief: text('standing_brief'),
@@ -856,6 +858,16 @@ export const memoryLinks = sqliteTable('memory_links', {
   uq: uniqueIndex('uq_memory_links_triple').on(table.memoryId, table.entityKind, table.entityId),
 }))
 
+/** Which world a calendar's events belong to (project-world-scoping). */
+export const workspaceCalendars = sqliteTable('workspace_calendars', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  calendarId: text('calendar_id').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  calendarUq: uniqueIndex('uq_workspace_calendars_calendar').on(table.calendarId),
+}))
+
 /** A correction the user gave about an agent, and what was done with it (agent-feedback-loop). */
 export const agentFeedback = sqliteTable('agent_feedback', {
   id: text('id').primaryKey(),
@@ -909,6 +921,7 @@ export const userSettings = sqliteTable('user_settings', {
   businessProfile: text('business_profile'), // JSON BusinessProfile — issuer details, logo, numbering
   agentSchedulesMigratedAt: text('agent_schedules_migrated_at'), // one-shot guard: agent_triggers → agent_schedules
   memoryLinksBackfilledAt: text('memory_links_backfilled_at'), // one-shot guard: memory_links backfill
+  worldScopeBackfilledAt: text('world_scope_backfilled_at'), // one-shot guard: project-world-scoping
   memoryDistilledAt: text('memory_distilled_at'), // memory-distiller cursor
   harnessIndexedAt: text('harness_indexed_at'), // last harness index (any scope)
   harnessReasonedAt: text('harness_reasoned_at'), // last harness reasoner run

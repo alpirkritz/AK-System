@@ -1,5 +1,6 @@
 'use client'
 
+import { WorldScopePanel } from '@/components/WorldScopePanel'
 import { useState } from 'react'
 import Link from 'next/link'
 import { Pencil, Trash2 } from 'lucide-react'
@@ -152,6 +153,7 @@ export default function WorkspacesSettingsPage() {
         editingId={editingId}
       />
 
+      <WorldScopePanel />
       <PeopleNotionSources />
     </div>
   )

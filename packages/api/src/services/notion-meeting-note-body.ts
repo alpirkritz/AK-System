@@ -3,6 +3,7 @@
  * (native Notion AI Meeting Notes widget), not only as a separate notes database.
  */
 
+import { sameWorldOrSkip } from './world-scope'
 import {
   getDb,
   meetings,
@@ -591,7 +592,7 @@ export async function upsertInPageMeetingNote(
     .select({ projectId: meetings.projectId })
     .from(meetings)
     .where(eq(meetings.id, args.meetingId))
-  if (meeting?.projectId) {
+  if (meeting?.projectId && (await sameWorldOrSkip(db, { projectId: meeting.projectId, meetingId: args.meetingId }, 'note body'))) {
     await db.insert(meetingNoteProjects).values({ meetingNoteId: id, projectId: meeting.projectId })
   }
 
