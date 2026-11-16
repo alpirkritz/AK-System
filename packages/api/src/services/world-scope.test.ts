@@ -228,3 +228,28 @@ describe('Hugo sees projects by world', () => {
     expect(block).toContain('A project belongs to exactly one world')
   })
 })
+
+describe('ARO first, Notion as a feed', () => {
+  it('Notion fills a world only when ARO has no signal, and a disagreement is listed and settled', async () => {
+    const db = getTestDb()
+    const { listNotionWorldDisagreements, settleNotionDisagreement } = await import('./world-scope')
+    await db.insert(workspaceNotionDatabases).values({ id: 'wnd', workspaceId: 'w_daz', notionDatabaseId: 'db', notionDatabaseName: 'Mixed Meetings', createdAt: NOW })
+    await db.insert(workspaceCalendars).values({ id: 'c', workspaceId: 'w_dt', calendarId: 'cal_dt', createdAt: NOW })
+    await meeting('m_both', { calendarId: 'cal_dt' })
+    await meeting('m_notion_only')
+    await db.insert(meetingNotes).values([
+      { id: 'n_both', title: 'x', meetingId: 'm_both', notionDb: 'Mixed Meetings', createdAt: NOW, updatedAt: NOW },
+      { id: 'n_only', title: 'y', meetingId: 'm_notion_only', notionDb: 'Mixed Meetings', createdAt: NOW, updatedAt: NOW },
+    ])
+    await resolveMeetingWorlds(db)
+    expect(await worldOfMeeting('m_both')).toMatchObject({ workspaceId: 'w_dt', workspaceSource: 'calendar' })
+    expect(await worldOfMeeting('m_notion_only')).toMatchObject({ workspaceId: 'w_daz', workspaceSource: 'notion' })
+
+    const list = await listNotionWorldDisagreements(db)
+    expect(list).toEqual([expect.objectContaining({ meetingId: 'm_both', aroWorldName: 'Dragontail', notionWorldName: 'DAZ' })])
+
+    await settleNotionDisagreement(db, 'm_both', 'aro')
+    expect(await worldOfMeeting('m_both')).toMatchObject({ workspaceId: 'w_dt', workspaceSource: 'manual' })
+    expect(await listNotionWorldDisagreements(db)).toHaveLength(0)
+  })
+})

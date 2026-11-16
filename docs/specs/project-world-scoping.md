@@ -54,15 +54,20 @@ The rule is **deterministic**: no LLM calls, and no hardcoded world names. World
   3. The meetings signal: the same 80% / 3 rule over the project's meetings that have a **non-project-derived** world.
 
   The result is stored in `projects.workspace_id` + `workspace_source` (`tasks` | `meetings`), and never overwrites `manual`.
-- [ ] **Meeting world** is resolved in this order; the first known signal wins:
+- [ ] **Meeting world** is resolved in this order; the first known signal wins. **ARO's own tagging comes first.** Notion is an inbound feed and goes last, as a fallback only (revised 2026-11-16 at the owner's request):
   1. `meetings.workspaceId` with `workspace_source = 'manual'`;
   2. the meeting's series (`meeting_series.workspace_id`);
-  3. its Notion note's DB: `meeting_notes.notion_db` + `notion_account` matched against `workspace_notion_databases`, by database name, plus the account label when one is set;
-  4. its calendar: `meetings.calendar_id` matched in the new `workspace_calendars` table;
-  5. its attendees: every non-self attendee with any `person_workspaces` affiliation is affiliated to the same single world, with at least one such attendee;
-  6. its project, when the project's world is known and its source is not `meetings`. That restriction prevents a loop.
+  3. its calendar: `meetings.calendar_id` matched in the new `workspace_calendars` table;
+  4. its attendees: every non-self attendee with any `person_workspaces` affiliation is affiliated to the same single world, with at least one such attendee;
+  5. its project, when the project's world is known and its source is not `meetings`. That restriction prevents a loop;
+  6. its Notion note's DB: `meeting_notes.notion_db` + `notion_account` matched against `workspace_notion_databases`, by database name, plus the account label when one is set.
 
-  The result is stored in `meetings.workspace_id` + `workspace_source` (`series` | `notion` | `calendar` | `attendees` | `project`), and never overwrites `manual`.
+  The result is stored in `meetings.workspace_id` + `workspace_source` (`series` | `calendar` | `attendees` | `project` | `notion`), and never overwrites `manual`.
+- [ ] **Notion disagreements.** When ARO picked a world from its own signals and the Notion DB names a different one, ARO's world is kept.
+  - The meeting is listed under "Notion חולק על העולם" on `/settings/workspaces`, with two actions: keep ARO's world or accept Notion's. Either action pins the meeting's world as `manual`.
+  - A `notion_world_disagreement` info insight counts these meetings.
+  - Notion never overrides silently.
+- [ ] **Notion task sync.** A Notion project relation from another world than the task's is not applied, and the task keeps the project ARO has.
 - [ ] **Task world** is unchanged (it comes from the Notion DB mapping). A manually created task gets the world of its project or meeting when it has none of its own.
 - [ ] **When resolution runs:**
   - a one-shot backfill, guarded by `user_settings.world_scope_backfilled_at`;

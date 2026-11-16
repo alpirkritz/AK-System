@@ -7,8 +7,10 @@ import {
   ensureWorldScopeBackfilled,
   listCalendarWorlds,
   listKnownCalendars,
+  listNotionWorldDisagreements,
   listWorldConflicts,
   loadWorldMap,
+  settleNotionDisagreement,
   resolveAllWorlds,
   resolveWorldConflict,
   setCalendarWorld,
@@ -57,6 +59,16 @@ export const worldsRouter = router({
     .input(z.object({ kind: z.enum(['meeting', 'task']), id: z.string().min(1), action: z.enum(['unlink', 'move']) }))
     .mutation(async ({ ctx, input }) => {
       await resolveWorldConflict(ctx.db, input)
+      return { ok: true }
+    }),
+
+  /** Meetings where ARO's own signal and the Notion DB disagree — ARO's world is kept until settled. */
+  notionDisagreements: protectedProcedure.query(({ ctx }) => listNotionWorldDisagreements(ctx.db)),
+
+  settleNotionDisagreement: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1), keep: z.enum(['aro', 'notion']) }))
+    .mutation(async ({ ctx, input }) => {
+      await settleNotionDisagreement(ctx.db, input.meetingId, input.keep)
       return { ok: true }
     }),
 

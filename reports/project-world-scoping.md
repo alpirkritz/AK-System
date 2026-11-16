@@ -9,7 +9,9 @@
 ### Resolver — `packages/api/src/services/world-scope.ts`
 
 - A world is any `workspaces` row with no parent. Nothing is hardcoded; the tests run with a fifth world.
-- **Meeting world** comes from the first known signal: manual → series → Notion meeting DB → calendar (new `workspace_calendars`) → attendees (all in one world, owner excluded) → project.
+- **Meeting world** comes from the first known signal, ARO's own tagging first: manual → series → calendar (new `workspace_calendars`) → attendees (all in one world, owner excluded) → project → **Notion meeting DB, last, as a fallback only**.
+- When ARO's signal and Notion disagree, ARO's world is kept and the meeting is listed on `/settings/workspaces` under "Notion חולק על העולם" (keep ARO / accept Notion; both pin the world as manual). A `notion_world_disagreement` insight counts them.
+- Notion task sync does not apply a project from another world than the task's, and keeps the project ARO has.
 - **Project world:** manual, else 80% of at least 3 tasks, else 80% of at least 3 meetings whose world did not come from the project. That last condition prevents a loop.
 - Manual values are never overwritten. Project worlds set before this feature are kept as `manual`.
 - Re-resolution runs:

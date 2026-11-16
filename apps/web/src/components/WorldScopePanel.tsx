@@ -11,6 +11,7 @@ export function WorldScopePanel() {
   const { data: worlds = [] } = trpc.worlds.list.useQuery()
   const { data: calendars = [], isLoading: calLoading } = trpc.worlds.calendars.list.useQuery()
   const { data: conflicts = [], isLoading: conflictsLoading } = trpc.worlds.conflicts.useQuery()
+  const { data: disagreements = [] } = trpc.worlds.notionDisagreements.useQuery()
   const refresh = () => {
     void utils.worlds.invalidate()
     void utils.projects.list.invalidate()
@@ -19,9 +20,11 @@ export function WorldScopePanel() {
   const setCalendar = trpc.worlds.calendars.set.useMutation({ onSuccess: refresh })
   const resolve = trpc.worlds.resolveConflict.useMutation({ onSuccess: refresh })
   const reresolve = trpc.worlds.reresolve.useMutation({ onSuccess: refresh })
+  const settle = trpc.worlds.settleNotionDisagreement.useMutation({ onSuccess: refresh })
 
   type World = { id: string; name: string; projectCount: number; meetingCount: number }
   type Cal = { calendarId: string; label: string; meetingCount: number; workspaceId: string | null }
+  type Disagreement = { meetingId: string; title: string; aroWorldName: string; notionWorldName: string }
   type Conflict = { kind: 'meeting' | 'task'; id: string; title: string; projectName: string; itemWorldName: string; projectWorldName: string }
 
   return (
@@ -29,7 +32,7 @@ export function WorldScopePanel() {
       <div>
         <h2 className="text-sm font-bold text-[#b8c4dc]">פרויקטים לפי עולם</h2>
         <p className="text-[11px] text-[#647399] mt-0.5">
-          לכל פרויקט עולם אחד. פגישה מקבלת עולם מהסדרה, מבסיס הפגישות ב-Notion (קשר אותו לעולם בחלון העריכה של העולם), מהיומן או מהמשתתפים — ולא תקושר לפרויקט מעולם אחר.
+          לכל פרויקט עולם אחד. התיוג ב-ARO קובע: פגישה מקבלת עולם מהסדרה, מהיומן, מהמשתתפים או מהפרויקט. Notion משלים רק כשאין ל-ARO סימן, וכשהוא חולק — זה מופיע כאן להחלטה שלך.
         </p>
         <div className="flex flex-wrap gap-2 mt-2">
           {(worlds as World[]).map((w) => (
@@ -77,6 +80,30 @@ export function WorldScopePanel() {
           </ul>
         )}
       </div>
+
+      {(disagreements as Disagreement[]).length > 0 && (
+        <div className="card space-y-2" data-testid="notion-disagreements">
+          <div className="text-[12px] font-semibold text-[#cdd7ea]">Notion חולק על העולם</div>
+          <p className="text-[11px] text-[#5a688c]">נשאר העולם של ARO עד שתחליט.</p>
+          <ul className="space-y-2">
+            {(disagreements as Disagreement[]).map((d) => (
+              <li key={d.meetingId} className="flex flex-wrap items-center justify-between gap-2" data-testid="notion-disagreement-row">
+                <span className="text-[12px] text-[#cdd7ea]">
+                  «{d.title}» — ARO: {d.aroWorldName} · Notion: {d.notionWorldName}
+                </span>
+                <span className="flex gap-1.5">
+                  <button type="button" className="btn btn-ghost text-[11px] py-1 px-2" onClick={() => settle.mutate({ meetingId: d.meetingId, keep: 'aro' })}>
+                    השאר {d.aroWorldName}
+                  </button>
+                  <button type="button" className="btn btn-ghost text-[11px] py-1 px-2" onClick={() => settle.mutate({ meetingId: d.meetingId, keep: 'notion' })}>
+                    קבל {d.notionWorldName}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="card space-y-2">
         <div className="text-[12px] font-semibold text-[#cdd7ea]">קישורים בין עולמות</div>

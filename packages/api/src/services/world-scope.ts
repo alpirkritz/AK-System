@@ -103,24 +103,36 @@ export interface MeetingSignals {
 
 /** Pure precedence step — exported for tests. */
 export function pickMeetingWorld(s: MeetingSignals): { world: string; source: MeetingWorldSource } | null {
+  // ARO's own tagging first. Notion is an inbound feed: it only fills a world ARO has no
+  // signal for, and a disagreement is surfaced as a conflict, never applied silently.
   const order: Array<[MeetingWorldSource, string | null]> = [
     ['manual', s.manual],
     ['series', s.series],
-    ['notion', s.notion],
     ['calendar', s.calendar],
     ['attendees', s.attendees],
     ['project', s.project],
+    ['notion', s.notion],
   ]
   for (const [source, world] of order) if (world) return { world, source }
   return null
 }
 
-/** Re-resolve non-manual meeting worlds. Returns how many rows changed. */
-export async function resolveMeetingWorlds(db: Db, meetingIds?: string[]): Promise<number> {
+export interface MeetingWorldPick {
+  id: string
+  title: string
+  workspaceId: string | null
+  workspaceSource: string | null
+  signals: MeetingSignals
+  pick: { world: string; source: MeetingWorldSource } | null
+}
+
+/** Every meeting's signals and the world ARO would pick for it — no writes. */
+export async function computeMeetingWorlds(db: Db, meetingIds?: string[]): Promise<MeetingWorldPick[]> {
   const map = await loadWorldMap(db)
   const scope = meetingIds && meetingIds.length > 0 ? inArray(meetings.id, meetingIds) : undefined
   const rows = await queryRows<{
     id: string
+    title: string
     workspaceId: string | null
     workspaceSource: string | null
     seriesId: string | null
@@ -130,6 +142,7 @@ export async function resolveMeetingWorlds(db: Db, meetingIds?: string[]): Promi
     db
       .select({
         id: meetings.id,
+        title: meetings.title,
         workspaceId: meetings.workspaceId,
         workspaceSource: meetings.workspaceSource,
         seriesId: meetings.seriesId,
@@ -139,7 +152,7 @@ export async function resolveMeetingWorlds(db: Db, meetingIds?: string[]): Promi
       .from(meetings)
       .where(scope),
   )
-  if (rows.length === 0) return 0
+  if (rows.length === 0) return []
 
   const [seriesRows, calRows, notionMap, noteRows, attendeeRows, affRows, personRows, projectRows] = await Promise.all([
     queryRows<{ id: string; workspaceId: string | null }>(db.select({ id: meetingSeries.id, workspaceId: meetingSeries.workspaceId }).from(meetingSeries).where(isNotNull(meetingSeries.workspaceId))),
@@ -197,19 +210,27 @@ export async function resolveMeetingWorlds(db: Db, meetingIds?: string[]): Promi
     projectRows.filter((p) => p.workspaceSource !== 'meetings').map((p) => [p.id, worldOf(map, p.workspaceId)]),
   )
 
-  let changed = 0
-  const now = new Date().toISOString()
-  for (const m of rows) {
-    const manual = m.workspaceSource === 'manual' ? worldOf(map, m.workspaceId) : null
-    if (m.workspaceSource === 'manual') continue
-    const pick = pickMeetingWorld({
-      manual,
+  return rows.map((m) => {
+    const signals: MeetingSignals = {
+      manual: m.workspaceSource === 'manual' ? worldOf(map, m.workspaceId) : null,
       series: m.seriesId ? seriesWorld.get(m.seriesId) ?? null : null,
       notion: notionByMeeting.get(m.id) ?? null,
       calendar: m.calendarId ? calendarWorld.get(m.calendarId) ?? null : null,
       attendees: attendeeWorld(m.id),
       project: m.projectId ? projectWorld.get(m.projectId) ?? null : null,
-    })
+    }
+    return { id: m.id, title: m.title, workspaceId: m.workspaceId, workspaceSource: m.workspaceSource, signals, pick: pickMeetingWorld(signals) }
+  })
+}
+
+/** Re-resolve non-manual meeting worlds. Returns how many rows changed. */
+export async function resolveMeetingWorlds(db: Db, meetingIds?: string[]): Promise<number> {
+  const picks = await computeMeetingWorlds(db, meetingIds)
+  let changed = 0
+  const now = new Date().toISOString()
+  for (const m of picks) {
+    if (m.workspaceSource === 'manual') continue
+    const pick = m.pick
     const nextId = pick?.world ?? null
     const nextSource = pick?.source ?? null
     if (nextId === m.workspaceId && nextSource === m.workspaceSource) continue
@@ -490,4 +511,53 @@ export async function notionDbWorld(db: Db, notionDb: string | null | undefined,
   )
   const worlds = new Set(rows.filter((r) => !r.account || r.account === account).map((r) => worldOf(map, r.workspaceId)).filter(Boolean))
   return worlds.size === 1 ? ([...worlds][0] as string) : null
+}
+
+// ─── Notion disagreements ───────────────────────────────────────────────────
+
+export interface NotionWorldDisagreement {
+  meetingId: string
+  title: string
+  aroWorld: string
+  aroWorldName: string
+  aroSource: MeetingWorldSource
+  notionWorld: string
+  notionWorldName: string
+}
+
+/**
+ * Meetings where ARO's own signal and the Notion DB name different worlds. ARO's world is the
+ * one stored; the owner decides. Manual meetings are settled and never listed.
+ */
+export async function listNotionWorldDisagreements(db: Db): Promise<NotionWorldDisagreement[]> {
+  const map = await loadWorldMap(db)
+  const picks = await computeMeetingWorlds(db)
+  const out: NotionWorldDisagreement[] = []
+  for (const m of picks) {
+    if (m.workspaceSource === 'manual' || !m.pick || m.pick.source === 'notion') continue
+    const notion = m.signals.notion
+    if (!notion || notion === m.pick.world) continue
+    out.push({
+      meetingId: m.id,
+      title: m.title,
+      aroWorld: m.pick.world,
+      aroWorldName: map.names.get(m.pick.world) ?? m.pick.world,
+      aroSource: m.pick.source,
+      notionWorld: notion,
+      notionWorldName: map.names.get(notion) ?? notion,
+    })
+  }
+  return out
+}
+
+/** Settle a disagreement by pinning the meeting's world by hand — ARO's or Notion's. */
+export async function settleNotionDisagreement(db: Db, meetingId: string, keep: 'aro' | 'notion'): Promise<void> {
+  const [m] = (await computeMeetingWorlds(db, [meetingId]))
+  if (!m) return
+  const world = keep === 'notion' ? m.signals.notion : m.pick?.source === 'notion' ? null : m.pick?.world ?? null
+  if (!world) return
+  await assertSameWorld(db, { projectId: (await queryRows<{ projectId: string | null }>(db.select({ projectId: meetings.projectId }).from(meetings).where(eq(meetings.id, meetingId)).limit(1)))[0]?.projectId, workspaceId: world })
+  await runMutation(
+    db.update(meetings).set({ workspaceId: world, workspaceSource: 'manual', updatedAt: new Date().toISOString() }).where(eq(meetings.id, meetingId)),
+  )
 }

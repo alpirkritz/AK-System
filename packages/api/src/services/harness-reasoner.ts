@@ -35,7 +35,7 @@ import { isSelfPersonName } from '../lib/self-identity'
 import { nodeId } from './harness-context'
 import { writeHarnessStamp } from './harness-stamps'
 import { getOwnerProfile } from './owner-profile'
-import { listWorldConflicts } from './world-scope'
+import { listNotionWorldDisagreements, listWorldConflicts } from './world-scope'
 import { createHash } from 'node:crypto'
 import { classifyAmbiguousReplyNeed, deterministicReplyNeed, type ReplyNeed } from './email-reply-need'
 
@@ -862,6 +862,23 @@ async function detectProjectWorldConflict(ctx: DetectorContext): Promise<Harness
   })
 }
 
+/** Notion files a meeting under a different world than ARO does. ARO's stays; the owner decides. */
+async function detectNotionWorldDisagreement(ctx: DetectorContext): Promise<HarnessInsightDraft[]> {
+  const list = await listNotionWorldDisagreements(ctx.db)
+  if (list.length === 0) return []
+  return [{
+    kind: 'notion_world_disagreement',
+    title: `${list.length} פגישות ש-Notion משייך לעולם אחר`,
+    body: list.slice(0, 5).map((d) => `${d.title}: ARO ${d.aroWorldName} · Notion ${d.notionWorldName}`).join(' · '),
+    severity: 'info' as const,
+    score: 0.3,
+    personId: null,
+    sources: list.slice(0, 5).map((d) => ({ nodeId: nodeId('meeting', d.meetingId), kind: 'meeting', label: d.title })),
+    dedupeKey: 'notion_world_disagreement',
+    ttlDays: 7,
+  }]
+}
+
 const DETECTORS = [
   detectSilentBeforeMeeting,
   detectCoolingWithOpenLoop,
@@ -878,6 +895,7 @@ const DETECTORS = [
   detectVatFilingWindow,
   detectPriorityNeglected,
   detectProjectWorldConflict,
+  detectNotionWorldDisagreement,
 ]
 
 async function loadReplyNeededThreadIds(db: Db, today: string, now: Date): Promise<Set<string>> {

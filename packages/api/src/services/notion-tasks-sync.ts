@@ -17,6 +17,7 @@
  * filters (no named date property required, since task-DB property names vary).
  */
 
+import { sameWorldOrSkip } from './world-scope'
 import {
   getDb,
   people,
@@ -1244,10 +1245,15 @@ export async function syncNotionTasks(
       // Someone else on the assignee source wins. The user is the assignee only
       // when that source names them and no other known person resolved from it.
       const assigneeId = assigneeMatched[0] ?? (userIsAssignee ? userPerson.id : null)
-      const projectId =
+      const notionProjectId =
         getProjectRelationPageIds(props)
           .map((rid) => projectByNotionId.get(rid))
           .find(Boolean) ?? null
+      // Notion is an inbound feed: a project from another world than the task's is not applied.
+      const projectId =
+        notionProjectId && workspaceId && !(await sameWorldOrSkip(db, { projectId: notionProjectId, workspaceId }, 'notion task'))
+          ? null
+          : notionProjectId
       const meetingId =
         getMeetingRelationPageIds(props)
           .map((rid) => meetingByNotionPageId.get(rid))
@@ -1278,7 +1284,8 @@ export async function syncNotionTasks(
               priority,
               status,
               assigneeId,
-              projectId,
+              // A rejected cross-world project keeps whatever ARO has, rather than clearing it.
+              projectId: notionProjectId && !projectId ? (currentRow?.projectId ?? null) : projectId,
               ...(shouldUpdateMeetingId ? { meetingId } : {}),
               workspaceId,
             },
