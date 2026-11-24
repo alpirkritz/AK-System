@@ -2427,3 +2427,28 @@ guardrails not applicable. No PII written to any artifact.
 
 ### Performance Notes
 - Baileys logged a large volume of sensitive session diagnostics while failing (`Bad MAC`). Reduce the Baileys logger verbosity and redaction scope in a separate security/observability change.
+
+---
+
+## 2026-11-24 — Dev Agent — LinkedIn post writer agent card
+
+**Workflow:** ABC workspace (agent definition only, no code under `apps/` or `packages/`)
+**Status:** Completed
+
+### Stand-up
+- **Goal:** Turn the Claude Code skill `linkedin-weekly-post` into an in-app agent that can be run on demand from `/agents/manage`.
+
+### Actions Taken
+1. Added agent card `A_Agents/12_linkedin_post_writer.md` (role, boundaries, data access via existing Notion/meeting tools, anchors, pillars, writing rules).
+2. Added workflow `S_Skills/wf_linkedin_weekly_post.md`.
+3. Kept the Claude Code skill and scheduled task as they are; internal workplace details from the skill were deliberately not copied into the card.
+
+### Outputs
+- `A_Agents/12_linkedin_post_writer.md`, `S_Skills/wf_linkedin_weekly_post.md`
+
+### Compliance
+- [x] C_Core/ pre-flight check passed
+- [x] No PII exposed
+
+### Performance Notes
+- Not yet run from the app. The server cannot write to `O_Output/`, so the draft is delivered as the chat reply.
