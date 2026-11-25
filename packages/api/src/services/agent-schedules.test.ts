@@ -9,6 +9,7 @@ import {
 import { eq } from 'drizzle-orm'
 import {
   hasAgentRunInSlot,
+  isAgentEnabled,
   listAgentsDueAtTime,
   markAgentRan,
   migrateAgentSchedulesOnce,
@@ -185,5 +186,13 @@ describe('agent schedules service', () => {
       '03_morning_briefing',
     ])
     expect(await listAgentsDueAtTime('12:00')).toHaveLength(0)
+  })
+
+  it('reports the on/off switch of an agent, off when it has no row', async () => {
+    expect(await isAgentEnabled('11_release_notes_listener')).toBe(false)
+    await setAgentSchedule({ agentId: '11_release_notes_listener', enabled: true })
+    expect(await isAgentEnabled('11_release_notes_listener')).toBe(true)
+    await setAgentSchedule({ agentId: '11_release_notes_listener', enabled: false })
+    expect(await isAgentEnabled('11_release_notes_listener')).toBe(false)
   })
 })

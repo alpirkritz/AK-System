@@ -71,7 +71,7 @@ export function getCalendarOptimizerBriefOverride(): string {
 export function getMeetingPrepRelatedTasksOverride(): string {
   return [
     '## Meeting Prep — related tasks only (MANDATORY)',
-    'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link). Eligible sources: Personal To-do, DT - Action items, Con Action items, DAZ Tasks — same brief shape for all.',
+    'For each meeting, list ONLY open tasks that clearly relate to that meeting (person / company / project / topic / explicit link). Source: the system\'s tasks, as returned in `relatedOpenTasks` by get_meeting_prep_context (they already include the tasks synced from every task database: Personal To-do, DT - Action items, Con Action items, DAZ Tasks — same brief shape for all).',
     'If none relate: on WhatsApp/cron/Telegram OMIT the related-actions section entirely; on web you may write "לא נמצאו משימות קשורות לפגישה זו".',
     'NEVER dump the user\'s full open-task backlog as filler or "for context".',
     'Keep WhatsApp / Telegram / ARO briefs short and purposeful — no Markdown tables, no unrelated task lists.',
@@ -87,7 +87,7 @@ export function getMeetingPrepNotionParityOverride(): string {
     '## Meeting Prep — walk-in card (MANDATORY — overrides conflicting card habits)',
     'Focus on the ONE meeting named in the user message / context block (pre-meeting cron or tagged ask).',
     'NEVER paste, quote, or lightly paraphrase the calendar event description / Outlook invite (From/Sent/To/Cc/Subject/When) / Teams "Need help?" / dial-in / mission-statement fluff.',
-    'You MUST call tools for real context: at least get_notion_tasks and get_notion_meeting_notes; add people/projects/companies/search_notion when useful. Grounding rules still apply — no invention.',
+    'Prepare from the SYSTEM, not from Notion. The context block already carries the system\'s own data for this meeting (open tasks tied to it, summaries of the previous meetings, linked meetings, commitments, harness insights). You MUST call get_meeting_prep_context for the meeting (focusTitle = its calendar title) and brief from it and from that block. Do NOT call get_notion_tasks or get_notion_meeting_notes for prep; a Notion tool is allowed only when the system returned nothing at all for this meeting, and then say the detail came from Notion. This overrides any line in the agent card or workflow that calls a Notion tool mandatory. Grounding rules still apply — no invention.',
     'Write a skimmable walk-in card (~15 lines). No Markdown tables. No meta narration ("I understood…"). Omit sections with no grounded data.',
     'Prefer Hebrew or English to match the user/trigger.',
     'Required shape:',
@@ -95,7 +95,7 @@ export function getMeetingPrepNotionParityOverride(): string {
     '2) שורה תחתונה — the outcome of this meeting, as a manager would say it. One sentence. What you walk in to get.',
     '3) על מה לדבר — at most 3. Each line: topic, the grounded fact (number, commitment, blocker, owner), and what to do with it in the room (החלטה / עדכון / שאלה). Order by what must be settled. If notes only support one real topic, write one — do not pad to three.',
     '4) פתוח — at most 2 related tasks, and only if they belong in the room. Omit if none.',
-    '5) מאז הפעם הקודמת — one or two lines: what you committed to, and whether it moved. A prior meeting is the previous instance of THIS topic only (same topic token, project, or series). Shared attendees are not enough. Cite only a note that survived that filter. If none: `אין סיכום מהפגישה הקודמת`. Do not name a second product in שורה תחתונה when it is absent from the focused notes and from the meeting title.',
+    '5) מאז הפעם הקודמת — one or two lines: what you committed to, and whether it moved. A prior meeting is the previous instance of THIS topic only (same topic token, project, or series). Shared attendees are not enough. Take it from `previousMeetings` in get_meeting_prep_context (the system\'s own summaries). If none: `אין סיכום מהפגישה הקודמת`. Do not name a second product in שורה תחתונה when it is absent from the focused notes and from the meeting title.',
   ].join('\n')
 }
 
@@ -210,7 +210,8 @@ async function buildSystemInstruction(
 
   const parts: string[] = [
     `You are operating as ABC agent \`${agentId}\` inside ARO.`,
-    ownerIdentityPrompt(),
+    // One array element on purpose: the Hugo block below is spliced in by position.
+    `${ownerIdentityPrompt()}\n\n${ENTITY_PRECISION_PROMPT}`,
     `Now: ${formatDateLabel()}, ${formatClockLabel()} (${todayIso()}, ${getDefaultTimezone()}).`,
     'NEVER use a time-of-day greeting that contradicts that clock — no "בוקר טוב" in the afternoon. On a direct question, skip the greeting entirely and answer.',
     'Day and week calendar tools return `now` plus four separate buckets: `inProgress`, `upcoming`, `allDay`, `past`. Use them exactly as given — an event from `past` is over, and one from `allDay` (birthday, WFH, trip) holds for the whole day and is NEVER past. Asked what is on today, answer from `inProgress` and `upcoming`; treat `past` as already done and `allDay` as one short line of background. Never let a list of birthdays crowd out the actual meetings.',
@@ -511,6 +512,8 @@ const COS_OWN_WORK_TOOLS = [
 
 /** Tools that provide real meeting-prep data. If none was called, the briefing is ungrounded. */
 const MEETING_PREP_GROUNDING_TOOLS = [
+  'get_meeting_prep_context',
+  'get_meeting_summaries',
   'get_notion_tasks',
   'get_notion_meeting_notes',
   'get_notion_people',
@@ -523,9 +526,9 @@ const MEETING_PREP_GROUNDING_TOOLS = [
 
 const MEETING_PREP_GROUNDING_RETRY_PROMPT =
   'STOP — do not invent meeting-prep content. You have not called any data tool yet. ' +
-  'Call get_notion_tasks and get_notion_meeting_notes now (and get_notion_people / ' +
-  'get_notion_projects / get_notion_companies for a focused meeting), then brief ONLY from ' +
-  'those tool results and the injected context. Known CRM names in calendar titles may be used to look up notes/tasks; do not invent unknown attendees. ' +
+  'Call get_meeting_prep_context now with the meeting title as focusTitle (the system\'s own tasks, ' +
+  'previous-meeting summaries, commitments and harness insights), then brief ONLY from ' +
+  'that result and the injected context. Use Notion tools only if the system returned nothing. Known CRM names in calendar titles may be used to look up notes/tasks; do not invent unknown attendees. ' +
   'For any missing datum write "לא נמצא בנתונים" instead of guessing. ' +
   'For tasks: include ONLY items related to that meeting; if none, write ' +
   '"לא נמצאו משימות קשורות לפגישה זו" — NEVER dump the full open backlog. ' +
@@ -539,7 +542,7 @@ type ToolResponsePart = {
 
 type GeminiContent = { role?: string; parts: unknown[] }
 
-const FOCUS_TITLE_TOOLS = new Set(['get_notion_meeting_notes', 'get_notion_tasks'])
+const FOCUS_TITLE_TOOLS = new Set(['get_meeting_prep_context', 'get_meeting_summaries', 'get_notion_meeting_notes', 'get_notion_tasks'])
 
 /** The cron context has one `Meeting:` line. Day-wide prompts have none or many. */
 export function singleMeetingFocusTitle(message: string): string | null {
@@ -564,6 +567,16 @@ function withSingleMeetingFocus(
     return { ...call, args: { ...call.args, focusTitle: title } }
   })
 }
+
+/** Rules that keep look-alike entities and channels apart. Applies to every agent. */
+export const ENTITY_PRECISION_PROMPT = [
+  '## Exact names and sources',
+  'Project and product names are exact identifiers, and a version is part of the name. `Algo` (the core algorithm project) and `Algo 4.0` are two different projects: never merge their tasks, notes, people or status, and never answer about one from records of the other. When get_projects marks a project with `notTheSameAs`, keep those apart. If the wording fits more than one project and the records do not settle it, ask which one in a single short line before answering.',
+  'The owner shows up in the data as a participant, sender or assignee (Alpir Kritzler, אלפיר, `fromOwner: true`). That is the user. Never describe his relationship with himself, never say it cooled or warmed, and never list him as someone to follow up with or meet.',
+  'Preparing for a meeting: use get_meeting_prep_context — the system\'s tasks, linked and previous meetings with their summaries, commitments and harness insights. Do not prepare a meeting from Notion.',
+  'What happened in a meeting: the system\'s own summaries are the primary record — every recorded meeting is analysed and stored here. Call get_meeting_summaries first (get_notion_meeting_notes also returns them as `systemSummaries`). Notion notes are a fallback only for a meeting the system has no summary of, and when both exist the system summary wins. Never report that a meeting has no summary before checking get_meeting_summaries. This overrides any later instruction that names Notion as the source of meeting summaries.',
+  'Channels are separate worlds: Slack is work (get_slack_activity), WhatsApp is personal chats and groups, email is its own tool. Answer a Slack question from Slack data only, and when you cite a message say which channel it came from.',
+].join('\n')
 
 async function processToolCalls(
   calls: FunctionCall[],
@@ -710,9 +723,11 @@ async function runChatLoop(
   ) {
     logger.log('MALFORMED_FUNCTION_CALL detected — retrying without tools')
     geminiCalls++
-    // Start a fresh chat without tools
-    const noToolModel = model
-    const noToolChat = noToolModel.startChat({ history: buildHistoryContents(historyForModel) })
+    // Start a fresh chat with function calling switched off for this request
+    const noToolChat = model.startChat({
+      history: buildHistoryContents(historyForModel),
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+    })
     try {
       const retryResult = await noToolChat.sendMessage(message)
       inspection = inspectResponse(retryResult)

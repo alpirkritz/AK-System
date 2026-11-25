@@ -2427,3 +2427,24 @@ guardrails not applicable. No PII written to any artifact.
 
 ### Performance Notes
 - Baileys logged a large volume of sensitive session diagnostics while failing (`Bad MAC`). Reduce the Baileys logger verbosity and redaction scope in a separate security/observability change.
+
+---
+
+## 2026-11-25 — Dev Agent — Meeting prep and daily summary read the system, not Notion
+
+### Stand-up
+- **Goal:** The owner reported that the daily summary and meeting prep look for meeting summaries in Notion, although every meeting is recorded and analysed in the system.
+- **Workflow:** `docs/specs/performance-and-hugo-hardening.md` (Phases E and F).
+
+### Actions Taken
+1. Added `get_meeting_summaries` (the system's completed meeting analyses) and `get_meeting_prep_context` (related open tasks, previous meetings on the same series / project / topic with their summaries, linked meetings, commitments, harness insights).
+2. The daily-meeting-summary cron and the pre-meeting-briefing cron now build their context from those; Notion notes are a fallback for meetings the system has no analysis of.
+3. `A_Agents/04_meeting_prep_herald.md` and `S_Skills/wf_meeting_prep.md`: the mandatory tool is now `get_meeting_prep_context`; the Notion tools are described as fallback. The Notion tool rows in the card's tables were left in place.
+
+### Output Paths
+- `packages/api/src/services/meeting-summaries.ts`, `packages/api/src/services/meeting-prep-context.ts`
+- `apps/web/src/lib/conversation-engine.ts`, `apps/web/src/lib/gemini-agent-engine.ts`
+
+### Compliance
+- [x] No Notion data or agent run history was deleted; read paths only.
+- [ ] Not yet verified against production recordings (the local database has none).

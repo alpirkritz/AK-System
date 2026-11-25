@@ -10,7 +10,7 @@ import {
   workspaces,
   MEETING_CATEGORIES,
 } from '@ak-system/database'
-import { eq, inArray, and, isNotNull, isNull, desc, or } from 'drizzle-orm'
+import { eq, inArray, and, isNotNull, isNull, desc, or, gte, lte } from 'drizzle-orm'
 import { expandWorkspaceFilter } from '../services/workspace-scope'
 import { upsertPersonExternalId } from '../services/person-external-ids'
 import { resolvePerson } from '../services/person-resolution'
@@ -45,6 +45,7 @@ import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticip
 import { getMeetingPrep } from '../services/meeting-preps'
 import { withPersonNames } from '../services/people-resolve'
 import { mergeRecordingNotes } from '../lib/recording-notes'
+import type { LinkedActionItem } from '../services/action-item-link'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -144,40 +145,46 @@ export const meetingsRouter = router({
         // This can be added when the status column is added to the schema
       }
 
-      // Base query
-      let list = await ctx.db
-        .select()
-        .from(meetings)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(meetings.date)
-      
-      if (list.length === 0) return []
-
-      // Filter by time range
+      // Time range, filtered in SQL on the indexed ISO date column
       if (input?.timeRange) {
         const now = new Date()
         const today = now.toISOString().split('T')[0]
         const tomorrow = new Date(now.getTime() + 86400000).toISOString().split('T')[0]
         const weekEnd = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0]
-        
+
         switch (input.timeRange) {
           case 'today':
-            list = list.filter(m => m.date === today)
+            conditions.push(eq(meetings.date, today))
             break
           case 'tomorrow':
-            list = list.filter(m => m.date === tomorrow)
+            conditions.push(eq(meetings.date, tomorrow))
             break
           case 'week':
-            list = list.filter(m => m.date >= today && m.date <= weekEnd)
+            conditions.push(gte(meetings.date, today), lte(meetings.date, weekEnd))
             break
           // 'all' = no filter
         }
       }
 
+      // Base query
+      const list = await ctx.db
+        .select()
+        .from(meetings)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(meetings.date)
+
+      if (list.length === 0) return []
+
+      // An unfiltered list covers every meeting, so naming each id in an IN (...) only adds cost.
       const ids = list.map((m) => m.id)
+      const wholeTable = conditions.length === 0
       const [allLinks, allTasks] = await Promise.all([
-        ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, ids)),
-        ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
+        wholeTable
+          ? ctx.db.select().from(meetingPeople)
+          : ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, ids)),
+        wholeTable
+          ? ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(isNotNull(tasks.meetingId))
+          : ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
       ])
 
       const peopleByMeeting = new Map<string, string[]>()
@@ -971,6 +978,12 @@ export const meetingsRouter = router({
       if (!analysis) {
         return null
       }
+      // Heals older analyses on view: pair items with their commitments and pull in state
+      // changed under התחייבויות (docs/specs/commitment-task-linking.md).
+      if (analysis.status === 'completed' && analysis.actionItemsJson) {
+        const { linkAnalysisItems } = await import('../services/action-item-link')
+        analysis.actionItemsJson = (await linkAnalysisItems(ctx.db, analysis.id)).actionItemsJson
+      }
 
       return {
         id: analysis.id,
@@ -994,7 +1007,7 @@ export const meetingsRouter = router({
         actionItems: analysis.actionItemsJson
           ? await withPersonNames(
               ctx.db,
-              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string }[],
+              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string; commitmentId?: string; dismissed?: boolean }[],
             )
           : [],
         status: analysis.status,
@@ -1106,12 +1119,13 @@ export const meetingsRouter = router({
         throw new Error('Analysis not found')
       }
 
-      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+      const actionItems: LinkedActionItem[] =
         analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
 
+      // "צור הכל" leaves out items dismissed under התחייבויות; an explicit index still creates.
       const itemsToCreate = input.indices
         ? input.indices.map((i) => actionItems[i]).filter(Boolean)
-        : actionItems
+        : actionItems.filter((item) => !item.dismissed)
 
       const createdTaskIds: string[] = []
       const now = new Date().toISOString()
@@ -1153,7 +1167,7 @@ export const meetingsRouter = router({
 
         item.taskId = taskId
         createdTaskIds.push(taskId)
-        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, taskId)
+        await (await import('../services/action-item-link')).acceptCommitmentForItem(ctx.db, analysis.meetingId, item, taskId)
       }
 
       // Update analysis with task IDs
@@ -1193,7 +1207,7 @@ export const meetingsRouter = router({
         throw new Error('Analysis not found')
       }
 
-      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+      const actionItems: LinkedActionItem[] =
         analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
 
       let linked = 0
@@ -1210,7 +1224,7 @@ export const meetingsRouter = router({
 
         item.taskId = link.taskId
         linked++
-        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, link.taskId)
+        await (await import('../services/action-item-link')).acceptCommitmentForItem(ctx.db, analysis.meetingId, item, link.taskId)
       }
 
       // Update analysis with task IDs

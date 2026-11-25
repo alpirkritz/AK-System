@@ -397,7 +397,7 @@ export async function meetingPrepRelationship(db: Db, meetingId: string): Promis
     .from(meetingPeople)
     .innerJoin(people, eq(people.id, meetingPeople.personId))
     .where(eq(meetingPeople.meetingId, meetingId))
-  const followed = links.filter((l) => l.status === 'confirmed').slice(0, PREP_MAX_PEOPLE)
+  const followed = links.filter((l) => l.status === 'confirmed' && !isSelfPersonName(l.name)).slice(0, PREP_MAX_PEOPLE)
   const lines: string[] = []
   for (const p of followed) {
     const ctx = await buildPersonContext(db, p.personId)

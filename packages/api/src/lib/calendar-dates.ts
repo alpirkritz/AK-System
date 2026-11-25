@@ -15,10 +15,14 @@ export function localTomorrowIso(timeZone = DEFAULT_TIMEZONE): string {
   return addCalendarDay(localTodayIso(timeZone))
 }
 
-/** Resolve tool date arg: today | tomorrow | מחר | היום | YYYY-MM-DD → local ISO date. */
+/** Resolve tool date arg: today | tomorrow | yesterday | מחר | היום | אתמול | YYYY-MM-DD → local ISO date. */
 export function resolveLocalDayArg(raw: string, timeZone = DEFAULT_TIMEZONE): string {
   const v = raw.trim().toLowerCase()
   if (v === 'tomorrow' || v === 'מחר') return localTomorrowIso(timeZone)
+  if (v === 'yesterday' || v === 'אתמול') {
+    const [year, month, day] = localTodayIso(timeZone).split('-').map(Number)
+    return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+  }
   if (v === 'today' || v === 'היום' || v === '') return localTodayIso(timeZone)
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
   return localTodayIso(timeZone)

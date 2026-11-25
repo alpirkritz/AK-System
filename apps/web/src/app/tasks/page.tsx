@@ -28,6 +28,9 @@ const TaskModal = dynamic(() => import('@/components/Modals/TaskModal').then((m)
 type StatusFilter = 'open' | 'overdue' | 'done' | 'cancelled' | 'all'
 type OwnerFilter = 'me' | 'all'
 
+/** One stable object, so the sort memo does not rerun on every render. */
+const FALLBACK_TASK_SORT: SortPref<TaskSortKey> = { primary: 'priority_high', thenBy: 'due_asc' }
+
 function parseOwner(value: string | null): OwnerFilter {
   return value === 'all' ? 'all' : 'me'
 }
@@ -147,7 +150,7 @@ function TasksPageContent() {
     } catch { /* ignore */ }
   }, [])
 
-  const effectiveSort = taskSort ?? serverDefault ?? { primary: 'priority_high' as TaskSortKey, thenBy: 'due_asc' as TaskSortKey }
+  const effectiveSort = taskSort ?? serverDefault ?? FALLBACK_TASK_SORT
   const hasOverride = taskSort !== null
 
   const setTaskSortAndPersist = (value: SortPref<TaskSortKey>) => {

@@ -46,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
         // Send reply via bridge if we got one
         if (reply && reply.trim()) {
-          const sent = await sendWhatsAppMessage(payload.chatJid, reply)
+          const sent = await sendWhatsAppMessage(reply, payload.chatJid)
           if (!sent) {
             throw new Error('Failed to send WhatsApp message via bridge')
           }

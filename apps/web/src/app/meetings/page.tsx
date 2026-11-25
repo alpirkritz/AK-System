@@ -214,7 +214,7 @@ export default function MeetingsPage() {
 
   // Helper maps
   const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
-  const getPerson = (id: string) => peopleMap.get(id)
+  const getPerson = useCallback((id: string) => peopleMap.get(id), [peopleMap])
   const typesMap = useMemo(() => new Map(meetingTypes.map((t) => [t.id, t])), [meetingTypes])
 
   const scopedMeetings = worldFilter ? meetings.filter((m) => m.workspaceId) : meetings
@@ -538,7 +538,9 @@ export default function MeetingsPage() {
           {filteredUpcoming.length === 0 && (
             <div className="text-center py-12" role="status">
               <p className="text-[#5a688c] text-sm">
-                {searchQuery
+                {meetingsLoading
+                  ? 'טוען פגישות…'
+                  : searchQuery
                   ? 'לא נמצאו פגישות התואמות לחיפוש'
                   : quickFilter !== 'all'
                   ? 'אין פגישות בפילטר זה'

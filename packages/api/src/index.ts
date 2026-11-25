@@ -63,6 +63,8 @@ export {
   type GroupedSchedule,
 } from './lib/event-time-status'
 export { topicTokens, titlesShareTopic } from './lib/topic-match'
+export { meetingPrepBundle, formatMeetingPrepBundle, type MeetingPrepBundle } from './services/meeting-prep-context'
+export { systemMeetingSummaries, formatSystemMeetingSummary, type SystemMeetingSummary } from './services/meeting-summaries'
 export {
   WHATSAPP_WINDOWS,
   isWhatsappWindow,
@@ -98,6 +100,13 @@ export {
   sendBridgeGroupText,
   type GroupRulePayload,
 } from './services/whatsapp-bridge-client'
+export {
+  runReleaseNotesListener,
+  createLiveReleaseNotesDeps,
+  composeReleaseMessage,
+  RELEASE_NOTES_NOTIFICATION_TYPE_ID,
+  type ReleaseNotesResult,
+} from './services/notion-release-notes'
 export {
   runTier1QaScan,
   formatIncompleteMessage,
@@ -145,6 +154,7 @@ export {
   ingestWorkTeams,
   type WorkTeamsIngestPayload,
 } from './services/work-comms-ingest'
+export { ingestSlackCache, type SlackCachePayload } from './services/slack-cache-ingest'
 export {
   saveVoiceUpload,
   processVoiceRecording,
@@ -184,6 +194,7 @@ export {
   listAgentConfigs,
   listAgentsDueAtTime,
   markAgentRan,
+  isAgentEnabled,
   migrateAgentSchedulesOnce,
   setAgentSchedule,
   setEventSubscription,

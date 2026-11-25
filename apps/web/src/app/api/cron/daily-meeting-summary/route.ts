@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import {
+  formatSystemMeetingSummary,
   formatLocalRange,
   getSchedulablePreference,
   localTodayIso,
@@ -40,8 +41,8 @@ function formatTodayNotesContext(
   }>,
 ): string {
   const header = [
-    '## Today\'s AI Meeting Notes (primary source for what happened today)',
-    'These are locally synced Notion AI Meeting Notes (recording summaries). Use them as the main source for the evening wrap-up. If a note has no body, write לא נמצא בנתונים for that meeting — do not invent.',
+    '## Notion AI Meeting Notes (fallback: only meetings the system has no summary of)',
+    'Locally synced Notion AI Meeting Notes for meetings missing from the list above. If a note has no body, write לא נמצא בנתונים for that meeting — do not invent.',
     '',
   ]
   if (notes.length === 0) {
@@ -104,8 +105,25 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
       )
     })
 
-    const todayNotes = await caller.insights.meetingNotes({ date: today })
-    const notesContext = formatTodayNotesContext(todayNotes.notes)
+    // The system's own analyses of today's recordings are the primary record of the day.
+    // A Notion note is used only for a meeting that has no analysis here.
+    const [todaySummaries, allTodayNotes] = await Promise.all([
+      caller.insights.meetingSummaries({ date: today, limit: 60 }),
+      caller.insights.meetingNotes({ date: today }),
+    ])
+    const summarisedMeetingIds = new Set(todaySummaries.summaries.map((s) => s.meetingId))
+    const fallbackNotes = allTodayNotes.notes.filter((n) => !n.meetingId || !summarisedMeetingIds.has(n.meetingId))
+    const todayNotes = { notes: fallbackNotes, count: fallbackNotes.length }
+    const notesContext = [
+      "## Today's meeting summaries from the system (PRIMARY source for what happened today)",
+      'These are the system\'s own analyses of the meetings recorded and held today. Build the evening wrap-up from them. Do not look for these meetings in Notion.',
+      '',
+      todaySummaries.summaries.length > 0
+        ? todaySummaries.summaries.map(formatSystemMeetingSummary).join('\n\n')
+        : '_No analysed meetings in the system for today._',
+      '',
+      formatTodayNotesContext(fallbackNotes),
+    ].join('\n')
 
     const routed = await runEventAgentIfRouted('daily_meeting_summary', {
       dedupeSlot: currentSlot(),
@@ -142,6 +160,7 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
       openTasksByMeeting.set(t.meetingId!, arr)
     }
 
+    const summaryByMeetingId = new Map(todaySummaries.summaries.map((s) => [s.meetingId, s]))
     const notesByMeetingId = new Map<string, (typeof todayNotes.notes)[number][]>()
     const orphanNotes: typeof todayNotes.notes = []
     for (const n of todayNotes.notes) {
@@ -172,6 +191,13 @@ async function runDailySummary(request: NextRequest): Promise<NextResponse> {
       let line = `• ${time} – ${e.title}`
       if (avgHr != null) line += ` (דופק ממוצע: ${avgHr})`
       if (meeting?.notes) line += `\n  הערות: ${meeting.notes}`
+      const summary = meeting ? summaryByMeetingId.get(meeting.id) : undefined
+      if (summary) {
+        const gist = [summary.topic, summary.keyInsight].filter(Boolean).join(' — ').slice(0, 600)
+        if (gist) line += `\n  סיכום: ${gist}`
+        const actions = summary.actionItems.slice(0, 5).map((a) => a.content).join('; ')
+        if (actions) line += `\n  עלו: ${actions}`
+      }
       const linkedNotes = meeting ? notesByMeetingId.get(meeting.id) ?? [] : []
       for (const n of linkedNotes) {
         const body = (n.bodyText?.trim() || n.snippet?.trim() || '').slice(0, 800)

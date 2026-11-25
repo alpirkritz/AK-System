@@ -16,6 +16,7 @@ import {
   requestGroupSummary,
   sendWhatsAppGroupMessage,
   sendWhatsAppMessage,
+  startPairing,
 } from './whatsapp-client.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -53,6 +54,19 @@ export function createServer(): express.Application {
     }
     const dataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 2 })
     res.json({ connected: false, qr: dataUrl })
+  })
+
+  app.post('/pair', requireAuth, async (_req, res) => {
+    try {
+      const { connected } = await startPairing()
+      const qr = getCurrentQr()
+      res.json({
+        connected,
+        qr: qr ? await QRCode.toDataURL(qr, { width: 320, margin: 2 }) : null,
+      })
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Pairing failed' })
+    }
   })
 
   app.get('/', (_req, res) => {

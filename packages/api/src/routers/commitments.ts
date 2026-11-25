@@ -6,6 +6,7 @@ import {
   meetings,
   people,
   projectPeople,
+  slackMembers,
   tasks,
   whatsappDmMessages,
   whatsappMessages,
@@ -15,6 +16,8 @@ import { router, protectedProcedure, type Context } from '../trpc'
 import { phoneFromWhatsappJid } from '../lib/phone'
 import { linkWhatsappSender } from '../services/person-context'
 import { commitmentSourceUrl } from '../services/commitments'
+import { syncItemFromCommitment } from '../services/action-item-link'
+import { attachSlackMemberToPerson } from '../services/slack-cache-ingest'
 import { closeInsightsForCommitment } from '../services/harness-reasoner'
 import { tasksRouter } from './tasks'
 import { peopleRouter } from './people'
@@ -273,6 +276,7 @@ export const commitmentsRouter = router({
           .update(commitments)
           .set({ status: 'accepted', taskId: input.taskId, updatedAt: new Date().toISOString() })
           .where(eq(commitments.id, c.id))
+        await syncItemFromCommitment(ctx.db, c.id)
         return { taskId: input.taskId, notionSynced: false }
       }
 
@@ -298,6 +302,7 @@ export const commitmentsRouter = router({
         .update(commitments)
         .set({ status: 'accepted', taskId, updatedAt: new Date().toISOString() })
         .where(eq(commitments.id, c.id))
+      await syncItemFromCommitment(ctx.db, c.id)
       return { taskId, notionSynced: created.notionSync?.ok ?? false }
     }),
 
@@ -323,6 +328,7 @@ export const commitmentsRouter = router({
         .update(commitments)
         .set({ taskId: input.taskId, updatedAt: new Date().toISOString() })
         .where(and(eq(commitments.id, input.commitmentId), isNull(commitments.taskId)))
+      await syncItemFromCommitment(ctx.db, input.commitmentId)
       return { ok: true as const, taskId: input.taskId }
     }),
 
@@ -338,6 +344,7 @@ export const commitmentsRouter = router({
         .where(eq(commitments.id, input.commitmentId))
       // Close any cross-domain insights that were built from this commitment.
       await closeInsightsForCommitment(ctx.db, input.commitmentId)
+      await syncItemFromCommitment(ctx.db, input.commitmentId)
       return { dismissed: true }
     }),
 
@@ -346,6 +353,15 @@ export const commitmentsRouter = router({
     .input(z.object({ commitmentId: z.string().min(1), name: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const c = await proposedUnknown(ctx.db, input.commitmentId)
+      if (c.source === 'slack_channel') {
+        // A Slack sender: create from the member's profile and link the Slack identity.
+        const [m] = await ctx.db.select().from(slackMembers).where(eq(slackMembers.userId, c.senderJid))
+        const name = input.name?.trim() || m?.realName || m?.displayName || c.senderName?.trim() || 'איש קשר מסלאק'
+        const person = await peopleRouter.createCaller(ctx).create({ name, ...(m?.email ? { email: m.email } : {}) })
+        await attachSlackMemberToPerson(ctx.db, c.senderJid, person.id)
+        await attachCommitmentPerson(ctx.db, c.id, person.id)
+        return { personId: person.id }
+      }
       const name = input.name?.trim() || c.senderName?.trim() || 'מספר לא מוכר'
       const phone = phoneFromWhatsappJid(c.senderJid)
       const person = await peopleRouter.createCaller(ctx).create({ name, ...(phone ? { phone } : {}) })
@@ -361,7 +377,8 @@ export const commitmentsRouter = router({
       const c = await proposedUnknown(ctx.db, input.commitmentId)
       const [person] = await ctx.db.select({ id: people.id }).from(people).where(eq(people.id, input.personId))
       if (!person) throw new TRPCError({ code: 'NOT_FOUND', message: 'Person not found' })
-      await linkWhatsappSender(ctx.db, person.id, c.senderJid)
+      if (c.source === 'slack_channel') await attachSlackMemberToPerson(ctx.db, c.senderJid, person.id)
+      else await linkWhatsappSender(ctx.db, person.id, c.senderJid)
       await attachCommitmentPerson(ctx.db, c.id, person.id)
       return { personId: person.id }
     }),

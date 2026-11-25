@@ -179,6 +179,16 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     defaultChannels: { whatsapp: false },
   },
   {
+    id: 'notion_release_notes',
+    category: 'agent',
+    label: 'Release notes — קבוצת טכני',
+    description: 'הודעת release notes לקבוצת "טכני" על כל רשומה חדשה בטבלת הדיפלוי ב-Notion',
+    availableChannels: ALL_CHANNELS,
+    schedulable: false,
+    // Draft-mode rollout: in-app/push only until WhatsApp is switched on in Settings.
+    defaultChannels: { whatsapp: false },
+  },
+  {
     id: 'hugo_reply',
     category: 'hugo',
     label: 'תשובות הוגו',

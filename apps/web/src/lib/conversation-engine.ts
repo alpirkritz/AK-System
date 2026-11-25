@@ -322,8 +322,38 @@ const baseToolDeclarations: FunctionDeclaration[] = [
     parameters: { type: SchemaType.OBJECT, properties: {} },
   },
   {
+    name: 'get_meeting_prep_context',
+    description:
+      "PRIMARY source for preparing a meeting, from the system itself (not Notion): the meeting's people, the open tasks tied to it (by explicit link, project or topic — never the whole backlog), the system's summaries of the previous meetings in the same series / project / topic (what was said, action items and owners, open questions), linked meetings, open commitments with the attendees, and harness insights about them. Call this FIRST for every meeting you prepare: הכנה לפגישה, תכין אותי ל-X, מה פתוח מול X לפני הפגישה, pre-meeting brief. Pass focusTitle (the calendar title, exactly as written — a version is part of the name) and date ('today'|'tomorrow'|YYYY-MM-DD), or meetingId. An empty section means the system has nothing there: say לא נמצא בנתונים, do not go looking in Notion unless every section is empty.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        focusTitle: { type: SchemaType.STRING, description: 'The meeting title as it appears in the calendar.' },
+        date: { type: SchemaType.STRING, description: "Day of the meeting: 'today', 'tomorrow' or YYYY-MM-DD. Default today." },
+        meetingId: { type: SchemaType.STRING, description: 'Exact meeting id, when known.' },
+      },
+    },
+  },
+  {
+    name: 'get_meeting_summaries',
+    description:
+      "PRIMARY source for what happened in a meeting: the system's own summaries, produced from the recordings and transcripts stored here (topic, key insight, mood, subtext, score, action items with owners, participants). Every recorded meeting is documented in the system, so call this FIRST for: מה היה בפגישה, סכם את היום, מה סוכם עם X, מה עלה בפגישות השבוע, evening wrap-up, and for the previous instance of a meeting you are preparing. Use Notion notes only for a meeting this returns nothing for. Pass date ('today'|'yesterday'|YYYY-MM-DD) for one day, sinceDate/untilDate for a range, focusTitle for one meeting topic (a version is part of the name: Algo 4.0 is not Algo), or query for a person or word.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        date: { type: SchemaType.STRING, description: "One day: 'today', 'yesterday' or YYYY-MM-DD." },
+        sinceDate: { type: SchemaType.STRING, description: 'Range start, YYYY-MM-DD.' },
+        untilDate: { type: SchemaType.STRING, description: 'Range end, YYYY-MM-DD.' },
+        focusTitle: { type: SchemaType.STRING, description: 'A meeting title; keeps only meetings on the same topic.' },
+        query: { type: SchemaType.STRING, description: 'Person name or word to find in title, topic, insight or participants.' },
+        meetingId: { type: SchemaType.STRING, description: 'Exact meeting id.' },
+      },
+    },
+  },
+  {
     name: 'get_notion_meeting_notes',
     description:
+      "FALLBACK source — use get_meeting_summaries first; the result also carries `systemSummaries` (the system's own summaries for the same filter), which win over the Notion notes whenever both cover a meeting. " +
       "Read Notion AI meeting SUMMARY only (decisions, action items, perspectives) — never the raw transcript. For one named meeting pass focusTitle (the calendar title) so notes from other products are dropped even if the same people attended. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT focusTitle and WITHOUT a leftover person query. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
     parameters: {
       type: SchemaType.OBJECT,
@@ -542,6 +572,20 @@ const baseToolDeclarations: FunctionDeclaration[] = [
       type: SchemaType.OBJECT,
       properties: {
         lookbackMonths: { type: SchemaType.NUMBER, description: 'Months of history to scan (default 12)' },
+      },
+    },
+  },
+  {
+    name: 'get_slack_activity',
+    description:
+      'Stored work-Slack messages (channels, DMs and group DMs), newest first, with a per-channel count. Returns raw rows — you write the Hebrew answer. Slack is the WORK channel (Dragontail); WhatsApp is separate, never mix the two or answer a Slack question from WhatsApp tools. Messages with fromOwner=true were written by the user himself. Use for: מה קורה בסלאק, מה כתבו לי בסלאק, מה פספסתי בסלאק, מה X כתב בסלאק, מה נאמר בערוץ Y, slack catch-up, and when preparing for a work meeting or person whose discussion happens in Slack.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        channel: { type: SchemaType.STRING, description: 'Channel name (without #) or DM counterpart, partial match. Omit for all channels.' },
+        person: { type: SchemaType.STRING, description: 'Sender name, partial match (also matches the counterpart of a DM). Omit for everyone.' },
+        query: { type: SchemaType.STRING, description: 'Text that must appear in the message, e.g. a project or product name exactly as written.' },
+        hours: { type: SchemaType.NUMBER, description: 'How far back to look, in hours. Default 24; use 168 for a week. Max 720.' },
       },
     },
   },
@@ -883,11 +927,21 @@ export async function executeTool(
         caller.tasks.list(),
       ])
       const open = allTasks.filter((t) => !t.done)
+      // Names where one contains the other ("Algo" / "Algo 4.0") are separate projects that get mixed up.
+      const lower = projects.map((p) => p.name.trim().toLowerCase())
+      const lookalikes = (index: number) =>
+        projects
+          .filter((_, other) => other !== index && lower[index] && lower[other] && (lower[other].includes(lower[index]) || lower[index].includes(lower[other])))
+          .map((p) => p.name)
       return {
-        projects: projects.map((p) => ({
-          ...p,
-          openTaskCount: open.filter((t) => t.projectId === p.id).length,
-        })),
+        projects: projects.map((p, index) => {
+          const similar = lookalikes(index)
+          return {
+            ...p,
+            openTaskCount: open.filter((t) => t.projectId === p.id).length,
+            ...(similar.length > 0 ? { notTheSameAs: similar } : {}),
+          }
+        }),
       }
     }
 
@@ -1019,6 +1073,28 @@ export async function executeTool(
       return { companies: entries, count: entries.length, errors }
     }
 
+    case 'get_meeting_prep_context': {
+      const str = (key: string) => (args[key] as string | undefined)?.trim() || undefined
+      const meetingId = str('meetingId')
+      const title = str('focusTitle') ?? str('title')
+      if (!meetingId && !title) return { error: 'ציין focusTitle (שם הפגישה ביומן) או meetingId.' }
+      const bundle = await caller.insights.meetingPrepBundle({ meetingId, title, date: str('date') })
+      return { ...bundle, source: 'system' }
+    }
+
+    case 'get_meeting_summaries': {
+      const str = (key: string) => (args[key] as string | undefined)?.trim() || undefined
+      const result = await caller.insights.meetingSummaries({
+        date: str('date'),
+        sinceDate: str('sinceDate'),
+        untilDate: str('untilDate'),
+        focusTitle: str('focusTitle'),
+        query: str('query'),
+        meetingId: str('meetingId'),
+      })
+      return { ...result, source: 'system_analyses' }
+    }
+
     case 'get_notion_meeting_notes': {
       const date = (args.date as string | undefined)?.trim()
       const prepDate = (args.prepDate as string | undefined)?.trim()
@@ -1036,6 +1112,23 @@ export async function executeTool(
         ...(query ? { query } : {}),
         ...(focusTitle ? { focusTitle } : {}),
       })
+      // A failure here must not cost the Notion notes: the fallback still answers.
+      let systemSummaries: Awaited<ReturnType<typeof caller.insights.meetingSummaries>>['summaries'] = []
+      if (date || meetingId || focusTitle || query) {
+        try {
+          systemSummaries = (
+            await caller.insights.meetingSummaries({
+              ...(date ? { date } : {}),
+              ...(meetingId ? { meetingId } : {}),
+              ...(focusTitle ? { focusTitle } : {}),
+              ...(query ? { query } : {}),
+              limit: 15,
+            })
+          ).summaries
+        } catch (err) {
+          console.warn('[get_notion_meeting_notes] system summaries unavailable:', err instanceof Error ? err.message : err)
+        }
+      }
       return {
         meetingNotes: result.notes.map((n) => ({
           id: n.id,
@@ -1051,6 +1144,8 @@ export async function executeTool(
         count: result.count,
         source: 'local_db',
         ...('prepFor' in result && result.prepFor ? { prepFor: result.prepFor } : {}),
+        // The system's own summaries for the same filter. They are the primary record.
+        ...(systemSummaries.length > 0 ? { systemSummaries } : {}),
       }
     }
 
@@ -1327,6 +1422,19 @@ export async function executeTool(
           increasedPct: i.increasedPct,
         })),
       }
+    }
+
+    case 'get_slack_activity': {
+      const str = (key: string) => (args[key] as string | undefined)?.trim() || undefined
+      const rawHours = Number(args.hours)
+      const result = await caller.slack.forTool({
+        channel: str('channel'),
+        person: str('person'),
+        query: str('query'),
+        hours: Number.isFinite(rawHours) && rawHours > 0 ? Math.min(Math.max(Math.round(rawHours), 1), 720) : 24,
+      })
+      if (!result.hasData) return { error: 'אין נתוני Slack במערכת עדיין — החיבור או הגשר לא הזרים הודעות.' }
+      return result
     }
 
     case 'get_whatsapp_status': {

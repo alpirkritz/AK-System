@@ -177,7 +177,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <aside className="w-[176px] lg:w-[220px] flex-shrink-0 border-l border-[#22314f] flex-col p-3 lg:p-6 gap-1 sticky top-0 h-screen hidden md:flex">
         <div className="px-3 pb-4 lg:pb-5 border-b border-[#22314f] mb-2 flex items-center gap-3">
           <img
-            src="/icons/aro-logo.png"
+            src="/icons/aro-logo-96.png"
             alt="ARO"
             width={40}
             height={40}

@@ -222,7 +222,7 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
     return null
   }
 
-  const hasUnassignedTasks = analysis.actionItems.some((item) => !item.taskId)
+  const hasUnassignedTasks = analysis.actionItems.some((item) => !item.taskId && !item.dismissed)
 
   return (
     <div className="space-y-6">
@@ -549,7 +549,13 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                     •
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-gray-900 dark:text-gray-100">
+                    <div
+                      className={
+                        item.dismissed && !item.taskId
+                          ? 'text-sm text-gray-500 dark:text-gray-400 line-through'
+                          : 'text-sm text-gray-900 dark:text-gray-100'
+                      }
+                    >
                       {item.content}
                     </div>
                     {item.personId && item.personName ? (
@@ -570,7 +576,15 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
                       )
                     )}
                   </div>
-                  {!item.taskId ? (
+                  {item.dismissed && !item.taskId ? (
+                    <span
+                      className="px-3 py-1 bg-gray-200/60 dark:bg-gray-600/40 text-gray-500 dark:text-gray-400 rounded text-xs font-medium flex-shrink-0"
+                      data-testid="analysis-action-closed"
+                      title="נסגר במסך ההתחייבויות"
+                    >
+                      נסגר
+                    </span>
+                  ) : !item.taskId ? (
                     <button
                       onClick={() => openTaskModal(index)}
                       className="px-3 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded text-xs font-medium transition-colors flex-shrink-0"

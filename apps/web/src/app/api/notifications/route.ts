@@ -6,6 +6,7 @@ import {
   desc,
   isNull,
   and,
+  sql,
   runMutation,
 } from '@ak-system/database'
 import { sessionFromBearer } from '@/lib/mobile-auth'
@@ -53,12 +54,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .orderBy(desc(notifications.createdAt))
         .limit(limit)
 
-  const unread = await db
-    .select({ id: notifications.id })
+  const [unread] = await db
+    .select({ count: sql<number>`count(*)` })
     .from(notifications)
     .where(and(isNull(notifications.readAt), isNull(notifications.archivedAt)))
 
-  return NextResponse.json({ notifications: rows, unreadCount: unread.length })
+  return NextResponse.json({ notifications: rows, unreadCount: Number(unread?.count ?? 0) })
 }
 
 /** PATCH /api/notifications — mark read or archive */

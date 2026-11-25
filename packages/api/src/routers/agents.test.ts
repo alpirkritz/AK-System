@@ -114,6 +114,16 @@ describe('agents router', () => {
     ).rejects.toThrow()
   })
 
+  it('lets a polling agent be switched on and off without any clock time', async () => {
+    const caller = await createTestCaller()
+    const on = await caller.agents.setSchedule({ agentId: '11_release_notes_listener', enabled: true })
+    expect(on.continuous).toBe(true)
+    expect(on.enabled).toBe(true)
+    expect(on.scheduleTimes).toEqual([])
+    const off = await caller.agents.setSchedule({ agentId: '11_release_notes_listener', enabled: false })
+    expect(off.enabled).toBe(false)
+  })
+
   it('setSchedule rejects times that could never match a cron slot', async () => {
     const caller = await createTestCaller()
     for (const bad of ['99:99', '24:00', '7:00', '07:60', 'morning']) {

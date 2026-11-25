@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server'
 import { pushDmAllowlist, summarizeDmChats } from '../services/whatsapp-dm'
 import { router, protectedProcedure } from '../trpc'
 import { whatsappLabels, whatsappGroups, whatsappMessages, whatsappDmMessages, chatMessages, agentCache } from '@ak-system/database'
-import { eq, asc, desc, and, gte, lte, inArray } from 'drizzle-orm'
+import { eq, asc, desc, and, gte, lte, inArray, sql } from 'drizzle-orm'
 import { generateGroupInsight, generateCrossGroupDigest } from '../services/whatsapp-insights'
 import { WHATSAPP_WINDOWS, resolveWhatsappTimeWindow } from '../lib/whatsapp-time-window'
 import {
@@ -12,6 +12,7 @@ import {
   getBridgeWatchedGroups,
   pushConfigToBridge,
   isBridgeConfigured,
+  bridgeFetch,
   summarizeGroup,
   type GroupRulePayload,
 } from '../services/whatsapp-bridge-client'
@@ -336,6 +337,21 @@ export const whatsappRouter = router({
         }
       }
     }),
+
+    /** Restart the bridge socket and return a fresh QR (or connected=true). */
+    pair: protectedProcedure.mutation(async () => {
+      if (!isBridgeConfigured()) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'WhatsApp bridge not configured' })
+      const { ok, data } = await bridgeFetch<{ connected?: boolean; qr?: string | null; error?: string }>('/pair', { method: 'POST' })
+      if (!ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: data.error || 'Pairing failed' })
+      return { connected: !!data.connected, qr: data.qr ?? null }
+    }),
+
+    /** Current QR (rotates ~every 20s) for the pairing dialog. */
+    qr: protectedProcedure.query(async () => {
+      if (!isBridgeConfigured()) return { connected: false, qr: null as string | null }
+      const { data } = await bridgeFetch<{ connected?: boolean; qr?: string | null }>('/qr')
+      return { connected: !!data.connected, qr: data.qr ?? null }
+    }),
   }),
 
   sync: router({
@@ -647,24 +663,23 @@ export const whatsappRouter = router({
           .from(whatsappGroups)
         const nameByJid = new Map(groups.map((g) => [g.jid, g.name]))
         const conds = input?.groupJid ? [eq(whatsappMessages.groupJid, input.groupJid)] : []
+        // Aggregate in SQL (covered by idx_whatsapp_messages_group_ts), not one row per message.
         const rows = await ctx.db
-          .select({ groupJid: whatsappMessages.groupJid, ts: whatsappMessages.ts })
+          .select({
+            groupJid: whatsappMessages.groupJid,
+            count: sql<number>`count(*)`,
+            earliestTs: sql<number>`min(${whatsappMessages.ts})`,
+            latestTs: sql<number>`max(${whatsappMessages.ts})`,
+          })
           .from(whatsappMessages)
           .where(conds.length ? and(...conds) : undefined)
-        const byGroup = new Map<string, { count: number; earliestTs: number; latestTs: number }>()
-        for (const r of rows) {
-          const cur = byGroup.get(r.groupJid) ?? { count: 0, earliestTs: r.ts, latestTs: r.ts }
-          cur.count += 1
-          cur.earliestTs = Math.min(cur.earliestTs, r.ts)
-          cur.latestTs = Math.max(cur.latestTs, r.ts)
-          byGroup.set(r.groupJid, cur)
-        }
-        return Array.from(byGroup.entries()).map(([groupJid, v]) => ({
-          groupJid,
-          name: nameByJid.get(groupJid) ?? groupJid,
-          count: v.count,
-          earliestTs: v.earliestTs,
-          latestTs: v.latestTs,
+          .groupBy(whatsappMessages.groupJid)
+        return rows.map((r) => ({
+          groupJid: r.groupJid,
+          name: nameByJid.get(r.groupJid) ?? r.groupJid,
+          count: Number(r.count),
+          earliestTs: Number(r.earliestTs),
+          latestTs: Number(r.latestTs),
         }))
       }),
   }),

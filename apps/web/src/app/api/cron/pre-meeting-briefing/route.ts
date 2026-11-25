@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { getNotificationRouting, localTodayIso, resolveNotificationChannels, saveMeetingPrep } from '@ak-system/api'
+import { formatMeetingPrepBundle, getNotificationRouting, localTodayIso, resolveNotificationChannels, saveMeetingPrep } from '@ak-system/api'
 import { getDb } from '@ak-system/database'
 import { createServiceCaller } from '@/lib/api-caller'
 import { pushAssistantMessage } from '@/lib/push-notifications'
@@ -67,15 +67,8 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     const windowEnd = new Date(now.getTime() + WINDOW_END_MIN * 60 * 1000)
 
     const caller = await createServiceCaller()
-    const [upcomingResult, allMeetings, allPeople, allTasks] = await Promise.all([
-      caller.calendar.upcoming({ limit: 10 }),
-      caller.meetings.list(),
-      caller.people.list(),
-      caller.tasks.list(),
-    ])
-    const upcoming = upcomingResult.events
-    const today = localTodayIso()
-    const routing = await getNotificationRouting('pre_meeting_briefing')
+    // Most runs find nothing in the window, so decide that before loading the full tables.
+    const upcoming = (await caller.calendar.upcoming({ limit: 10 })).events
 
     const toBrief: typeof upcoming = []
     for (const e of upcoming) {
@@ -86,6 +79,14 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
     if (toBrief.length === 0) {
       return NextResponse.json({ ok: true, briefed: 0, message: 'No meetings in 15 min window' })
     }
+
+    const [allMeetings, allPeople, allTasks, routing] = await Promise.all([
+      caller.meetings.list(),
+      caller.people.list(),
+      caller.tasks.list(),
+      getNotificationRouting('pre_meeting_briefing'),
+    ])
+    const today = localTodayIso()
 
     let sent = 0
     let skippedGate = 0
@@ -125,7 +126,28 @@ async function runPreMeetingBriefing(request: NextRequest): Promise<NextResponse
         ? await caller.insights.meetingPrepContext({ meetingId: linkedMeeting.id }).catch(() => null)
         : null
 
+      // The system's own prep data: tasks, previous meetings with their summaries, harness insights.
+      const prepBundle = await caller.insights
+        .meetingPrepBundle({
+          ...(linkedMeeting ? { meetingId: linkedMeeting.id } : {}),
+          title: calEvent.title,
+          date: today,
+        })
+        .catch((err) => {
+          console.warn('[cron/pre-meeting-briefing] prep bundle unavailable:', err instanceof Error ? err.message : err)
+          return null
+        })
+      const lastMeeting = prepBundle?.previousMeetings[0]
+      const previousSummary = lastMeeting
+        ? [`${lastMeeting.date} · ${[lastMeeting.topic, lastMeeting.keyInsight].filter(Boolean).join(' — ')}`,
+            ...lastMeeting.actionItems.slice(0, 3).map((a) => `• ${a.content}${a.owner ? ` (${a.owner})` : ''}`)]
+            .join('\n')
+            .slice(0, 700)
+        : null
+
       const briefInput = {
+        systemContext: prepBundle ? formatMeetingPrepBundle(prepBundle) : null,
+        previousSummary,
         event: eventShape,
         linkedMeeting: linkedMeeting
           ? {

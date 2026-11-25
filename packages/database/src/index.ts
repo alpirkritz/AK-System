@@ -323,9 +323,24 @@ const SLACK_TABLES = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_slack_messages_channel_ts ON slack_messages(channel_id, slack_ts)`,
   `CREATE INDEX IF NOT EXISTS idx_slack_messages_channel_ts ON slack_messages(channel_id, ts)`,
+  `CREATE TABLE IF NOT EXISTS slack_members (
+    user_id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    real_name TEXT,
+    display_name TEXT,
+    email TEXT,
+    title TEXT,
+    is_self INTEGER NOT NULL DEFAULT 0,
+    ignored INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  )`,
 ]
 
-const SLACK_COLUMNS: string[] = []
+const SLACK_COLUMNS: string[] = [
+  "ALTER TABLE slack_channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'channel'",
+  'ALTER TABLE slack_channels ADD COLUMN member_names TEXT',
+  'ALTER TABLE slack_channels ADD COLUMN member_ids TEXT',
+]
 
 const TEAMS_TABLES = [
   `CREATE TABLE IF NOT EXISTS teams_chats (
@@ -844,6 +859,7 @@ const CHAT_MESSAGES_TABLE = [
     source TEXT NOT NULL DEFAULT 'web',
     created_at TEXT NOT NULL
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)`,
 ]
 const AGENT_TABLES = [
   `CREATE TABLE IF NOT EXISTS agent_threads (
@@ -859,6 +875,7 @@ const AGENT_TABLES = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_id ON agent_messages(agent_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_created ON agent_messages(agent_id, created_at)`,
 ]
 const HEALTH_TABLE = [
   `CREATE TABLE IF NOT EXISTS health_metrics (
@@ -878,6 +895,18 @@ const TIER1_QA_TABLES = [
     bugs_snapshot TEXT NOT NULL,
     summary_stats TEXT NOT NULL,
     created_at TEXT NOT NULL
+  )`,
+]
+const NOTION_RELEASE_TABLES = [
+  `CREATE TABLE IF NOT EXISTS notion_release_seen (
+    page_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
   )`,
 ]
 const FINANCE_TABLES = [
@@ -1149,6 +1178,7 @@ const WHATSAPP_TABLES = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_group_ts ON whatsapp_messages(group_jid, ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_ts ON whatsapp_messages(ts)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_messages_group_msg ON whatsapp_messages(group_jid, wa_message_id)`,
 ]
 
@@ -1575,6 +1605,9 @@ function applySqliteMigrations(sqlite: Database) {
   for (const sql of HEALTH_TABLE) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
+  for (const sql of NOTION_RELEASE_TABLES) {
+    try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
+  }
   for (const sql of TIER1_QA_TABLES) {
     try { sqlite.prepare(sql).run() } catch (_) { /* ignore */ }
   }
@@ -1877,6 +1910,7 @@ export const agentMessages = schema.agentMessages
 export const agentTriggers = schema.agentTriggers
 export const agentSchedules = schema.agentSchedules
 export const tier1QaSnapshots = schema.tier1QaSnapshots
+export const notionReleaseSeen = schema.notionReleaseSeen
 export const healthMetrics = schema.healthMetrics
 export const vatEntries = schema.vatEntries
 export const pushSubscriptions = schema.pushSubscriptions
@@ -1890,6 +1924,7 @@ export const whatsappMessages = schema.whatsappMessages
 export const slackConnections = schema.slackConnections
 export const slackChannels = schema.slackChannels
 export const slackMessages = schema.slackMessages
+export const slackMembers = schema.slackMembers
 export const teamsChats = schema.teamsChats
 export const teamsMessages = schema.teamsMessages
 export const notificationPreferences = schema.notificationPreferences
@@ -1923,6 +1958,7 @@ export type AgentSchedule = typeof schemaPg.agentSchedules.$inferSelect
 export type NewAgentSchedule = typeof schemaPg.agentSchedules.$inferInsert
 export type HealthMetric = typeof schemaPg.healthMetrics.$inferSelect
 export type NewHealthMetric = typeof schemaPg.healthMetrics.$inferInsert
+export type NotionReleaseSeen = typeof schemaPg.notionReleaseSeen.$inferSelect
 export type Tier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferSelect
 export type NewTier1QaSnapshot = typeof schemaPg.tier1QaSnapshots.$inferInsert
 export type PushSubscription = typeof schemaPg.pushSubscriptions.$inferSelect
@@ -1979,6 +2015,7 @@ export type CommitmentOwner = (typeof schemaPg.COMMITMENT_OWNERS)[number]
 export type SlackConnection = typeof schemaPg.slackConnections.$inferSelect
 export type SlackChannel = typeof schemaPg.slackChannels.$inferSelect
 export type SlackMessage = typeof schemaPg.slackMessages.$inferSelect
+export type SlackMember = typeof schemaPg.slackMembers.$inferSelect
 export type TeamsChat = typeof schemaPg.teamsChats.$inferSelect
 export type TeamsMessage = typeof schemaPg.teamsMessages.$inferSelect
 export type PersonEmailThread = typeof schemaPg.personEmailThreads.$inferSelect

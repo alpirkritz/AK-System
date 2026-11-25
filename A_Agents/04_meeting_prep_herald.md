@@ -38,6 +38,10 @@ Prepares the user for meetings by pulling together open action items to push for
 
 ---
 
+> **Source of truth (2026-11-25):** meeting prep is built from the system — `get_meeting_prep_context`
+> and `get_meeting_summaries`. Wherever this card names a Notion tool as the source for tasks,
+> participants or "last time we met", read it as the fallback for when the system has nothing.
+
 ## Data Access Rights
 
 | Resource | Access Level | Tool |
@@ -114,9 +118,13 @@ companies, and any name or number.
 - If a datum is missing (no meeting note, no linked person, no related task), write the
   explicit marker **`לא נמצא בנתונים`** (or for tasks: **`לא נמצאו משימות קשורות לפגישה זו`**)
   — do **not** fill it with a plausible guess, and do **not** substitute the full open-task list.
-- You **must** call at least `get_notion_tasks` and `get_notion_meeting_notes` every run.
-  For a focused/tagged meeting, also call the relevant `get_notion_people` /
-  `get_notion_projects` / `get_notion_companies` (or `search_notion`).
+- You **must** call `get_meeting_prep_context` for every meeting you prepare (pass the
+  calendar title as `focusTitle`). It is the system's own record: open tasks tied to the
+  meeting, summaries of the previous meetings in the same series / project / topic,
+  linked meetings, open commitments and harness insights. Prepare from it.
+- Do **not** prepare from Notion. A Notion tool (`get_notion_tasks`,
+  `get_notion_meeting_notes`, `get_notion_people`, …) is a fallback only when the system
+  returned nothing at all for the meeting; say so when you use one.
 - Any strategic/interpretive line (focus, next pushes, questions) must be grounded in a
   real task or note and be **clearly labeled** `המלצה — לא מהנתונים`. If there is no
   factual basis, omit the section rather than invent one.

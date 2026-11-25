@@ -13,6 +13,8 @@ type ActionItem = {
   content: string
   owner?: string
   taskId?: string
+  /** Closed under התחייבויות — not offered again here. */
+  dismissed?: boolean
 }
 
 type WorkspaceOption = { id: string; name: string; hasNotionLink?: boolean }
@@ -61,7 +63,7 @@ export function BatchTaskModal({
     if (!open) return
     const unassigned = actionItems
       .map((item, index) => ({ ...item, index }))
-      .filter((item) => !item.taskId)
+      .filter((item) => !item.taskId && !item.dismissed)
 
     setItems(
       unassigned.map((item) => ({

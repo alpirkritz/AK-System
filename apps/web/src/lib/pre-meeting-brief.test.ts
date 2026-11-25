@@ -166,9 +166,22 @@ describe('selectRelatedOpenTasks', () => {
         },
       ],
       null,
-      'Algo Brain follow up',
+      'Algo 4 follow up',
     )
     expect(related.map((t) => t.id)).toEqual(['e'])
+  })
+
+  it('keeps an Algo 4.0 task out of a meeting about plain Algo', () => {
+    const related = selectRelatedOpenTasks(
+      [
+        ...tasks,
+        { id: 'e', title: 'Features for Algo 4.0', priority: 'medium', done: false, meetingId: null, projectId: null },
+        { id: 'f', title: 'Algo core latency fix', priority: 'medium', done: false, meetingId: null, projectId: null },
+      ],
+      null,
+      'Algo Brain follow up',
+    )
+    expect(related.map((t) => t.id)).toEqual(['f'])
   })
 
   it('returns empty without link or meaningful title tokens', () => {

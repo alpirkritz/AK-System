@@ -32,6 +32,11 @@ import {
 import type { AnalysisResult } from './meeting-analysis'
 import { ensureSelfPerson } from './self-person'
 
+/** Action items now carry their commitment's id (commitment-task-linking); compare the rest. */
+function withoutLinks(json: string): unknown[] {
+  return (JSON.parse(json) as Record<string, unknown>[]).map(({ commitmentId: _c, ...rest }) => rest)
+}
+
 let voiceDir = ''
 
 beforeAll(() => {
@@ -384,7 +389,7 @@ describe('safe two-person attribution', () => {
     expect(stored.transcriptText).toContain('דנה לוי: בוקר')
     expect(stored.topic).toBe('שיחה מיוחסת')
     // The owner is a person on the recording, so the item is linked to her People record.
-    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי', personId: 'p_dana' }])
+    expect(withoutLinks(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח לוח זמנים', owner: 'דנה לוי', personId: 'p_dana' }])
   })
 
   it('does not refresh while any speaker is still unknown', async () => {

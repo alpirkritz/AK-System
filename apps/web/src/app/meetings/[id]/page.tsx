@@ -222,6 +222,9 @@ export default function MeetingDetailPage() {
     setQuickTask('')
   }
 
+  // Local calendar day, as YYYY-MM-DD, to compare with the meeting's ISO date.
+  const notYetOver = meeting.date >= new Date().toLocaleDateString('en-CA')
+
   const followUpInitialValues = {
     title: `המשך — ${meeting.title}`,
     projectId: mx?.projectId ?? '',
@@ -240,12 +243,18 @@ export default function MeetingDetailPage() {
       <div className="flex items-start gap-2 mb-5 md:mb-7">
       <div className="scroll-row md-wrap gap-2 items-center flex-1 min-w-0">
         <Link href="/meetings" className="btn btn-ghost whitespace-nowrap" aria-label="חזרה לפגישות">← <span className="hidden sm:inline">חזרה</span></Link>
-        <button className="btn btn-primary whitespace-nowrap" onClick={() => setTaskModalOpen(true)}>+ משימה</button>
+        {/* Before and during the meeting the next step is recording it; afterwards it is follow-up tasks. */}
+        {notYetOver && (
+          <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-primary whitespace-nowrap">🎙 הקלט פגישה</Link>
+        )}
+        <button className={`btn ${notYetOver ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap`} onClick={() => setTaskModalOpen(true)}>+ משימה</button>
         <button className="btn btn-ghost whitespace-nowrap" onClick={() => setMeetingModalOpen(true)}>✏ ערוך</button>
         <button className="btn btn-ghost whitespace-nowrap" onClick={copySummary} title="העתק סיכום ללוח">
-          {copied ? '✓ הועתק' : '📋 צור סיכום'}
+          {copied ? '✓ הועתק' : '📋 העתק סיכום'}
         </button>
-        <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost whitespace-nowrap">🎙 הקלט פגישה</Link>
+        {!notYetOver && (
+          <Link href={`/voice?meeting=${meeting.id}`} className="btn btn-ghost whitespace-nowrap">🎙 הקלט פגישה</Link>
+        )}
       </div>
 
         {/* More menu — follow-up + delete (outside the scroll strip so the dropdown is never clipped) */}

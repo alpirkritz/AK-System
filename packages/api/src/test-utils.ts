@@ -40,6 +40,7 @@ import {
   harnessEdges,
   harnessInsights,
   slackMessages,
+  slackMembers,
   slackChannels,
   slackConnections,
   personWorkspaces,
@@ -73,6 +74,7 @@ export async function resetDb() {
   await db.delete(harnessEdges)
   await db.delete(harnessNodes)
   await db.delete(slackMessages)
+  await db.delete(slackMembers)
   await db.delete(slackChannels)
   await db.delete(slackConnections)
   await db.delete(personTraitEvidence)

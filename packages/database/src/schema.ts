@@ -866,7 +866,9 @@ export const chatMessages = sqliteTable('chat_messages', {
   content: text('content').notNull(),
   source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'whatsapp' | 'cron'
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  createdAtIdx: index('idx_chat_messages_created_at').on(table.createdAt),
+}))
 
 export type ChatMessage = typeof chatMessages.$inferSelect
 export type NewChatMessage = typeof chatMessages.$inferInsert
@@ -887,6 +889,7 @@ export const agentMessages = sqliteTable('agent_messages', {
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
+  agentCreatedIdx: index('idx_agent_messages_agent_created').on(table.agentId, table.createdAt),
 }))
 
 export type AgentThread = typeof agentThreads.$inferSelect
@@ -947,6 +950,18 @@ export const tier1QaSnapshots = sqliteTable('tier1_qa_snapshots', {
   // JSON: computed aggregate counts, for audit/debug without re-deriving
   summaryStats: text('summary_stats').notNull(),
   createdAt: text('created_at').notNull(),
+})
+
+export const notionReleaseSeen = sqliteTable('notion_release_seen', {
+  pageId: text('page_id').primaryKey(),
+  // 'seen' (baseline, never announced) | 'pending' | 'sent' | 'drafted' | 'failed'
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  title: text('title').notNull().default(''),
+  message: text('message'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  sentAt: text('sent_at'),
 })
 
 export type Tier1QaSnapshot = typeof tier1QaSnapshots.$inferSelect
@@ -1114,6 +1129,7 @@ export const whatsappMessages = sqliteTable('whatsapp_messages', {
   pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 }, (table) => ({
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
+  tsIdx: index('idx_whatsapp_messages_ts').on(table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
 
@@ -1218,6 +1234,12 @@ export const slackChannels = sqliteTable('slack_channels', {
   fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
   keywords: text('keywords').notNull().default('[]'),
   lastFomoAlertAt: text('last_fomo_alert_at'),
+  /** channel | dm | group_dm — DMs come from the desktop-cache bridge (local-chat-cache-ingest) */
+  kind: text('kind').notNull().default('channel'),
+  /** JSON string[] — the other members' names, for DMs and group DMs */
+  memberNames: text('member_names'),
+  /** JSON string[] — Slack user ids of the members (DM counterpart lookup) */
+  memberIds: text('member_ids'),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   teamIdIdx: index('idx_slack_channels_team_id').on(table.teamId),
@@ -1241,6 +1263,21 @@ export const slackMessages = sqliteTable('slack_messages', {
   channelTsIdx: index('idx_slack_messages_channel_ts').on(table.channelId, table.ts),
 }))
 
+/** Slack workspace members seen by the bridge; the person link lives in person_external_ids (provider 'slack'). */
+export const slackMembers = sqliteTable('slack_members', {
+  userId: text('user_id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  realName: text('real_name'),
+  displayName: text('display_name'),
+  email: text('email'),
+  title: text('title'),
+  isSelf: integer('is_self', { mode: 'boolean' }).notNull().default(false),
+  /** Hidden from the "אנשים מסלאק" link list */
+  ignored: integer('ignored', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type SlackMember = typeof slackMembers.$inferSelect
 export type SlackConnection = typeof slackConnections.$inferSelect
 export type SlackChannel = typeof slackChannels.$inferSelect
 export type SlackMessage = typeof slackMessages.$inferSelect

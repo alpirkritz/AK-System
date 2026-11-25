@@ -20,6 +20,8 @@ import { localTodayIso, localTomorrowIso, resolveLocalDayArg } from '../lib/cale
 import { queryMatchesPersonName, queryMatchesText, titlesShareKnownPerson } from '../lib/person-name-match'
 import { titlesFuzzyMatch } from '../services/notion-graph-sync'
 import { titlesShareTopic } from '../lib/topic-match'
+import { systemMeetingSummaries } from '../services/meeting-summaries'
+import { meetingPrepBundle } from '../services/meeting-prep-context'
 import { ensureMeetingPageNote, parseNotionIdFromInput } from '../services/notion-meeting-note-body'
 import { resolveDatabases } from '../services/notion-tasks-sync'
 import { syncNotionGraph } from '../services/notion-graph-sync'
@@ -153,6 +155,50 @@ function noteMatchesPrepMeeting(
 }
 
 export const insightsRouter = router({
+  /**
+   * Meeting prep from the system itself: related open tasks, previous meetings on the same
+   * series / project / topic with their summaries, open commitments and harness insights.
+   */
+  meetingPrepBundle: protectedProcedure
+    .input(
+      z
+        .object({
+          meetingId: z.string().min(1).optional(),
+          title: z.string().min(1).optional(),
+          date: z.string().min(1).optional(),
+        })
+        .refine((v) => Boolean(v.meetingId || v.title), { message: 'Provide meetingId or title' }),
+    )
+    .query(async ({ ctx, input }) =>
+      meetingPrepBundle(ctx.db, { ...input, date: input.date ? resolveLocalDayArg(input.date) : undefined }),
+    ),
+
+  /**
+   * The system's own meeting summaries (completed analyses of recordings and transcripts).
+   * Primary source for "what happened in that meeting"; Notion notes are the fallback.
+   */
+  meetingSummaries: protectedProcedure
+    .input(
+      z.object({
+        date: z.string().min(1).optional(),
+        sinceDate: z.string().min(1).optional(),
+        untilDate: z.string().min(1).optional(),
+        meetingId: z.string().min(1).optional(),
+        query: z.string().min(1).optional(),
+        focusTitle: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(60).optional(),
+      }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const summaries = await systemMeetingSummaries(ctx.db, {
+        ...input,
+        date: input?.date ? resolveLocalDayArg(input.date) : undefined,
+        sinceDate: input?.sinceDate ? resolveLocalDayArg(input.sinceDate) : undefined,
+        untilDate: input?.untilDate ? resolveLocalDayArg(input.untilDate) : undefined,
+      })
+      return { summaries, count: summaries.length }
+    }),
+
   /**
    * Local AI meeting notes (with body text) for agents and digests.
    * Prefer this over live Notion property snippets.

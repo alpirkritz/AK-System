@@ -12,7 +12,7 @@ import {
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import pino from 'pino'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   config,
@@ -117,6 +117,8 @@ let currentQr: string | null = null
 let connected = false
 let lastError: string | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+/** Sockets we closed on purpose (pairing restart) — their close event must not trigger auto-reconnect. */
+const retiredSockets = new WeakSet<object>()
 /** Skip our own outbound replies (fromMe loop prevention). */
 const bridgeSentIds = new Set<string>()
 /** Content we recently sent — bot echoes often get new message IDs on @lid self-chat. */
@@ -512,6 +514,7 @@ export async function startWhatsAppClient(): Promise<void> {
     }
 
     if (connection === 'close') {
+      if (retiredSockets.has(socket)) return
       connected = false
       sock = null
       const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode
@@ -571,6 +574,42 @@ export function getStatus(): BridgeStatus {
 
 export function getCurrentQr(): string | null {
   return currentQr
+}
+
+/**
+ * Restart the socket so a fresh QR is produced (or the saved session reconnects).
+ * Wipes saved auth only when WhatsApp logged this device out. Resolves once a QR
+ * is available, the session is connected, or the wait times out.
+ */
+export async function startPairing(timeoutMs = 15_000): Promise<{ connected: boolean }> {
+  if (connected) return { connected: true }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (sock) {
+    const old = sock
+    retiredSockets.add(old)
+    sock = null
+    try {
+      old.end(undefined)
+    } catch {
+      /* already closed */
+    }
+  }
+  if (lastError?.startsWith('Logged out')) {
+    rmSync(config.authStatePath, { recursive: true, force: true })
+  }
+  currentQr = null
+  lastError = null
+  await startWhatsAppClient()
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && !currentQr && !connected) {
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  return { connected }
 }
 
 export async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
