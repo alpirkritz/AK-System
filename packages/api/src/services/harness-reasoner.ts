@@ -32,6 +32,7 @@ import {
 } from '@ak-system/database'
 import { attentionReasonText, isInterrupting, loadAttention } from './relationship-attention'
 import { isSelfPersonName } from '../lib/self-identity'
+import { getSelfPersonIds } from './self-person'
 import { nodeId } from './harness-context'
 import { writeHarnessStamp } from './harness-stamps'
 import { getOwnerProfile } from './owner-profile'
@@ -967,8 +968,7 @@ export async function runDetectors(db: Db, now = new Date()): Promise<HarnessIns
   }
   let selfIds = new Set<string>()
   try {
-    const rows = await db.select({ id: people.id, name: people.name }).from(people)
-    selfIds = new Set(rows.filter((r) => isSelfPersonName(r.name)).map((r) => r.id))
+    selfIds = await getSelfPersonIds(db)
   } catch (err) {
     console.warn('[harness-reasoner] owner lookup failed:', err)
   }

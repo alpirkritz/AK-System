@@ -13,14 +13,45 @@ export function getSelfPersonName(): string {
   return process.env.NOTION_USER_NAME?.trim() || 'Alpir Kritzler'
 }
 
-/** True when `name` is the owner and not some other person. Whole-string match only. */
+const FIRST_NAMES = new Set(['alpir', 'אלפיר'])
+const LAST_NAMES = new Set(['kritzler', 'kritzer', 'קריצלר', 'קריצלר'])
+
+/** Emails that always mean the owner. Extend with `OWNER_EMAILS` (comma separated). */
+const OWNER_EMAILS = ['alpirkritz@gmail.com', 'kritzler.alpir@dragontailsystems.com', 'alpir@daz.guru']
+
+export function getOwnerEmails(): Set<string> {
+  const extra = (process.env.OWNER_EMAILS ?? '').split(',')
+  return new Set([...OWNER_EMAILS, ...extra].map((e) => e.trim().toLowerCase()).filter(Boolean))
+}
+
+export function isSelfEmail(email: string | null | undefined): boolean {
+  const e = email?.trim().toLowerCase()
+  return !!e && getOwnerEmails().has(e)
+}
+
+/**
+ * True when `name` is the owner and not some other person. Accepts first name alone,
+ * first + last in either order ("Kritzler, Alpir"), "Alpir K.", and a trailing
+ * "(Dragontail)" / "[EXT]" decoration. "Rom Kritzler" and "Alpir Consulting" are not him.
+ */
 export function isSelfPersonName(name: string | null | undefined): boolean {
-  const norm = normalizeParticipantName(name ?? '')
+  const stripped = (name ?? '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+  const norm = normalizeParticipantName(stripped)
   if (!norm) return false
-  const aliases = new Set(
+  const exact = new Set(
     [getSelfPersonName(), ...OWNER_ALIASES].map((alias) => normalizeParticipantName(alias)).filter(Boolean),
   )
-  return aliases.has(norm)
+  if (exact.has(norm)) return true
+  const tokens = norm.split(' ')
+  if (tokens.length !== 2) return false
+  const [x, y] = tokens as [string, string]
+  const isLast = (t: string) => LAST_NAMES.has(t) || t === 'k'
+  return (FIRST_NAMES.has(x) && isLast(y)) || (FIRST_NAMES.has(y) && LAST_NAMES.has(x))
+}
+
+/** The owner by name or by any of his emails. */
+export function isSelfIdentity(who: { name?: string | null; email?: string | null }): boolean {
+  return isSelfEmail(who.email) || isSelfPersonName(who.name)
 }
 
 /**

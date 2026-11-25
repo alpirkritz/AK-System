@@ -25,6 +25,7 @@ import {
   listRecordingSpeakers,
   VoiceEnrollmentError,
 } from '../services/voice-diarization'
+import { getRecordingTranscript, listRecordingsForMeeting } from '../services/voice-transcript'
 import { omitSelfParticipants } from '../services/self-person'
 import { withPersonNames } from '../services/people-resolve'
 
@@ -115,6 +116,19 @@ export const voiceRouter = router({
       const after = await processVoiceRecording(ctx.db, input.recordingId)
       return { status: after.status, error: after.error }
     }),
+
+  // Full transcript for the "תמלול מלא" section (docs/specs/meeting-full-transcript-view.md).
+  transcript: protectedProcedure
+    .input(z.object({ recordingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const transcript = await getRecordingTranscript(ctx.db, input.recordingId)
+      if (!transcript) throw new TRPCError({ code: 'NOT_FOUND', message: 'Recording not found' })
+      return transcript
+    }),
+
+  recordingsForMeeting: protectedProcedure
+    .input(z.object({ meetingId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => listRecordingsForMeeting(ctx.db, input.meetingId)),
 
   getAnalysis: protectedProcedure
     .input(z.object({ recordingId: z.string().min(1) }))

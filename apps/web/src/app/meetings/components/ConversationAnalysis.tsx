@@ -13,13 +13,13 @@ import { BatchTaskModal } from '@/components/Modals/BatchTaskModal'
 import { derivePriorityFromContext } from '@ak-system/api/lib/task-priority'
 import { matchTaskAssigneeId } from '@ak-system/api/lib/self-identity'
 import { AddPersonControl } from './AddPersonControl'
+import { MeetingTranscript } from './MeetingTranscript'
 
 interface ConversationAnalysisProps {
   meetingId: string
 }
 
 export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
-  const [showTranscript, setShowTranscript] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [batchModalOpen, setBatchModalOpen] = useState(false)
   const [selectedActionIndex, setSelectedActionIndex] = useState<number | null>(null)
@@ -591,23 +591,7 @@ export function ConversationAnalysis({ meetingId }: ConversationAnalysisProps) {
           </div>
         )}
 
-        {/* Transcript Toggle */}
-        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setShowTranscript(!showTranscript)}
-            className="text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 font-medium"
-          >
-            {showTranscript ? '▼' : '▶'} תמלול מלא
-          </button>
-          {showTranscript && (
-            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 max-h-96 overflow-y-auto">
-              <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono">
-                {/* Note: Transcript would be fetched separately in production */}
-                התמלול יוצג כאן
-              </pre>
-            </div>
-          )}
-        </div>
+        <MeetingTranscript meetingId={meetingId} />
       </div>
 
       {/* Task Creation Modals */}

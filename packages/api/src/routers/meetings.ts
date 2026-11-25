@@ -42,7 +42,7 @@ import {
   seriesTitleKey,
   type CalendarParticipant,
 } from '../lib/calendar-participants'
-import { ensureSelfPerson, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
+import { ensureSelfPerson, getSelfPersonIds, getSelfPersonName, isSelfPersonName, omitSelfParticipants } from '../services/self-person'
 import { getMeetingPrep } from '../services/meeting-preps'
 import { withPersonNames } from '../services/people-resolve'
 import { mergeRecordingNotes } from '../lib/recording-notes'
@@ -181,8 +181,10 @@ export const meetingsRouter = router({
         ctx.db.select({ id: tasks.id, meetingId: tasks.meetingId }).from(tasks).where(inArray(tasks.meetingId, ids)),
       ])
 
+      const selfIds = await getSelfPersonIds(ctx.db)
       const peopleByMeeting = new Map<string, string[]>()
       for (const link of allLinks) {
+        if (selfIds.has(link.personId)) continue
         const arr = peopleByMeeting.get(link.meetingId) ?? []
         arr.push(link.personId)
         peopleByMeeting.set(link.meetingId, arr)
@@ -234,9 +236,10 @@ export const meetingsRouter = router({
         .orderBy(desc(meetingNotes.date)),
     ])
     if (!meeting) return null
+    const selfIds = await getSelfPersonIds(ctx.db)
     return {
       ...meeting,
-      peopleIds: links.map((l) => l.personId),
+      peopleIds: links.map((l) => l.personId).filter((id) => !selfIds.has(id)),
       taskIds: taskList.map((t) => t.id),
       meetingNotes: notes,
     }
@@ -280,8 +283,10 @@ export const meetingsRouter = router({
       .from(meetingPeople)
       .where(inArray(meetingPeople.meetingId, instances.map((i) => i.id).length ? instances.map((i) => i.id) : ['']))
 
+    const selfIds = await getSelfPersonIds(ctx.db)
     const peopleByMeeting = new Map<string, string[]>()
     for (const l of links) {
+      if (selfIds.has(l.personId)) continue
       const arr = peopleByMeeting.get(l.meetingId) ?? []
       arr.push(l.personId)
       peopleByMeeting.set(l.meetingId, arr)
@@ -317,7 +322,8 @@ export const meetingsRouter = router({
     const links = instanceIds.length
       ? await ctx.db.select().from(meetingPeople).where(inArray(meetingPeople.meetingId, instanceIds))
       : []
-    const peopleIds = [...new Set(links.map((l) => l.personId))]
+    const selfIds = await getSelfPersonIds(ctx.db)
+    const peopleIds = [...new Set(links.map((l) => l.personId))].filter((id) => !selfIds.has(id))
     return { ...series, instances, peopleIds }
   }),
 
