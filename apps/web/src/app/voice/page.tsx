@@ -19,6 +19,7 @@ import {
   type LocalRecording,
 } from './lib/local-recordings'
 import { uploadBlobResumable } from './lib/resumable-upload'
+import { TranscriptView } from './components/TranscriptView'
 
 const MIN_SECONDS = 10
 const NOTES_SAVE_MS = 800
@@ -367,6 +368,7 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
   const [meetingId, setMeetingId] = useState<string>('')
   const [saved, setSaved] = useState(false)
   const [showCandidates, setShowCandidates] = useState(false)
+  const [showTranscript, setShowTranscript] = useState(false)
   const invalidate = () => {
     utils.voice.invalidate()
     utils.insights.personContext.invalidate()
@@ -462,6 +464,24 @@ function RecordingResult({ recordingId }: { recordingId: string }) {
       )}
 
       {done && <SpeakerPrompt recordingId={recordingId} />}
+
+      {done && (
+        <div className="pt-3 border-t border-[#223052]" data-testid="voice-transcript-section">
+          <button
+            type="button"
+            className="text-xs font-medium text-[#97a4c2] hover:text-[#eef3fb]"
+            aria-expanded={showTranscript}
+            onClick={() => setShowTranscript((v) => !v)}
+          >
+            {showTranscript ? '▼' : '▶'} תמלול מלא
+          </button>
+          {showTranscript && (
+            <div className="mt-3">
+              <TranscriptView recordingId={recordingId} />
+            </div>
+          )}
+        </div>
+      )}
 
       {done && (
         <form

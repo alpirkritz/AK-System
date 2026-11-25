@@ -410,7 +410,7 @@ const baseToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'get_notion_meeting_notes',
     description:
-      "Read Notion AI meeting SUMMARY only (decisions, action items, perspectives) — never the raw transcript. For one named meeting pass focusTitle (the calendar title) so notes from other products are dropped even if the same people attended. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT focusTitle and WITHOUT a leftover person query. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
+      "Read meeting SUMMARIES only (decisions, action items, perspectives) — never the raw transcript. SYSTEM summaries come first: an entry with sourceKind 'system' is the app's own summary of the recording and is authoritative; the Notion AI note is returned only for meetings the system has no summary for. For one named meeting pass focusTitle (the calendar title) so notes from other products are dropped even if the same people attended. For day prep (מחר / תכין אותי / כולם) pass prepDate ('today'|'tomorrow'|YYYY-MM-DD) WITHOUT focusTitle and WITHOUT a leftover person query. For a named person pass query (any CRM name; שני↔Shani). Optional date, meetingId, notionUrl. Empty body → לא נמצא בנתונים. Never invent. Never claim no meeting if a matching note was returned.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {

@@ -8,9 +8,12 @@
  */
 
 import { getDb, people, sql } from '@ak-system/database'
-import { getSelfPersonName } from '../lib/self-identity'
+import { getSelfPersonName, isSelfIdentity } from '../lib/self-identity'
 
 export {
+  getOwnerEmails,
+  isSelfEmail,
+  isSelfIdentity,
   getSelfPersonName,
   isSelfPersonName,
   matchTaskAssigneeId,
@@ -53,4 +56,10 @@ export async function ensureSelfPerson(db: Db = getDb()): Promise<SelfPerson> {
     createdAt: new Date().toISOString(),
   })
   return row
+}
+
+/** Ids of every contact row that is the owner (any name or email variant, duplicates included). */
+export async function getSelfPersonIds(db: Db = getDb()): Promise<Set<string>> {
+  const rows = await db.select({ id: people.id, name: people.name, email: people.email }).from(people)
+  return new Set(rows.filter((r) => isSelfIdentity(r)).map((r) => r.id))
 }

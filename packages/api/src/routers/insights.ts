@@ -39,6 +39,7 @@ import {
   relationshipBoardWithAttention,
 } from '../services/relationship-attention'
 import { analysisBacklogSummary, runAnalysisBacklog } from '../services/analysis-backlog'
+import { loadSystemSummaries, mergeSystemFirst } from '../services/system-summaries'
 import {
   dismissPersonTrait,
   readPersonTraitDetail,
@@ -388,9 +389,23 @@ export const insightsRouter = router({
       notes = await load()
     }
 
+    // System summaries first, Notion only as a fallback (docs/specs/hugo-system-summaries-first.md).
+    const dayIso = prepIso ?? dateFilter
+    const stubRows =
+      filters.meetingId || dayIso
+        ? await ctx.db
+            .select({ id: meetings.id, title: meetings.title, date: meetings.date })
+            .from(meetings)
+            .where(filters.meetingId ? eq(meetings.id, filters.meetingId) : eq(meetings.date, dayIso!))
+        : []
+    const systemSummaries = await loadSystemSummaries(ctx.db, [
+      ...new Set([...notes.map((n) => n.meetingId).filter((id): id is string => Boolean(id)), ...stubRows.map((m) => m.id)]),
+    ])
+    const merged = mergeSystemFirst(notes, systemSummaries, stubRows)
+
     return {
-      notes,
-      count: notes.length,
+      notes: merged,
+      count: merged.length,
       ...(prepIso ? { prepFor: { date: prepIso, meetingTitles: prepMeetingTitles } } : {}),
     }
   }),
