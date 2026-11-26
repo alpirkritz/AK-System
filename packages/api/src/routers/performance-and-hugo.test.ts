@@ -11,6 +11,7 @@ import {
   notifications,
   people,
   slackChannels,
+  slackMembers,
   slackMessages,
   projects,
   tasks,
@@ -136,9 +137,10 @@ describe('slack.forTool', () => {
     const db = getTestDb()
     const ts = Date.now() - 3600_000
     await db.insert(slackChannels).values([
-      { id: 'c1', teamId: 'T', channelId: 'C1', name: 'algo-4', updatedAt: NOW },
-      { id: 'c2', teamId: 'T', channelId: 'D1', name: 'design', updatedAt: NOW },
+      { id: 'c1', teamId: 'T', channelId: 'C1', name: 'algo-4', kind: 'channel', updatedAt: NOW },
+      { id: 'c2', teamId: 'T', channelId: 'D1', name: 'D1', kind: 'dm', memberNames: JSON.stringify(['Dana Levi']), updatedAt: NOW },
     ])
+    await db.insert(slackMembers).values({ userId: 'UME', teamId: 'T', realName: 'Alpir Kritzler', isSelf: true, updatedAt: NOW })
     const message = (id: string, channelId: string, userId: string, userName: string, text: string, at: number) => ({
       id, teamId: 'T', channelId, slackTs: String(at / 1000), userId, userName, text, ts: at, createdAt: NOW,
     })
@@ -155,10 +157,10 @@ describe('slack.forTool', () => {
     expect(all.hasData).toBe(true)
     expect(all.messages.map((m) => m.text)).toEqual(['Can we talk about Algo core?', 'I will check with QA', 'Algo 4.0 release slipped'])
     expect(all.messages[1]).toMatchObject({ channel: '#algo-4', fromOwner: true })
-    expect(all.messages[0]).toMatchObject({ channel: '#design', fromOwner: false, from: 'Dana Levi' })
+    expect(all.messages[0]).toMatchObject({ channel: 'DM: Dana Levi', fromOwner: false, from: 'Dana Levi' })
     expect(all.channels).toEqual([
       expect.objectContaining({ channel: '#algo-4', count: 2 }),
-      expect.objectContaining({ channel: '#design', count: 1 }),
+      expect.objectContaining({ channel: 'DM: Dana Levi', count: 1 }),
     ])
 
     expect((await caller.slack.forTool({ channel: '#algo-4' })).total).toBe(2)

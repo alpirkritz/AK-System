@@ -705,8 +705,8 @@ export async function scanDmCommitments(
 }
 
 /**
- * Inserts proposed commitments. Same text is skipped for a known person. WhatsApp sources also
- * skip a source message that already has a row in any status, including a dismissed one.
+ * Inserts proposed commitments. Same text is skipped for a known person. Chat sources (WhatsApp,
+ * Slack, Teams) also skip a source message that already has a row in any status, including a dismissed one.
  * `personId` null stores an unknown group sender on the row itself.
  */
 export async function proposeCommitments(
@@ -725,7 +725,9 @@ export async function proposeCommitments(
       .where(eq(commitments.personId, personId))
     for (const row of existingRows) existingContent.add(row.content)
   }
-  const dedupeBySourceId = source === 'whatsapp_dm' || source === 'whatsapp_group'
+  // One commitment per source message for chat sources — a rescan (or two overlapping scans)
+  // can rephrase the same item, so exact-text dedupe alone isn't enough.
+  const dedupeBySourceId = source === 'whatsapp_dm' || source === 'whatsapp_group' || source === 'slack_channel' || source === 'teams_chat'
   const existingSourceIds = new Set<string>()
   if (dedupeBySourceId) {
     const ids = [...new Set(items.map((i) => i.sourceMessageId).filter((id): id is string => !!id))]

@@ -259,7 +259,7 @@ export function TaskModal({
   }
 
   const isEdit = !!editingTaskId
-  const isPending = create.isPending || update.isPending
+  const isPending = create.isPending || update.isPending || setTaskPeople.isPending
 
   if (!open) return null
   return (
@@ -494,6 +494,11 @@ export function TaskModal({
                 </div>
               </div>
             </div>
+            {(create.error || update.error || setTaskPeople.error) && (
+              <p className="text-xs text-[#e57373] mt-4" role="alert" data-testid="task-modal-error">
+                השמירה נכשלה: {(create.error ?? update.error ?? setTaskPeople.error)?.message}
+              </p>
+            )}
             <div className="flex gap-2.5 mt-6 justify-end">
               <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
               <button className="btn btn-primary" onClick={save} disabled={!form.title || isPending}>

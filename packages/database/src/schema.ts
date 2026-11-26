@@ -1317,6 +1317,12 @@ export const slackChannels = sqliteTable('slack_channels', {
   fomoWindowMinutes: integer('fomo_window_minutes').notNull().default(5),
   keywords: text('keywords').notNull().default('[]'),
   lastFomoAlertAt: text('last_fomo_alert_at'),
+  /** channel | dm | group_dm — DMs come from the desktop-cache bridge (local-chat-cache-ingest) */
+  kind: text('kind').notNull().default('channel'),
+  /** JSON string[] — the other members' names, for DMs and group DMs */
+  memberNames: text('member_names'),
+  /** JSON string[] — Slack user ids of the members (DM counterpart lookup) */
+  memberIds: text('member_ids'),
   updatedAt: text('updated_at').notNull(),
 }, (table) => ({
   teamIdIdx: index('idx_slack_channels_team_id').on(table.teamId),
@@ -1340,6 +1346,21 @@ export const slackMessages = sqliteTable('slack_messages', {
   channelTsIdx: index('idx_slack_messages_channel_ts').on(table.channelId, table.ts),
 }))
 
+/** Slack workspace members seen by the bridge; the person link lives in person_external_ids (provider 'slack'). */
+export const slackMembers = sqliteTable('slack_members', {
+  userId: text('user_id').primaryKey(),
+  teamId: text('team_id').notNull(),
+  realName: text('real_name'),
+  displayName: text('display_name'),
+  email: text('email'),
+  title: text('title'),
+  isSelf: integer('is_self', { mode: 'boolean' }).notNull().default(false),
+  /** Hidden from the "אנשים מסלאק" link list */
+  ignored: integer('ignored', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export type SlackMember = typeof slackMembers.$inferSelect
 export type SlackConnection = typeof slackConnections.$inferSelect
 export type SlackChannel = typeof slackChannels.$inferSelect
 export type SlackMessage = typeof slackMessages.$inferSelect

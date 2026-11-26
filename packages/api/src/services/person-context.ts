@@ -27,6 +27,7 @@ import { personWarmth, seriesWarmth, type WarmthResult } from './warmth'
 import { INTERRUPT_SEVERITY, attentionReasonText, isInterrupting, isOpenFlag, loadAttention, personAttention, type PersonAttention } from './relationship-attention'
 import { isSelfPersonName } from '../lib/self-identity'
 import { dmJidsForPerson } from './whatsapp-dm'
+import { slackCaptureForPerson, type SlackPersonCapture } from './slack-capture'
 import { commitmentSourceUrl, gmailThreadUrl, prepCommitmentLines } from './commitments'
 import { listVoiceRecordings, type VoiceRecordingSummary } from './voice'
 import { extractAddresses } from './email-sync'
@@ -88,6 +89,8 @@ export interface PersonContextExtras {
   /** Has a phone or a manual link, so a 1:1 chat can be recognised */
   captureReachable: boolean
   latestDmSummary: DmSummarySnippet | null
+  /** Counts only: how many Slack messages with this person were captured */
+  slack: SlackPersonCapture
   proposedCommitments: PersonCommitment[]
   emailThreads: EmailThreadSnippet[]
   /** Every address this person is matched by, like `whatsappSenders` for mail */
@@ -320,6 +323,7 @@ export async function buildPersonContext(db: Db, personId: string, today = new D
     captureWhatsapp: !!person.captureWhatsapp,
     captureReachable: (await dmJidsForPerson(db, personId, person.phone)).length > 0,
     latestDmSummary: latestSummary ?? null,
+    slack: await slackCaptureForPerson(db, personId),
     proposedCommitments: proposedCommitments.map((c) => ({ ...c, sourceUrl: commitmentSourceUrl(c) })),
     emailThreads: emailRows.map(({ gmailThreadId, accountEmail, ...t }) => ({
       ...t,

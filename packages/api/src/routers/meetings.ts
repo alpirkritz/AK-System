@@ -46,6 +46,7 @@ import { ensureSelfPerson, getSelfPersonIds, getSelfPersonName, isSelfPersonName
 import { getMeetingPrep } from '../services/meeting-preps'
 import { withPersonNames } from '../services/people-resolve'
 import { mergeRecordingNotes } from '../lib/recording-notes'
+import type { LinkedActionItem } from '../services/action-item-link'
 
 const categoryEnum = z.enum(MEETING_CATEGORIES)
 const createInput = z.object({
@@ -1019,6 +1020,12 @@ export const meetingsRouter = router({
       if (!analysis) {
         return null
       }
+      // Heals older analyses on view: pair items with their commitments and pull in state
+      // changed under התחייבויות (docs/specs/commitment-task-linking.md).
+      if (analysis.status === 'completed' && analysis.actionItemsJson) {
+        const { linkAnalysisItems } = await import('../services/action-item-link')
+        analysis.actionItemsJson = (await linkAnalysisItems(ctx.db, analysis.id)).actionItemsJson
+      }
 
       return {
         id: analysis.id,
@@ -1042,7 +1049,7 @@ export const meetingsRouter = router({
         actionItems: analysis.actionItemsJson
           ? await withPersonNames(
               ctx.db,
-              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string }[],
+              JSON.parse(analysis.actionItemsJson) as { content: string; owner?: string; taskId?: string; personId?: string; commitmentId?: string; dismissed?: boolean }[],
             )
           : [],
         status: analysis.status,
@@ -1154,12 +1161,13 @@ export const meetingsRouter = router({
         throw new Error('Analysis not found')
       }
 
-      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+      const actionItems: LinkedActionItem[] =
         analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
 
+      // "צור הכל" leaves out items dismissed under התחייבויות; an explicit index still creates.
       const itemsToCreate = input.indices
         ? input.indices.map((i) => actionItems[i]).filter(Boolean)
-        : actionItems
+        : actionItems.filter((item) => !item.dismissed)
 
       const createdTaskIds: string[] = []
       const now = new Date().toISOString()
@@ -1201,7 +1209,7 @@ export const meetingsRouter = router({
 
         item.taskId = taskId
         createdTaskIds.push(taskId)
-        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, taskId)
+        await (await import('../services/action-item-link')).acceptCommitmentForItem(ctx.db, analysis.meetingId, item, taskId)
       }
 
       // Update analysis with task IDs
@@ -1241,7 +1249,7 @@ export const meetingsRouter = router({
         throw new Error('Analysis not found')
       }
 
-      const actionItems: Array<{ content: string; owner?: string; taskId?: string }> =
+      const actionItems: LinkedActionItem[] =
         analysis.actionItemsJson ? JSON.parse(analysis.actionItemsJson) : []
 
       let linked = 0
@@ -1258,7 +1266,7 @@ export const meetingsRouter = router({
 
         item.taskId = link.taskId
         linked++
-        await (await import('../services/commitments')).acceptCommitmentsForActionItem(ctx.db, analysis.meetingId, item.content, link.taskId)
+        await (await import('../services/action-item-link')).acceptCommitmentForItem(ctx.db, analysis.meetingId, item, link.taskId)
       }
 
       // Update analysis with task IDs

@@ -17,13 +17,13 @@ import {
   personExternalIds,
   slackChannels,
   slackConnections,
+  slackMembers,
   slackMessages,
   userSettings,
   type CommitmentSource,
   type getDb,
 } from '@ak-system/database'
 import { defaultClassify, inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
-import { ensureSelfPerson } from './self-person'
 import { learnAlias, resolveOrQueue } from './person-resolution'
 
 type Db = ReturnType<typeof getDb>
@@ -400,34 +400,57 @@ export interface SlackCommitmentScanResult {
   proposed: ProposedCommitmentLabel[]
 }
 
+/** First scan only looks this far back, so a fresh cache doesn't resurface 2024 promises. */
+const FIRST_SCAN_LOOKBACK_MS = 14 * 86_400_000
+
+function parseIds(json: string | null | undefined): string[] {
+  if (!json) return []
+  try {
+    const v = JSON.parse(json) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /**
- * Scans new messages in enabled Slack channels for commitments using Gemini.
- * Mirrors scanGroupCommitments from whatsapp-dm.ts.
+ * Scans new messages in enabled Slack conversations (channels, DMs, group DMs) for commitments.
+ * Mirrors scanGroupCommitments from whatsapp-dm.ts. Works for the OAuth connection and for the
+ * desktop-cache bridge (local-chat-cache-ingest), which has no connection row.
+ *
+ * Attribution is per sender, in channels too: a commitment belongs to the person who sent the
+ * message. When Alpir himself sent it, it belongs to the person he was talking to — the DM
+ * counterpart, or the last other speaker in the thread/channel.
  */
 export async function scanSlackCommitments(
   db: Db,
-  options: { classify?: typeof defaultClassify } = {},
+  options: { classify?: typeof defaultClassify; now?: number } = {},
 ): Promise<SlackCommitmentScanResult> {
   const classify = options.classify ?? defaultClassify
   const result: SlackCommitmentScanResult = { channels: 0, commitments: 0, proposed: [] }
 
   const conn = await getActiveConnection(db)
-  if (!conn) return result
-
   const channelRows = await db
     .select()
     .from(slackChannels)
-    .where(and(eq(slackChannels.teamId, conn.teamId), sql`${slackChannels.enabled} = 1`))
+    .where(conn ? and(eq(slackChannels.teamId, conn.teamId), sql`${slackChannels.enabled} = 1`) : sql`${slackChannels.enabled} = 1`)
   if (channelRows.length === 0) return result
 
-  const cursor = await getSlackCommitmentCursor(db)
+  const storedCursor = await getSlackCommitmentCursor(db)
+  const cursor = storedCursor || (options.now ?? Date.now()) - FIRST_SCAN_LOOKBACK_MS
   const channelIds = channelRows.map((c) => c.channelId)
-  const nameByChannelId = new Map(channelRows.map((c) => [c.channelId, c.name]))
+  const channelById = new Map(channelRows.map((c) => [c.channelId, c]))
+  const selfIds = new Set(
+    (await db.select({ userId: slackMembers.userId }).from(slackMembers).where(sql`${slackMembers.isSelf} = 1`)).map((r) => r.userId),
+  )
+  if (conn?.botUserId) selfIds.add(conn.botUserId)
+  const speaker = (userId: string, userName: string) => (selfIds.has(userId) ? 'אני' : userName)
 
   const newRows = await db
     .select({
       id: slackMessages.id,
       channelId: slackMessages.channelId,
+      teamId: slackMessages.teamId,
       userId: slackMessages.userId,
       userName: slackMessages.userName,
       text: slackMessages.text,
@@ -450,56 +473,74 @@ export async function scanSlackCommitments(
 
   const maxTs = Math.max(...newRows.map((r) => r.ts))
 
-  // Group by channel
   const byChannel = new Map<string, typeof newRows>()
   for (const row of newRows) {
     if (!byChannel.has(row.channelId)) byChannel.set(row.channelId, [])
     byChannel.get(row.channelId)!.push(row)
   }
 
-  const selfPerson = await ensureSelfPerson(db)
-
   for (const [channelId, msgs] of byChannel) {
-    const channelName = nameByChannelId.get(channelId) ?? channelId
+    const channel = channelById.get(channelId)
+    const kind = channel?.kind ?? 'channel'
+    const channelName = kind === 'channel' ? `#${channel?.name ?? channelId}` : (channel?.name ?? channelId)
+    const teamId = channel?.teamId ?? msgs[0].teamId
     result.channels++
 
-    // Fetch CONTEXT_LINES older messages for context
     const priorRows = await db
-      .select({ id: slackMessages.id, userId: slackMessages.userId, userName: slackMessages.userName, text: slackMessages.text, ts: slackMessages.ts })
+      .select({ id: slackMessages.id, userId: slackMessages.userId, userName: slackMessages.userName, text: slackMessages.text, ts: slackMessages.ts, threadTs: slackMessages.threadTs, slackTs: slackMessages.slackTs })
       .from(slackMessages)
       .where(and(eq(slackMessages.channelId, channelId), sql`${slackMessages.deleted} = 0`))
       .orderBy(desc(slackMessages.ts))
       .limit(CONTEXT_LINES + msgs.length)
 
-    const priorIds = new Set(msgs.map((m) => m.id))
+    const freshIds = new Set(msgs.map((m) => m.id))
     const prior = priorRows
-      .filter((r) => !priorIds.has(r.id))
+      .filter((r) => !freshIds.has(r.id))
       .reverse()
-      .slice(0, CONTEXT_LINES)
-      .map((r) => ({ id: r.id, speaker: r.userName, text: r.text, citable: false as const }))
-
-    const fresh = msgs.map((m) => ({ id: m.id, speaker: m.userName, text: m.text, citable: true as const }))
+      .slice(-CONTEXT_LINES)
+    const timeline = [...prior, ...msgs].sort((a, b) => a.ts - b.ts)
 
     let classified: Awaited<ReturnType<typeof classify>> = []
     try {
-      classified = await classify([...prior, ...fresh])
+      classified = await classify([
+        ...prior.map((r) => ({ id: r.id, speakerLabel: speaker(r.userId, r.userName), text: r.text, ts: r.ts, citable: false })),
+        ...msgs.map((m) => ({ id: m.id, speakerLabel: speaker(m.userId, m.userName), text: m.text, ts: m.ts, citable: true })),
+      ])
     } catch {
       continue
     }
 
-    const freshIds = new Set(msgs.map((m) => m.id))
     for (const item of classified) {
+      if (!freshIds.has(item.messageId)) continue
       const sourceMsg = msgs.find((m) => m.id === item.messageId)
       if (!sourceMsg) continue
-      if (!freshIds.has(item.messageId)) continue
 
-      let personId = sourceMsg.userId === selfPerson?.id
-        ? selfPerson.id
-        : await findPersonBySlackUserId(db, conn.teamId, sourceMsg.userId)
-      if (personId && personId !== selfPerson?.id && sourceMsg.userName) {
-        await learnAlias(db, personId, sourceMsg.userName, 'slack')
-      } else if (!personId && sourceMsg.userName) {
-        personId = await resolveOrQueue(db, { name: sourceMsg.userName, source: 'slack', context: channelName ?? undefined })
+      // Who is on the other side of this commitment.
+      let otherId = sourceMsg.userId
+      let otherName = sourceMsg.userName
+      if (selfIds.has(sourceMsg.userId)) {
+        const counterpart = kind === 'dm' ? parseIds(channel?.memberIds).find((id) => !selfIds.has(id)) : undefined
+        const thread = sourceMsg.threadTs ?? sourceMsg.slackTs
+        const before = timeline.filter((r) => r.ts < sourceMsg.ts && !selfIds.has(r.userId))
+        const lastOther = counterpart
+          ? null
+          : [...before].reverse().find((r) => (r.threadTs ?? r.slackTs) === thread) ?? before[before.length - 1]
+        if (counterpart) {
+          otherId = counterpart
+          const [m] = await db.select().from(slackMembers).where(eq(slackMembers.userId, counterpart))
+          otherName = m?.realName || m?.displayName || channel?.name || counterpart
+        } else if (lastOther) {
+          otherId = lastOther.userId
+          otherName = lastOther.userName
+        } else {
+          continue // Alpir talking to nobody in particular — nothing to attach it to.
+        }
+      }
+
+      let personId = await findPersonBySlackUserId(db, teamId, otherId)
+      if (personId && otherName) await learnAlias(db, personId, otherName, 'slack')
+      if (!personId && otherName) {
+        personId = await resolveOrQueue(db, { name: otherName, source: 'slack', context: channelName })
       }
 
       const proposed = await proposeCommitments(
@@ -516,16 +557,16 @@ export async function scanSlackCommitments(
             sourceSnippet: sourceMsg.text.slice(0, 200),
             sourceTs: sourceMsg.ts,
             sourceChatJid: channelId,
-            sourceChatName: channelName,
-            senderJid: sourceMsg.userId,
-            senderName: sourceMsg.userName,
+            sourceChatName: `Slack · ${channelName}`,
+            senderJid: otherId,
+            senderName: otherName,
           },
         ],
       )
       result.commitments += proposed.length
       for (const p of proposed) {
         result.proposed.push({
-          label: sourceMsg.userName,
+          label: kind === 'channel' ? `${otherName} (${channelName})` : otherName,
           content: p.content,
           because: p.because ?? null,
           sourceTs: sourceMsg.ts,

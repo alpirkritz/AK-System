@@ -121,6 +121,11 @@ export default function CommitmentsPage() {
         </div>
       </div>
 
+      {accept.error && (
+        <p className="text-xs text-[#e57373] mb-3" role="alert" data-testid="commitment-accept-error">
+          המשימה נוצרה אבל ההתחייבות לא אושרה: {accept.error.message}
+        </p>
+      )}
       {lastAccepted && (
         <p className="text-xs text-[#2dd4bf] mb-3" role="status">
           {lastAccepted} · <Link href="/tasks" className="underline">למשימות</Link>

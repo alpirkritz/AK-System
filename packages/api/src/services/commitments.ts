@@ -16,6 +16,7 @@ import { personAliases } from '@ak-system/database'
 import { namesMatch, resolveCandidate } from './people-resolve'
 import { getSelfPersonName } from './self-person'
 import { inferDueDate, proposeCommitments, type ProposedCommitmentLabel } from './whatsapp-dm'
+import { linkAnalysisItems } from './action-item-link'
 
 type Db = ReturnType<typeof getDb>
 
@@ -131,6 +132,17 @@ export async function proposeCommitmentsFromAnalysis(
   analysisId: string,
   source: Extract<CommitmentSource, 'meeting_analysis' | 'voice'> = 'meeting_analysis',
 ): Promise<number> {
+  const added = await insertCommitmentsFromAnalysis(db, analysisId, source)
+  // Each item carries its commitment's id so both sides stay in sync (commitment-task-linking).
+  await linkAnalysisItems(db, analysisId)
+  return added
+}
+
+async function insertCommitmentsFromAnalysis(
+  db: Db,
+  analysisId: string,
+  source: Extract<CommitmentSource, 'meeting_analysis' | 'voice'>,
+): Promise<number> {
   const [analysis] = await db
     .select({ meetingId: meetingAnalyses.meetingId, actionItemsJson: meetingAnalyses.actionItemsJson, status: meetingAnalyses.status })
     .from(meetingAnalyses)
@@ -191,37 +203,6 @@ export async function proposeCommitmentsFromAnalysis(
   let added = 0
   for (const [personId, list] of byPerson) added += (await proposeCommitments(db, personId, source, list)).length
   return added
-}
-
-/**
- * A task made from a meeting's action item is that commitment's answer: close the open
- * proposal(s) the analysis raised for the same item so they stop showing under התחייבויות.
- */
-export async function acceptCommitmentsForActionItem(
-  db: Db,
-  meetingId: string,
-  itemContent: string,
-  taskId: string,
-): Promise<number> {
-  const content = itemContent.replace(/\s+/g, ' ').trim().slice(0, 140)
-  if (!content) return 0
-  const open = await db
-    .select({ id: commitments.id })
-    .from(commitments)
-    .where(
-      and(
-        eq(commitments.status, 'proposed'),
-        eq(commitments.sourceId, meetingId),
-        inArray(commitments.source, ['meeting_analysis', 'voice']),
-        eq(commitments.content, content),
-      ),
-    )
-  if (open.length === 0) return 0
-  await db
-    .update(commitments)
-    .set({ status: 'accepted', taskId, updatedAt: new Date().toISOString() })
-    .where(inArray(commitments.id, open.map((c) => c.id)))
-  return open.length
 }
 
 export interface BriefCommitment {

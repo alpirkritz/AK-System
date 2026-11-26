@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
+import { SlackPeoplePanel } from './SlackPeoplePanel'
 
 const NO_CHANNELS: never[] = []
 
-type Tab = 'connection' | 'channels'
+type Tab = 'connection' | 'channels' | 'people'
 
 function Toggle({
   checked,
@@ -46,8 +47,15 @@ interface ChannelDraft {
   fomoThreshold: number
   fomoWindowMinutes: number
   keywords: string
+  kind?: string
   expanded?: boolean
 }
+
+const KIND_SECTIONS: { kind: string; label: string }[] = [
+  { kind: 'dm', label: 'הודעות פרטיות' },
+  { kind: 'group_dm', label: 'קבוצות פרטיות' },
+  { kind: 'channel', label: 'ערוצים' },
+]
 
 export default function SlackSettingsPage() {
   const searchParams = useSearchParams()
@@ -58,8 +66,12 @@ export default function SlackSettingsPage() {
 
   const utils = trpc.useUtils()
   const { data: connection, isLoading: connLoading, refetch: refetchConn } = trpc.slack.getConnection.useQuery()
+  // The desktop-cache bridge (local-chat-cache-ingest) has no OAuth connection row.
+  const { data: cache } = trpc.slack.cacheStatus.useQuery()
+  const viaCache = !connection?.connected && !!cache?.active
+  const hasSlack = !!connection?.connected || viaCache
   const { data: channelData, isLoading: channelsLoading } = trpc.slack.listChannels.useQuery(undefined, {
-    enabled: tab === 'channels' && !!connection?.connected,
+    enabled: tab === 'channels' && hasSlack,
   })
   // Stable fallback: an inline `= []` default is a new array every render, and the
   // seeding effect below keyed on it re-ran forever ("Maximum update depth exceeded").
@@ -143,7 +155,8 @@ export default function SlackSettingsPage() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'connection', label: 'חיבור' },
-    { id: 'channels', label: 'ערוצים' },
+    { id: 'channels', label: 'שיחות' },
+    { id: 'people', label: 'אנשים מסלאק' },
   ]
 
   return (
@@ -181,6 +194,31 @@ export default function SlackSettingsPage() {
         <div className="space-y-4">
           {connLoading ? (
             <p className="text-[#888] text-sm">טוען...</p>
+          ) : viaCache ? (
+            <div className="card p-4 space-y-2" data-testid="slack-cache-status">
+              <div className="flex items-center gap-2">
+                <span className={`text-lg ${cache?.stale ? 'text-amber-400' : 'text-green-400'}`}>●</span>
+                <div>
+                  <p className="font-semibold text-[#f0ede6]">מחובר דרך אפליקציית Slack במחשב (לא דרך API)</p>
+                  <p className="text-xs text-[#888]" data-testid="slack-cache-heartbeat">
+                    {cache?.lastIngestAt
+                      ? `הגשר דיווח לאחרונה ${new Date(cache.lastIngestAt).toLocaleString('he-IL')}`
+                      : 'הגשר עוד לא דיווח'}
+                    {' · '}
+                    {cache?.messagesLast24h ?? 0} הודעות ב-24 שעות האחרונות
+                    {cache?.lastMessageTs ? ` · הודעה אחרונה ${new Date(cache.lastMessageTs).toLocaleString('he-IL')}` : ''}
+                  </p>
+                </div>
+              </div>
+              {cache?.stale && (
+                <p className="text-xs text-amber-400" data-testid="slack-cache-stale">
+                  הסנכרון לא רץ יותר משעה. בדוק שהמחשב דלוק ושה-job של הגשר (launchd) פעיל.
+                </p>
+              )}
+              <p className="text-xs text-[#555]">
+                job במק קורא את הקאש המקומי של אפליקציית סלאק כל 15 דקות ושולח הודעות חדשות לשרת. אין קריאה ל-API של סלאק. גם כשאין הודעות חדשות הוא מדווח, ולכן אפשר לדעת שהוא חי.
+              </p>
+            </div>
           ) : connection?.connected ? (
             <div className="card p-4 space-y-3">
               <div className="flex items-center gap-2">
@@ -241,21 +279,23 @@ export default function SlackSettingsPage() {
       {/* ── Channels tab ─────────────────────────────────────────────── */}
       {tab === 'channels' && (
         <div className="space-y-3">
-          {!connection?.connected ? (
+          {!hasSlack ? (
             <p className="text-[#888] text-sm">חבר את סלאק קודם (לשונית חיבור).</p>
           ) : channelsLoading ? (
             <p className="text-[#888] text-sm">טוען ערוצים...</p>
           ) : (
             <>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-[#555]">{channels.length} ערוצים</p>
-                <button
-                  className="btn btn-ghost text-xs"
-                  onClick={() => syncChannelsMut.mutate()}
-                  disabled={syncChannelsMut.isPending}
-                >
-                  רענן רשימה
-                </button>
+                <p className="text-xs text-[#555]">{channels.length} שיחות · הודעות פרטיות מופעלות כברירת מחדל, ערוצים רק אם כתבת או תייגו אותך</p>
+                {connection?.connected && (
+                  <button
+                    className="btn btn-ghost text-xs"
+                    onClick={() => syncChannelsMut.mutate()}
+                    disabled={syncChannelsMut.isPending}
+                  >
+                    רענן רשימה
+                  </button>
+                )}
               </div>
 
               {channels.length === 0 && (
@@ -264,7 +304,13 @@ export default function SlackSettingsPage() {
                 </p>
               )}
 
-              {channels.map((ch) => (
+              {KIND_SECTIONS.map((section) => {
+                const rows = channels.filter((ch) => (ch.kind ?? 'channel') === section.kind)
+                if (rows.length === 0) return null
+                return (
+                <div key={section.kind} className="space-y-2">
+                <p className="text-xs font-semibold text-[#888] pt-2">{section.label} ({rows.length})</p>
+              {rows.map((ch) => (
                 <div key={ch.channelId} className="card">
                   {/* Channel header row */}
                   <div className="flex items-center gap-3 p-3">
@@ -277,9 +323,9 @@ export default function SlackSettingsPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-[#f0ede6] truncate">
-                        {ch.isPrivate ? '🔒' : '#'} {ch.name}
+                        {ch.kind === 'dm' ? '💬' : ch.kind === 'group_dm' ? '👥' : ch.isPrivate ? '🔒' : '#'} {ch.name}
                       </p>
-                      <p className="text-xs text-[#888]">{ch.channelId}</p>
+                      {(ch.kind ?? 'channel') === 'channel' && <p className="text-xs text-[#888]">{ch.channelId}</p>}
                     </div>
                     <button
                       className="text-[#888] hover:text-[#f0ede6] text-xs px-2"
@@ -351,10 +397,16 @@ export default function SlackSettingsPage() {
                   )}
                 </div>
               ))}
+                </div>
+                )
+              })}
             </>
           )}
         </div>
       )}
+
+      {/* ── People tab ───────────────────────────────────────────────── */}
+      {tab === 'people' && <SlackPeoplePanel />}
     </div>
   )
 }

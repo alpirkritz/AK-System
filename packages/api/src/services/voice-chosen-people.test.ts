@@ -33,6 +33,11 @@ import { ensureSelfPerson } from './self-person'
 import { proposeCommitmentsFromAnalysis } from './commitments'
 import { resolveCandidate } from './people-resolve'
 
+/** Action items now carry their commitment's id (commitment-task-linking); compare the rest. */
+function withoutLinks(json: string): unknown[] {
+  return (JSON.parse(json) as Record<string, unknown>[]).map(({ commitmentId: _c, ...rest }) => rest)
+}
+
 let voiceDir = ''
 
 beforeAll(() => {
@@ -270,7 +275,7 @@ describe('names in the analysis', () => {
       { name: 'דנה לוי', confirmed: true, personId: 'p_dana' },
       { name: 'אורח', confirmed: false },
     ])
-    expect(JSON.parse(stored.actionItemsJson!)).toEqual([
+    expect(withoutLinks(stored.actionItemsJson!)).toEqual([
       { content: 'לשלוח את התוכנית', owner: 'Omri Ben Simon', personId: 'p_omri' },
       { content: 'לבדוק תקציב', owner: 'דנה לוי', personId: 'p_dana' },
       { content: 'לתאם פגישה', owner: 'אורח' },
@@ -319,7 +324,7 @@ describe('names in the analysis', () => {
     expect(seen!.candidates).toBeUndefined()
     const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
     const [stored] = await db.select().from(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId!))
-    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח', owner: 'Omri Ben Simon' }])
+    expect(withoutLinks(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח', owner: 'Omri Ben Simon' }])
   })
 
   it('the refresh after naming speakers goes through the same linking', async () => {
@@ -336,7 +341,7 @@ describe('names in the analysis', () => {
     expect(refreshed).toBe(true)
     const [rec] = await db.select().from(voiceRecordings).where(eq(voiceRecordings.id, recordingId))
     const [stored] = await db.select().from(meetingAnalyses).where(eq(meetingAnalyses.id, rec.analysisId!))
-    expect(JSON.parse(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח', owner: 'Omri Ben Simon', personId: 'p_omri' }])
+    expect(withoutLinks(stored.actionItemsJson!)).toEqual([{ content: 'לשלוח', owner: 'Omri Ben Simon', personId: 'p_omri' }])
   })
 })
 

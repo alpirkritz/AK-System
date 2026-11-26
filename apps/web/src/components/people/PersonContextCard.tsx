@@ -368,6 +368,24 @@ export function PersonContextCard({ personId }: { personId: string }) {
             </span>
             {capture.error && <span className="text-red-400">{capture.error.message}</span>}
           </div>
+          {ctx.slack?.active && (
+            <div className="flex flex-wrap items-center gap-2 text-[#5a688c]" data-testid="slack-capture-line">
+              <MessageCircle className="w-3 h-3" aria-hidden />
+              {!ctx.slack.linked ? (
+                <>
+                  סלאק · לא מקושר ·{' '}
+                  <a href="/settings/slack" className="underline text-[#b8c4dc]">קשר ב״אנשים מסלאק״</a>
+                </>
+              ) : ctx.slack.count === 0 ? (
+                <>סלאק · מקושר · לא נקלטו הודעות ב־{ctx.slack.windowDays} הימים האחרונים</>
+              ) : (
+                <span title={`${ctx.slack.windowDays} ימים אחרונים · ${ctx.slack.dmCount} בצ׳אט פרטי · ${ctx.slack.otherCount} בקבוצות וערוצים`}>
+                  סלאק · {ctx.slack.count} הודעות נקלטו
+                  {ctx.slack.lastMessageAt ? ` · אחרונה ${dateLabel(new Date(ctx.slack.lastMessageAt).toISOString())}` : ''}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             {ctx.whatsappSenders.map((s) => (
               <span key={s.jid} className="pill text-[10px] inline-flex items-center gap-1" title={s.jid}>

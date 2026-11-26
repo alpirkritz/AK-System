@@ -10,7 +10,10 @@
  * Each source is independent: a failure (expired session, network) is logged and never
  * aborts the others. Session expiry fails with the re-auth command.
  *
- *   WORK_BRIDGE_SOURCES=outlook-mail,teams   (default; slack is Enterprise-Grid-blocked, see below)
+ *   WORK_BRIDGE_SOURCES=outlook-mail,slack-cache   (default)
+ *     slack-cache — reads the Slack desktop app's local cache (no Slack API call; the API is
+ *                   Enterprise-Grid-restricted). docs/specs/local-chat-cache-ingest.md
+ *     slack / teams — the old token-based pulls, blocked by IT; opt-in only
  *   WORK_COMMS_TARGET_URL=https://<app>      (prod ingest base; omit for local)
  *   WORK_COMMS_BRIDGE_SECRET=<shared secret> (required when WORK_COMMS_TARGET_URL is set)
  *
@@ -20,14 +23,14 @@ import { getDb } from '@ak-system/database'
 import { ingestWorkMail, ingestWorkTeams, type WorkTeamsIngestPayload } from '../packages/api/src/services/work-comms-ingest'
 import { fetchOwaMailHeaders } from './owa-mail-source'
 import { fetchChatMessages, fetchTeamsChats, graphChatToInfo, graphMessageToRow, withTeamsGraph } from './teams-chat-source'
+import { ingestSlackCache } from '../packages/api/src/services/slack-cache-ingest'
+import { loadSentState, onlyNewMessages, readSlackCache, saveSentState } from './slack-cache-source'
 
 type Db = ReturnType<typeof getDb>
 
-// Default to Outlook mail only. Slack and Teams chat reads are blocked at the Yum/Pizza Hut
-// org level (Slack: enterprise_is_restricted; Teams: Graph /me/chats → 403, the web token has
-// no Chat.Read scope). Their code is kept but off by default; opt in via WORK_BRIDGE_SOURCES
-// only if an admin grants the needed access.
-const SOURCES = (process.env.WORK_BRIDGE_SOURCES || 'outlook-mail')
+// Slack comes from the desktop app's local cache. The API-based Slack and Teams pulls are
+// blocked at the Yum/Pizza Hut org level and stay opt-in only.
+const SOURCES = (process.env.WORK_BRIDGE_SOURCES || 'outlook-mail,slack-cache')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean)
@@ -91,6 +94,22 @@ async function runTeams(db: Db): Promise<void> {
   }
 }
 
+async function runSlackCache(db: Db): Promise<void> {
+  const full = readSlackCache()
+  const sent = loadSentState()
+  const payload = onlyNewMessages(full, sent)
+  const summary = `${full.conversations.length} conversations, ${full.members.length} members, ${payload.messages.length}/${full.messages.length} new messages`
+  if (REMOTE) {
+    const r = await postJson('/api/work-comms/slack/ingest', payload)
+    console.log(`[work-comms] slack-cache → EC2 — ${summary}; stored ${r.stored}, linked ${r.linked}, commitment scan running on the server`)
+  } else {
+    const r = await ingestSlackCache(db, payload)
+    console.log(`[work-comms] slack-cache (local) — ${summary}; stored ${r.stored}, linked ${r.linked}, commitments ${r.scan.commitments}`)
+  }
+  // Only after the server accepted them, so a failed post is retried next run.
+  saveSentState(payload, sent)
+}
+
 async function main(): Promise<void> {
   // In remote mode the server owns the DB; don't touch the local SQLite at all.
   const db = REMOTE ? (null as unknown as Db) : getDb()
@@ -100,6 +119,7 @@ async function main(): Promise<void> {
     try {
       if (source === 'outlook-mail') await runOutlookMail(db)
       else if (source === 'teams') await runTeams(db)
+      else if (source === 'slack-cache') await runSlackCache(db)
       else if (source === 'slack') {
         // Slack on the Yum Enterprise Grid returns enterprise_is_restricted for the client
         // conversation APIs even with a valid web token — blocked at the org admin level.
