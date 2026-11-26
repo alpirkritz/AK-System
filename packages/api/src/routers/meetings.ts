@@ -865,6 +865,21 @@ export const meetingsRouter = router({
         return { analysisId: existing[0].id }
       }
 
+      // A recorded meeting is re-analysed from the transcript already stored for the recording,
+      // with the people now on the meeting — never from the Notion summary.
+      const { voiceRecordings } = await import('@ak-system/database')
+      const [voiceRec] = await ctx.db
+        .select({ id: voiceRecordings.id, analysisId: voiceRecordings.analysisId, transcriptText: voiceRecordings.transcriptText })
+        .from(voiceRecordings)
+        .where(eq(voiceRecordings.meetingId, input.meetingId))
+        .orderBy(desc(voiceRecordings.createdAt))
+        .limit(1)
+      if (voiceRec?.analysisId && voiceRec.transcriptText?.trim()) {
+        const { refreshVoiceAnalysisAfterSpeakerResolution } = await import('../services/voice')
+        const refreshed = await refreshVoiceAnalysisAfterSpeakerResolution(ctx.db, voiceRec.id, { force: true })
+        if (refreshed) return { analysisId: voiceRec.analysisId }
+      }
+
       // Fetch meeting and transcript
       const [meeting] = await ctx.db
         .select()

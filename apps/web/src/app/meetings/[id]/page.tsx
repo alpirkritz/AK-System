@@ -32,6 +32,9 @@ export default function MeetingDetailPage() {
   const { data: workspaces = [] } = trpc.workspaces.list.useQuery()
   const { data: meetingTypes = [] } = trpc.meetingTypes.list.useQuery()
   const { data: prep } = trpc.meetings.getPrep.useQuery({ meetingId: id }, { enabled: !!id })
+  const { data: analysisForOrder } = trpc.meetings.getAnalysis.useQuery({ meetingId: id }, { enabled: !!id })
+  // Once the conversation has been analysed, it leads the page and the prep reads as background.
+  const hasAnalysis = analysisForOrder?.status === 'completed'
 
   type MeetingExtended = typeof meeting & {
     projectId?: string | null
@@ -441,10 +444,10 @@ export default function MeetingDetailPage() {
       {/* ── Two-column body ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-        {/* Left: Prep + Attendees + Notes */}
-        <div>
+        {/* Left: Analysis (when there is one) + Prep + Attendees + Notes */}
+        <div className="flex flex-col">
           {prep && (
-            <div className="card mb-4" data-testid="meeting-prep">
+            <div className={`card mb-4 ${hasAnalysis ? 'p-6' : ''}`} data-testid="meeting-prep">
               <div className="flex justify-between items-center gap-2 mb-2.5 flex-wrap">
                 <div className="text-xs font-semibold text-[#5a688c] uppercase tracking-wider">הכנה לפגישה</div>
                 <div className="flex items-center gap-2">
@@ -454,14 +457,14 @@ export default function MeetingDetailPage() {
                   </span>
                 </div>
               </div>
-              <div className="text-sm text-[#97a4c2] leading-relaxed whitespace-pre-wrap">{prep.bodyText}</div>
+              <div className={`${hasAnalysis ? 'text-base' : 'text-sm'} text-[#97a4c2] leading-relaxed whitespace-pre-wrap`}>{prep.bodyText}</div>
             </div>
           )}
 
           <MeetingAttendees meetingId={id} people={people} peopleIds={peopleIds} />
 
           {/* Conversation Analysis */}
-          <div className="mt-4">
+          <div className={hasAnalysis ? 'order-first mb-4' : 'mt-4'}>
             <MeetingInsight meetingId={id} />
             <ConversationAnalysis meetingId={id} />
           </div>

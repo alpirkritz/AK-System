@@ -1233,7 +1233,7 @@ function VoicePageInner() {
               </span>
               <span className="text-xs text-[#5a688c]">{recorder.state === 'paused' ? 'מושהה' : 'מקליט'}</span>
             </div>
-            <div className="flex items-end gap-0.5 h-10" aria-hidden>
+            <div className="flex items-end gap-px h-4 w-28 opacity-80" aria-hidden>
               {recorder.levels.map((l, i) => (
                 <span key={i} className="flex-1 rounded-sm bg-[#e8c547]" style={{ height: `${Math.max(6, l * 100)}%`, opacity: 0.35 + l * 0.65 }} />
               ))}
