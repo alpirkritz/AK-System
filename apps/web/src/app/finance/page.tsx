@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc'
 import { CategorySelect } from './components/CategorySelect'
@@ -88,10 +88,16 @@ function FinancePageContent() {
     { enabled: runDebug }
   )
   const { data: summary, isLoading: summaryLoading } = trpc.finance.getSummary.useQuery()
-  const { data: trades = [], isLoading: tradesLoading } = trpc.finance.listTrades.useQuery({
-    symbol: symbolFilter || undefined,
-    limit: 300,
-  })
+  // Query once the typing pauses, and keep the previous rows on screen meanwhile.
+  const [debouncedSymbol, setDebouncedSymbol] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSymbol(symbolFilter), 250)
+    return () => clearTimeout(timer)
+  }, [symbolFilter])
+  const { data: trades = [], isLoading: tradesLoading } = trpc.finance.listTrades.useQuery(
+    { symbol: debouncedSymbol || undefined, limit: 300 },
+    { keepPreviousData: true },
+  )
   const {
     data: transactions = [],
     isLoading: txnLoading,

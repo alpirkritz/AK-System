@@ -170,6 +170,10 @@ function MeetingRow({
       {showDate && (
         <span className="text-xs text-[#5a688c]">{new Date(meeting.date + 'T00:00:00').toLocaleDateString('he-IL')}</span>
       )}
+      <span className="ms-auto inline-flex items-center gap-1 rounded-full border border-[#2dd4bf55] px-2 py-0.5 text-[11px] font-medium text-[#2dd4bf]">
+        <Mic className="w-3.5 h-3.5" aria-hidden />
+        הקלט
+      </span>
       <span className="basis-full text-xs text-[#97a4c2]">
         {[names, meeting.location, meeting.projectName].filter(Boolean).join(' · ') || 'הקש להתחלת הקלטה'}
       </span>

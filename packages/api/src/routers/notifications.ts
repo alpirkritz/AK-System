@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { notifications, eq, desc, isNull, and, runMutation } from '@ak-system/database'
+import { notifications, eq, desc, isNull, and, sql, runMutation } from '@ak-system/database'
 
 export const notificationsRouter = router({
   list: protectedProcedure
@@ -27,11 +27,12 @@ export const notificationsRouter = router({
     }),
 
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
-      .select({ id: notifications.id })
+    // Polled by the bell every 30 s: count in SQL. Postgres returns count(*) as a string.
+    const [row] = await ctx.db
+      .select({ count: sql<number>`count(*)` })
       .from(notifications)
       .where(and(isNull(notifications.readAt), isNull(notifications.archivedAt)))
-    return { count: rows.length }
+    return { count: Number(row?.count ?? 0) }
   }),
 
   getById: protectedProcedure
@@ -59,12 +60,12 @@ export const notificationsRouter = router({
           .select({ id: notifications.id })
           .from(notifications)
           .where(and(isNull(notifications.readAt), isNull(notifications.archivedAt)))
-        for (const row of unread) {
+        if (unread.length > 0) {
           await runMutation(
             ctx.db
               .update(notifications)
               .set({ readAt: now })
-              .where(eq(notifications.id, row.id)),
+              .where(and(isNull(notifications.readAt), isNull(notifications.archivedAt))),
           )
         }
         return { updated: unread.length }
@@ -124,12 +125,12 @@ export const notificationsRouter = router({
           .select({ id: notifications.id })
           .from(notifications)
           .where(eq(notifications.archivedAt, input.batchAt))
-        for (const row of rows) {
+        if (rows.length > 0) {
           await runMutation(
             ctx.db
               .update(notifications)
               .set({ archivedAt: null })
-              .where(eq(notifications.id, row.id)),
+              .where(eq(notifications.archivedAt, input.batchAt)),
           )
         }
         return { archived: false, updated: rows.length }
@@ -140,12 +141,12 @@ export const notificationsRouter = router({
         .select({ id: notifications.id })
         .from(notifications)
         .where(isNull(notifications.archivedAt))
-      for (const row of rows) {
+      if (rows.length > 0) {
         await runMutation(
           ctx.db
             .update(notifications)
             .set({ archivedAt: now })
-            .where(eq(notifications.id, row.id)),
+            .where(isNull(notifications.archivedAt)),
         )
       }
       return { archived: true, updated: rows.length, batchAt: now }

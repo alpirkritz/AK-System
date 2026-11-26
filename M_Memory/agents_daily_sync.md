@@ -2452,3 +2452,24 @@ guardrails not applicable. No PII written to any artifact.
 
 ### Performance Notes
 - Not yet run from the app. The server cannot write to `O_Output/`, so the draft is delivered as the chat reply.
+
+---
+
+## 2026-11-26 — Dev Agent — Performance pass and Hugo hardening, on top of release-12
+
+### Stand-up
+- **Goal:** Bring the 2026-11-25 work (performance, Hugo defects, exact project names, meeting prep from the system) onto the code that runs in production (release-12).
+- **Workflow:** `docs/specs/performance-and-hugo-hardening.md`.
+
+### Actions Taken
+1. Added Hugo tools `get_meeting_summaries`, `get_meeting_prep_context` and `get_slack_activity`; the meeting-prep card and workflow name `get_meeting_prep_context` as the mandatory first tool, Notion tools as fallback.
+2. The daily-meeting-summary cron was left as release-12 has it (system summary first through `insights.meetingNotes`, spec `hugo-system-summaries-first`).
+3. The pre-meeting-briefing cron passes the system prep bundle into the brief.
+4. Topic matching treats a version as part of a name (`Algo` is not `Algo 4.0`); the owner is left out of people insights.
+
+### Output Paths
+- `packages/api/src/services/meeting-summaries.ts`, `packages/api/src/services/meeting-prep-context.ts`, `packages/api/src/routers/slack.ts`
+- `apps/web/src/lib/conversation-engine.ts`, `apps/web/src/lib/gemini-agent-engine.ts`
+
+### Compliance
+- [x] Read paths only; no Notion data or agent run history deleted.

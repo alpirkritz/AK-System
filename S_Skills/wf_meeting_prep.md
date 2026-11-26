@@ -63,8 +63,10 @@ Step-by-step execution map for meeting preparation — daily briefing for today'
 
 **Agent:** `04_meeting_prep_herald`
 
-> Grounding: state facts only from tool results / injected context. `get_notion_tasks` and
-> `get_notion_meeting_notes` are **mandatory every run**. Missing data → write
+> Grounding: state facts only from tool results / injected context. `get_meeting_prep_context`
+> (the system's own tasks, previous-meeting summaries, commitments and harness insights) is
+> **mandatory every run** and is the source for steps 2.1 and 2.2. The Notion tools named
+> below are a fallback only when the system returned nothing. Missing data → write
 > `לא נמצא בנתונים`, never a plausible guess.
 
 ### Step 2.1 — Pull Open Action Items

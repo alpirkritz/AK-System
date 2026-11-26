@@ -767,7 +767,9 @@ export const chatMessages = pgTable('chat_messages', {
   content: text('content').notNull(),
   source: text('source').notNull().default('web'),
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  createdAtIdx: index('idx_chat_messages_created_at').on(table.createdAt),
+}))
 
 export const agentThreads = pgTable('agent_threads', {
   agentId: text('agent_id').primaryKey(),
@@ -783,6 +785,7 @@ export const agentMessages = pgTable('agent_messages', {
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
+  agentCreatedIdx: index('idx_agent_messages_agent_created').on(table.agentId, table.createdAt),
 }))
 
 /**
@@ -977,6 +980,7 @@ export const whatsappMessages = pgTable('whatsapp_messages', {
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
+  tsIdx: index('idx_whatsapp_messages_ts').on(table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
 

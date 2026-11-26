@@ -347,11 +347,14 @@ async function peopleInProject(
       .innerJoin(people, eq(people.id, meetingPeople.personId))
       .where(inArray(meetingPeople.meetingId, meetingIds))
 
+  // The owner is in every meeting; he is never one of "the people" a meeting or project reports on.
   const byId = new Map<string, { name: string; color: string | null; onProject: boolean; meetingIds: Set<string> }>()
   for (const person of roster) {
+    if (isSelfPersonName(person.name)) continue
     byId.set(person.id, { name: person.name, color: person.color, onProject: true, meetingIds: new Set() })
   }
   for (const row of attended) {
+    if (isSelfPersonName(row.name)) continue
     const current = byId.get(row.id) ?? { name: row.name, color: row.color, onProject: false, meetingIds: new Set<string>() }
     current.meetingIds.add(row.meetingId)
     byId.set(row.id, current)
@@ -458,11 +461,12 @@ export async function meetingInsight(db: Db, meetingId: string) {
     .limit(1)
   if (!analysis || analysis.status !== 'completed') return null
 
-  const attendees = await db
+  const attendees = (await db
     .select({ id: people.id, name: people.name, color: people.color })
     .from(meetingPeople)
     .innerJoin(people, eq(people.id, meetingPeople.personId))
     .where(eq(meetingPeople.meetingId, meetingId))
+  ).filter((p) => !isSelfPersonName(p.name))
   const attendeeIds = new Set(attendees.map((p) => p.id))
   const fromProject = meeting.projectId
     ? (await projectWarmth(db, meeting.projectId)).people.filter((p) => attendeeIds.has(p.personId))

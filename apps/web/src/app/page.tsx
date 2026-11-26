@@ -69,6 +69,8 @@ const SVG_ARROW_LEFT = (
 
 /** Dashboard shows a short preview; full list lives on /tasks (progressive disclosure). */
 const DASHBOARD_TASK_PREVIEW = 8
+/** One stable object, so the sort memo does not rerun on every render. */
+const FALLBACK_TASK_SORT: SortPref<TaskSortKey> = { primary: 'due_asc', thenBy: 'priority_high' }
 
 function QuickActionsBar() {
   const digestMutation = trpc.whatsapp.digest.run.useMutation()
@@ -201,12 +203,13 @@ export default function DashboardPage() {
 
   const { workspaceId: worldFilter, ready: worldReady } = useWorldFilter()
   const { data: people = [] } = trpc.people.list.useQuery()
+  // Same input shape as the tasks and meetings pages, so all three share one cache entry.
   const { data: meetings = [] } = trpc.meetings.list.useQuery(
-    { workspaceId: worldFilter ?? undefined },
+    worldFilter ? { workspaceId: worldFilter } : undefined,
     { enabled: worldReady },
   )
   const { data: tasksList = [] } = trpc.tasks.list.useQuery(
-    { workspaceId: worldFilter ?? undefined },
+    worldFilter ? { workspaceId: worldFilter } : undefined,
     { enabled: worldReady },
   )
   const { data: selfPerson } = trpc.people.me.useQuery()
@@ -224,7 +227,7 @@ export default function DashboardPage() {
   })
 
   // Use server default if no local override
-  const effectiveSort = taskSort ?? serverDefault ?? { primary: 'due_asc' as TaskSortKey, thenBy: 'priority_high' as TaskSortKey }
+  const effectiveSort = taskSort ?? serverDefault ?? FALLBACK_TASK_SORT
   const hasOverride = taskSort !== null
 
   const { matched: matchedTasks } = splitByWorld(tasksList, !!worldFilter, (t) => t.workspaceId)

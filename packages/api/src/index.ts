@@ -382,3 +382,5 @@ export {
   BACKUP_KINDS,
   type BackupReport,
 } from './services/backup-runs'
+export { meetingPrepBundle, formatMeetingPrepBundle, type MeetingPrepBundle } from './services/meeting-prep-context'
+export { systemMeetingSummaries, formatSystemMeetingSummary, type SystemMeetingSummary } from './services/meeting-summaries'

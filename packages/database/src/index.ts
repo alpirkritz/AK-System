@@ -908,6 +908,8 @@ const AGENT_TABLES = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_id ON agent_messages(agent_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_created ON agent_messages(agent_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)`,
 ]
 const HEALTH_TABLE = [
   `CREATE TABLE IF NOT EXISTS health_metrics (
@@ -1210,6 +1212,7 @@ const WHATSAPP_TABLES = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_group_ts ON whatsapp_messages(group_jid, ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_ts ON whatsapp_messages(ts)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_messages_group_msg ON whatsapp_messages(group_jid, wa_message_id)`,
 ]
 

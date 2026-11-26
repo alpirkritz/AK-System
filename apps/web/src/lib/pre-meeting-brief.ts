@@ -44,6 +44,10 @@ export interface FormatPreMeetingBriefInput {
   relatedTasks?: PreMeetingTask[]
   priorNotes?: string | null
   relationship?: PreMeetingRelationship | null
+  /** The system's own prep data for this meeting, already formatted (`formatMeetingPrepBundle`). */
+  systemContext?: string | null
+  /** One line from the system summary of the previous meeting, for the template brief. */
+  previousSummary?: string | null
 }
 
 /** From `insights.meetingPrepContext` — structured lines only, never raw chat. */
@@ -226,7 +230,7 @@ export function shouldRunPreMeetingAgent(event: {
 
 /** Fact block for the agent — never include invite fluff as "agenda". */
 export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): string {
-  const { event, linkedMeeting, crmPeople = [], relatedTasks = [], priorNotes, relationship } = input
+  const { event, linkedMeeting, crmPeople = [], relatedTasks = [], priorNotes, relationship, systemContext } = input
   const time = formatLocalClock(event.start)
   const participants =
     circleParticipantsLine(relationship) ??
@@ -242,13 +246,15 @@ export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): 
   if (participants) lines.push(`Participants: ${participants}`)
   const agenda = resolveAgenda(input)
   if (agenda) {
-    lines.push('', 'Useful note/agenda (may be incomplete — verify with Notion tools):', agenda)
+    lines.push('', 'Useful note/agenda (may be incomplete):', agenda)
   }
   if (priorNotes && isUsefulAgenda(priorNotes)) {
     lines.push('', 'Prior meeting notes hint:', priorNotes.slice(0, 400))
   }
-  if (relatedTasks.length > 0) {
-    lines.push('', 'Possibly related open tasks (verify/filter with get_notion_tasks):')
+  if (systemContext?.trim()) {
+    lines.push('', '## From the system (primary source for this prep — do not re-fetch it from Notion)', systemContext.trim())
+  } else if (relatedTasks.length > 0) {
+    lines.push('', 'Possibly related open tasks (from the system):')
     for (const t of relatedTasks) lines.push(`- [${t.priority}] ${t.title}`)
   }
   if (relationship && relationship.lines.length > 0) {
@@ -256,7 +262,7 @@ export function buildPreMeetingAgentContext(input: FormatPreMeetingBriefInput): 
       '',
       relationship.kind === 'circle'
         ? 'Circle context (recurring meeting — do not profile each participant):'
-        : 'Relationship context (from Notion meetings + WhatsApp, already reconciled):',
+        : 'Relationship context (from the system: meetings, commitments and chats, already reconciled):',
     )
     for (const l of relationship.lines) lines.push(`- ${l}`)
   }
@@ -450,6 +456,12 @@ export function formatPreMeetingBrief(input: FormatPreMeetingBriefInput): string
     for (const t of relatedTasks) {
       lines.push(`• [${t.priority}] ${t.title}`)
     }
+  }
+
+  if (input.previousSummary?.trim()) {
+    lines.push('')
+    lines.push('מהפגישה הקודמת:')
+    lines.push(input.previousSummary.trim())
   }
 
   if (relationship && relationship.lines.length > 0) {

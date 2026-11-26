@@ -949,7 +949,9 @@ export const chatMessages = sqliteTable('chat_messages', {
   content: text('content').notNull(),
   source: text('source').notNull().default('web'), // 'web' | 'telegram' | 'whatsapp' | 'cron'
   createdAt: text('created_at').notNull(),
-})
+}, (table) => ({
+  createdAtIdx: index('idx_chat_messages_created_at').on(table.createdAt),
+}))
 
 export type ChatMessage = typeof chatMessages.$inferSelect
 export type NewChatMessage = typeof chatMessages.$inferInsert
@@ -970,6 +972,7 @@ export const agentMessages = sqliteTable('agent_messages', {
   createdAt: text('created_at').notNull(),
 }, (table) => ({
   agentIdIdx: index('idx_agent_messages_agent_id').on(table.agentId),
+  agentCreatedIdx: index('idx_agent_messages_agent_created').on(table.agentId, table.createdAt),
 }))
 
 export type AgentThread = typeof agentThreads.$inferSelect
@@ -1209,6 +1212,7 @@ export const whatsappMessages = sqliteTable('whatsapp_messages', {
   pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 }, (table) => ({
   groupTsIdx: index('idx_whatsapp_messages_group_ts').on(table.groupJid, table.ts),
+  tsIdx: index('idx_whatsapp_messages_ts').on(table.ts),
   groupMsgUq: uniqueIndex('uq_whatsapp_messages_group_msg').on(table.groupJid, table.waMessageId),
 }))
 

@@ -168,6 +168,8 @@ export async function handleWhatsAppInbound(payload: WhatsAppInboundPayload): Pr
       message: userText,
       history,
       channel: 'whatsapp',
+      // The push below carries the deep link to this reply; a second one from the runner would duplicate it.
+      notifyOnComplete: false,
     })
     await saveAgentMessage(HUGO_AGENT_ID, 'assistant', result.text)
     const messageId = await saveChatMessage('assistant', result.text, 'whatsapp')
